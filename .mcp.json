@@ -3,9 +3,11 @@
     "playwright": {
       "type": "local",
       "command": "npx",
+      "tools": [
+        "*"
+      ],
       "args": [
-        "-y",
-        "@modelcontextprotocol/server-playwright"
+        "@playwright/mcp@latest"
       ]
     }
   }

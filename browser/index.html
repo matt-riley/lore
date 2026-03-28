@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Coherence Browser</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Coherence Browser</h1>
+        <p class="subtitle">Localhost-only, read-only visibility over Coherence memory/state across repositories.</p>
+      </div>
+      <div class="header-pills">
+        <div id="scope-pill" class="pill">scope: loading…</div>
+        <div id="status-pill" class="pill">loading…</div>
+      </div>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button data-tab="overview" class="tab active">Overview</button>
+      <button data-tab="memories" class="tab">Memories</button>
+      <button data-tab="maintenance" class="tab">Maintenance</button>
+      <button data-tab="episodes" class="tab">Episodes</button>
+      <button data-tab="drilldown" class="tab">Drill-down</button>
+    </nav>
+
+    <main>
+      <section id="view-overview" class="view active"></section>
+      <section id="view-memories" class="view"></section>
+      <section id="view-maintenance" class="view"></section>
+      <section id="view-episodes" class="view"></section>
+      <section id="view-drilldown" class="view"></section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

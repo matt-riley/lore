@@ -1,0 +1,381 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Coherence configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "copilotHome": {
+          "type": "string",
+          "default": "/Users/mattriley/.copilot"
+        },
+        "rawStorePath": {
+          "type": "string",
+          "default": "/Users/mattriley/.copilot/session-store.db"
+        },
+        "derivedStorePath": {
+          "type": "string",
+          "default": "/Users/mattriley/.copilot/coherence.db"
+        },
+        "backupDir": {
+          "type": "string",
+          "default": "/Users/mattriley/.copilot/backups/coherence"
+        },
+        "instructionsPath": {
+          "type": "string",
+          "default": "/Users/mattriley/.copilot/copilot-instructions.md"
+        },
+        "scopedInstructionsDir": {
+          "type": "string",
+          "default": "/Users/mattriley/.copilot/instructions"
+        }
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "procedural": {
+          "type": "integer",
+          "default": 220
+        },
+        "semantic": {
+          "type": "integer",
+          "default": 420
+        },
+        "episodes": {
+          "type": "integer",
+          "default": 320
+        },
+        "commitments": {
+          "type": "integer",
+          "default": 180
+        },
+        "total": {
+          "type": "integer",
+          "default": 1200
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "semanticSearchLimit": {
+          "type": "integer",
+          "default": 8
+        },
+        "episodeSearchLimit": {
+          "type": "integer",
+          "default": 5
+        },
+        "promptContextLimit": {
+          "type": "integer",
+          "default": 6
+        },
+        "crossRepoPreferenceLimit": {
+          "type": "integer",
+          "default": 2
+        },
+        "crossRepoEpisodeLimit": {
+          "type": "integer",
+          "default": 2
+        },
+        "metricWindowSize": {
+          "type": "integer",
+          "default": 200
+        },
+        "recentSessionsFallbackLimit": {
+          "type": "integer",
+          "default": 3
+        }
+      }
+    },
+    "latencyTargetsMs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionStartP95": {
+          "type": "integer",
+          "default": 100
+        },
+        "userPromptSubmittedP95": {
+          "type": "integer",
+          "default": 150
+        }
+      }
+    },
+    "latencyReadinessMinSamples": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionStart": {
+          "type": "integer",
+          "default": 20
+        },
+        "userPromptSubmitted": {
+          "type": "integer",
+          "default": 50
+        }
+      }
+    },
+    "deferredExtraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "autoEnqueueOnSessionEnd": {
+          "type": "boolean",
+          "default": true
+        },
+        "autoProcessOnSessionStart": {
+          "type": "boolean",
+          "default": true
+        },
+        "processCurrentRepositoryOnly": {
+          "type": "boolean",
+          "default": true
+        },
+        "maxJobsPerRun": {
+          "type": "integer",
+          "default": 2
+        },
+        "retryDelayMinutes": {
+          "type": "integer",
+          "default": 15
+        }
+      }
+    },
+    "maintenanceScheduler": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "autoRunOnSessionStart": {
+          "type": "boolean",
+          "default": true
+        },
+        "maxTasksPerRun": {
+          "type": "integer",
+          "default": 4
+        },
+        "validationCaseLimit": {
+          "type": "integer",
+          "default": 3
+        },
+        "replayCaseLimit": {
+          "type": "integer",
+          "default": 2
+        },
+        "backlogReviewLimit": {
+          "type": "integer",
+          "default": 10
+        },
+        "backlogStaleAfterHours": {
+          "type": "integer",
+          "default": 72
+        },
+        "tasks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "deferredExtraction": {
+              "type": "boolean",
+              "default": true
+            },
+            "validationCorpus": {
+              "type": "boolean",
+              "default": true
+            },
+            "replayCorpus": {
+              "type": "boolean",
+              "default": true
+            },
+            "backlogReview": {
+              "type": "boolean",
+              "default": true
+            },
+            "traceCompaction": {
+              "type": "boolean",
+              "default": false
+            },
+            "indexUpkeep": {
+              "type": "boolean",
+              "default": false
+            },
+            "doctorSnapshot": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        },
+        "taskCadenceMinutes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "deferredExtraction": {
+              "type": "integer",
+              "default": 0
+            },
+            "validationCorpus": {
+              "type": "integer",
+              "default": 720
+            },
+            "replayCorpus": {
+              "type": "integer",
+              "default": 1440
+            },
+            "backlogReview": {
+              "type": "integer",
+              "default": 360
+            },
+            "traceCompaction": {
+              "type": "integer",
+              "default": 60
+            },
+            "indexUpkeep": {
+              "type": "integer",
+              "default": 720
+            },
+            "doctorSnapshot": {
+              "type": "integer",
+              "default": 1440
+            }
+          }
+        }
+      }
+    },
+    "traceRecorder": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxRecords": {
+          "type": "integer",
+          "default": 40
+        },
+        "maxAgeMs": {
+          "type": "integer",
+          "default": 1800000
+        },
+        "maxRowsPerLookup": {
+          "type": "integer",
+          "default": 3
+        },
+        "maxFilteredRowsPerLookup": {
+          "type": "integer",
+          "default": 3
+        },
+        "maxPromptChars": {
+          "type": "integer",
+          "default": 160
+        },
+        "maxRowChars": {
+          "type": "integer",
+          "default": 160
+        },
+        "maxContextChars": {
+          "type": "integer",
+          "default": 600
+        },
+        "persistDurableSample": {
+          "type": "boolean",
+          "default": true
+        },
+        "durableSampleRate": {
+          "type": "number",
+          "default": 0.25
+        },
+        "durableMaxRowsPerRepository": {
+          "type": "integer",
+          "default": 120
+        },
+        "durableMaxRowsGlobal": {
+          "type": "integer",
+          "default": 240
+        },
+        "durableMaxAgeMs": {
+          "type": "integer",
+          "default": 1209600000
+        }
+      }
+    },
+    "rollout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ambientPersonaMode": {
+          "type": "boolean",
+          "default": false
+        },
+        "autoWriteImprovementGoals": {
+          "type": "boolean",
+          "default": false
+        },
+        "memoryOperations": {
+          "type": "boolean",
+          "default": true
+        },
+        "workstreamOverlays": {
+          "type": "boolean",
+          "default": true
+        },
+        "temporalQueryNormalization": {
+          "type": "boolean",
+          "default": true
+        },
+        "retentionSanitization": {
+          "type": "boolean",
+          "default": true
+        },
+        "traceRecorder": {
+          "type": "boolean",
+          "default": false
+        },
+        "evolutionLedger": {
+          "type": "boolean",
+          "default": true
+        },
+        "proposalGeneration": {
+          "type": "boolean",
+          "default": false
+        },
+        "generatedArtifactIntegrity": {
+          "type": "boolean",
+          "default": true
+        },
+        "overlayAutoHydration": {
+          "type": "boolean",
+          "default": true
+        },
+        "coherenceDoctor": {
+          "type": "boolean",
+          "default": false
+        },
+        "reviewGate": {
+          "type": "boolean",
+          "default": false
+        },
+        "hybridRetrieval": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "lore",
+  "version": "0.1.0",
+  "description": "Local-first memory and continuity extension for the GitHub Copilot CLI.",
+  "type": "module",
+  "main": "extension.mjs",
+  "keywords": [
+    "github-copilot",
+    "copilot-cli",
+    "copilot-extension",
+    "memory",
+    "local-first",
+    "sqlite"
+  ],
+  "homepage": "https://github.com/mattriley/lore#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mattriley/lore.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mattriley/lore/issues"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "test": "node --test 'tests/**/*.test.mjs'",
+    "test:smoke": "node --test 'tests/smoke/**/*.test.mjs'",
+    "validate-schema": "node scripts/validate-config-schema.mjs",
+    "dev-install": "node scripts/dev-install.mjs",
+    "maintenance": "node scripts/run-maintenance.mjs",
+    "browser": "node scripts/run-browser.mjs"
+  },
+  "license": "MIT",
+  "private": true
+}

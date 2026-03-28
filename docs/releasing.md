@@ -103,14 +103,14 @@ Merging the release PR is the release action. release-please will create the tag
 1. **Verify the GitHub Release** is published and points to the correct tag.
 2. **Smoke-test a clean install** from the tag:
 
-   ```sh
-   git clone <repo> lore-release-check
-   cd lore-release-check
-   git checkout v0.x.x
-   npm test
-   npm run validate-schema
-   node scripts/dev-install.mjs --dry-run
-   ```
+    ```sh
+    git clone <repo> lore-release-check
+    cd lore-release-check
+    git checkout v0.x.x
+    npm test
+    npm run validate-schema
+    node scripts/dev-install.mjs --dry-run
+    ```
 
 3. **Check the next cycle** — release-please will reopen or refresh the next release PR automatically as new conventional commits land.
 
@@ -130,19 +130,19 @@ Instead:
 
 ### Scenario 2 — release published, users have already installed
 
-Users install Lore by cloning the repository and running `scripts/dev-install.mjs`, which creates a symlink to the repo root. There is no registry publish step. Recovery options:
+Users primarily install Lore by cloning the repository directly into `~/.copilot/extensions/lore`. Some contributors may instead keep a checkout elsewhere and refresh the live extension with `scripts/dev-install.mjs`. There is no registry publish step. Recovery options:
 
 1. **Patch release** — fix the bug, cut a new patch release (`vX.Y.Z+1`). This is the preferred path for most issues.
 
 2. **Pin to a previous tag** — instruct users to check out the last known-good tag:
 
    ```sh
-   cd <lore-repo>
+   cd ~/.copilot/extensions/lore
    git fetch --tags
    git checkout v0.x.y    # previous good tag
    ```
 
-   Because `dev-install.mjs` symlinks the working tree, checking out the old tag is sufficient. No reinstall needed.
+   If the user cloned Lore directly into `~/.copilot/extensions/lore`, checking out the old tag is sufficient. If they use a separate development checkout plus `dev-install.mjs`, they should check out the old tag in that source checkout and rerun the helper so the copied install is refreshed.
 
 3. **Force-push a fixed main** — avoid unless the release was brand new and no one has yet pinned to the bad tag. Communicate clearly if you do this.
 

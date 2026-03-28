@@ -29,16 +29,28 @@ It's your project's lore — and now Copilot gets to read it.
 
 ### 1. Install
 
-Clone this repo somewhere convenient, then run the install script:
+Clone Lore directly into your Copilot extensions directory:
+
+```sh
+git clone https://github.com/mattriley/lore.git ~/.copilot/extensions/lore
+```
+
+Then restart the **Copilot CLI process** so it rescans the extensions directory and loads Lore.
+
+To update later:
+
+```sh
+cd ~/.copilot/extensions/lore
+git pull
+```
+
+If you prefer to develop or keep a checkout somewhere else, Lore still ships a helper that copies that checkout into `~/.copilot/extensions/lore`:
 
 ```sh
 git clone https://github.com/mattriley/lore.git ~/dev/lore
 cd ~/dev/lore
 node scripts/dev-install.mjs
 ```
-
-This creates a symlink at `~/.copilot/extensions/lore` → this repo root.
-Restart your Copilot CLI session and Lore will initialise on the next `onSessionStart`.
 
 Not sure yet? Preview what would happen first:
 
@@ -92,7 +104,7 @@ extension.mjs          ← extension entrypoint (Copilot CLI loads this)
 lib/                   ← core implementation modules
 browser/               ← local read-only dashboard (experimental)
 scripts/               ← dev tooling and maintenance scripts
-  dev-install.mjs      ← symlink installer for local dev
+  dev-install.mjs      ← helper to copy a non-installed checkout into the extension dir
   validate-config-schema.mjs
   run-maintenance.mjs
   run-browser.mjs
@@ -121,7 +133,7 @@ All scripts can be run directly with Node or via the `npm run` shortcuts:
 
 | npm script                | Direct                                      | What it does                                                              |
 | ------------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
-| `npm run dev-install`     | `node scripts/dev-install.mjs`              | Symlink-installs this repo into `~/.copilot/extensions/lore`         |
+| `npm run dev-install`     | `node scripts/dev-install.mjs`              | Copies a non-installed checkout into `~/.copilot/extensions/lore`         |
 | `npm run validate-schema` | `node scripts/validate-config-schema.mjs`   | Validates `lore.json` config against `schemas/lore.schema.json` |
 | `npm run maintenance`     | `node scripts/run-maintenance.mjs --status` | Show maintenance scheduler status                                         |
 | `npm run browser`         | `node scripts/run-browser.mjs`              | Start the local read-only browser dashboard                               |

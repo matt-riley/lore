@@ -16,10 +16,19 @@ Thanks for your interest — contributions are welcome and appreciated! 🎉 Lor
 ## Quick setup
 
 ```sh
-git clone <repo-url>
-cd lore
-node scripts/dev-install.mjs --dry-run   # preview install
-node scripts/dev-install.mjs             # symlink-install into ~/.copilot/extensions/lore
+git clone <repo-url> ~/.copilot/extensions/lore
+cd ~/.copilot/extensions/lore
+```
+
+That's the primary supported install layout.
+
+If you prefer to hack on Lore from a checkout outside the live extensions directory, use the copy helper instead:
+
+```sh
+git clone <repo-url> ~/dev/lore
+cd ~/dev/lore
+node scripts/dev-install.mjs --dry-run   # preview copy into ~/.copilot/extensions/lore
+node scripts/dev-install.mjs             # copy this checkout into ~/.copilot/extensions/lore
 ```
 
 No build step needed — Lore is plain ESM. Node 22.5.0 or later is required (see [compatibility](docs/compatibility.md)).

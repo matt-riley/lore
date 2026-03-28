@@ -21,7 +21,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
@@ -51,6 +51,26 @@ function run(scriptFile, args = [], { env = {} } = {}) {
     encoding: "utf8",
     env: { ...process.env, ...env },
     timeout: 15_000,
+  });
+}
+
+function runFrom(repoRoot, scriptFile, args = [], { env = {} } = {}) {
+  return spawnSync("node", [path.join(repoRoot, "scripts", scriptFile), ...args], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+    timeout: 15_000,
+  });
+}
+
+function copyDir(sourcePath, targetPath) {
+  cpSync(sourcePath, targetPath, {
+    recursive: true,
+    force: true,
+    filter: (currentPath) => {
+      const baseName = path.basename(currentPath);
+      return baseName !== ".git" && baseName !== "node_modules" && baseName !== ".DS_Store";
+    },
   });
 }
 
@@ -92,7 +112,7 @@ describe("validate-config-schema", () => {
 // dev-install.mjs
 // ---------------------------------------------------------------------------
 
-describe("dev-install --dry-run", () => {
+describe("dev-install", () => {
   test("exits 0 and reports no changes for a fresh temp home", () => {
     const tempHome = makeTempDir();
     try {
@@ -106,12 +126,16 @@ describe("dev-install --dry-run", () => {
         result.stdout.includes("No changes made"),
         `Expected 'No changes made' in stdout.\nActual: ${result.stdout}`,
       );
+      assert.ok(
+        result.stdout.includes("directory install"),
+        `Expected directory install guidance in stdout.\nActual: ${result.stdout}`,
+      );
     } finally {
       rmSync(tempHome, { recursive: true, force: true });
     }
   });
 
-  test("reports 'Nothing to do' when symlink already points to repo root", () => {
+  test("reports that an existing symlink will be replaced with a real directory install", () => {
     const tempHome = makeTempDir();
     const extensionsDir = path.join(tempHome, "extensions");
     const linkTarget = path.join(extensionsDir, "lore");
@@ -122,21 +146,40 @@ describe("dev-install --dry-run", () => {
       const result = run("dev-install.mjs", ["--dry-run", "--copilot-home", tempHome]);
       assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
       assert.ok(
-        result.stdout.includes("Nothing to do"),
-        `Expected 'Nothing to do' in stdout.\nActual: ${result.stdout}`,
+        result.stdout.includes("Replacing existing symlink"),
+        `Expected replacement notice in stdout.\nActual: ${result.stdout}`,
       );
     } finally {
       rmSync(tempHome, { recursive: true, force: true });
     }
   });
 
-  test("exits 1 and prints ERROR when target exists as a non-symlink directory", () => {
+  test("refreshes an existing Lore install directory on dry-run", () => {
+    const tempHome = makeTempDir();
+    const extensionsDir = path.join(tempHome, "extensions");
+    const installTarget = path.join(extensionsDir, "lore");
+    try {
+      mkdirSync(installTarget, { recursive: true });
+
+      const result = run("dev-install.mjs", ["--dry-run", "--copilot-home", tempHome]);
+      assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+      assert.ok(
+        result.stdout.includes("Refreshing existing Lore install directory"),
+        `Expected refresh notice in stdout.\nActual: ${result.stdout}`,
+      );
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("exits 1 and prints ERROR when target exists as a non-directory file", () => {
     const tempHome = makeTempDir();
     const extensionsDir = path.join(tempHome, "extensions");
     const linkTarget = path.join(extensionsDir, "lore");
     try {
-      // Create a real directory where the symlink would go — should be rejected.
-      mkdirSync(linkTarget, { recursive: true });
+      mkdirSync(extensionsDir, { recursive: true });
+      // Create a real file where the Lore directory would go — should be rejected.
+      writeFileSync(linkTarget, "not a directory");
 
       const result = run("dev-install.mjs", ["--dry-run", "--copilot-home", tempHome]);
       assert.strictEqual(
@@ -148,6 +191,52 @@ describe("dev-install --dry-run", () => {
         result.stderr.includes("ERROR"),
         `Expected 'ERROR' in stderr.\nActual: ${result.stderr}`,
       );
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("installs Lore as a real directory copy", () => {
+    const tempHome = makeTempDir();
+    const installTarget = path.join(tempHome, "extensions", "lore");
+    try {
+      const result = run("dev-install.mjs", ["--copilot-home", tempHome]);
+      assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+      assert.ok(existsSync(path.join(installTarget, "extension.mjs")), "expected installed extension.mjs");
+      assert.ok(existsSync(path.join(installTarget, "lib", "config.mjs")), "expected installed lib/config.mjs");
+      assert.equal(lstatSync(installTarget).isSymbolicLink(), false, "expected a real directory install");
+      const installedExtension = readFileSync(path.join(installTarget, "extension.mjs"), "utf8");
+      assert.ok(
+        installedExtension.includes("joinSession"),
+        "expected the copied extension entrypoint to contain joinSession",
+      );
+      assert.ok(
+        result.stdout.includes("Restart the Copilot CLI process"),
+        `Expected restart guidance in stdout.\nActual: ${result.stdout}`,
+      );
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("no-ops when run from the live install directory", () => {
+    const tempHome = makeTempDir();
+    const installTarget = path.join(tempHome, "extensions", "lore");
+    try {
+      mkdirSync(path.join(tempHome, "extensions"), { recursive: true });
+      copyDir(REPO_ROOT, installTarget);
+
+      const result = runFrom(installTarget, "dev-install.mjs", ["--copilot-home", tempHome]);
+      assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+      assert.ok(
+        result.stdout.includes("already running from the install directory"),
+        `Expected already-installed guidance in stdout.\nActual: ${result.stdout}`,
+      );
+      assert.ok(
+        result.stdout.includes("git pull"),
+        `Expected git pull guidance in stdout.\nActual: ${result.stdout}`,
+      );
+      assert.ok(existsSync(path.join(installTarget, "extension.mjs")), "expected extension.mjs to remain in place");
     } finally {
       rmSync(tempHome, { recursive: true, force: true });
     }

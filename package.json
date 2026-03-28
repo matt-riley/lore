@@ -1,6 +1,6 @@
 {
   "name": "lore",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first memory and continuity extension for the GitHub Copilot CLI.",
   "type": "module",
   "main": "extension.mjs",

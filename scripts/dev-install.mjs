@@ -78,6 +78,10 @@ function isSameInstall(sourcePath, targetPath) {
   if (!existsSync(sourcePath) || !existsSync(targetPath)) {
     return false;
   }
+  const targetStat = lstatSync(targetPath);
+  if (!targetStat.isDirectory() || targetStat.isSymbolicLink()) {
+    return false;
+  }
   return realpathSync(sourcePath) === realpathSync(targetPath);
 }
 

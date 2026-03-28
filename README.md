@@ -1,7 +1,7 @@
 # Lore 🧠✨
 
-**Lore** is a local-first memory and continuity extension for the GitHub Copilot CLI.  
-It remembers things across sessions so *you* don't have to.
+**Lore** is a local-first memory and continuity extension for the GitHub Copilot CLI.
+It remembers things across sessions so _you_ don't have to.
 
 ---
 
@@ -37,7 +37,7 @@ cd ~/dev/lore
 node scripts/dev-install.mjs
 ```
 
-This creates a symlink at `~/.copilot/extensions/coherence` → this repo root.  
+This creates a symlink at `~/.copilot/extensions/coherence` → this repo root.
 Restart your Copilot CLI session and Lore will initialise on the next `onSessionStart`.
 
 Not sure yet? Preview what would happen first:
@@ -101,7 +101,6 @@ schemas/
 docs/
   support-matrix.md
   compatibility.md
-  coherence-evolution-plan.md
 ```
 
 The internal identifier prefix is `coherence` (module names, tool names, config keys, DB name). The product name is **Lore**. Identifier migration will happen in a later release slice.
@@ -120,12 +119,12 @@ For the full picture — what's stored, browser surface risks, file permission r
 
 All scripts can be run directly with Node or via the `npm run` shortcuts:
 
-| npm script | Direct | What it does |
-|---|---|---|
-| `npm run dev-install` | `node scripts/dev-install.mjs` | Symlink-installs this repo into `~/.copilot/extensions/coherence` |
-| `npm run validate-schema` | `node scripts/validate-config-schema.mjs` | Validates `coherence.json` config against `schemas/coherence.schema.json` |
-| `npm run maintenance` | `node scripts/run-maintenance.mjs --status` | Show maintenance scheduler status |
-| `npm run browser` | `node scripts/run-browser.mjs` | Start the local read-only browser dashboard |
+| npm script                | Direct                                      | What it does                                                              |
+| ------------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
+| `npm run dev-install`     | `node scripts/dev-install.mjs`              | Symlink-installs this repo into `~/.copilot/extensions/coherence`         |
+| `npm run validate-schema` | `node scripts/validate-config-schema.mjs`   | Validates `coherence.json` config against `schemas/coherence.schema.json` |
+| `npm run maintenance`     | `node scripts/run-maintenance.mjs --status` | Show maintenance scheduler status                                         |
+| `npm run browser`         | `node scripts/run-browser.mjs`              | Start the local read-only browser dashboard                               |
 
 ---
 
@@ -160,7 +159,7 @@ node --test tests/smoke/harness.test.mjs
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, style, and PR guidance.  
-Lore uses conventional PR titles and release-please for automated changelog + version management.  
-For questions or bug reports, see [SUPPORT.md](SUPPORT.md).  
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, style, and PR guidance.
+Lore uses conventional PR titles and release-please for automated changelog + version management.
+For questions or bug reports, see [SUPPORT.md](SUPPORT.md).
 Security issues go via [GitHub Security Advisories](../../security/advisories/new) — not public issues.

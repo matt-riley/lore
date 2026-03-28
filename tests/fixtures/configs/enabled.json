@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/coherence.schema.json",
+  "enabled": true,
+  "rollout": {
+    "memoryOperations": true,
+    "workstreamOverlays": true,
+    "temporalQueryNormalization": true,
+    "hybridRetrieval": true
+  }
+}

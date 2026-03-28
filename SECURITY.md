@@ -29,16 +29,16 @@ Lore is a **local-first tool**. All data lives on your machine. Nothing is sent 
 
 | File | Contents |
 |---|---|
-| `~/.copilot/coherence.db` | Session memories — code snippets, decisions, notes, file paths, and session summaries captured across your work history. |
-| `~/.copilot/coherence.json` | Your preferences, rollout flags, and configuration. |
+| `~/.copilot/lore.db` | Session memories — code snippets, decisions, notes, file paths, and session summaries captured across your work history. |
+| `~/.copilot/lore.json` | Your preferences, rollout flags, and configuration. |
 
-Both files sit in your home directory. Treat `coherence.db` the way you would any file that contains personal or work-related data.
+Both files sit in your home directory. Treat `lore.db` the way you would any file that contains personal or work-related data.
 
 **Optional hardening** — restrict read access to your user account:
 
 ```sh
-chmod 600 ~/.copilot/coherence.db
-chmod 600 ~/.copilot/coherence.json
+chmod 600 ~/.copilot/lore.db
+chmod 600 ~/.copilot/lore.json
 ```
 
 ### Browser dashboard

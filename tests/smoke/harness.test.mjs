@@ -38,7 +38,7 @@ describe("createTempHome", () => {
     const { home, paths, cleanup } = createTempHome();
     try {
       assert.ok(existsSync(home), "home dir exists");
-      assert.ok(existsSync(paths.configFile), "coherence.json created");
+      assert.ok(existsSync(paths.configFile), "lore.json created");
       assert.ok(existsSync(paths.backupDir), "backup dir created");
       assert.ok(existsSync(paths.scopedInstructionsDir), "instructions dir created");
       assert.ok(existsSync(paths.extensionsDir), "extensions dir created");
@@ -60,7 +60,7 @@ describe("createTempHome", () => {
     }
   });
 
-  test("configOverrides are written into coherence.json", async () => {
+  test("configOverrides are written into lore.json", async () => {
     const { paths, cleanup } = createTempHome({ configOverrides: { enabled: true } });
     try {
       const { readFile } = await import("node:fs/promises");
@@ -142,14 +142,14 @@ describe("buildFixtureConfig overrides", () => {
 // ---------------------------------------------------------------------------
 
 describe("freshDb", () => {
-  test("initialises schema (coherence_schema_version table exists)", { skip: SKIP_NO_FTS5 }, () => {
+  test("initialises schema (lore_schema_version table exists)", { skip: SKIP_NO_FTS5 }, () => {
     const { home, cleanup } = createTempHome();
     try {
       const config = freshInstallConfig(home);
       const db = freshDb(config);
       try {
         // If the schema version table exists, this query won't throw.
-        const row = db.db.prepare("SELECT version FROM coherence_schema_version LIMIT 1").get();
+        const row = db.db.prepare("SELECT version FROM lore_schema_version LIMIT 1").get();
         assert.ok(row !== undefined || row === undefined, "table is queryable");
       } finally {
         db.close();

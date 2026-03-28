@@ -19,7 +19,7 @@ Thanks for your interest — contributions are welcome and appreciated! 🎉 Lor
 git clone <repo-url>
 cd lore
 node scripts/dev-install.mjs --dry-run   # preview install
-node scripts/dev-install.mjs             # symlink-install into ~/.copilot/extensions/coherence
+node scripts/dev-install.mjs             # symlink-install into ~/.copilot/extensions/lore
 ```
 
 No build step needed — Lore is plain ESM. Node 22.5.0 or later is required (see [compatibility](docs/compatibility.md)).
@@ -69,7 +69,7 @@ Run the full suite before opening a PR.
 
 - New tools or hooks that expand the public surface.
 - Changes to the core memory model, retention logic, or DB schema.
-- Anything that would break backward compatibility with existing `coherence.db` or `coherence.json` data.
+- Anything that would break backward compatibility with existing `lore.db` or `lore.json` data.
 
 ---
 

@@ -45,21 +45,21 @@ Node 22 is the current LTS line. If you're on Node 20 or earlier, upgrade before
 
 ## Database and config
 
-### `coherence.db` (derived store)
+### `lore.db` (derived store)
 
 | Scenario | Compatibility |
 |---|---|
 | Fresh install (no prior DB) | ✅ Fully supported. Lore creates the DB and runs all schema migrations on first `onSessionStart`. |
-| Existing DB from any prior Lore/Coherence version | ✅ Supported. The migration system applies additive schema changes. No data is destroyed during migration. |
+| Existing DB from any prior Lore version | ✅ Supported. The migration system applies additive schema changes. No data is destroyed during migration. |
 | DB created by a significantly older version (schema version unknown) | ⚠️ Run `memory_validate` first. If validation reports schema drift, use `memory_doctor_report` or the `maintenance_schedule_run` tool (dry-run mode) to assess before proceeding. |
 
-### `coherence.json` (config)
+### `lore.json` (config)
 
 | Scenario | Compatibility |
 |---|---|
 | Fresh install (no prior config) | ✅ All keys have defaults. A minimal config with only `"enabled": true` is sufficient to start. |
 | Existing config from prior versions | ✅ New keys are additive. Unknown keys are rejected by schema validation, so `memory_validate` will surface any stale keys from old configs. |
-| Config validated against schema | ✅ `scripts/validate-config-schema.mjs` validates `coherence.json` against `schemas/coherence.schema.json`. Run it after any manual config edits. |
+| Config validated against schema | ✅ `scripts/validate-config-schema.mjs` validates `lore.json` against `schemas/lore.schema.json`. Run it after any manual config edits. |
 
 ### `session-store.db` (raw Copilot CLI store — read-only for Lore)
 
@@ -90,8 +90,8 @@ Lore is local-only. This section is the canonical summary of what it stores, wha
 
 | File | Contents |
 |---|---|
-| `~/.copilot/coherence.db` | Session memories — code snippets, decisions, notes, file paths, and summaries captured from your sessions. This is the primary data store. |
-| `~/.copilot/coherence.json` | Your configuration and preferences. |
+| `~/.copilot/lore.db` | Session memories — code snippets, decisions, notes, file paths, and summaries captured from your sessions. This is the primary data store. |
+| `~/.copilot/lore.json` | Your configuration and preferences. |
 | `~/.copilot/session-store.db` | Raw Copilot CLI session data. **Lore reads this for backfill; it never writes to it.** |
 
 ### What Lore does NOT do
@@ -103,11 +103,11 @@ Lore is local-only. This section is the canonical summary of what it stores, wha
 
 ### Protecting your data
 
-`coherence.db` contains a record of your work — code you've written, decisions you've made, notes you've kept. Consider restricting file access to your user account:
+`lore.db` contains a record of your work — code you've written, decisions you've made, notes you've kept. Consider restricting file access to your user account:
 
 ```sh
-chmod 600 ~/.copilot/coherence.db
-chmod 600 ~/.copilot/coherence.json
+chmod 600 ~/.copilot/lore.db
+chmod 600 ~/.copilot/lore.json
 ```
 
 The `memory_portable_bundle` export tool (experimental) can generate a portable snapshot. Treat any exported bundle as sensitive — it contains raw memory data.
@@ -126,7 +126,7 @@ The `memory_portable_bundle` export tool (experimental) can generate a portable 
 ### What Lore does not promise
 
 1. **Experimental surfaces may change** — tool names, argument shapes, and output formats for experimental surfaces can change between releases without notice.
-2. **No cross-machine portability yet** — `coherence.db` is not portable by default. The `memory_portable_bundle` export tool exists (experimental) but import is not yet implemented.
+2. **No cross-machine portability yet** — `lore.db` is not portable by default. The `memory_portable_bundle` export tool exists (experimental) but import is not yet implemented.
 3. **No multi-user or multi-machine sync** — Lore is local-first. There is no cloud sync, no shared team memory, and no remote API surface.
 4. **No performance guarantees under heavy load** — the bounded operation targets (< 300 ms session-start, < 200 ms prompt-time) are aspirational guidelines calibrated for a typical developer machine. Very large DBs or slow disks may exceed these.
 

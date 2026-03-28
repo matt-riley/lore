@@ -1,6 +1,6 @@
-# Generated Coherence Proposals
+# Generated Lore Proposals
 
-Review-gated artifacts generated from the Coherence evolution ledger.
+Review-gated artifacts generated from the Lore evolution ledger.
 
 ## Review State Contract
 

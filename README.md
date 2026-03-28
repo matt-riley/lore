@@ -37,7 +37,7 @@ cd ~/dev/lore
 node scripts/dev-install.mjs
 ```
 
-This creates a symlink at `~/.copilot/extensions/coherence` → this repo root.
+This creates a symlink at `~/.copilot/extensions/lore` → this repo root.
 Restart your Copilot CLI session and Lore will initialise on the next `onSessionStart`.
 
 Not sure yet? Preview what would happen first:
@@ -51,10 +51,10 @@ node scripts/dev-install.mjs --dry-run
 Copy the example config to your Copilot home and enable Lore:
 
 ```sh
-cp coherence.example.json ~/.copilot/coherence.json
+cp lore.example.json ~/.copilot/lore.json
 ```
 
-At minimum, set `"enabled": true` in `~/.copilot/coherence.json`. Everything else has sensible defaults.
+At minimum, set `"enabled": true` in `~/.copilot/lore.json`. Everything else has sensible defaults.
 
 ### 3. Validate
 
@@ -76,7 +76,7 @@ Lore works across two rings:
 Stable, tested surfaces covered by the compatibility promise in [`docs/compatibility.md`](docs/compatibility.md).
 
 - **Session hooks** — `onSessionStart`, `onUserPromptSubmitted`, `onSessionEnd` fire automatically.
-- **Core memory verbs** — `coherence_recall`, `coherence_retain`, `memory_search`, `memory_save`, `memory_forget`.
+- **Core memory verbs** — `lore_recall`, `lore_retain`, `memory_search`, `memory_save`, `memory_forget`.
 - **Status and diagnostics** — `memory_status`, `memory_explain`, `memory_validate`.
 
 ### Experimental ring 🟡
@@ -97,19 +97,19 @@ scripts/               ← dev tooling and maintenance scripts
   run-maintenance.mjs
   run-browser.mjs
 schemas/
-  coherence.schema.json ← config schema (source of truth)
+  lore.schema.json ← config schema (source of truth)
 docs/
   support-matrix.md
   compatibility.md
 ```
 
-The internal identifier prefix is `coherence` (module names, tool names, config keys, DB name). The product name is **Lore**. Identifier migration will happen in a later release slice.
+Lore uses the `lore` identifier family consistently across module names, tool names, config keys, and the derived database name.
 
 ---
 
 ## Privacy and security
 
-Lore stores your session context **locally** in `~/.copilot/coherence.db`. Nothing is sent to any remote service. The optional browser UI binds to `localhost` only and is read-only.
+Lore stores your session context **locally** in `~/.copilot/lore.db`. Nothing is sent to any remote service. The optional browser UI binds to `localhost` only and is read-only.
 
 For the full picture — what's stored, browser surface risks, file permission recommendations, and how to report vulnerabilities — see [SECURITY.md](SECURITY.md).
 
@@ -121,8 +121,8 @@ All scripts can be run directly with Node or via the `npm run` shortcuts:
 
 | npm script                | Direct                                      | What it does                                                              |
 | ------------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
-| `npm run dev-install`     | `node scripts/dev-install.mjs`              | Symlink-installs this repo into `~/.copilot/extensions/coherence`         |
-| `npm run validate-schema` | `node scripts/validate-config-schema.mjs`   | Validates `coherence.json` config against `schemas/coherence.schema.json` |
+| `npm run dev-install`     | `node scripts/dev-install.mjs`              | Symlink-installs this repo into `~/.copilot/extensions/lore`         |
+| `npm run validate-schema` | `node scripts/validate-config-schema.mjs`   | Validates `lore.json` config against `schemas/lore.schema.json` |
 | `npm run maintenance`     | `node scripts/run-maintenance.mjs --status` | Show maintenance scheduler status                                         |
 | `npm run browser`         | `node scripts/run-browser.mjs`              | Start the local read-only browser dashboard                               |
 
@@ -152,7 +152,6 @@ node --test tests/smoke/harness.test.mjs
 
 - [Support matrix](docs/support-matrix.md) — supported vs experimental surfaces
 - [Compatibility](docs/compatibility.md) — minimum versions, platform support, and privacy posture
-- [Evolution plan](docs/coherence-evolution-plan.md) — where things are heading
 - [Changelog](CHANGELOG.md) — what's changed across releases
 
 ---

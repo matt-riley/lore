@@ -148,7 +148,7 @@ Users install Lore by cloning the repository and running `scripts/dev-install.mj
 
 ### Scenario 3 — DB schema migration causes data issues
 
-This is the highest-risk scenario. The DB is at `~/.copilot/coherence.db`.
+This is the highest-risk scenario. The DB is at `~/.copilot/lore.db`.
 
 1. **Run validation first** before taking any action:
 
@@ -158,11 +158,11 @@ This is the highest-risk scenario. The DB is at `~/.copilot/coherence.db`.
    memory_doctor_report
    ```
 
-2. **Restore from backup** if you have one. Lore does not automatically back up the DB — users should include `~/.copilot/coherence.db` in their normal backup strategy.
+2. **Restore from backup** if you have one. Lore does not automatically back up the DB — users should include `~/.copilot/lore.db` in their normal backup strategy.
 
 3. **Re-derive from session-store** — if the DB is corrupted and there is no backup, the memory store can be partially rebuilt by re-running backfill tools against the raw `session-store.db` (which Lore never writes to). The rebuilt store will be missing any memories that were saved explicitly but not derivable from raw sessions.
 
-4. **Fresh start** — delete `coherence.db` and restart the Copilot CLI. Lore will create a clean DB and run all migrations from scratch. You lose all memories.
+4. **Fresh start** — delete `lore.db` and restart the Copilot CLI. Lore will create a clean DB and run all migrations from scratch. You lose all memories.
 
 > **Migration safety rule**: all schema migrations in Lore are additive (add columns, add tables, add indexes). Destructive migrations are never applied silently. If a future release needs a breaking migration, it will be called out in the CHANGELOG as **BREAKING** and the pre-release checklist will include a migration test against a fixture DB.
 
@@ -170,7 +170,7 @@ This is the highest-risk scenario. The DB is at `~/.copilot/coherence.db`.
 
 1. **Check the error** — `memory_validate` will surface any config validation failures.
 2. **Consult the CHANGELOG** — the entry for the release will list any config key changes.
-3. **Update `coherence.json`** per the migration notes in the CHANGELOG.
+3. **Update `lore.json`** per the migration notes in the CHANGELOG.
 4. **Re-validate** — run `npm run validate-schema` (or `memory_validate` in-session) to confirm the updated config is valid.
 
 ---
@@ -183,7 +183,7 @@ The following must pass before any release is published. These are enforced by C
 |---|---|---|
 | Unit tests | `npm test` | All unit and smoke tests pass |
 | Smoke tests | `npm run test:smoke` | End-to-end subprocess pipeline |
-| Schema parity | `npm run validate-schema` | `coherence.json` matches `coherence.schema.json` |
+| Schema parity | `npm run validate-schema` | `lore.json` matches `lore.schema.json` |
 | CI (push/release PR) | GitHub Actions | All of the above on the commit that will ship |
 
 There are no optional gates. If any gate is red, the release does not ship.

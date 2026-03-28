@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Coherence configuration",
+  "title": "Lore configuration",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -25,11 +25,11 @@
         },
         "derivedStorePath": {
           "type": "string",
-          "default": "/Users/mattriley/.copilot/coherence.db"
+          "default": "/Users/mattriley/.copilot/lore.db"
         },
         "backupDir": {
           "type": "string",
-          "default": "/Users/mattriley/.copilot/backups/coherence"
+          "default": "/Users/mattriley/.copilot/backups/lore"
         },
         "instructionsPath": {
           "type": "string",
@@ -363,7 +363,7 @@
           "type": "boolean",
           "default": true
         },
-        "coherenceDoctor": {
+        "loreDoctor": {
           "type": "boolean",
           "default": false
         },

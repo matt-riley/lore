@@ -1129,7 +1129,7 @@ function queryDrilldown({ db, url }) {
   throw new HttpError(400, "unsupported_drilldown_entity", `Unsupported drilldown entity: ${entityType}`)
 }
 
-export function startCoherenceBrowserServer({
+export function startLoreBrowserServer({
   db,
   host = "127.0.0.1",
   port = 43111,

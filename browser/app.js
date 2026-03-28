@@ -143,7 +143,7 @@ function renderOverview(data) {
       ["Latency trend", trend.trend ?? "no_samples"],
     ])}
 
-    <h2>Last successful Coherence activity</h2>
+    <h2>Last successful Lore activity</h2>
     <div class="table-wrap">
       <table class="table">
         <thead>

@@ -1,7 +1,7 @@
 /**
  * tests/helpers/fixture-db.mjs
  *
- * Opens CoherenceDb instances pointed at fixture homes and optionally seeds
+ * Opens LoreDb instances pointed at fixture homes and optionally seeds
  * them with deterministic test data.
  *
  * Two primary fixture paths are provided:
@@ -14,7 +14,7 @@
  *                      of memories so tests can assert against known state
  *                      without needing to build up data themselves.
  *
- * Every helper returns the open CoherenceDb instance.  Callers are responsible
+ * Every helper returns the open LoreDb instance.  Callers are responsible
  * for calling db.close() when done (usually in a finally/after block).
  *
  * Usage:
@@ -34,7 +34,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { CoherenceDb } from "../../lib/db.mjs";
+import { LoreDb } from "../../lib/db.mjs";
 
 // ---------------------------------------------------------------------------
 // Runtime capability detection
@@ -46,7 +46,7 @@ import { CoherenceDb } from "../../lib/db.mjs";
  * build.  The Copilot CLI runtime typically has FTS5; a developer's system
  * Node (e.g. installed via mise/nvm) may not.
  *
- * Any test that relies on CoherenceDb.initialize() (which creates FTS5
+ * Any test that relies on LoreDb.initialize() (which creates FTS5
  * virtual tables) must check this flag and skip when false:
  *
  *   test('...', { skip: !FTS5_AVAILABLE && 'FTS5 not in this Node build' }, () => { ... })
@@ -117,27 +117,27 @@ export const SEED_MEMORIES = Object.freeze([
 // ---------------------------------------------------------------------------
 
 /**
- * Open a fresh CoherenceDb from `config` and run schema migrations.
+ * Open a fresh LoreDb from `config` and run schema migrations.
  * The database will be empty (no seed data).
  *
  * @param {object} config - A fixture config from fixture-config.mjs.
- * @returns {CoherenceDb} An open, initialised database instance.
+ * @returns {LoreDb} An open, initialised database instance.
  */
 export function freshDb(config) {
-  const db = new CoherenceDb(config);
+  const db = new LoreDb(config);
   db.initialize();
   return db;
 }
 
 /**
- * Open a seeded CoherenceDb from `config`.
+ * Open a seeded LoreDb from `config`.
  * Runs schema migrations then inserts SEED_MEMORIES.
  *
  * After this call the database contains exactly the rows in SEED_MEMORIES.
  * Tests that need a known starting state should use this instead of freshDb.
  *
  * @param {object} config - A fixture config from fixture-config.mjs.
- * @returns {CoherenceDb} An open, seeded database instance.
+ * @returns {LoreDb} An open, seeded database instance.
  */
 export function seededDb(config) {
   const db = freshDb(config);
@@ -165,7 +165,7 @@ export function seededDb(config) {
  * @param {boolean} [options.seed=false] - Whether to seed the DB.
  * @param {object} [options.configOverrides={}] - Passed to buildFixtureConfig.
  * @param {object} [options.homeOptions={}] - Passed to createTempHome.
- * @returns {{ db: CoherenceDb, config: object, paths: object, cleanup: () => void }}
+ * @returns {{ db: LoreDb, config: object, paths: object, cleanup: () => void }}
  */
 export async function withFixtureDb({ seed = false, configOverrides = {}, homeOptions = {} } = {}) {
   // Lazy imports to avoid circular dependency issues in callers.

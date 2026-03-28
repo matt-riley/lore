@@ -8,7 +8,7 @@
  * Usage:
  *   node scripts/dev-install.mjs [--dry-run] [--copilot-home <path>]
  *
- * By default, installs to ~/.copilot/extensions/coherence -> <this repo root>.
+ * By default, installs to ~/.copilot/extensions/lore -> <this repo root>.
  * Pass --dry-run to preview what would happen without making changes.
  * Pass --copilot-home <path> to override the ~/.copilot home directory.
  *
@@ -37,7 +37,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const copilotHome = args.copilotHome ?? path.join(os.homedir(), ".copilot");
   const extensionsDir = path.join(copilotHome, "extensions");
-  const linkTarget = path.join(extensionsDir, "coherence");
+  const linkTarget = path.join(extensionsDir, "lore");
   const label = args.dryRun ? "[dry-run] " : "";
 
   console.log(`${label}Lore dev-install`);

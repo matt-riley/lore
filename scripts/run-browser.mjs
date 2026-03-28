@@ -5,8 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { USER_CONFIG_DEFAULTS } from "../lib/config.mjs";
-import { CoherenceDb } from "../lib/db.mjs";
-import { startCoherenceBrowserServer } from "../browser/server.mjs";
+import { LoreDb } from "../lib/db.mjs";
+import { startLoreBrowserServer } from "../browser/server.mjs";
 
 function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -98,13 +98,13 @@ function loadFileConfig(configPath) {
 }
 
 function buildConfig(args) {
-  // COHERENCE_CONFIG env var provides a portable default config path that does
+  // LORE_CONFIG env var provides a portable default config path that does
   // not depend on the working directory, useful for test fixtures and CI.
-  const envConfigPath = process.env.COHERENCE_CONFIG?.trim() || null;
-  const envCopilotHome = process.env.COHERENCE_COPILOT_HOME?.trim() || null;
+  const envConfigPath = process.env.LORE_CONFIG?.trim() || null;
+  const envCopilotHome = process.env.LORE_COPILOT_HOME?.trim() || null;
   const defaultConfigPath = envConfigPath
-    ?? (envCopilotHome ? path.join(envCopilotHome, "coherence.json") : null)
-    ?? path.resolve(process.cwd(), "coherence.json");
+    ?? (envCopilotHome ? path.join(envCopilotHome, "lore.json") : null)
+    ?? path.resolve(process.cwd(), "lore.json");
   const fileConfig = loadFileConfig(args.configPath ?? defaultConfigPath);
   if (isPlainObject(fileConfig.maintenance) && !isPlainObject(fileConfig.maintenanceScheduler)) {
     fileConfig.maintenanceScheduler = fileConfig.maintenance;
@@ -126,10 +126,10 @@ function buildConfig(args) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const config = buildConfig(args);
-  const db = new CoherenceDb(config);
+  const db = new LoreDb(config);
   db.initialize();
 
-  const { server, host, port } = startCoherenceBrowserServer({
+  const { server, host, port } = startLoreBrowserServer({
     db,
     host: args.host,
     port: args.port,
@@ -137,9 +137,9 @@ async function main() {
   });
 
   const localUrl = `http://${host}:${port}`;
-  console.log(`[coherence-browser] local read-only server started at ${localUrl}`);
-  console.log(`[coherence-browser] using database ${config.paths.derivedStorePath}`);
-  console.log("[coherence-browser] press Ctrl+C to stop");
+  console.log(`[lore-browser] local read-only server started at ${localUrl}`);
+  console.log(`[lore-browser] using database ${config.paths.derivedStorePath}`);
+  console.log("[lore-browser] press Ctrl+C to stop");
 
   const shutdown = () => {
     server.close(() => {

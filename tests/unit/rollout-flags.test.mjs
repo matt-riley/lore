@@ -28,7 +28,7 @@ import {
   readProposalGenerationEnabled,
   readGeneratedArtifactIntegrityEnabled,
   readOverlayAutoHydrationEnabled,
-  readCoherenceDoctorEnabled,
+  readLoreDoctorEnabled,
   readHybridRetrievalEnabled,
   readReviewGateEnabled,
 } from "../../lib/rollout-flags.mjs";
@@ -53,7 +53,7 @@ const ALL_ON = cfg({
   proposalGeneration: true,
   generatedArtifactIntegrity: true,
   overlayAutoHydration: true,
-  coherenceDoctor: true,
+  loreDoctor: true,
   hybridRetrieval: true,
   reviewGate: true,
 });
@@ -69,7 +69,7 @@ const ALL_OFF = cfg({
   proposalGeneration: false,
   generatedArtifactIntegrity: false,
   overlayAutoHydration: false,
-  coherenceDoctor: false,
+  loreDoctor: false,
   hybridRetrieval: false,
   reviewGate: false,
 });
@@ -278,22 +278,22 @@ describe("readOverlayAutoHydrationEnabled — cascading", () => {
 });
 
 // ---------------------------------------------------------------------------
-// readCoherenceDoctorEnabled — requires evolutionLedger
+// readLoreDoctorEnabled — requires evolutionLedger
 // ---------------------------------------------------------------------------
 
-describe("readCoherenceDoctorEnabled — cascading", () => {
+describe("readLoreDoctorEnabled — cascading", () => {
   test("returns true when both are on", () => {
-    assert.strictEqual(readCoherenceDoctorEnabled(ALL_ON), true);
+    assert.strictEqual(readLoreDoctorEnabled(ALL_ON), true);
   });
 
   test("returns false when evolutionLedger is off", () => {
-    const c = cfg({ evolutionLedger: false, coherenceDoctor: true });
-    assert.strictEqual(readCoherenceDoctorEnabled(c), false);
+    const c = cfg({ evolutionLedger: false, loreDoctor: true });
+    assert.strictEqual(readLoreDoctorEnabled(c), false);
   });
 
-  test("falls back to false when coherenceDoctor is absent", () => {
+  test("falls back to false when loreDoctor is absent", () => {
     const c = cfg({ evolutionLedger: true });
-    assert.strictEqual(readCoherenceDoctorEnabled(c), false);
+    assert.strictEqual(readLoreDoctorEnabled(c), false);
   });
 });
 

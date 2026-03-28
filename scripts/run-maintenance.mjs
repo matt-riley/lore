@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { USER_CONFIG_DEFAULTS } from "../lib/config.mjs";
-import { CoherenceDb } from "../lib/db.mjs";
+import { LoreDb } from "../lib/db.mjs";
 import { runMaintenanceSweep } from "../lib/maintenance-scheduler.mjs";
 import { SessionStoreReader } from "../lib/session-store-reader.mjs";
 import { createTraceRecorder } from "../lib/trace-recorder.mjs";
@@ -109,16 +109,16 @@ function renderHelp() {
     "  --force                    Ignore cadence and force selected tasks due.",
     "  --tasks <csv>              Task subset: deferredExtraction,validationCorpus,replayCorpus,backlogReview,traceCompaction,indexUpkeep,doctorSnapshot.",
     "  --repository <name>        Optional repository scope override.",
-    "  --config <path>            Optional coherence.json path.",
-    "  --derived-store-path <p>   Override derived coherence DB path.",
+    "  --config <path>            Optional lore.json path.",
+    "  --derived-store-path <p>   Override derived lore DB path.",
     "  --raw-store-path <p>       Override session-store DB path.",
     "  --backup-dir <path>        Override backup directory.",
     "  --recommended-schedule     Show recommended external schedule guidance.",
     "  --help, -h                 Show this help text.",
     "",
     "Environment variables:",
-    "  COHERENCE_COPILOT_HOME     Override ~/.copilot home directory (all path defaults derived from it).",
-    "  COHERENCE_CONFIG           Override coherence.json path directly (takes priority over COHERENCE_COPILOT_HOME).",
+    "  LORE_COPILOT_HOME     Override ~/.copilot home directory (all path defaults derived from it).",
+    "  LORE_CONFIG           Override lore.json path directly (takes priority over LORE_COPILOT_HOME).",
   ].join("\n");
 }
 
@@ -139,15 +139,15 @@ function renderRecommendedSchedule(config) {
     `- backlogReview: every ${cadenceFor("backlogReview", 6 * 60)} minutes`,
     `- traceCompaction: every ${cadenceFor("traceCompaction", 60)} minutes`,
     `- indexUpkeep: every ${cadenceFor("indexUpkeep", 12 * 60)} minutes`,
-    `- doctorSnapshot: every ${cadenceFor("doctorSnapshot", 24 * 60)} minutes (optional; requires rollout.coherenceDoctor=true and maintenanceScheduler.tasks.doctorSnapshot=true)`,
+    `- doctorSnapshot: every ${cadenceFor("doctorSnapshot", 24 * 60)} minutes (optional; requires rollout.loreDoctor=true and maintenanceScheduler.tasks.doctorSnapshot=true)`,
     "",
     "Example cron entries (default ~/.copilot install):",
-    "0 */6 * * * node ~/.copilot/extensions/coherence/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview",
-    "15 2 * * * node ~/.copilot/extensions/coherence/scripts/run-maintenance.mjs --tasks replayCorpus,indexUpkeep,traceCompaction",
-    "30 3 * * * node ~/.copilot/extensions/coherence/scripts/run-maintenance.mjs --tasks doctorSnapshot",
+    "0 */6 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview",
+    "15 2 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks replayCorpus,indexUpkeep,traceCompaction",
+    "30 3 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks doctorSnapshot",
     "",
-    "Non-standard install (set COHERENCE_COPILOT_HOME to override ~/.copilot):",
-    "0 */6 * * * COHERENCE_COPILOT_HOME=/path/to/copilot-home node /path/to/coherence/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview",
+    "Non-standard install (set LORE_COPILOT_HOME to override ~/.copilot):",
+    "0 */6 * * * LORE_COPILOT_HOME=/path/to/copilot-home node /path/to/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview",
   ].join("\n");
 }
 
@@ -159,13 +159,13 @@ function loadFileConfig(configPath) {
 }
 
 function buildConfig(args) {
-  // COHERENCE_CONFIG env var provides a portable default config path that does
+  // LORE_CONFIG env var provides a portable default config path that does
   // not depend on the working directory, useful for cron/CI/fixture environments.
-  const envConfigPath = process.env.COHERENCE_CONFIG?.trim() || null;
-  const envCopilotHome = process.env.COHERENCE_COPILOT_HOME?.trim() || null;
+  const envConfigPath = process.env.LORE_CONFIG?.trim() || null;
+  const envCopilotHome = process.env.LORE_COPILOT_HOME?.trim() || null;
   const defaultConfigPath = envConfigPath
-    ?? (envCopilotHome ? path.join(envCopilotHome, "coherence.json") : null)
-    ?? path.resolve(process.cwd(), "coherence.json");
+    ?? (envCopilotHome ? path.join(envCopilotHome, "lore.json") : null)
+    ?? path.resolve(process.cwd(), "lore.json");
   const fileConfig = loadFileConfig(args.configPath ?? defaultConfigPath);
   if (isPlainObject(fileConfig.maintenance) && !isPlainObject(fileConfig.maintenanceScheduler)) {
     fileConfig.maintenanceScheduler = fileConfig.maintenance;
@@ -231,7 +231,7 @@ async function main() {
     console.log(renderRecommendedSchedule(config));
     return;
   }
-  const db = new CoherenceDb(config);
+  const db = new LoreDb(config);
   db.initialize();
   const sessionStore = new SessionStoreReader(config);
   sessionStore.initialize();

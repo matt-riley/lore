@@ -3,7 +3,7 @@
  * validate-config-schema.mjs
  *
  * Compares USER_CONFIG_DEFAULTS in lib/config.mjs against the property
- * structure and defaults declared in schemas/coherence.schema.json at
+ * structure and defaults declared in schemas/lore.schema.json at
  * leaf-property depth.
  *
  * Exits 0 on success, 1 on drift.
@@ -24,7 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SCHEMA_PATH = path.resolve(
   __dirname,
-  "../schemas/coherence.schema.json",
+  "../schemas/lore.schema.json",
 );
 
 const PATHS_PREFIX = "paths.";

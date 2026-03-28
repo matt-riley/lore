@@ -24,13 +24,13 @@ Release notes in this file are maintained by release-please from conventional co
 
 ### Added
 
-- Initial public extraction from the private `~/.copilot/extensions/coherence/` workspace.
+- Initial public extraction from the private `~/.copilot/extensions/lore/` workspace.
 - `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, `CHANGELOG.md`.
 - `.github/` scaffold: CI workflow, issue templates, pull request template.
 - `docs/compatibility.md` — runtime requirements and platform support.
 - `docs/support-matrix.md` — supported vs experimental surface definitions.
 - `docs/releasing.md` — release checklist, versioning rules, rollback/recovery guidance, and required validation gates.
-- `coherence.example.json` — annotated starter config.
+- `lore.example.json` — annotated starter config.
 - `scripts/dev-install.mjs` — symlink-based local dev install.
 - `scripts/validate-config-schema.mjs` — schema/config drift detection.
 - `scripts/run-maintenance.mjs` — maintenance scheduler CLI.

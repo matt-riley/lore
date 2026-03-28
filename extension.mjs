@@ -3,7 +3,7 @@ import { joinSession } from "@github/copilot-sdk/extension";
 
 import { loadConfig } from "./lib/config.mjs";
 import { applySessionExtraction, processDeferredExtractions } from "./lib/backfill.mjs";
-import { CoherenceDb } from "./lib/db.mjs";
+import { LoreDb } from "./lib/db.mjs";
 import { runMaintenanceSweep } from "./lib/maintenance-scheduler.mjs";
 import { recallMemory } from "./lib/memory-operations.mjs";
 import { createMemoryTools } from "./lib/memory-tools.mjs";
@@ -255,7 +255,7 @@ async function ensureRuntime(session) {
 
   try {
     runtime.config = await loadConfig();
-    runtime.db = new CoherenceDb(runtime.config);
+    runtime.db = new LoreDb(runtime.config);
     const initResult = runtime.db.initialize();
     runtime.lastBackupPath = initResult.backupPath ?? null;
 
@@ -266,14 +266,14 @@ async function ensureRuntime(session) {
     runtime.initialized = true;
     runtime.lastError = null;
 
-    await session.log("coherence initialized", { ephemeral: true });
+    await session.log("lore initialized", { ephemeral: true });
     return runtime;
   } catch (error) {
     runtime.lastError = error instanceof Error ? error : new Error(String(error));
     await logOnce(
       session,
-      "coherence-init-failed",
-      `coherence unavailable; hooks will fail open: ${runtime.lastError.message}`,
+      "lore-init-failed",
+      `lore unavailable; hooks will fail open: ${runtime.lastError.message}`,
     );
     return runtime;
   }
@@ -432,14 +432,14 @@ async function maybeProcessDeferredExtractions(session, activeRuntime, repositor
         retryDelayMinutes: deferredConfig.retryDelayMinutes,
       });
       if (result.failed > 0) {
-        await session.log(`coherence deferred extraction failed for ${result.failed} job(s)`, {
+        await session.log(`lore deferred extraction failed for ${result.failed} job(s)`, {
           ephemeral: true,
           level: "warning",
         });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await session.log(`coherence deferred extraction skipped: ${message}`, {
+      await session.log(`lore deferred extraction skipped: ${message}`, {
         ephemeral: true,
         level: "warning",
       });
@@ -475,13 +475,13 @@ async function maybeRunMaintenanceScheduler(session, activeRuntime, repository) 
         trigger: "session_start",
       });
       if (result.status === "failed") {
-        await session.log(`coherence maintenance failed (${result.failedCount} task failure(s))`, {
+        await session.log(`lore maintenance failed (${result.failedCount} task failure(s))`, {
           ephemeral: true,
           level: "warning",
         });
       } else if (result.status === "needs_attention") {
         await session.log(
-          `coherence maintenance found ${result.needsAttentionCount} task(s) needing attention`,
+          `lore maintenance found ${result.needsAttentionCount} task(s) needing attention`,
           {
             ephemeral: true,
             level: "warning",
@@ -490,7 +490,7 @@ async function maybeRunMaintenanceScheduler(session, activeRuntime, repository) 
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await session.log(`coherence maintenance skipped: ${message}`, {
+      await session.log(`lore maintenance skipped: ${message}`, {
         ephemeral: true,
         level: "warning",
       });
@@ -517,7 +517,7 @@ function maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, 
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await session.log(`coherence overlay hydration skipped: ${message}`, {
+      await session.log(`lore overlay hydration skipped: ${message}`, {
         ephemeral: true,
         level: "warning",
       });
@@ -542,8 +542,8 @@ const session = await joinSession({
       if (!hooksEnabled(activeRuntime.config)) {
         await logOnce(
           session,
-          "coherence-disabled",
-          `coherence hooks are disabled by default; create ${activeRuntime.config.configPath} with { "enabled": true }, or set COHERENCE_ENABLED=1 to enable`,
+          "lore-disabled",
+          `lore hooks are disabled by default; create ${activeRuntime.config.configPath} with { "enabled": true }, or set LORE_ENABLED=1 to enable`,
           "info",
         );
         return;
@@ -612,7 +612,7 @@ const session = await joinSession({
       const latencySnapshot = buildLatencyMetrics(activeRuntime.config);
       if (shouldEmitLatencyWarning(latencySnapshot.sessionStart)) {
         const warning = buildLatencyWarning(
-          "coherence onSessionStart",
+          "lore onSessionStart",
           durationMs,
           activeRuntime.config.latencyTargetsMs.sessionStartP95,
         );
@@ -729,7 +729,7 @@ const session = await joinSession({
       const latencySnapshot = buildLatencyMetrics(activeRuntime.config);
       if (shouldEmitLatencyWarning(latencySnapshot.userPromptSubmitted)) {
         const warning = buildLatencyWarning(
-          "coherence onUserPromptSubmitted",
+          "lore onUserPromptSubmitted",
           durationMs,
           activeRuntime.config.latencyTargetsMs.userPromptSubmittedP95,
         );
@@ -786,14 +786,14 @@ const session = await joinSession({
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await session.log(`coherence session-end extraction skipped: ${message}`, {
+        await session.log(`lore session-end extraction skipped: ${message}`, {
           ephemeral: true,
           level: "warning",
         });
       }
 
       if (input.reason === "error") {
-        await session.log("coherence observed session end with error", {
+        await session.log("lore observed session end with error", {
           ephemeral: true,
           level: "warning",
         });

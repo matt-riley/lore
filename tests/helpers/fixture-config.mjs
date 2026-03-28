@@ -24,7 +24,7 @@
 import path from "node:path";
 
 /**
- * Build the Lore/Coherence runtime config object for a given temp home path.
+ * Build the Lore/Lore runtime config object for a given temp home path.
  *
  * All path-derived fields are rooted under `home`.  Any keys supplied in
  * `overrides` are deep-merged on top of the defaults so callers only need to
@@ -33,7 +33,7 @@ import path from "node:path";
  * @param {string} home       - Absolute path to the temp Copilot home dir.
  * @param {object} [overrides] - Partial config to merge (shallow for top-level
  *                               keys, deep for nested objects like `paths`).
- * @returns {object} A complete config object suitable for new CoherenceDb(config).
+ * @returns {object} A complete config object suitable for new LoreDb(config).
  */
 export function buildFixtureConfig(home, overrides = {}) {
   const defaults = {
@@ -41,13 +41,13 @@ export function buildFixtureConfig(home, overrides = {}) {
     paths: {
       copilotHome: home,
       rawStorePath: path.join(home, "session-store.db"),
-      derivedStorePath: path.join(home, "coherence.db"),
-      backupDir: path.join(home, "backups", "coherence"),
+      derivedStorePath: path.join(home, "lore.db"),
+      backupDir: path.join(home, "backups", "lore"),
       instructionsPath: path.join(home, "copilot-instructions.md"),
       scopedInstructionsDir: path.join(home, "instructions"),
     },
     // Runtime-only — never read from file.
-    configPath: path.join(home, "coherence.json"),
+    configPath: path.join(home, "lore.json"),
     budgets: {
       procedural: 220,
       semantic: 420,
@@ -110,7 +110,7 @@ export function buildFixtureConfig(home, overrides = {}) {
       proposalGeneration: false,
       generatedArtifactIntegrity: false,
       overlayAutoHydration: false,
-      coherenceDoctor: false,
+      loreDoctor: false,
       reviewGate: false,
       hybridRetrieval: false,
     },

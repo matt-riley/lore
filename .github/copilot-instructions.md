@@ -50,24 +50,23 @@ There is currently no lint script in `package.json`. CI enforces schema validati
 
 - Lore has two SQLite-backed data sources:
   - `session-store.db` is the raw Copilot CLI store and is read-only from Lore's perspective
-  - `coherence.db` is Lore's derived store and is where retained memories, episode digests, day summaries, backlog items, and diagnostics live
+  - `lore.db` is Lore's derived store and is where retained memories, episode digests, day summaries, backlog items, and diagnostics live
 - `lib/db.mjs` owns the derived schema, migrations, and query helpers.
 - `browser/server.mjs` reads directly from the derived tables (`semantic_memory`, `episode_digest`, `day_summary`, `improvement_backlog`) and serves a localhost-only read-only dashboard.
 
 ### Config and rollout model
 
 - `lib/config.mjs` is the runtime source of truth for defaults and env overrides.
-- `schemas/coherence.schema.json` is the editor/user-facing schema for `coherence.json`.
+- `schemas/lore.schema.json` is the editor/user-facing schema for `lore.json`.
 - `scripts/validate-config-schema.mjs` compares `USER_CONFIG_DEFAULTS` in `lib/config.mjs` against the schema at leaf-property depth. If you add or rename config keys, update both files together.
 - Experimental behavior is gated in `lib/rollout-flags.mjs`, and the public tool surface is assembled in `lib/memory-tools.mjs`.
 
 ## Key conventions
 
-### Lore is the product name; `coherence` is still the internal identifier
+### Lore naming is fully aligned
 
-- Tool names, config keys, DB filenames, and extension install path still use the `coherence_*` / `coherence.*` naming family.
-- User-facing docs and repo branding use **Lore**.
-- Do not rename internal identifiers casually; the repo is intentionally in a mixed state for compatibility.
+- Use the `lore_*` / `lore.*` naming family consistently for tools, config keys, DB filenames, and extension paths.
+- Use **Lore** for user-facing product naming and documentation.
 
 ### When changing tools or rollout-gated features, update the whole contract
 

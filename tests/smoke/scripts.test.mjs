@@ -114,7 +114,7 @@ describe("dev-install --dry-run", () => {
   test("reports 'Nothing to do' when symlink already points to repo root", () => {
     const tempHome = makeTempDir();
     const extensionsDir = path.join(tempHome, "extensions");
-    const linkTarget = path.join(extensionsDir, "coherence");
+    const linkTarget = path.join(extensionsDir, "lore");
     try {
       mkdirSync(extensionsDir, { recursive: true });
       symlinkSync(REPO_ROOT, linkTarget, "dir");
@@ -133,7 +133,7 @@ describe("dev-install --dry-run", () => {
   test("exits 1 and prints ERROR when target exists as a non-symlink directory", () => {
     const tempHome = makeTempDir();
     const extensionsDir = path.join(tempHome, "extensions");
-    const linkTarget = path.join(extensionsDir, "coherence");
+    const linkTarget = path.join(extensionsDir, "lore");
     try {
       // Create a real directory where the symlink would go — should be rejected.
       mkdirSync(linkTarget, { recursive: true });
@@ -171,7 +171,7 @@ describe("run-maintenance --help", () => {
       `Expected '--dry-run' in stdout.\nActual: ${result.stdout}`,
     );
     assert.ok(
-      result.stdout.includes("COHERENCE_COPILOT_HOME"),
+      result.stdout.includes("LORE_COPILOT_HOME"),
       `Expected env var docs in stdout.\nActual: ${result.stdout}`,
     );
   });
@@ -182,7 +182,7 @@ describe("run-maintenance --recommended-schedule", () => {
     const tempHome = makeTempDir();
     try {
       const result = run("run-maintenance.mjs", ["--recommended-schedule"], {
-        env: { COHERENCE_COPILOT_HOME: tempHome },
+        env: { LORE_COPILOT_HOME: tempHome },
       });
       assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
       assert.ok(
@@ -212,7 +212,7 @@ describe("run-maintenance --dry-run", () => {
       const result = run(
         "run-maintenance.mjs",
         ["--dry-run", "--raw-store-path", rawStorePath],
-        { env: { COHERENCE_COPILOT_HOME: tempHome } },
+        { env: { LORE_COPILOT_HOME: tempHome } },
       );
       assert.strictEqual(
         result.status,
@@ -242,7 +242,7 @@ describe("run-maintenance --status", () => {
       const result = run(
         "run-maintenance.mjs",
         ["--status", "--raw-store-path", rawStorePath],
-        { env: { COHERENCE_COPILOT_HOME: tempHome } },
+        { env: { LORE_COPILOT_HOME: tempHome } },
       );
       assert.strictEqual(
         result.status,

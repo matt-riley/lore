@@ -1,5 +1,5 @@
 {
-  "$schema": "../../schemas/coherence.schema.json",
+  "$schema": "../../schemas/lore.schema.json",
   "enabled": true,
   "rollout": {
     "memoryOperations": true,

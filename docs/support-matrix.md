@@ -36,8 +36,8 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `coherence_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. |
-| `coherence_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope and category. |
+| `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. |
+| `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope and category. |
 | `memory_search` | 🟢 Supported | Keyword + semantic search across the derived store. |
 | `memory_save` | 🟢 Supported | Explicit save for freeform notes and decisions. |
 | `memory_forget` | 🟢 Supported | Soft-deletes a memory by ID. |
@@ -54,7 +54,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `coherence_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Requires `memoryOperations` rollout flag. |
+| `lore_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Requires `memoryOperations` rollout flag. |
 
 ### Scope control
 
@@ -95,7 +95,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_doctor_report` | 🟡 Experimental | Generates a structured health report. Requires `coherenceDoctor` rollout flag. |
+| `memory_doctor_report` | 🟡 Experimental | Generates a structured health report. Requires `loreDoctor` rollout flag. |
 | `memory_review_gate` | 🟡 Experimental | Lists pending review-gated proposals and allows approval/rejection. Requires `reviewGate` rollout flag. |
 | `memory_capability_inventory` | 🟡 Experimental | Enumerates all registered capabilities with rollout state. |
 
@@ -120,7 +120,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Script | Status | Notes |
 |---|---|---|
-| `scripts/validate-config-schema.mjs` | 🟢 Supported | Validates `coherence.json` against the schema. Safe to run at any time. |
+| `scripts/validate-config-schema.mjs` | 🟢 Supported | Validates `lore.json` against the schema. Safe to run at any time. |
 | `scripts/run-maintenance.mjs` | 🟡 Experimental | Runs maintenance sweeps outside of session context. Use `maintenance_schedule_run` tool for in-session triggering. |
 | `scripts/run-browser.mjs` | 🟡 Experimental | Starts the local browser dashboard. Localhost only. |
 
@@ -128,11 +128,11 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 ## Rollout flags
 
-Experimental surfaces are controlled by rollout flags in the `rollout` section of `coherence.json`. The table below maps each flag to its governed surfaces.
+Experimental surfaces are controlled by rollout flags in the `rollout` section of `lore.json`. The table below maps each flag to its governed surfaces.
 
 | Flag | Default | Governed surfaces |
 |---|---|---|
-| `memoryOperations` | `true` | `coherence_recall`, `coherence_retain`, `coherence_reflect`, workstream overlays, temporal normalisation, retention sanitisation |
+| `memoryOperations` | `true` | `lore_recall`, `lore_retain`, `lore_reflect`, workstream overlays, temporal normalisation, retention sanitisation |
 | `workstreamOverlays` | `true` (requires `memoryOperations`) | Workstream overlay injection at prompt time |
 | `temporalQueryNormalization` | `true` (requires `memoryOperations`) | Temporal phrase normalisation in queries |
 | `retentionSanitization` | `true` (requires `memoryOperations`) | Anti-feedback-loop guards on transcript-based retention |
@@ -143,5 +143,5 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | `evolutionLedger` | `true` | `memory_improvement_backlog`, `memory_evolution_ledger`, proposal generation, integrity checks, doctor, review gate |
 | `proposalGeneration` | `false` (requires `evolutionLedger`) | AI-assisted improvement proposal generation |
 | `generatedArtifactIntegrity` | `true` (requires `evolutionLedger`) | Integrity checks on generated manifests and caches |
-| `coherenceDoctor` | `false` (requires `evolutionLedger`) | `memory_doctor_report` |
+| `loreDoctor` | `false` (requires `evolutionLedger`) | `memory_doctor_report` |
 | `reviewGate` | `false` (requires `evolutionLedger`) | `memory_review_gate` |

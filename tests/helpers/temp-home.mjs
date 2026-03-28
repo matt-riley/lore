@@ -38,10 +38,10 @@ import path from "node:path";
 export function buildHomePaths(home) {
   return {
     home,
-    configFile: path.join(home, "coherence.json"),
-    derivedStore: path.join(home, "coherence.db"),
+    configFile: path.join(home, "lore.json"),
+    derivedStore: path.join(home, "lore.db"),
     rawStore: path.join(home, "session-store.db"),
-    backupDir: path.join(home, "backups", "coherence"),
+    backupDir: path.join(home, "backups", "lore"),
     instructionsFile: path.join(home, "copilot-instructions.md"),
     scopedInstructionsDir: path.join(home, "instructions"),
     extensionsDir: path.join(home, "extensions"),
@@ -56,7 +56,7 @@ export function buildHomePaths(home) {
  * initialization do not fail on missing paths.
  *
  * An optional `configOverrides` object is merged (shallowly) into the default
- * coherence.json written to the home.  Pass `{ enabled: true }` to simulate a
+ * lore.json written to the home.  Pass `{ enabled: true }` to simulate a
  * user who has opted-in, for example.
  *
  * @param {{ configOverrides?: object }} [options]
@@ -72,8 +72,8 @@ export function createTempHome({ configOverrides = {} } = {}) {
     mkdirSync(dir, { recursive: true });
   }
 
-  // Minimal coherence.json.  Default to enabled:false so tests are opt-in
-  // about turning coherence on rather than accidentally triggering real writes.
+  // Minimal lore.json.  Default to enabled:false so tests are opt-in
+  // about turning lore on rather than accidentally triggering real writes.
   const configContent = { enabled: false, ...configOverrides };
   writeFileSync(p.configFile, JSON.stringify(configContent, null, 2), "utf8");
 

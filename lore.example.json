@@ -1,0 +1,4 @@
+{
+  "$schema": "./schemas/lore.schema.json",
+  "enabled": true
+}

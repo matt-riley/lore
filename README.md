@@ -1,0 +1,166 @@
+# Lore 🧠✨
+
+**Lore** is a local-first memory and continuity extension for the GitHub Copilot CLI.  
+It remembers things across sessions so *you* don't have to.
+
+---
+
+## What it does
+
+Every time you work with Copilot, you build up context — decisions made, patterns discovered, blockers hit, things learned. Normally that context evaporates the moment a session ends. Lore changes that.
+
+Lore quietly captures what matters from your sessions and surfaces it again when it's relevant. Ask Copilot something tomorrow and it'll know what you were working on yesterday. Ask it about a pattern you keep running into and it'll have examples. Ask about a decision from three weeks ago and it might just have the answer.
+
+It's your project's lore — and now Copilot gets to read it.
+
+**Zero runtime dependencies.** Lore is plain ESM built on Node's built-in `node:sqlite` module. No `npm install`, no bundler, no surprises.
+
+---
+
+## Requirements
+
+- **Node 22.5.0 or later** — Lore uses the built-in `node:sqlite` module.
+- **GitHub Copilot CLI** with extension directory support (`~/.copilot/extensions/`).
+- macOS or Linux. Windows is not supported (WSL2 may work but is untested).
+
+---
+
+## Quick start
+
+### 1. Install
+
+Clone this repo somewhere convenient, then run the install script:
+
+```sh
+git clone https://github.com/mattriley/lore.git ~/dev/lore
+cd ~/dev/lore
+node scripts/dev-install.mjs
+```
+
+This creates a symlink at `~/.copilot/extensions/coherence` → this repo root.  
+Restart your Copilot CLI session and Lore will initialise on the next `onSessionStart`.
+
+Not sure yet? Preview what would happen first:
+
+```sh
+node scripts/dev-install.mjs --dry-run
+```
+
+### 2. Configure
+
+Copy the example config to your Copilot home and enable Lore:
+
+```sh
+cp coherence.example.json ~/.copilot/coherence.json
+```
+
+At minimum, set `"enabled": true` in `~/.copilot/coherence.json`. Everything else has sensible defaults.
+
+### 3. Validate
+
+Check that your config is in sync with the schema:
+
+```sh
+node scripts/validate-config-schema.mjs
+# or: npm run validate-schema
+```
+
+---
+
+## Capabilities at a glance
+
+Lore works across two rings:
+
+### Supported core 🟢
+
+Stable, tested surfaces covered by the compatibility promise in [`docs/compatibility.md`](docs/compatibility.md).
+
+- **Session hooks** — `onSessionStart`, `onUserPromptSubmitted`, `onSessionEnd` fire automatically.
+- **Core memory verbs** — `coherence_recall`, `coherence_retain`, `memory_search`, `memory_save`, `memory_forget`.
+- **Status and diagnostics** — `memory_status`, `memory_explain`, `memory_validate`.
+
+### Experimental ring 🟡
+
+Functional and used daily, but interfaces are still evolving. See [`docs/support-matrix.md`](docs/support-matrix.md) for the full list.
+
+---
+
+## Repository layout
+
+```
+extension.mjs          ← extension entrypoint (Copilot CLI loads this)
+lib/                   ← core implementation modules
+browser/               ← local read-only dashboard (experimental)
+scripts/               ← dev tooling and maintenance scripts
+  dev-install.mjs      ← symlink installer for local dev
+  validate-config-schema.mjs
+  run-maintenance.mjs
+  run-browser.mjs
+schemas/
+  coherence.schema.json ← config schema (source of truth)
+docs/
+  support-matrix.md
+  compatibility.md
+  coherence-evolution-plan.md
+```
+
+The internal identifier prefix is `coherence` (module names, tool names, config keys, DB name). The product name is **Lore**. Identifier migration will happen in a later release slice.
+
+---
+
+## Privacy and security
+
+Lore stores your session context **locally** in `~/.copilot/coherence.db`. Nothing is sent to any remote service. The optional browser UI binds to `localhost` only and is read-only.
+
+For the full picture — what's stored, browser surface risks, file permission recommendations, and how to report vulnerabilities — see [SECURITY.md](SECURITY.md).
+
+---
+
+## Scripts
+
+All scripts can be run directly with Node or via the `npm run` shortcuts:
+
+| npm script | Direct | What it does |
+|---|---|---|
+| `npm run dev-install` | `node scripts/dev-install.mjs` | Symlink-installs this repo into `~/.copilot/extensions/coherence` |
+| `npm run validate-schema` | `node scripts/validate-config-schema.mjs` | Validates `coherence.json` config against `schemas/coherence.schema.json` |
+| `npm run maintenance` | `node scripts/run-maintenance.mjs --status` | Show maintenance scheduler status |
+| `npm run browser` | `node scripts/run-browser.mjs` | Start the local read-only browser dashboard |
+
+---
+
+## Testing
+
+Lore's test suite uses the Node built-in test runner — no extra packages needed.
+
+```sh
+npm test                # all tests (unit + smoke)
+npm run test:smoke      # smoke tests only (script integration)
+```
+
+Or run individual test files directly:
+
+```sh
+node --test tests/unit/query-normalizer.test.mjs
+node --test tests/smoke/harness.test.mjs
+```
+
+> **FTS5 note**: some tests check full-text search and will be skipped if your local Node build doesn't include FTS5 in its SQLite. The Copilot CLI runtime does have it — so tests that pass locally will also pass in the extension context.
+
+---
+
+## Docs
+
+- [Support matrix](docs/support-matrix.md) — supported vs experimental surfaces
+- [Compatibility](docs/compatibility.md) — minimum versions, platform support, and privacy posture
+- [Evolution plan](docs/coherence-evolution-plan.md) — where things are heading
+- [Changelog](CHANGELOG.md) — what's changed across releases
+
+---
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, style, and PR guidance.  
+Lore uses conventional PR titles and release-please for automated changelog + version management.  
+For questions or bug reports, see [SUPPORT.md](SUPPORT.md).  
+Security issues go via [GitHub Security Advisories](../../security/advisories/new) — not public issues.

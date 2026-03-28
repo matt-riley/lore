@@ -24,6 +24,8 @@
     "ambientPersonaMode": true,
     "autoWriteImprovementGoals": true,
     "memoryOperations": true,
+    "memoryDomains": true,
+    "refreshableObservations": true,
     "workstreamOverlays": true,
     "temporalQueryNormalization": true,
     "retentionSanitization": true,

@@ -331,6 +331,14 @@
           "type": "boolean",
           "default": true
         },
+        "memoryDomains": {
+          "type": "boolean",
+          "default": false
+        },
+        "refreshableObservations": {
+          "type": "boolean",
+          "default": false
+        },
         "workstreamOverlays": {
           "type": "boolean",
           "default": true

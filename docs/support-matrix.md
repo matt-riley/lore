@@ -37,7 +37,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | Tool | Status | Notes |
 |---|---|---|
 | `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. |
-| `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope and category. |
+| `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope and category. Domain association is experimental behind `memoryDomains`. |
 | `lore_onboard` | 🟢 Supported | Captures the user name plus Lore's assistant/style profile in one step. |
 | `memory_search` | 🟢 Supported | Keyword + semantic search across the derived store. |
 | `memory_save` | 🟢 Supported | Explicit save for freeform notes and decisions. |
@@ -55,7 +55,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Requires `memoryOperations` rollout flag. |
+| `lore_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Optional persisted observations require `refreshableObservations`. |
 
 ### Scope control
 
@@ -134,6 +134,8 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | Flag | Default | Governed surfaces |
 |---|---|---|
 | `memoryOperations` | `true` | `lore_recall`, `lore_retain`, `lore_reflect`, workstream overlays, temporal normalisation, retention sanitisation |
+| `memoryDomains` | `false` (requires `memoryOperations`) | Domain-aware semantic retention and domain metadata persisted alongside memories |
+| `refreshableObservations` | `false` (requires `memoryDomains`) | Persisted observations produced from `lore_reflect` |
 | `workstreamOverlays` | `true` (requires `memoryOperations`) | Workstream overlay injection at prompt time |
 | `temporalQueryNormalization` | `true` (requires `memoryOperations`) | Temporal phrase normalisation in queries |
 | `retentionSanitization` | `true` (requires `memoryOperations`) | Anti-feedback-loop guards on transcript-based retention |
@@ -146,6 +148,17 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | `generatedArtifactIntegrity` | `true` (requires `evolutionLedger`) | Integrity checks on generated manifests and caches |
 | `loreDoctor` | `false` (requires `evolutionLedger`) | `memory_doctor_report` |
 | `reviewGate` | `false` (requires `evolutionLedger`) | `memory_review_gate` |
+
+---
+
+## Structured status values
+
+The new structured Wave 1 entities use explicit status fields:
+
+- `memory_domain.status` → `active`, `archived`
+- `refreshable_observation.status` → `current`, `stale`, `error`
+
+These are persisted rows, so new values should be treated as contract changes and documented here when they expand.
 
 ---
 

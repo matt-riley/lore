@@ -50,7 +50,7 @@ Node 22 is the current LTS line. If you're on Node 20 or earlier, upgrade before
 | Scenario | Compatibility |
 |---|---|
 | Fresh install (no prior DB) | ✅ Fully supported. Lore creates the DB and runs all schema migrations on first `onSessionStart`. |
-| Existing DB from any prior Lore version | ✅ Supported. The migration system applies additive schema changes. No data is destroyed during migration. |
+| Existing DB from any prior Lore version | ✅ Supported. The migration system applies additive schema changes such as `domain_key`, `memory_domain`, and `refreshable_observation`. No data is destroyed during migration. |
 | DB created by a significantly older version (schema version unknown) | ⚠️ Run `memory_validate` first. If validation reports schema drift, use `memory_doctor_report` or the `maintenance_schedule_run` tool (dry-run mode) to assess before proceeding. |
 
 ### `lore.json` (config)
@@ -58,7 +58,7 @@ Node 22 is the current LTS line. If you're on Node 20 or earlier, upgrade before
 | Scenario | Compatibility |
 |---|---|
 | Fresh install (no prior config) | ✅ All keys have defaults. A minimal config with only `"enabled": true` is sufficient to start. |
-| Existing config from prior versions | ✅ New keys are additive. Unknown keys are rejected by schema validation, so `memory_validate` will surface any stale keys from old configs. |
+| Existing config from prior versions | ✅ New keys are additive, including rollout flags like `memoryDomains` and `refreshableObservations`. Unknown keys are rejected by schema validation, so `memory_validate` will surface any stale keys from old configs. |
 | Config validated against schema | ✅ `scripts/validate-config-schema.mjs` validates `lore.json` against `schemas/lore.schema.json`. Run it after any manual config edits. |
 
 ### `session-store.db` (raw Copilot CLI store — read-only for Lore)

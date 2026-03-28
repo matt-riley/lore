@@ -19,7 +19,9 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  readMemoryDomainsEnabled,
   readMemoryOperationsEnabled,
+  readRefreshableObservationsEnabled,
   readWorkstreamOverlaysEnabled,
   readTemporalQueryNormalizationEnabled,
   readRetentionSanitizationEnabled,
@@ -46,6 +48,8 @@ function cfg(rollout = {}) {
 /** All flags on */
 const ALL_ON = cfg({
   memoryOperations: true,
+  memoryDomains: true,
+  refreshableObservations: true,
   workstreamOverlays: true,
   temporalQueryNormalization: true,
   retentionSanitization: true,
@@ -63,6 +67,8 @@ const ALL_ON = cfg({
 /** All flags off */
 const ALL_OFF = cfg({
   memoryOperations: false,
+  memoryDomains: false,
+  refreshableObservations: false,
   workstreamOverlays: false,
   temporalQueryNormalization: false,
   retentionSanitization: false,
@@ -98,6 +104,42 @@ describe("readMemoryOperationsEnabled", () => {
   test("returns true for null/undefined config (resilient)", () => {
     assert.strictEqual(readMemoryOperationsEnabled(null), true);
     assert.strictEqual(readMemoryOperationsEnabled(undefined), true);
+  });
+});
+
+describe("readMemoryDomainsEnabled — cascading", () => {
+  test("returns true when both memoryOperations and memoryDomains are true", () => {
+    assert.strictEqual(readMemoryDomainsEnabled(ALL_ON), true);
+  });
+
+  test("returns false when memoryOperations is false", () => {
+    const c = cfg({ memoryOperations: false, memoryDomains: true });
+    assert.strictEqual(readMemoryDomainsEnabled(c), false);
+  });
+
+  test("falls back to false when memoryDomains is absent", () => {
+    const c = cfg({ memoryOperations: true });
+    assert.strictEqual(readMemoryDomainsEnabled(c), false);
+  });
+});
+
+describe("readRefreshableObservationsEnabled — cascading", () => {
+  test("returns true when memoryOperations, memoryDomains, and refreshableObservations are true", () => {
+    assert.strictEqual(readRefreshableObservationsEnabled(ALL_ON), true);
+  });
+
+  test("returns false when memoryDomains is false", () => {
+    const c = cfg({
+      memoryOperations: true,
+      memoryDomains: false,
+      refreshableObservations: true,
+    });
+    assert.strictEqual(readRefreshableObservationsEnabled(c), false);
+  });
+
+  test("falls back to false when refreshableObservations is absent", () => {
+    const c = cfg({ memoryOperations: true, memoryDomains: true });
+    assert.strictEqual(readRefreshableObservationsEnabled(c), false);
   });
 });
 

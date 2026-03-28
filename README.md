@@ -66,7 +66,7 @@ Copy the example config to your Copilot home:
 cp lore.example.json ~/.copilot/lore.json
 ```
 
-The checked-in `lore.example.json` is the **all-features-on** starting point: Lore itself is enabled, the maintenance scheduler is on, and the current experimental rollout flags — including `directives` — are enabled. If you want a quieter setup, copy it first and then turn individual surfaces back down in `~/.copilot/lore.json`.
+The checked-in `lore.example.json` is the **all-features-on** starting point: Lore itself is enabled, the maintenance scheduler is on, and the current experimental rollout flags — including `directives`, `memoryDomains`, and `refreshableObservations` — are enabled. If you want a quieter setup, copy it first and then turn individual surfaces back down in `~/.copilot/lore.json`.
 
 ### 3. Validate
 
@@ -105,6 +105,7 @@ Stable, tested surfaces covered by the compatibility promise in [`docs/compatibi
 
 - **Session hooks** — `onSessionStart`, `onUserPromptSubmitted`, `onSessionEnd` fire automatically.
 - **Core memory verbs** — `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`.
+- **Structured memory shaping** — optional memory domains on `lore_retain` and refreshable observations from `lore_reflect` when their rollout flags are enabled.
 - **Status and diagnostics** — `memory_status`, `memory_explain`, `memory_validate`.
 
 ### Experimental ring 🟡

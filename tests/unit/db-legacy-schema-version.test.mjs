@@ -17,7 +17,7 @@ const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   : false;
 
 describe("LoreDb legacy schema version compatibility", () => {
-  test("adopts coherence_schema_version into lore_schema_version", () => {
+  test("adopts coherence_schema_version into lore_schema_version", { skip: SKIP_NO_FTS5 }, () => {
     const tempHome = makeTempDir();
     const dbPath = path.join(tempHome, "coherence.db");
     const backupDir = path.join(tempHome, "backups");
@@ -42,15 +42,19 @@ describe("LoreDb legacy schema version compatibility", () => {
       });
       loreDb.initialize();
 
-      assert.equal(loreDb.getCurrentVersion(), 13);
+      assert.equal(loreDb.getCurrentVersion(), 14);
       const adopted = loreDb.db
         .prepare("SELECT MAX(version) AS version FROM lore_schema_version")
         .get();
-      assert.equal(adopted?.version, 13);
+      assert.equal(adopted?.version, 14);
       const activityState = loreDb.db
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'lore_activity_state'")
         .get();
       assert.equal(activityState?.name, "lore_activity_state");
+      const memoryDomain = loreDb.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_domain'")
+        .get();
+      assert.equal(memoryDomain?.name, "memory_domain");
 
       loreDb.close();
     } finally {
@@ -70,6 +74,7 @@ describe("LoreDb legacy schema version compatibility", () => {
           phase5: 0,
           trajectory: 0,
           intent: 0,
+          domains: 0,
         };
       }
 
@@ -86,6 +91,11 @@ describe("LoreDb legacy schema version compatibility", () => {
       applyIntentJournalMigration() {
         this.calls.intent += 1;
         super.applyIntentJournalMigration();
+      }
+
+      applyMemoryDomainObservationMigration() {
+        this.calls.domains += 1;
+        super.applyMemoryDomainObservationMigration();
       }
     }
 
@@ -122,8 +132,9 @@ describe("LoreDb legacy schema version compatibility", () => {
         phase5: 1,
         trajectory: 1,
         intent: 1,
+        domains: 1,
       });
-      assert.equal(loreDb.getCurrentVersion(), 13);
+      assert.equal(loreDb.getCurrentVersion(), 14);
 
       loreDb.close();
     } finally {

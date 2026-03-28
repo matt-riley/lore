@@ -1,0 +1,35 @@
+name: Conventional PR title
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate:
+    if: github.actor != 'renovate[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate PR title
+        uses: amannn/action-semantic-pull-request@ac7e3fc035c47465748bbcb1a822c1583cf79bbc
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            chore
+            docs
+            refactor
+            test
+            perf
+            ci
+            build
+            revert

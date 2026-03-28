@@ -1,0 +1,91 @@
+name: Validate workflows
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/*.yml"
+      - ".github/workflows/*.yaml"
+      - ".github/renovate.json"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/*.yml"
+      - ".github/workflows/*.yaml"
+      - ".github/renovate.json"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.x"
+
+      - name: Install validator dependencies
+        run: python -m pip install --disable-pip-version-check --quiet pyyaml
+
+      - name: Validate workflow YAML and action pinning
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+          import sys
+          import yaml
+
+          uses_sha = re.compile(r".+@[0-9a-f]{40}$")
+          bad = []
+          valid_input_types = {"string", "number", "boolean"}
+          files = sorted({
+              *pathlib.Path(".github/workflows").glob("*.yml"),
+              *pathlib.Path(".github/workflows").glob("*.yaml"),
+          })
+
+          for file in files:
+              try:
+                  data = yaml.safe_load(file.read_text())
+              except Exception as e:
+                  bad.append(f"{file}: invalid YAML ({e})")
+                  continue
+
+              root = data or {}
+              trigger_block = root.get("on")
+              if trigger_block is None and True in root:
+                  trigger_block = root.get(True)
+
+              if isinstance(trigger_block, dict) and "workflow_call" in trigger_block:
+                  call = trigger_block.get("workflow_call") or {}
+                  if not isinstance(call, dict):
+                      bad.append(f"{file}: missing on.workflow_call")
+                  else:
+                      inputs = call.get("inputs", {})
+                      if not isinstance(inputs, dict):
+                          bad.append(f"{file}: on.workflow_call.inputs must be a mapping")
+                      else:
+                          for name, spec in inputs.items():
+                              typ = (spec or {}).get("type")
+                              if typ not in valid_input_types:
+                                  bad.append(f"{file}: input '{name}' has invalid type '{typ}'")
+
+              jobs = (data or {}).get("jobs", {})
+              for job_name, job in jobs.items():
+                  for idx, step in enumerate(job.get("steps", []), start=1):
+                      uses = step.get("uses")
+                      if not uses or uses.startswith("./") or uses.startswith("docker://"):
+                          continue
+                      if not uses_sha.match(uses):
+                          bad.append(f"{file}:{job_name}:step{idx}: action is not SHA-pinned -> {uses}")
+
+          if bad:
+              print("\n".join(bad), file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Validated {len(files)} workflow files.")
+          PY

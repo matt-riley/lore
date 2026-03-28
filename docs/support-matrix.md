@@ -38,6 +38,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 |---|---|---|
 | `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. |
 | `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope and category. |
+| `lore_onboard` | 🟢 Supported | Captures the user name plus Lore's assistant/style profile in one step. |
 | `memory_search` | 🟢 Supported | Keyword + semantic search across the derived store. |
 | `memory_save` | 🟢 Supported | Explicit save for freeform notes and decisions. |
 | `memory_forget` | 🟢 Supported | Soft-deletes a memory by ID. |

@@ -23,6 +23,7 @@ import {
   readWorkstreamOverlaysEnabled,
   readTemporalQueryNormalizationEnabled,
   readRetentionSanitizationEnabled,
+  readDirectivesEnabled,
   readTraceRecorderEnabled,
   readEvolutionLedgerEnabled,
   readProposalGenerationEnabled,
@@ -48,6 +49,7 @@ const ALL_ON = cfg({
   workstreamOverlays: true,
   temporalQueryNormalization: true,
   retentionSanitization: true,
+  directives: true,
   traceRecorder: true,
   evolutionLedger: true,
   proposalGeneration: true,
@@ -64,6 +66,7 @@ const ALL_OFF = cfg({
   workstreamOverlays: false,
   temporalQueryNormalization: false,
   retentionSanitization: false,
+  directives: false,
   traceRecorder: false,
   evolutionLedger: false,
   proposalGeneration: false,
@@ -150,6 +153,26 @@ describe("readRetentionSanitizationEnabled — cascading", () => {
   test("returns false when memoryOperations is off", () => {
     const c = cfg({ memoryOperations: false, retentionSanitization: true });
     assert.strictEqual(readRetentionSanitizationEnabled(c), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readDirectivesEnabled — requires memoryOperations
+// ---------------------------------------------------------------------------
+
+describe("readDirectivesEnabled — cascading", () => {
+  test("returns true when both flags are on", () => {
+    assert.strictEqual(readDirectivesEnabled(ALL_ON), true);
+  });
+
+  test("returns false when memoryOperations is off", () => {
+    const c = cfg({ memoryOperations: false, directives: true });
+    assert.strictEqual(readDirectivesEnabled(c), false);
+  });
+
+  test("falls back to true when directives is absent and memoryOperations is on", () => {
+    const c = cfg({ memoryOperations: true });
+    assert.strictEqual(readDirectivesEnabled(c), true);
   });
 });
 

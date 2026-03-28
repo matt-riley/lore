@@ -105,6 +105,7 @@ export function buildFixtureConfig(home, overrides = {}) {
       workstreamOverlays: false,
       temporalQueryNormalization: false,
       retentionSanitization: false,
+      directives: false,
       traceRecorder: false,
       evolutionLedger: false,
       proposalGeneration: false,
@@ -144,6 +145,7 @@ export function enabledConfig(home) {
       memoryOperations: true,
       workstreamOverlays: true,
       temporalQueryNormalization: true,
+      directives: true,
       hybridRetrieval: true,
     },
   });

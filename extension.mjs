@@ -19,6 +19,7 @@ import {
 } from "./lib/workspace-reader.mjs";
 import { assembleMemoryCapsule, detectPromptContextNeed } from "./lib/capsule-assembler.mjs";
 import { hydrateWorkstreamOverlay } from "./lib/overlay-hydrator.mjs";
+import { seedOnboardingMemories } from "./lib/onboarding.mjs";
 import { readOverlayAutoHydrationEnabled } from "./lib/rollout-flags.mjs";
 
 let lastKnownCwd = process.cwd();
@@ -547,6 +548,19 @@ const session = await joinSession({
           "info",
         );
         return;
+      }
+
+      const onboardingSeed = activeRuntime.db
+        ? seedOnboardingMemories({
+          db: activeRuntime.db,
+          sessionId: invocation.sessionId,
+        })
+        : { insertedCount: 0, after: null };
+      if (onboardingSeed.insertedCount > 0) {
+        await session.log(
+          "lore onboarding bootstrapped a default personality profile",
+          { ephemeral: true },
+        );
       }
 
       await maybeRunMaintenanceScheduler(session, activeRuntime, repository);

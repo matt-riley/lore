@@ -1,4 +1,40 @@
 {
   "$schema": "./schemas/lore.schema.json",
-  "enabled": true
+  "enabled": true,
+  "deferredExtraction": {
+    "enabled": true,
+    "autoEnqueueOnSessionEnd": true,
+    "autoProcessOnSessionStart": true,
+    "processCurrentRepositoryOnly": true
+  },
+  "maintenanceScheduler": {
+    "enabled": true,
+    "autoRunOnSessionStart": true,
+    "tasks": {
+      "deferredExtraction": true,
+      "validationCorpus": true,
+      "replayCorpus": true,
+      "backlogReview": true,
+      "traceCompaction": true,
+      "indexUpkeep": true,
+      "doctorSnapshot": true
+    }
+  },
+  "rollout": {
+    "ambientPersonaMode": true,
+    "autoWriteImprovementGoals": true,
+    "memoryOperations": true,
+    "workstreamOverlays": true,
+    "temporalQueryNormalization": true,
+    "retentionSanitization": true,
+    "directives": true,
+    "traceRecorder": true,
+    "evolutionLedger": true,
+    "proposalGeneration": true,
+    "generatedArtifactIntegrity": true,
+    "overlayAutoHydration": true,
+    "loreDoctor": true,
+    "reviewGate": true,
+    "hybridRetrieval": true
+  }
 }

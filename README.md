@@ -60,13 +60,13 @@ node scripts/dev-install.mjs --dry-run
 
 ### 2. Configure
 
-Copy the example config to your Copilot home and enable Lore:
+Copy the example config to your Copilot home:
 
 ```sh
 cp lore.example.json ~/.copilot/lore.json
 ```
 
-At minimum, set `"enabled": true` in `~/.copilot/lore.json`. Everything else has sensible defaults.
+The checked-in `lore.example.json` is the **all-features-on** starting point: Lore itself is enabled, the maintenance scheduler is on, and the current experimental rollout flags — including `directives` — are enabled. If you want a quieter setup, copy it first and then turn individual surfaces back down in `~/.copilot/lore.json`.
 
 ### 3. Validate
 
@@ -76,6 +76,22 @@ Check that your config is in sync with the schema:
 node scripts/validate-config-schema.mjs
 # or: npm run validate-schema
 ```
+
+### 4. First-run onboarding
+
+Once Lore is enabled, it now bootstraps a small profile on the first session:
+
+- Lore seeds a default teammate-like personality profile.
+- Lore leaves assistant naming for real onboarding instead of hardcoding one at startup.
+- Lore asks what name it should use for you when there is a natural moment.
+- If Lore still needs its own name, the nudge is intentionally playful: `If you were human, what would you like your name to be?`
+- Once Lore picks a name, it should tell the user directly so the user can actually use it.
+
+If the assistant needs to lock in or update that profile immediately, use `lore_onboard`.
+
+- If `userName` is supplied, Lore can complete onboarding in one shot.
+- If `assistantName` is omitted, Lore chooses one during onboarding and persists it then.
+- If Lore already knows your preferred name, `lore_onboard` can finish the remaining pieces without asking for it again.
 
 ---
 
@@ -88,7 +104,7 @@ Lore works across two rings:
 Stable, tested surfaces covered by the compatibility promise in [`docs/compatibility.md`](docs/compatibility.md).
 
 - **Session hooks** — `onSessionStart`, `onUserPromptSubmitted`, `onSessionEnd` fire automatically.
-- **Core memory verbs** — `lore_recall`, `lore_retain`, `memory_search`, `memory_save`, `memory_forget`.
+- **Core memory verbs** — `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`.
 - **Status and diagnostics** — `memory_status`, `memory_explain`, `memory_validate`.
 
 ### Experimental ring 🟡

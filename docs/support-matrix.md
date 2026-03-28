@@ -145,3 +145,27 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | `generatedArtifactIntegrity` | `true` (requires `evolutionLedger`) | Integrity checks on generated manifests and caches |
 | `loreDoctor` | `false` (requires `evolutionLedger`) | `memory_doctor_report` |
 | `reviewGate` | `false` (requires `evolutionLedger`) | `memory_review_gate` |
+
+---
+
+## When the maintenance / "healing" loop runs
+
+Lore's maintenance loop is intentionally bounded. It is about **runtime/data health and improvement artifacts**, not static source-code repair.
+
+It auto-runs on session start only when all of these are true:
+
+- `maintenanceScheduler.enabled: true`
+- `maintenanceScheduler.autoRunOnSessionStart: true`
+- Lore has an initialized runtime with both the derived DB and the raw session store open
+- The task is enabled and due under `maintenanceScheduler.tasks.*` plus its cadence settings
+
+Additional task gates:
+
+- On session start, Lore only auto-selects the `deferredExtraction` task; the broader maintenance set is for manual or scripted sweeps.
+- `deferredExtraction` also requires `deferredExtraction.enabled: true`, and on session start it additionally requires `deferredExtraction.autoProcessOnSessionStart: true`.
+- `doctorSnapshot` requires `rollout.loreDoctor: true`.
+- Proposal/integrity/review surfaces stay bounded by the `evolutionLedger`, `proposalGeneration`, `generatedArtifactIntegrity`, and `reviewGate` rollout flags.
+
+You can always inspect or force the loop manually with `maintenance_schedule_run` or `node scripts/run-maintenance.mjs`.
+
+What it **does not** currently do: statically inspect Lore's own source tree for logic mistakes like duplicated migration calls. Those still need tests, review, or future invariant checks.

@@ -6,6 +6,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.3.0](https://github.com/matt-riley/lore/compare/lore-v0.2.1...lore-v0.3.0) (2026-03-29)
+
+
+### Features
+
+* add lore capability, approval, and progress foundations ([bb179ca](https://github.com/matt-riley/lore/commit/bb179ca18d18b8880c6783f6a22733e3da37407c))
+* add memory domains and observations ([d5c6c19](https://github.com/matt-riley/lore/commit/d5c6c19d3c406680fcf331c6741e739f539e7f8a))
+
+
+### Bug Fixes
+
+* onboarding ([8c637b0](https://github.com/matt-riley/lore/commit/8c637b06f2b26e440f2c3915e2bb21d58595d292))
+* stabilize db migration tests ([75e345a](https://github.com/matt-riley/lore/commit/75e345a3d3d0b32d2fb6a70d44993e61edafcdeb))
+
 ## [0.2.1](https://github.com/matt-riley/lore/compare/lore-v0.2.0...lore-v0.2.1) (2026-03-28)
 
 

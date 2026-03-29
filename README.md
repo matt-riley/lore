@@ -110,7 +110,7 @@ Stable, tested surfaces covered by the compatibility promise in [`docs/compatibi
 
 ### Experimental ring 🟡
 
-Functional and used daily, but interfaces are still evolving. See [`docs/support-matrix.md`](docs/support-matrix.md) for the full list.
+Functional and used daily, but interfaces are still evolving. The canonical source for Lore tool lifecycle/category/notes metadata is [`lib/capability-manifest.mjs`](lib/capability-manifest.mjs), and [`docs/support-matrix.md`](docs/support-matrix.md) is expected to mirror it.
 
 ---
 

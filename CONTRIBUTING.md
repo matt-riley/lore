@@ -7,7 +7,8 @@ Thanks for your interest — contributions are welcome and appreciated! 🎉 Lor
 ## Before you start
 
 - **Read the [README](README.md)** to understand what Lore is and isn't.
-- **Check [docs/support-matrix.md](docs/support-matrix.md)** to see which surfaces are stable vs experimental.
+- **Check [`lib/capability-manifest.mjs`](lib/capability-manifest.mjs)** first for the canonical Lore tool metadata (description, lifecycle, category, notes, rollout-governed details).
+- **Check [docs/support-matrix.md](docs/support-matrix.md)** for the published surface matrix; keep it in parity with the manifest when changing Lore tools.
 - **Check [docs/compatibility.md](docs/compatibility.md)** for minimum runtime requirements.
 - For significant changes, open an issue first to discuss the approach before writing code.
 

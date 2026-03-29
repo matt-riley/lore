@@ -75,7 +75,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_replay` | 🟡 Experimental | Replays a past retrieval event against current state for comparison. |
+| `memory_replay` | 🟡 Experimental | Runs the replay corpus against current retrieval behavior and reports ranking hits/misses. |
 | `memory_portable_bundle` | 🟡 Experimental | Exports a portable bundle of memories and improvement artifacts. Import not yet implemented. |
 
 ### Improvement and evolution
@@ -96,8 +96,8 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_doctor_report` | 🟡 Experimental | Generates a structured health report. Requires `loreDoctor` rollout flag. |
-| `memory_review_gate` | 🟡 Experimental | Lists pending review-gated proposals and allows approval/rejection. Requires `reviewGate` rollout flag. |
+| `memory_doctor_report` | 🟡 Experimental | Generates a structured health report. Requires `loreDoctor` and `evolutionLedger` rollout flags. |
+| `memory_review_gate` | 🟡 Experimental | Runs an observe-only proposal-doc gate and records review-gate trajectory artifacts. Requires `reviewGate` and `evolutionLedger` rollout flags. |
 | `memory_capability_inventory` | 🟡 Experimental | Enumerates all registered capabilities with rollout state. |
 
 ---

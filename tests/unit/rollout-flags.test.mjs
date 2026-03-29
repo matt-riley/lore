@@ -34,6 +34,7 @@ import {
   readLoreDoctorEnabled,
   readHybridRetrievalEnabled,
   readReviewGateEnabled,
+  readApprovalSubstrateEnabled,
 } from "../../lib/rollout-flags.mjs";
 
 // ---------------------------------------------------------------------------
@@ -62,6 +63,7 @@ const ALL_ON = cfg({
   loreDoctor: true,
   hybridRetrieval: true,
   reviewGate: true,
+  approvalSubstrate: true,
 });
 
 /** All flags off */
@@ -81,6 +83,7 @@ const ALL_OFF = cfg({
   loreDoctor: false,
   hybridRetrieval: false,
   reviewGate: false,
+  approvalSubstrate: false,
 });
 
 // ---------------------------------------------------------------------------
@@ -451,5 +454,35 @@ describe("string boolean coercion via rollout flags", () => {
   test("memoryOperations '0' string disables cascading flags", () => {
     const c = cfg({ memoryOperations: "0", workstreamOverlays: true });
     assert.strictEqual(readWorkstreamOverlaysEnabled(c), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readApprovalSubstrateEnabled — requires evolutionLedger
+// ---------------------------------------------------------------------------
+
+describe("readApprovalSubstrateEnabled — cascading", () => {
+  test("returns true when both are on", () => {
+    assert.strictEqual(readApprovalSubstrateEnabled(ALL_ON), true);
+  });
+
+  test("returns false when evolutionLedger is off", () => {
+    const c = cfg({ evolutionLedger: false, approvalSubstrate: true });
+    assert.strictEqual(readApprovalSubstrateEnabled(c), false);
+  });
+
+  test("returns false when approvalSubstrate is off (evolutionLedger on)", () => {
+    const c = cfg({ evolutionLedger: true, approvalSubstrate: false });
+    assert.strictEqual(readApprovalSubstrateEnabled(c), false);
+  });
+
+  test("falls back to false when approvalSubstrate is absent", () => {
+    const c = cfg({ evolutionLedger: true });
+    assert.strictEqual(readApprovalSubstrateEnabled(c), false);
+  });
+
+  test("returns true for null/undefined config (evolutionLedger defaults true, approvalSubstrate defaults false)", () => {
+    assert.strictEqual(readApprovalSubstrateEnabled(null), false);
+    assert.strictEqual(readApprovalSubstrateEnabled(undefined), false);
   });
 });

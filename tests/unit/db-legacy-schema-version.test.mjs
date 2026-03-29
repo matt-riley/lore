@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 import { LoreDb } from "../../lib/db.mjs";
+import { SCHEMA_VERSION } from "../../lib/schema.mjs";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
 
 function makeTempDir() {
@@ -42,11 +43,11 @@ describe("LoreDb legacy schema version compatibility", () => {
       });
       loreDb.initialize();
 
-      assert.equal(loreDb.getCurrentVersion(), 14);
+      assert.equal(loreDb.getCurrentVersion(), SCHEMA_VERSION);
       const adopted = loreDb.db
         .prepare("SELECT MAX(version) AS version FROM lore_schema_version")
         .get();
-      assert.equal(adopted?.version, 14);
+      assert.equal(adopted?.version, SCHEMA_VERSION);
       const activityState = loreDb.db
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'lore_activity_state'")
         .get();
@@ -134,7 +135,7 @@ describe("LoreDb legacy schema version compatibility", () => {
         intent: 1,
         domains: 1,
       });
-      assert.equal(loreDb.getCurrentVersion(), 14);
+      assert.equal(loreDb.getCurrentVersion(), SCHEMA_VERSION);
 
       loreDb.close();
     } finally {

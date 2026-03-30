@@ -25,7 +25,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | Hook | Status | Notes |
 |---|---|---|
 | `onSessionStart` | 🟢 Supported | Initialises DB, loads config, runs cheap pre-warm. Bounded latency target: < 300 ms. |
-| `onUserPromptSubmitted` | 🟢 Supported | Injects memory capsule into prompt context when relevant. Bounded latency target: < 200 ms. |
+| `onUserPromptSubmitted` | 🟢 Supported | Injects memory capsule into prompt context when relevant. Bounded latency target: < 200 ms. Temporal prompts use date normalisation plus `day_summary` / episode lookup first, then bounded raw session-store verification only when primary temporal evidence is missing. |
 | `onSessionEnd` | 🟢 Supported | Persists session extraction to the derived store. Non-blocking best-effort. |
 
 ---
@@ -133,7 +133,7 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 
 | Flag | Default | Governed surfaces |
 |---|---|---|
-| `memoryOperations` | `true` | `lore_recall`, `lore_retain`, `lore_reflect`, workstream overlays, temporal normalisation, retention sanitisation |
+| `memoryOperations` | `true` | `lore_recall`, `lore_retain`, `lore_reflect`, workstream overlays, temporal normalisation, temporal provenance/confidence notes, retention sanitisation |
 | `memoryDomains` | `false` (requires `memoryOperations`) | Domain-aware semantic retention and domain metadata persisted alongside memories |
 | `refreshableObservations` | `false` (requires `memoryDomains`) | Persisted observations produced from `lore_reflect` |
 | `workstreamOverlays` | `true` (requires `memoryOperations`) | Workstream overlay injection at prompt time |
@@ -148,6 +148,16 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | `generatedArtifactIntegrity` | `true` (requires `evolutionLedger`) | Integrity checks on generated manifests and caches |
 | `loreDoctor` | `false` (requires `evolutionLedger`) | `memory_doctor_report` |
 | `reviewGate` | `false` (requires `evolutionLedger`) | `memory_review_gate` |
+
+Temporal recall notes:
+
+- Pure temporal prompts (for example `what did we do last Thursday?`) prefer `day_summary` rows, then date-filtered episode recall.
+- When that primary temporal evidence is missing, Lore can run a bounded verification pass against the raw session store for the resolved date instead of widening into broad keyword history search.
+- Temporal prompt context now carries explicit provenance/confidence labels:
+  - `high` → day summary
+  - `medium` → episode fallback
+  - `low` → verified raw session history
+- This slice does **not** add vector retrieval or an embedding pipeline; `hybridRetrieval` remains the existing lexical/re-ranking path.
 
 ---
 

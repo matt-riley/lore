@@ -233,3 +233,216 @@ describe("SessionStoreReader.getRecentSessionsWindow", () => {
     }
   });
 });
+
+describe("SessionStoreReader.findSessionsByDate", () => {
+  test("filters sessions by the provided date key", () => {
+    const tempHome = makeTempDir();
+    const rawStorePath = path.join(tempHome, "session-store.db");
+    try {
+      const db = new DatabaseSync(rawStorePath);
+      db.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          cwd TEXT,
+          repository TEXT,
+          branch TEXT,
+          summary TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        );
+      `);
+      const insert = db.prepare(`
+        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insert.run("session-match-1", "repo-one", "main", "match one", "2026-03-29T08:00:00Z", "2026-03-30T10:00:00Z");
+      insert.run("session-match-2", "repo-two", "feature", "match two", "2026-03-30T09:00:00Z", null);
+      insert.run("session-other", "repo-one", "main", "other date", "2026-03-31T09:00:00Z", "2026-03-31T10:00:00Z");
+      db.close();
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const rows = reader.findSessionsByDate({
+        dateKey: "2026-03-30",
+        includeOtherRepositories: true,
+        limit: 10,
+      });
+
+      assert.deepStrictEqual(
+        rows.map((row) => row.session_id),
+        ["session-match-1", "session-match-2"],
+      );
+      assert.strictEqual(rows[0].repository, "repo-one");
+      assert.strictEqual(rows[0].summary, "match one");
+      assert.strictEqual(rows[1].repository, "repo-two");
+      assert.strictEqual(rows[1].summary, "match two");
+      assert.strictEqual(rows[0].workspaceSummary, null);
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("applies repository filtering after workspace metadata hydration", () => {
+    const tempHome = makeTempDir();
+    const rawStorePath = path.join(tempHome, "session-store.db");
+    try {
+      const db = new DatabaseSync(rawStorePath);
+      db.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          cwd TEXT,
+          repository TEXT,
+          branch TEXT,
+          summary TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        );
+      `);
+      db.prepare(`
+        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        "session-workspace",
+        "raw-repo",
+        "raw-branch",
+        "raw summary",
+        "2026-03-30T08:00:00Z",
+        "2026-03-30T10:00:00Z",
+      );
+      db.close();
+
+      const workspaceDir = path.join(tempHome, "session-state", "session-workspace");
+      mkdirSync(workspaceDir, { recursive: true });
+      writeFileSync(
+        path.join(workspaceDir, "workspace.yaml"),
+        [
+          "repository: hydrated-repo",
+          "branch: hydrated-branch",
+          "summary: hydrated workspace summary",
+        ].join("\n"),
+      );
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const rows = reader.findSessionsByDate({
+        dateKey: "2026-03-30",
+        repository: "hydrated-repo",
+        includeOtherRepositories: false,
+        limit: 5,
+      });
+
+      assert.strictEqual(rows.length, 1);
+      assert.deepStrictEqual(rows[0], {
+        session_id: "session-workspace",
+        repository: "hydrated-repo",
+        branch: "hydrated-branch",
+        created_at: "2026-03-30T08:00:00Z",
+        updated_at: "2026-03-30T10:00:00Z",
+        summary: "raw summary",
+        workspaceSummary: "hydrated workspace summary",
+      });
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("honors cross-repo inclusion and local-only restrictions", () => {
+    const tempHome = makeTempDir();
+    const rawStorePath = path.join(tempHome, "session-store.db");
+    try {
+      const db = new DatabaseSync(rawStorePath);
+      db.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          cwd TEXT,
+          repository TEXT,
+          branch TEXT,
+          summary TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        );
+      `);
+      const insert = db.prepare(`
+        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insert.run("local-session", "repo-local", "main", "local", "2026-03-30T08:00:00Z", "2026-03-30T11:00:00Z");
+      insert.run("other-session", "repo-other", "main", "other", "2026-03-30T08:00:00Z", "2026-03-30T10:00:00Z");
+      db.close();
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+
+      const localOnly = reader.findSessionsByDate({
+        dateKey: "2026-03-30",
+        repository: "repo-local",
+        includeOtherRepositories: false,
+        limit: 5,
+      });
+      const crossRepo = reader.findSessionsByDate({
+        dateKey: "2026-03-30",
+        repository: "repo-local",
+        includeOtherRepositories: true,
+        limit: 5,
+      });
+
+      assert.deepStrictEqual(
+        localOnly.map((row) => row.session_id),
+        ["local-session"],
+      );
+      assert.deepStrictEqual(
+        crossRepo.map((row) => row.session_id),
+        ["local-session", "other-session"],
+      );
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("returns bounded rows using deterministic updated-at ordering", () => {
+    const tempHome = makeTempDir();
+    const rawStorePath = path.join(tempHome, "session-store.db");
+    try {
+      const db = new DatabaseSync(rawStorePath);
+      db.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          cwd TEXT,
+          repository TEXT,
+          branch TEXT,
+          summary TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        );
+      `);
+      const insert = db.prepare(`
+        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insert.run("session-a", "repo-one", "main", "a", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z");
+      insert.run("session-c", "repo-one", "main", "c", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z");
+      insert.run("session-b", "repo-one", "main", "b", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z");
+      insert.run("session-new", "repo-one", "main", "new", "2026-03-30T07:00:00Z", "2026-03-30T11:00:00Z");
+      db.close();
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const rows = reader.findSessionsByDate({
+        dateKey: "2026-03-30",
+        includeOtherRepositories: true,
+        limit: 3,
+      });
+
+      assert.deepStrictEqual(
+        rows.map((row) => row.session_id),
+        ["session-new", "session-c", "session-b"],
+      );
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+});

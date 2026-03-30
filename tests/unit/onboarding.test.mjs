@@ -80,6 +80,38 @@ describe("onboarding state", () => {
     }
   });
 
+  test("generated semantic cleanup preserves seeded onboarding style memories", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+          workstreamOverlays: true,
+          temporalQueryNormalization: true,
+          retentionSanitization: true,
+          directives: true,
+          hybridRetrieval: true,
+        },
+      },
+    });
+
+    try {
+      seedOnboardingMemories({
+        db,
+        sessionId: "session-seed",
+      });
+
+      assert.strictEqual(db.countGeneratedSemanticMemoriesBySession("session-seed"), 0);
+
+      db.deleteGeneratedSemanticMemories("session-seed");
+
+      const state = readOnboardingState({ db });
+      assert.strictEqual(state.hasInteractionStyle, true);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("buildOnboardingSection asks for the user's preferred name and points at lore_onboard", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, cleanup } = await withFixtureDb({
       configOverrides: {
@@ -292,6 +324,61 @@ describe("lore_onboard tool", () => {
       const state = readOnboardingState({ db });
       assert.strictEqual(state.userName, "Matt");
       assert.ok(state.assistantName);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("cleanup preserves lore_onboard memories for the originating session", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          ambientPersonaMode: true,
+          memoryOperations: true,
+          workstreamOverlays: true,
+          temporalQueryNormalization: true,
+          retentionSanitization: true,
+          directives: true,
+          hybridRetrieval: true,
+        },
+      },
+    });
+
+    try {
+      seedOnboardingMemories({
+        db,
+        sessionId: "session-seed",
+      });
+
+      const runtime = {
+        initialized: true,
+        lastError: null,
+        db,
+        config,
+        repository: "fixture-repo",
+        sessionStore: null,
+      };
+      const tools = createMemoryTools({
+        getRuntime: async () => runtime,
+      });
+      const loreOnboard = tools.find((tool) => tool.name === "lore_onboard");
+      assert.ok(loreOnboard, "expected lore_onboard tool to be registered");
+
+      await loreOnboard.handler({
+        userName: "Matt",
+      }, {
+        sessionId: "session-onboard",
+      });
+
+      assert.strictEqual(db.countGeneratedSemanticMemoriesBySession("session-onboard"), 0);
+
+      db.deleteGeneratedSemanticMemories("session-onboard");
+
+      const state = readOnboardingState({ db });
+      assert.strictEqual(state.userName, "Matt");
+      assert.ok(state.assistantName);
+      assert.strictEqual(state.complete, true);
     } finally {
       cleanup();
     }

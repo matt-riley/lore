@@ -6,6 +6,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 
 import { LoreDb } from "../../lib/db.mjs";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
+import { buildFixtureConfig } from "../helpers/fixture-config.mjs";
+
+const TEST_NOW = new Date("2024-03-27T12:00:00.000Z");
 
 function makeTempDir() {
   return mkdtempSync(path.join(os.tmpdir(), "lore-temporal-provenance-"));
@@ -16,16 +19,20 @@ const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   : false;
 
 function makeDb(tempHome) {
-  const dbPath = path.join(tempHome, "lore.db");
-  const backupDir = path.join(tempHome, "backups");
-  const loreDb = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+  const loreDb = new LoreDb(buildFixtureConfig(tempHome, {
+    now: TEST_NOW,
+    rollout: {
+      memoryOperations: true,
+      temporalQueryNormalization: true,
+    },
+  }));
   loreDb.initialize();
   return loreDb;
 }
 
 function yesterdayDateKey() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
+  const d = new Date(TEST_NOW);
+  d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
 }
 
@@ -278,7 +285,7 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("verifierUsed is always false in Phase 1", { skip: SKIP_NO_FTS5 }, () => {
+  test("verifierUsed is false when day summary evidence exists", { skip: SKIP_NO_FTS5 }, () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
@@ -300,6 +307,46 @@ describe("temporal provenance — trace.temporal contract", () => {
       });
 
       assert.equal(trace.temporal?.verifierUsed, false);
+      loreDb.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("unresolved temporal dates use a distinct trace reason", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    try {
+      const loreDb = makeDb(tempHome);
+      const sessionStore = {
+        findSessionsByDate() {
+          throw new Error("temporal verifier should not run without a normalized date");
+        },
+      };
+
+      const { text, trace } = loreDb.explainPromptContext({
+        prompt: "what did we do last week",
+        repository: TEST_REPO,
+        sessionStore,
+        promptNeed: {
+          hasTemporalSignal: true,
+          identityOnly: false,
+          directAddressed: false,
+          wantsContinuity: false,
+          wantsStyleContext: false,
+          wantsCrossRepoExamples: false,
+          wantsRepoLocalTaskContext: true,
+          allowCrossRepoFallback: false,
+        },
+      });
+
+      assert.equal(trace.temporal?.date, null);
+      assert.equal(trace.temporal?.source, "none");
+      assert.equal(trace.temporal?.confidence, "none");
+      assert.equal(trace.temporal?.verifierUsed, false);
+      assert.equal(trace.temporal?.verifierReason, "unresolved_temporal_date");
+      assert.equal(trace.lookups.daySummary.reason, "unresolved_temporal_date");
+      assert.equal(trace.lookups.temporalVerifier.reason, "unresolved_temporal_date");
+      assert.ok(!text.includes("Temporal recall:"), "unresolved dates should not render a provenance note");
       loreDb.close();
     } finally {
       rmSync(tempHome, { recursive: true, force: true });

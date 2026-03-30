@@ -283,7 +283,7 @@ describe("SessionStoreReader.findSessionsByDate", () => {
     }
   });
 
-  test("applies repository filtering after workspace metadata hydration", () => {
+  test("applies repository filtering after hydration and retains raw session-store timestamps", () => {
     const tempHome = makeTempDir();
     const rawStorePath = path.join(tempHome, "session-store.db");
     try {
@@ -319,6 +319,7 @@ describe("SessionStoreReader.findSessionsByDate", () => {
         [
           "repository: hydrated-repo",
           "branch: hydrated-branch",
+          "updated_at: 2026-03-31T07:00:00Z",
           "summary: hydrated workspace summary",
         ].join("\n"),
       );
@@ -338,7 +339,9 @@ describe("SessionStoreReader.findSessionsByDate", () => {
         repository: "hydrated-repo",
         branch: "hydrated-branch",
         created_at: "2026-03-30T08:00:00Z",
-        updated_at: "2026-03-30T10:00:00Z",
+        updated_at: "2026-03-31T07:00:00Z",
+        sessionStoreCreatedAt: "2026-03-30T08:00:00Z",
+        sessionStoreUpdatedAt: "2026-03-30T10:00:00Z",
         summary: "raw summary",
         workspaceSummary: "hydrated workspace summary",
       });

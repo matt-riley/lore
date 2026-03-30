@@ -98,16 +98,16 @@ describe("phase-3 progress reporting surfaces", () => {
     });
   });
 
-  test("session-start backfill preview bounds candidates while scanning older sessions", () => {
-    const preview = buildSessionStartBackfillPreview({
+  test("session-start backfill preview bounds candidates while scanning older sessions", async () => {
+    const preview = await buildSessionStartBackfillPreview({
       db: {
         hasEpisodeDigest(sessionId) {
           return ["session-a", "session-b", "session-c"].includes(sessionId);
         },
       },
       sessionStore: {
-        getRecentSessionsWindow({ offset }) {
-          if (offset === 0) {
+        getRecentSessionsWindow({ cursor }) {
+          if (!cursor) {
             return [
               { id: "session-a", repository: "fixture-repo", updated_at: null, summary: "a" },
               { id: "session-b", repository: "fixture-repo", updated_at: null, summary: "b" },
@@ -115,7 +115,7 @@ describe("phase-3 progress reporting surfaces", () => {
               { id: "session-d", repository: "fixture-repo", updated_at: null, summary: "d" },
             ];
           }
-          if (offset === 4) {
+          if (cursor.id === "session-d") {
             return [
               { id: "session-e", repository: "fixture-repo", updated_at: null, summary: "e" },
               { id: "session-f", repository: "fixture-repo", updated_at: null, summary: "f" },

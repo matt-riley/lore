@@ -630,7 +630,7 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
       if (latestRun?.status === "running") {
         decision = buildSessionStartBackfillDecision({ preview: null, latestRun });
       } else {
-        preview = buildSessionStartBackfillPreview({
+        preview = await buildSessionStartBackfillPreview({
           db: activeRuntime.db,
           sessionStore: activeRuntime.sessionStore,
           repository,

@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.3.1](https://github.com/matt-riley/lore/compare/lore-v0.3.0...lore-v0.3.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* preserve onboarding memories during cleanup ([#7](https://github.com/matt-riley/lore/issues/7)) ([0abd6af](https://github.com/matt-riley/lore/commit/0abd6af03e82ea46dd7a39ae4cbb1e439f9046c2))
+
 ## [0.3.0](https://github.com/matt-riley/lore/compare/lore-v0.2.1...lore-v0.3.0) (2026-03-29)
 
 

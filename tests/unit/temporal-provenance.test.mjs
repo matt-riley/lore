@@ -500,9 +500,10 @@ describe("temporal provenance — trace.temporal contract", () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
+      const expectedDateKey = yesterdayDateKey();
       const sessionStore = {
         findSessionsByDate({ dateKey, repository, includeOtherRepositories, limit }) {
-          assert.equal(dateKey, yesterdayDateKey());
+          assert.equal(dateKey, expectedDateKey);
           assert.equal(repository, TEST_REPO);
           assert.equal(includeOtherRepositories, false);
           assert.equal(limit, 2);
@@ -511,7 +512,9 @@ describe("temporal provenance — trace.temporal contract", () => {
             repository: TEST_REPO,
             branch: "main",
             created_at: `${dateKey}T08:00:00.000Z`,
-            updated_at: `${dateKey}T09:00:00.000Z`,
+            updated_at: "2024-03-31T09:00:00.000Z",
+            sessionStoreCreatedAt: `${dateKey}T08:00:00.000Z`,
+            sessionStoreUpdatedAt: `${dateKey}T09:00:00.000Z`,
             summary: "Verified raw session history summary",
             workspaceSummary: "Verified workspace summary",
           }];
@@ -543,6 +546,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       assert.equal(trace.lookups.temporalVerifier.includedRows.length, 1);
       assert.ok(text.includes("low confidence, verified from raw session history"), "should render verifier provenance note");
       assert.ok(text.includes("## Verified Session History"), "should include verified session history section");
+      assert.ok(text.includes(`- ${expectedDateKey}: Verified workspace summary`), "should render the raw verified session date");
       assert.ok(text.includes("Verified workspace summary"), "should render verifier session content");
       loreDb.close();
     } finally {

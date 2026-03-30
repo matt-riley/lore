@@ -448,4 +448,55 @@ describe("SessionStoreReader.findSessionsByDate", () => {
       rmSync(tempHome, { recursive: true, force: true });
     }
   });
+
+  test("falls back to the default limit when passed a non-numeric limit", () => {
+    const tempHome = makeTempDir();
+    const rawStorePath = path.join(tempHome, "session-store.db");
+    try {
+      const db = new DatabaseSync(rawStorePath);
+      db.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          cwd TEXT,
+          repository TEXT,
+          branch TEXT,
+          summary TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        );
+      `);
+      const insert = db.prepare(`
+        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (let index = 0; index < 6; index += 1) {
+        insert.run(
+          `session-${index}`,
+          "repo-one",
+          "main",
+          `summary ${index}`,
+          `2026-03-30T0${index}:00:00Z`,
+          `2026-03-30T1${index}:00:00Z`,
+        );
+      }
+      db.close();
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const rows = reader.findSessionsByDate({
+        dateKey: "2026-03-30",
+        includeOtherRepositories: true,
+        limit: "abc",
+      });
+
+      assert.strictEqual(rows.length, 5);
+      assert.deepStrictEqual(
+        rows.map((row) => row.session_id),
+        ["session-5", "session-4", "session-3", "session-2", "session-1"],
+      );
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
 });

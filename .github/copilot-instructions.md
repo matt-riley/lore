@@ -104,3 +104,12 @@ For anything that adds, removes, graduates, or gates a tool/surface, check these
 
 - The browser dashboard is plain HTML/CSS/JS under `browser/`, but the data contract is shaped in `browser/server.mjs`.
 - If you change browser-visible fields, review both the server JSON mapping and the static client assets.
+
+## Learned Rules
+
+<!-- New Rules appended below this line. Do not edit above this section -->
+
+1. [OTHER] When diagnosing Lore startup behavior, do not treat the `lore onboarding bootstrapped a default personality profile` log as evidence that historical archive import ran - onboarding seeding and archive backfill are separate startup paths and must be checked independently.
+2. [OTHER] When making implementation changes under `extensions/lore`, land the code in the Lore repository as a branch and pull request instead of leaving it only as local changes in the parent `~/.copilot` repo - the user explicitly wants Lore changes tracked through the Lore repo PR flow.
+3. [OTHER] When adding keyset pagination over session-store rows in Lore, never build cursors from hydrated fields like `updated_at` after workspace overlay hydration; carry the raw session-store ordering key through separately or cursor pagination can skip/duplicate rows.
+4. [OTHER] When a Lore cursor field like `sessionStoreUpdatedAt` is present but null, preserve that raw null-as-empty ordering value instead of falling back to hydrated fields; presence matters for cursor correctness when overlays override timestamps.

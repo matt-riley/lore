@@ -66,7 +66,7 @@ Copy the example config to your Copilot home:
 cp lore.example.json ~/.copilot/lore.json
 ```
 
-The checked-in `lore.example.json` is the **all-features-on** starting point: Lore itself is enabled, the maintenance scheduler is on, and the current experimental rollout flags — including `directives`, `memoryDomains`, and `refreshableObservations` — are enabled. If you want a quieter setup, copy it first and then turn individual surfaces back down in `~/.copilot/lore.json`.
+The checked-in `lore.example.json` is the **all-features-on** starting point: Lore itself is enabled, the maintenance scheduler is on, session-start archive import is enabled with visible progress, and the current experimental rollout flags — including `directives`, `memoryDomains`, and `refreshableObservations` — are enabled. If you want a quieter setup, copy it first and then turn individual surfaces back down in `~/.copilot/lore.json`.
 
 ### 3. Validate
 
@@ -92,6 +92,17 @@ If the assistant needs to lock in or update that profile immediately, use `lore_
 - If `userName` is supplied, Lore can complete onboarding in one shot.
 - If `assistantName` is omitted, Lore chooses one during onboarding and persists it then.
 - If Lore already knows your preferred name, `lore_onboard` can finish the remaining pieces without asking for it again.
+
+### 5. Session-start archive import
+
+Lore can optionally do a full archive import on session start with progress updates in the CLI.
+
+- Configure it under `maintenanceScheduler.sessionStartBackfill`.
+- Use `maintenanceScheduler.sessionStartBackfill.maxCandidates` to bound how many session candidates Lore plans per startup sweep.
+- Use `maintenanceScheduler.sessionStartBackfill.maxInspected` to cap how many raw session-store rows Lore inspects before deferring the rest to later startup sweeps.
+- Lore announces when the import starts, reports incremental progress, and logs completion or failure.
+- The import reuses the existing controlled backfill state, so `memory_backfill` and `memory_status` still reflect the live run.
+- The default is conservative: disabled in code defaults, enabled in the all-features-on example config.
 
 ---
 

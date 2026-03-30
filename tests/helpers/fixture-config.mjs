@@ -83,6 +83,15 @@ export function buildFixtureConfig(home, overrides = {}) {
     maintenanceScheduler: {
       enabled: false,
       autoRunOnSessionStart: false,
+      sessionStartBackfill: {
+        enabled: false,
+        includeOtherRepositories: true,
+        refreshExisting: false,
+        batchSize: 25,
+        maxCandidates: 250,
+        maxInspected: 2000,
+        notifyEveryItems: 50,
+      },
     },
     traceRecorder: {
       maxRecords: 40,

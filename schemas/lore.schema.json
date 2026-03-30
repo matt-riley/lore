@@ -191,6 +191,40 @@
           "type": "integer",
           "default": 72
         },
+        "sessionStartBackfill": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "includeOtherRepositories": {
+              "type": "boolean",
+              "default": true
+            },
+            "refreshExisting": {
+              "type": "boolean",
+              "default": false
+            },
+            "batchSize": {
+              "type": "integer",
+              "default": 25
+            },
+            "maxCandidates": {
+              "type": "integer",
+              "default": 250
+            },
+            "maxInspected": {
+              "type": "integer",
+              "default": 2000
+            },
+            "notifyEveryItems": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        },
         "tasks": {
           "type": "object",
           "additionalProperties": false,

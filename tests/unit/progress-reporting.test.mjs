@@ -139,6 +139,53 @@ describe("phase-3 progress reporting surfaces", () => {
     );
   });
 
+  test("session-start backfill preview keeps raw null timestamps ahead of hydrated overrides", async () => {
+    const preview = await buildSessionStartBackfillPreview({
+      db: {
+        hasEpisodeDigest() {
+          return false;
+        },
+      },
+      sessionStore: {
+        getRecentSessionsWindow({ cursor }) {
+          if (!cursor) {
+            return [
+              {
+                id: "session-b",
+                repository: "fixture-repo",
+                updated_at: "2026-03-31T10:00:00Z",
+                sessionStoreUpdatedAt: null,
+                summary: "b",
+              },
+            ];
+          }
+          if (cursor.id === "session-b" && cursor.updatedAt === "") {
+            return [
+              {
+                id: "session-a",
+                repository: "fixture-repo",
+                updated_at: null,
+                sessionStoreUpdatedAt: null,
+                summary: "a",
+              },
+            ];
+          }
+          return [];
+        },
+      },
+      repository: "fixture-repo",
+      includeOtherRepositories: false,
+      maxCandidates: 2,
+      refreshExisting: false,
+      scanWindowSize: 1,
+    });
+
+    assert.deepStrictEqual(
+      preview.candidates.map((candidate) => candidate.sessionId),
+      ["session-b", "session-a"],
+    );
+  });
+
   test("memory_backfill controlled preview reports stable progress totals and phase", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

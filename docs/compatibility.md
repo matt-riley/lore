@@ -65,6 +65,8 @@ Node 22 is the current LTS line. If you're on Node 20 or earlier, upgrade before
 
 Lore reads this file to backfill memories and extract session context. It never writes to it. Minimum supported schema: the session store as written by Copilot CLI with the `sessions` and `turns` tables present.
 
+When `maintenanceScheduler.sessionStartBackfill` is enabled, Lore may also perform a session-start archive import from this same raw store. That import is still read-only against `session-store.db`, and progress is surfaced to the user via CLI log messages plus the existing backfill status surfaces.
+
 ---
 
 ## Browser UI

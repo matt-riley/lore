@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import {
+  buildSessionStartBackfillDecision,
+  summarizeBackfillRunProgress,
+} from "../../lib/backfill.mjs";
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
@@ -35,6 +39,64 @@ function buildRuntime(db, config, { sessionStore } = {}) {
 }
 
 describe("phase-3 progress reporting surfaces", () => {
+  test("session-start backfill decision prefers resuming an existing running run", () => {
+    const decision = buildSessionStartBackfillDecision({
+      preview: { candidates: [{ sessionId: "session-a" }] },
+      latestRun: {
+        id: "run-123",
+        status: "running",
+        total_candidates: 12,
+      },
+    });
+
+    assert.deepStrictEqual(decision, {
+      action: "resume",
+      reason: "existing_run",
+      candidateCount: 12,
+      runId: "run-123",
+    });
+  });
+
+  test("session-start backfill decision skips when preview has no candidates", () => {
+    const decision = buildSessionStartBackfillDecision({
+      preview: { candidates: [] },
+      latestRun: null,
+    });
+
+    assert.deepStrictEqual(decision, {
+      action: "skip",
+      reason: "up_to_date",
+      candidateCount: 0,
+      runId: null,
+    });
+  });
+
+  test("summarizeBackfillRunProgress reports completed terminal state accurately", () => {
+    const progress = summarizeBackfillRunProgress({
+      status: "completed",
+      total_candidates: 8,
+      processed_count: 8,
+      created_episode_count: 6,
+      refreshed_episode_count: 2,
+      failed_count: 0,
+      skipped_count: 0,
+      batch_size: 4,
+    });
+
+    assert.deepStrictEqual(progress, {
+      totalCount: 8,
+      completedCount: 8,
+      createdCount: 6,
+      refreshedCount: 2,
+      failedCount: 0,
+      skippedCount: 0,
+      pendingCount: 0,
+      runningCount: 0,
+      progressPercent: 100,
+      currentPhase: "complete",
+    });
+  });
+
   test("memory_backfill controlled preview reports stable progress totals and phase", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

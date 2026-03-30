@@ -10,6 +10,13 @@
   "maintenanceScheduler": {
     "enabled": true,
     "autoRunOnSessionStart": true,
+    "sessionStartBackfill": {
+      "enabled": true,
+      "includeOtherRepositories": true,
+      "refreshExisting": false,
+      "batchSize": 25,
+      "notifyEveryItems": 25
+    },
     "tasks": {
       "deferredExtraction": true,
       "validationCorpus": true,

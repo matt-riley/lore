@@ -2,7 +2,15 @@ import { approveAll } from "@github/copilot-sdk";
 import { joinSession } from "@github/copilot-sdk/extension";
 
 import { loadConfig } from "./lib/config.mjs";
-import { applySessionExtraction, processDeferredExtractions } from "./lib/backfill.mjs";
+import {
+  applySessionExtraction,
+  buildSessionStartBackfillDecision,
+  previewControlledBackfill,
+  processControlledBackfillRun,
+  processDeferredExtractions,
+  startControlledBackfillRun,
+  summarizeBackfillRunProgress,
+} from "./lib/backfill.mjs";
 import { LoreDb } from "./lib/db.mjs";
 import { runMaintenanceSweep } from "./lib/maintenance-scheduler.mjs";
 import { recallMemory } from "./lib/memory-operations.mjs";
@@ -21,6 +29,7 @@ import { assembleMemoryCapsule, detectPromptContextNeed } from "./lib/capsule-as
 import { hydrateWorkstreamOverlay } from "./lib/overlay-hydrator.mjs";
 import { seedOnboardingMemories } from "./lib/onboarding.mjs";
 import { readOverlayAutoHydrationEnabled } from "./lib/rollout-flags.mjs";
+import { setTimeout as delay } from "node:timers/promises";
 
 let lastKnownCwd = process.cwd();
 
@@ -44,6 +53,7 @@ const runtime = {
   lastBackupPath: null,
   processingDeferred: false,
   processingMaintenance: false,
+  processingBackfill: false,
   tracePersistenceWrites: 0,
 };
 
@@ -98,6 +108,30 @@ function writeCache(map, key, value, ttlMs, maxEntries = 32) {
     }
   }
   return value;
+}
+
+function normalizeBoolean(value, fallback) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const lowered = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(lowered)) {
+      return true;
+    }
+    if (["0", "false", "no", "off"].includes(lowered)) {
+      return false;
+    }
+  }
+  return fallback;
+}
+
+function clampInteger(value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(numeric)));
 }
 
 function buildDbWatermark(db) {
@@ -207,6 +241,47 @@ function buildLatencyMetrics(config) {
       userPromptSubmitted: userPromptSubmitted.samples,
     },
   };
+}
+
+function readSessionStartBackfillOptions(config) {
+  const raw = config?.maintenanceScheduler?.sessionStartBackfill ?? {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, false),
+    includeOtherRepositories: normalizeBoolean(raw.includeOtherRepositories, true),
+    refreshExisting: normalizeBoolean(raw.refreshExisting, false),
+    batchSize: clampInteger(raw.batchSize, 25, { min: 1, max: 500 }),
+    notifyEveryItems: clampInteger(raw.notifyEveryItems, 50, { min: 1, max: 10_000 }),
+  };
+}
+
+function readSessionStoreInspectionLimit(sessionStore) {
+  if (!sessionStore?.db) {
+    return 1;
+  }
+  const row = sessionStore.db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM sessions
+  `).get();
+  return Math.max(1, Number(row?.count ?? 0));
+}
+
+function formatSessionStartBackfillScopeLabel(repository, includeOtherRepositories) {
+  if (includeOtherRepositories || !repository) {
+    return "all repositories";
+  }
+  return repository;
+}
+
+function buildSessionStartBackfillProgressMessage({ run, scopeLabel }) {
+  const progress = summarizeBackfillRunProgress(run);
+  const base = `lore archive import progress for ${scopeLabel}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%), created ${progress.createdCount}, refreshed ${progress.refreshedCount}, failed ${progress.failedCount}`;
+  if (run.status === "completed") {
+    return `${base} — complete${run.snapshot_path ? ` (snapshot: ${run.snapshot_path})` : ""}`;
+  }
+  if (run.status === "failed") {
+    return `${base} — failed${run.last_error ? ` (last error: ${run.last_error})` : ""}`;
+  }
+  return base;
 }
 
 function buildTraceRecorderEligibility(repository, promptNeed) {
@@ -501,6 +576,132 @@ async function maybeRunMaintenanceScheduler(session, activeRuntime, repository) 
   });
 }
 
+async function maybeRunSessionStartBackfill(session, activeRuntime, repository) {
+  const options = readSessionStartBackfillOptions(activeRuntime.config);
+  if (!options.enabled || !activeRuntime.db || !activeRuntime.sessionStore) {
+    return;
+  }
+  const scopeLabel = formatSessionStartBackfillScopeLabel(repository, options.includeOtherRepositories);
+
+  if (activeRuntime.processingBackfill) {
+    const latestRun = activeRuntime.db.listBackfillRuns({ limit: 1 })[0] ?? null;
+    if (latestRun?.status === "running") {
+      const progress = summarizeBackfillRunProgress(latestRun);
+      await session.log(
+        `lore archive import already running for ${scopeLabel}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%)`,
+        { ephemeral: true },
+      );
+    }
+    return;
+  }
+
+  activeRuntime.processingBackfill = true;
+  queueMicrotask(async () => {
+    try {
+      while (activeRuntime.processingMaintenance || activeRuntime.processingDeferred) {
+        await delay(25);
+      }
+
+      const inspectionLimit = readSessionStoreInspectionLimit(activeRuntime.sessionStore);
+      const latestRun = activeRuntime.db.listBackfillRuns({ limit: 1 })[0] ?? null;
+      const preview = previewControlledBackfill({
+        db: activeRuntime.db,
+        sessionStore: activeRuntime.sessionStore,
+        repository,
+        includeOtherRepositories: options.includeOtherRepositories,
+        limit: inspectionLimit,
+        refreshExisting: options.refreshExisting,
+      });
+      const decision = buildSessionStartBackfillDecision({ preview, latestRun });
+      if (decision.action === "skip") {
+        return;
+      }
+
+      let run = null;
+      let lastReportedCompleted = 0;
+      let hasReportedIntermediateProgress = false;
+
+      if (decision.action === "resume") {
+        run = latestRun;
+        const progress = summarizeBackfillRunProgress(run);
+        lastReportedCompleted = progress.completedCount;
+        await session.log(
+          `lore archive import resumed for ${scopeLabel}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%)`,
+          { ephemeral: true },
+        );
+      } else {
+        await session.log(
+          `lore archive import started for ${scopeLabel}: 0/${decision.candidateCount} session(s) queued. Progress updates will appear here.`,
+          { ephemeral: true },
+        );
+        const started = startControlledBackfillRun({
+          db: activeRuntime.db,
+          sessionStore: activeRuntime.sessionStore,
+          repository,
+          includeOtherRepositories: options.includeOtherRepositories,
+          limit: inspectionLimit,
+          refreshExisting: options.refreshExisting,
+          batchSize: options.batchSize,
+        });
+        run = started.run;
+      }
+
+      const reportProgress = async (currentRun, { force = false } = {}) => {
+        const progress = summarizeBackfillRunProgress(currentRun);
+        const isTerminal = currentRun.status === "completed" || currentRun.status === "failed";
+        const reachedNotifyThreshold = (progress.completedCount - lastReportedCompleted) >= options.notifyEveryItems;
+        const shouldReport = force
+          || isTerminal
+          || (!hasReportedIntermediateProgress && progress.completedCount > 0)
+          || reachedNotifyThreshold;
+        if (!shouldReport) {
+          return;
+        }
+        if (!isTerminal) {
+          hasReportedIntermediateProgress = true;
+        }
+        lastReportedCompleted = progress.completedCount;
+        await session.log(
+          buildSessionStartBackfillProgressMessage({
+            run: currentRun,
+            scopeLabel,
+          }),
+          {
+            ephemeral: true,
+            ...(currentRun.status === "failed" ? { level: "warning" } : {}),
+          },
+        );
+      };
+
+      await reportProgress(run, {
+        force: run.status === "completed" || run.status === "failed",
+      });
+
+      while (run.status === "running") {
+        const result = processControlledBackfillRun({
+          db: activeRuntime.db,
+          sessionStore: activeRuntime.sessionStore,
+          runId: run.id,
+          limit: options.batchSize,
+          retryFailed: true,
+        });
+        run = result.run;
+        await reportProgress(run);
+      }
+
+      await reportProgress(run, { force: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await session.log(`lore archive import skipped: ${message}`, {
+        ephemeral: true,
+        level: "warning",
+      });
+    } finally {
+      activeRuntime.processingBackfill = false;
+    }
+  });
+}
+
 function maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, sessionId) {
   if (!readOverlayAutoHydrationEnabled(activeRuntime.config)) {
     return;
@@ -564,6 +765,7 @@ const session = await joinSession({
       }
 
       await maybeRunMaintenanceScheduler(session, activeRuntime, repository);
+      await maybeRunSessionStartBackfill(session, activeRuntime, repository);
       maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, invocation.sessionId);
 
       const relevantInstructionFiles = detectRelevantInstructionFiles(input.initialPrompt ?? "");

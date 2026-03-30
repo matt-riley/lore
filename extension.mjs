@@ -5,7 +5,7 @@ import { loadConfig } from "./lib/config.mjs";
 import {
   applySessionExtraction,
   buildSessionStartBackfillDecision,
-  previewControlledBackfill,
+  buildSessionStartBackfillPreview,
   processControlledBackfillRun,
   processDeferredExtractions,
   startControlledBackfillRun,
@@ -250,19 +250,9 @@ function readSessionStartBackfillOptions(config) {
     includeOtherRepositories: normalizeBoolean(raw.includeOtherRepositories, true),
     refreshExisting: normalizeBoolean(raw.refreshExisting, false),
     batchSize: clampInteger(raw.batchSize, 25, { min: 1, max: 500 }),
+    maxCandidates: clampInteger(raw.maxCandidates, 250, { min: 1, max: 10_000 }),
     notifyEveryItems: clampInteger(raw.notifyEveryItems, 50, { min: 1, max: 10_000 }),
   };
-}
-
-function readSessionStoreInspectionLimit(sessionStore) {
-  if (!sessionStore?.db) {
-    return 1;
-  }
-  const row = sessionStore.db.prepare(`
-    SELECT COUNT(*) AS count
-    FROM sessions
-  `).get();
-  return Math.max(1, Number(row?.count ?? 0));
 }
 
 function formatSessionStartBackfillScopeLabel(repository, includeOtherRepositories) {
@@ -628,7 +618,7 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
   }
 
   activeRuntime.processingBackfill = true;
-  queueMicrotask(async () => {
+  setTimeout(async () => {
     try {
       while (activeRuntime.processingMaintenance || activeRuntime.processingDeferred) {
         await delay(25);
@@ -637,17 +627,15 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
       const latestRun = activeRuntime.db.listBackfillRuns({ limit: 1 })[0] ?? null;
       let preview = null;
       let decision = null;
-      let inspectionLimit = null;
       if (latestRun?.status === "running") {
         decision = buildSessionStartBackfillDecision({ preview: null, latestRun });
       } else {
-        inspectionLimit = readSessionStoreInspectionLimit(activeRuntime.sessionStore);
-        preview = previewControlledBackfill({
+        preview = buildSessionStartBackfillPreview({
           db: activeRuntime.db,
           sessionStore: activeRuntime.sessionStore,
           repository,
           includeOtherRepositories: options.includeOtherRepositories,
-          limit: inspectionLimit,
+          maxCandidates: options.maxCandidates,
           refreshExisting: options.refreshExisting,
         });
         decision = buildSessionStartBackfillDecision({ preview, latestRun });
@@ -684,7 +672,7 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
           sessionStore: activeRuntime.sessionStore,
           repository,
           includeOtherRepositories: options.includeOtherRepositories,
-          limit: inspectionLimit ?? readSessionStoreInspectionLimit(activeRuntime.sessionStore),
+          limit: options.maxCandidates,
           refreshExisting: options.refreshExisting,
           batchSize: options.batchSize,
           plan: preview,
@@ -751,7 +739,7 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
     } finally {
       activeRuntime.processingBackfill = false;
     }
-  });
+  }, 0);
 }
 
 function maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, sessionId) {

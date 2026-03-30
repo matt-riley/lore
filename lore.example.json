@@ -15,6 +15,7 @@
       "includeOtherRepositories": true,
       "refreshExisting": false,
       "batchSize": 25,
+      "maxCandidates": 250,
       "notifyEveryItems": 25
     },
     "tasks": {

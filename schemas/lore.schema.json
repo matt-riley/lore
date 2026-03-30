@@ -211,6 +211,10 @@
               "type": "integer",
               "default": 25
             },
+            "maxCandidates": {
+              "type": "integer",
+              "default": 250
+            },
             "notifyEveryItems": {
               "type": "integer",
               "default": 50

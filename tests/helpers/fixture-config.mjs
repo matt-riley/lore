@@ -88,6 +88,7 @@ export function buildFixtureConfig(home, overrides = {}) {
         includeOtherRepositories: true,
         refreshExisting: false,
         batchSize: 25,
+        maxCandidates: 250,
         notifyEveryItems: 50,
       },
     },

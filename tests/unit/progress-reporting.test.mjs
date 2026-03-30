@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  buildSessionStartBackfillPreview,
   buildSessionStartBackfillDecision,
   summarizeBackfillRunProgress,
 } from "../../lib/backfill.mjs";
@@ -95,6 +96,47 @@ describe("phase-3 progress reporting surfaces", () => {
       progressPercent: 100,
       currentPhase: "complete",
     });
+  });
+
+  test("session-start backfill preview bounds candidates while scanning older sessions", () => {
+    const preview = buildSessionStartBackfillPreview({
+      db: {
+        hasEpisodeDigest(sessionId) {
+          return ["session-a", "session-b", "session-c"].includes(sessionId);
+        },
+      },
+      sessionStore: {
+        getRecentSessionsWindow({ offset }) {
+          if (offset === 0) {
+            return [
+              { id: "session-a", repository: "fixture-repo", updated_at: null, summary: "a" },
+              { id: "session-b", repository: "fixture-repo", updated_at: null, summary: "b" },
+              { id: "session-c", repository: "fixture-repo", updated_at: null, summary: "c" },
+              { id: "session-d", repository: "fixture-repo", updated_at: null, summary: "d" },
+            ];
+          }
+          if (offset === 4) {
+            return [
+              { id: "session-e", repository: "fixture-repo", updated_at: null, summary: "e" },
+              { id: "session-f", repository: "fixture-repo", updated_at: null, summary: "f" },
+            ];
+          }
+          return [];
+        },
+      },
+      repository: "fixture-repo",
+      includeOtherRepositories: false,
+      maxCandidates: 2,
+      refreshExisting: false,
+      scanWindowSize: 4,
+    });
+
+    assert.strictEqual(preview.inspected, 6);
+    assert.strictEqual(preview.skippedExisting, 3);
+    assert.deepStrictEqual(
+      preview.candidates.map((candidate) => candidate.sessionId),
+      ["session-d", "session-e"],
+    );
   });
 
   test("memory_backfill controlled preview reports stable progress totals and phase", { skip: SKIP_NO_FTS5 }, async () => {

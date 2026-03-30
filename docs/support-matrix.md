@@ -176,7 +176,7 @@ It auto-runs on session start only when all of these are true:
 Additional task gates:
 
 - On session start, Lore only auto-selects the `deferredExtraction` maintenance task; the broader maintenance set is for manual or scripted sweeps.
-- Optional archive import is separate from the maintenance task list and is configured under `maintenanceScheduler.sessionStartBackfill.*`. When enabled, Lore announces start/progress/completion in the CLI while reusing the existing controlled backfill run state.
+- Optional archive import is separate from the maintenance task list and is configured under `maintenanceScheduler.sessionStartBackfill.*`. When enabled, Lore announces start/progress/completion in the CLI while reusing the existing controlled backfill run state, and `maxCandidates` bounds how many sessions it plans in one startup sweep.
 - `deferredExtraction` also requires `deferredExtraction.enabled: true`, and on session start it additionally requires `deferredExtraction.autoProcessOnSessionStart: true`.
 - `doctorSnapshot` requires `rollout.loreDoctor: true`.
 - Proposal/integrity/review surfaces stay bounded by the `evolutionLedger`, `proposalGeneration`, `generatedArtifactIntegrity`, and `reviewGate` rollout flags.

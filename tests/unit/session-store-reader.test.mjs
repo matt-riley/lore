@@ -42,3 +42,44 @@ describe("SessionStoreReader.initialize", () => {
     }
   });
 });
+
+describe("SessionStoreReader.getRecentSessionsWindow", () => {
+  test("returns hydrated rows with limit and offset applied", () => {
+    const tempHome = makeTempDir();
+    const rawStorePath = path.join(tempHome, "session-store.db");
+    try {
+      const db = new DatabaseSync(rawStorePath);
+      db.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          cwd TEXT,
+          repository TEXT,
+          branch TEXT,
+          summary TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        );
+      `);
+      db.prepare(`
+        INSERT INTO sessions (id, repository, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run("session-1", "repo-one", "first", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z");
+      db.prepare(`
+        INSERT INTO sessions (id, repository, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run("session-2", "repo-two", "second", "2026-03-30T10:01:00Z", "2026-03-30T10:01:00Z");
+      db.close();
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const rows = reader.getRecentSessionsWindow({ limit: 1, offset: 1 });
+
+      assert.strictEqual(rows.length, 1);
+      assert.strictEqual(rows[0].id, "session-1");
+      assert.strictEqual(rows[0].repository, "repo-one");
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+});

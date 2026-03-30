@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.4.0](https://github.com/matt-riley/lore/compare/lore-v0.3.1...lore-v0.4.0) (2026-03-30)
+
+
+### Features
+
+* surface session-start archive import progress ([#9](https://github.com/matt-riley/lore/issues/9)) ([2be4339](https://github.com/matt-riley/lore/commit/2be43394d5d583b8b6c16abc3d3cf7288bbc91b7))
+
 ## [0.3.1](https://github.com/matt-riley/lore/compare/lore-v0.3.0...lore-v0.3.1) (2026-03-30)
 
 

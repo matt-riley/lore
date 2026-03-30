@@ -110,3 +110,4 @@ For anything that adds, removes, graduates, or gates a tool/surface, check these
 <!-- New Rules appended below this line. Do not edit above this section -->
 
 1. [OTHER] When diagnosing Lore startup behavior, do not treat the `lore onboarding bootstrapped a default personality profile` log as evidence that historical archive import ran - onboarding seeding and archive backfill are separate startup paths and must be checked independently.
+2. [OTHER] When making implementation changes under `extensions/lore`, land the code in the Lore repository as a branch and pull request instead of leaving it only as local changes in the parent `~/.copilot` repo - the user explicitly wants Lore changes tracked through the Lore repo PR flow.

@@ -99,6 +99,7 @@ Lore can optionally do a full archive import on session start with progress upda
 
 - Configure it under `maintenanceScheduler.sessionStartBackfill`.
 - Use `maintenanceScheduler.sessionStartBackfill.maxCandidates` to bound how many session candidates Lore plans per startup sweep.
+- Use `maintenanceScheduler.sessionStartBackfill.maxInspected` to cap how many raw session-store rows Lore inspects before deferring the rest to later startup sweeps.
 - Lore announces when the import starts, reports incremental progress, and logs completion or failure.
 - The import reuses the existing controlled backfill state, so `memory_backfill` and `memory_status` still reflect the live run.
 - The default is conservative: disabled in code defaults, enabled in the all-features-on example config.

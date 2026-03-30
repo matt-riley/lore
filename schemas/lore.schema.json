@@ -215,6 +215,10 @@
               "type": "integer",
               "default": 250
             },
+            "maxInspected": {
+              "type": "integer",
+              "default": 2000
+            },
             "notifyEveryItems": {
               "type": "integer",
               "default": 50

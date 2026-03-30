@@ -251,6 +251,7 @@ function readSessionStartBackfillOptions(config) {
     refreshExisting: normalizeBoolean(raw.refreshExisting, false),
     batchSize: clampInteger(raw.batchSize, 25, { min: 1, max: 500 }),
     maxCandidates: clampInteger(raw.maxCandidates, 250, { min: 1, max: 10_000 }),
+    maxInspected: clampInteger(raw.maxInspected, 2000, { min: 1, max: 100_000 }),
     notifyEveryItems: clampInteger(raw.notifyEveryItems, 50, { min: 1, max: 10_000 }),
   };
 }
@@ -636,11 +637,18 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
           repository,
           includeOtherRepositories: options.includeOtherRepositories,
           maxCandidates: options.maxCandidates,
+          maxInspected: options.maxInspected,
           refreshExisting: options.refreshExisting,
         });
         decision = buildSessionStartBackfillDecision({ preview, latestRun });
       }
       if (decision.action === "skip") {
+        if (decision.reason === "inspection_bound") {
+          await session.log(
+            `lore archive import deferred for ${currentScopeLabel}: inspected ${preview?.inspected ?? 0}/${preview?.inspectionLimit ?? options.maxInspected} session(s) without finding pending candidates. More history remains for future startup sweeps.`,
+            { ephemeral: true },
+          );
+        }
         return;
       }
 
@@ -664,7 +672,9 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
         );
       } else {
         await session.log(
-          `lore archive import started for ${currentScopeLabel}: 0/${decision.candidateCount} session(s) queued. Progress updates will appear here.`,
+          decision.reason === "partial_candidates"
+            ? `lore archive import started for ${currentScopeLabel}: 0/${decision.candidateCount} session(s) queued after a bounded preview scanned ${preview?.inspected ?? 0}/${preview?.inspectionLimit ?? options.maxInspected} session(s). Progress updates will appear here.`
+            : `lore archive import started for ${currentScopeLabel}: 0/${decision.candidateCount} session(s) queued. Progress updates will appear here.`,
           { ephemeral: true },
         );
         const started = startControlledBackfillRun({

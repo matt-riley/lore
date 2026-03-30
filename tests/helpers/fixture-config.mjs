@@ -89,6 +89,7 @@ export function buildFixtureConfig(home, overrides = {}) {
         refreshExisting: false,
         batchSize: 25,
         maxCandidates: 250,
+        maxInspected: 2000,
         notifyEveryItems: 50,
       },
     },

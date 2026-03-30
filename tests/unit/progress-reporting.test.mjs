@@ -186,6 +186,58 @@ describe("phase-3 progress reporting surfaces", () => {
     );
   });
 
+  test("session-start backfill preview reports a bounded partial scan", async () => {
+    const preview = await buildSessionStartBackfillPreview({
+      db: {
+        hasEpisodeDigest() {
+          return true;
+        },
+      },
+      sessionStore: {
+        getRecentSessionsWindow({ cursor, limit }) {
+          if (!cursor) {
+            return Array.from({ length: limit }, (_, index) => ({
+              id: `session-${index + 1}`,
+              repository: "fixture-repo",
+              updated_at: `2026-03-30T10:00:${String(index).padStart(2, "0")}Z`,
+              sessionStoreUpdatedAt: `2026-03-30T10:00:${String(index).padStart(2, "0")}Z`,
+              summary: String(index + 1),
+            }));
+          }
+          return [];
+        },
+      },
+      repository: "fixture-repo",
+      includeOtherRepositories: false,
+      maxCandidates: 2,
+      maxInspected: 3,
+      refreshExisting: false,
+      scanWindowSize: 10,
+    });
+
+    assert.strictEqual(preview.inspected, 3);
+    assert.strictEqual(preview.inspectionLimit, 3);
+    assert.strictEqual(preview.inspectionBoundReached, true);
+    assert.strictEqual(preview.candidates.length, 0);
+  });
+
+  test("session-start backfill decision distinguishes bounded previews from fully up to date scans", () => {
+    const decision = buildSessionStartBackfillDecision({
+      preview: {
+        candidates: [],
+        inspectionBoundReached: true,
+      },
+      latestRun: null,
+    });
+
+    assert.deepStrictEqual(decision, {
+      action: "skip",
+      reason: "inspection_bound",
+      candidateCount: 0,
+      runId: null,
+    });
+  });
+
   test("memory_backfill controlled preview reports stable progress totals and phase", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

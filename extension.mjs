@@ -272,6 +272,32 @@ function formatSessionStartBackfillScopeLabel(repository, includeOtherRepositori
   return repository;
 }
 
+function readBackfillRunIncludeOtherRepositories(run, fallback) {
+  if (typeof run?.include_other_repositories === "number") {
+    return run.include_other_repositories === 1;
+  }
+  if (typeof run?.includeOtherRepositories === "boolean") {
+    return run.includeOtherRepositories;
+  }
+  return fallback;
+}
+
+function buildSessionStartBackfillScopeDescription({
+  run,
+  repository,
+  includeOtherRepositories,
+  currentScopeLabel = null,
+}) {
+  const runScopeLabel = formatSessionStartBackfillScopeLabel(
+    run?.repository ?? repository,
+    readBackfillRunIncludeOtherRepositories(run, includeOtherRepositories),
+  );
+  if (currentScopeLabel && runScopeLabel !== currentScopeLabel) {
+    return `${runScopeLabel} (current session: ${currentScopeLabel})`;
+  }
+  return runScopeLabel;
+}
+
 function buildSessionStartBackfillProgressMessage({ run, scopeLabel }) {
   const progress = summarizeBackfillRunProgress(run);
   const base = `lore archive import progress for ${scopeLabel}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%), created ${progress.createdCount}, refreshed ${progress.refreshedCount}, failed ${progress.failedCount}`;
@@ -581,14 +607,20 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
   if (!options.enabled || !activeRuntime.db || !activeRuntime.sessionStore) {
     return;
   }
-  const scopeLabel = formatSessionStartBackfillScopeLabel(repository, options.includeOtherRepositories);
+  const currentScopeLabel = formatSessionStartBackfillScopeLabel(repository, options.includeOtherRepositories);
 
   if (activeRuntime.processingBackfill) {
     const latestRun = activeRuntime.db.listBackfillRuns({ limit: 1 })[0] ?? null;
     if (latestRun?.status === "running") {
       const progress = summarizeBackfillRunProgress(latestRun);
+      const scopeDescription = buildSessionStartBackfillScopeDescription({
+        run: latestRun,
+        repository,
+        includeOtherRepositories: options.includeOtherRepositories,
+        currentScopeLabel,
+      });
       await session.log(
-        `lore archive import already running for ${scopeLabel}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%)`,
+        `lore archive import already running for ${scopeDescription}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%)`,
         { ephemeral: true },
       );
     }
@@ -602,17 +634,24 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
         await delay(25);
       }
 
-      const inspectionLimit = readSessionStoreInspectionLimit(activeRuntime.sessionStore);
       const latestRun = activeRuntime.db.listBackfillRuns({ limit: 1 })[0] ?? null;
-      const preview = previewControlledBackfill({
-        db: activeRuntime.db,
-        sessionStore: activeRuntime.sessionStore,
-        repository,
-        includeOtherRepositories: options.includeOtherRepositories,
-        limit: inspectionLimit,
-        refreshExisting: options.refreshExisting,
-      });
-      const decision = buildSessionStartBackfillDecision({ preview, latestRun });
+      let preview = null;
+      let decision = null;
+      let inspectionLimit = null;
+      if (latestRun?.status === "running") {
+        decision = buildSessionStartBackfillDecision({ preview: null, latestRun });
+      } else {
+        inspectionLimit = readSessionStoreInspectionLimit(activeRuntime.sessionStore);
+        preview = previewControlledBackfill({
+          db: activeRuntime.db,
+          sessionStore: activeRuntime.sessionStore,
+          repository,
+          includeOtherRepositories: options.includeOtherRepositories,
+          limit: inspectionLimit,
+          refreshExisting: options.refreshExisting,
+        });
+        decision = buildSessionStartBackfillDecision({ preview, latestRun });
+      }
       if (decision.action === "skip") {
         return;
       }
@@ -625,13 +664,19 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
         run = latestRun;
         const progress = summarizeBackfillRunProgress(run);
         lastReportedCompleted = progress.completedCount;
+        const scopeDescription = buildSessionStartBackfillScopeDescription({
+          run,
+          repository,
+          includeOtherRepositories: options.includeOtherRepositories,
+          currentScopeLabel,
+        });
         await session.log(
-          `lore archive import resumed for ${scopeLabel}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%)`,
+          `lore archive import resumed for ${scopeDescription}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%)`,
           { ephemeral: true },
         );
       } else {
         await session.log(
-          `lore archive import started for ${scopeLabel}: 0/${decision.candidateCount} session(s) queued. Progress updates will appear here.`,
+          `lore archive import started for ${currentScopeLabel}: 0/${decision.candidateCount} session(s) queued. Progress updates will appear here.`,
           { ephemeral: true },
         );
         const started = startControlledBackfillRun({
@@ -639,9 +684,10 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
           sessionStore: activeRuntime.sessionStore,
           repository,
           includeOtherRepositories: options.includeOtherRepositories,
-          limit: inspectionLimit,
+          limit: inspectionLimit ?? readSessionStoreInspectionLimit(activeRuntime.sessionStore),
           refreshExisting: options.refreshExisting,
           batchSize: options.batchSize,
+          plan: preview,
         });
         run = started.run;
       }
@@ -661,10 +707,16 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
           hasReportedIntermediateProgress = true;
         }
         lastReportedCompleted = progress.completedCount;
+        const scopeDescription = buildSessionStartBackfillScopeDescription({
+          run: currentRun,
+          repository,
+          includeOtherRepositories: options.includeOtherRepositories,
+          currentScopeLabel,
+        });
         await session.log(
           buildSessionStartBackfillProgressMessage({
             run: currentRun,
-            scopeLabel,
+            scopeLabel: scopeDescription,
           }),
           {
             ephemeral: true,

@@ -727,6 +727,10 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
         });
         run = result.run;
         await reportProgress(run);
+        if (run.status === "running") {
+          // Yield between synchronous batches so session-start import stays cooperative.
+          await delay(0);
+        }
       }
 
       await reportProgress(run, { force: true });

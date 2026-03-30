@@ -82,4 +82,49 @@ describe("SessionStoreReader.getRecentSessionsWindow", () => {
       rmSync(tempHome, { recursive: true, force: true });
     }
   });
+
+  test("uses a deterministic tiebreaker when updated_at timestamps match", () => {
+    const tempHome = makeTempDir();
+    const rawStorePath = path.join(tempHome, "session-store.db");
+    try {
+      const db = new DatabaseSync(rawStorePath);
+      db.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          cwd TEXT,
+          repository TEXT,
+          branch TEXT,
+          summary TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        );
+      `);
+      const insert = db.prepare(`
+        INSERT INTO sessions (id, repository, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      insert.run("session-a", "repo-one", "a", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z");
+      insert.run("session-c", "repo-one", "c", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z");
+      insert.run("session-b", "repo-one", "b", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z");
+      db.close();
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+
+      const firstWindow = reader.getRecentSessionsWindow({ limit: 2, offset: 0 });
+      const secondWindow = reader.getRecentSessionsWindow({ limit: 2, offset: 2 });
+
+      assert.deepStrictEqual(
+        firstWindow.map((row) => row.id),
+        ["session-c", "session-b"],
+      );
+      assert.deepStrictEqual(
+        secondWindow.map((row) => row.id),
+        ["session-a"],
+      );
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
 });

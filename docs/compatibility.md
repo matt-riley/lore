@@ -73,7 +73,7 @@ When `maintenanceScheduler.sessionStartBackfill` is enabled, Lore may also perfo
 
 | Requirement | Value |
 |---|---|
-| **Bind address** | `127.0.0.1` only — localhost, never `0.0.0.0` |
+| **Bind address** | Loopback hosts only: `127.0.0.1`, `localhost`, or `::1` — never `0.0.0.0` or any non-loopback interface |
 | **Protocol** | HTTP (no TLS). LAN / network exposure is explicitly not supported. |
 | **Browser** | Any modern browser with vanilla ES6 support. No build step; the frontend is plain HTML + CSS + vanilla JS. |
 | **Port** | Configurable; defaults vary — check `scripts/run-browser.mjs` for the current default. |

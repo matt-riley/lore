@@ -106,7 +106,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Surface | Status | Notes |
 |---|---|---|
-| `browser/` — local dashboard | 🟡 Experimental | Localhost-only, read-only Node HTTP server + static HTML. Bind address is `127.0.0.1` only. Not hardened for network exposure. |
+| `browser/` — local dashboard | 🟡 Experimental | Loopback-only, read-only Node HTTP server + static HTML. Bind address accepts `127.0.0.1`, `localhost`, or `::1` only. Not hardened for network exposure. |
 | Overview tab | 🟡 Experimental | Activity state, memory summary, maintenance status. |
 | Memories tab | 🟡 Experimental | Browsable memory list with scope and category filters. |
 | Maintenance tab | 🟡 Experimental | Maintenance task history and schedule state. |
@@ -123,7 +123,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 |---|---|---|
 | `scripts/validate-config-schema.mjs` | 🟢 Supported | Validates `lore.json` against the schema. Safe to run at any time. |
 | `scripts/run-maintenance.mjs` | 🟡 Experimental | Runs maintenance sweeps outside of session context. Use `maintenance_schedule_run` tool for in-session triggering. |
-| `scripts/run-browser.mjs` | 🟡 Experimental | Starts the local browser dashboard. Localhost only. |
+| `scripts/run-browser.mjs` | 🟡 Experimental | Starts the local browser dashboard. Loopback hosts only (`127.0.0.1`, `localhost`, or `::1`). |
 
 ---
 

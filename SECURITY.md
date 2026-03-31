@@ -56,7 +56,7 @@ Understand the surface before enabling it:
 
 Mitigations Lore provides:
 
-- The bind address is hardcoded to `127.0.0.1` — never `0.0.0.0`. The server cannot listen on a network interface by design.
+- The bind address is restricted to loopback hosts (`127.0.0.1`, `localhost`, or `::1`) — never `0.0.0.0` or any other network interface. The server cannot listen on a non-loopback interface by design.
 - The server is **read-only**. There are no write endpoints.
 - The server is **opt-in**. It only starts when you explicitly run `node scripts/run-browser.mjs`.
 

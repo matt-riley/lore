@@ -116,6 +116,7 @@ Stable, tested surfaces covered by the compatibility promise in [`docs/compatibi
 
 - **Session hooks** — `onSessionStart`, `onUserPromptSubmitted`, `onSessionEnd` fire automatically.
 - **Core memory verbs** — `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`.
+- **Temporal recall** — Lore resolves prompts like `what did we do last Thursday?` through date normalisation, `day_summary`, episode fallback, and bounded raw session-history verification when primary temporal evidence is missing. Temporal answers now include confidence/provenance notes so it is clear whether Lore answered from a day summary, prior-work episodes, or verified session history.
 - **Structured memory shaping** — optional memory domains on `lore_retain` and refreshable observations from `lore_reflect` when their rollout flags are enabled.
 - **Status and diagnostics** — `memory_status`, `memory_explain`, `memory_validate`.
 

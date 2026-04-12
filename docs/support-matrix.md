@@ -68,7 +68,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_backfill` | 🟡 Experimental | Backfills memories from the raw session store. The public tool is bounded to 20 items per run; manual controlled runs still create restoreable snapshots, while session-start archive import uses the same engine without creating snapshots. |
+| `memory_backfill` | 🟡 Experimental | Backfills memories from the raw session store. The public tool is bounded to 20 items per run; manual controlled runs still create restorable snapshots, while session-start archive import uses the same engine without creating snapshots. |
 | `memory_deferred_process` | 🟡 Experimental | Triggers processing of extractions deferred during session-start. |
 
 ### Replay and portability

@@ -6,7 +6,7 @@ Lore currently snapshots `lore.db` for every new controlled backfill run, includ
 
 ## Goal
 
-Stop automatic session-start backfill from creating snapshots while preserving the existing restoreable snapshot behavior for manual controlled backfill starts and schema-migration safety backups.
+Stop automatic session-start backfill from creating snapshots while preserving the existing restorable snapshot behavior for manual controlled backfill starts and schema-migration safety backups.
 
 ## Non-goals
 

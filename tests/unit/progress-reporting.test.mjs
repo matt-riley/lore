@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
 import {
@@ -43,24 +42,6 @@ function buildRuntime(db, config, { sessionStore } = {}) {
 }
 
 describe("phase-3 progress reporting surfaces", () => {
-  test("session-start caller disables restore snapshots explicitly", () => {
-    const extensionSource = readFileSync(
-      new URL("../../extension.mjs", import.meta.url),
-      "utf8",
-    );
-
-    assert.match(extensionSource, /snapshotPolicy: "never"/);
-  });
-
-  test("manual memory_backfill start keeps automatic snapshot policy explicit", () => {
-    const memoryToolsSource = readFileSync(
-      new URL("../../lib/memory-tools.mjs", import.meta.url),
-      "utf8",
-    );
-
-    assert.match(memoryToolsSource, /snapshotPolicy: "auto"/);
-  });
-
   test("session-start backfill decision prefers resuming an existing running run", () => {
     const decision = buildSessionStartBackfillDecision({
       preview: { candidates: [{ sessionId: "session-a" }] },

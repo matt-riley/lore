@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
 import {
@@ -42,6 +43,24 @@ function buildRuntime(db, config, { sessionStore } = {}) {
 }
 
 describe("phase-3 progress reporting surfaces", () => {
+  test("session-start caller disables restore snapshots explicitly", () => {
+    const extensionSource = readFileSync(
+      new URL("../../extension.mjs", import.meta.url),
+      "utf8",
+    );
+
+    assert.match(extensionSource, /snapshotPolicy: "never"/);
+  });
+
+  test("manual memory_backfill start keeps automatic snapshot policy explicit", () => {
+    const memoryToolsSource = readFileSync(
+      new URL("../../lib/memory-tools.mjs", import.meta.url),
+      "utf8",
+    );
+
+    assert.match(memoryToolsSource, /snapshotPolicy: "auto"/);
+  });
+
   test("session-start backfill decision prefers resuming an existing running run", () => {
     const decision = buildSessionStartBackfillDecision({
       preview: { candidates: [{ sessionId: "session-a" }] },
@@ -285,7 +304,7 @@ describe("phase-3 progress reporting surfaces", () => {
       },
     });
     try {
-      db.createBackfillRun({
+      const runId = db.createBackfillRun({
         strategy: "session_refresh",
         dryRun: false,
         repository: "fixture-repo",
@@ -304,6 +323,7 @@ describe("phase-3 progress reporting surfaces", () => {
       const output = await findTool(tools, "memory_backfill").handler({
         mode: "controlled",
         action: "status",
+        runId,
       }, {
         sessionId: "session-progress-status",
       });
@@ -312,6 +332,7 @@ describe("phase-3 progress reporting surfaces", () => {
       assert.match(output, /progressCompletedCount: 0/);
       assert.match(output, /progressRunningCount: 2/);
       assert.match(output, /currentPhase: processing/);
+      assert.match(output, /snapshotPath: none/);
     } finally {
       cleanup();
     }

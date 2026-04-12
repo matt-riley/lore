@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.5.0](https://github.com/matt-riley/lore/compare/lore-v0.4.0...lore-v0.5.0) (2026-04-09)
+
+
+### Features
+
+* improve temporal recall reliability ([#11](https://github.com/matt-riley/lore/issues/11)) ([3f6d24d](https://github.com/matt-riley/lore/commit/3f6d24dc20a07cc3266726d4cbe1c3729e8c571f))
+
 ## [0.4.0](https://github.com/matt-riley/lore/compare/lore-v0.3.1...lore-v0.4.0) (2026-03-30)
 
 

@@ -68,7 +68,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_backfill` | 🟡 Experimental | Backfills memories from the raw session store. The public tool is bounded to 20 items per run; larger volumes use the same controlled backfill engine through direct module access or session-start archive import. |
+| `memory_backfill` | 🟡 Experimental | Backfills memories from the raw session store. The public tool is bounded to 20 items per run; manual controlled runs still create restoreable snapshots, while session-start archive import uses the same engine without creating snapshots. |
 | `memory_deferred_process` | 🟡 Experimental | Triggers processing of extractions deferred during session-start. |
 
 ### Replay and portability
@@ -186,7 +186,7 @@ It auto-runs on session start only when all of these are true:
 Additional task gates:
 
 - On session start, Lore only auto-selects the `deferredExtraction` maintenance task; the broader maintenance set is for manual or scripted sweeps.
-- Optional archive import is separate from the maintenance task list and is configured under `maintenanceScheduler.sessionStartBackfill.*`. When enabled, Lore announces start/progress/completion in the CLI while reusing the existing controlled backfill run state, `maxCandidates` bounds how many pending sessions it queues per startup sweep, and `maxInspected` bounds how much raw history it scans before deferring the rest to later starts.
+- Optional archive import is separate from the maintenance task list and is configured under `maintenanceScheduler.sessionStartBackfill.*`. When enabled, Lore announces start/progress/completion in the CLI while reusing the existing controlled backfill run state, `maxCandidates` bounds how many pending sessions it queues per startup sweep, `maxInspected` bounds how much raw history it scans before deferring the rest to later starts, and startup runs do not create restore snapshots.
 - `deferredExtraction` also requires `deferredExtraction.enabled: true`, and on session start it additionally requires `deferredExtraction.autoProcessOnSessionStart: true`.
 - `doctorSnapshot` requires `rollout.loreDoctor: true`.
 - Proposal/integrity/review surfaces stay bounded by the `evolutionLedger`, `proposalGeneration`, `generatedArtifactIntegrity`, and `reviewGate` rollout flags.

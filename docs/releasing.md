@@ -163,6 +163,8 @@ This is the highest-risk scenario. The DB is at `~/.copilot/lore.db`.
 
 3. **Re-derive from session-store** — if the DB is corrupted and there is no backup, the memory store can be partially rebuilt by re-running backfill tools against the raw `session-store.db` (which Lore never writes to). The rebuilt store will be missing any memories that were saved explicitly but not derivable from raw sessions.
 
+   Lore may create snapshots for schema migration safety and manual controlled backfill runs. Automatic session-start archive import does not create restore snapshots, so there is nothing to restore for those runs by ID.
+
 4. **Fresh start** — delete `lore.db` and restart the Copilot CLI. Lore will create a clean DB and run all migrations from scratch. You lose all memories.
 
 > **Migration safety rule**: all schema migrations in Lore are additive (add columns, add tables, add indexes). Destructive migrations are never applied silently. If a future release needs a breaking migration, it will be called out in the CHANGELOG as **BREAKING** and the pre-release checklist will include a migration test against a fixture DB.

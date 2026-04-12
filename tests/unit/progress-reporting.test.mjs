@@ -4,6 +4,8 @@ import { describe, test } from "node:test";
 import {
   buildSessionStartBackfillPreview,
   buildSessionStartBackfillDecision,
+  restoreControlledBackfillRun,
+  startControlledBackfillRun,
   summarizeBackfillRunProgress,
 } from "../../lib/backfill.mjs";
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
@@ -310,6 +312,100 @@ describe("phase-3 progress reporting surfaces", () => {
       assert.match(output, /progressCompletedCount: 0/);
       assert.match(output, /progressRunningCount: 2/);
       assert.match(output, /currentPhase: processing/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("controlled backfill can skip snapshot creation when snapshot policy is never", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+    try {
+      const result = startControlledBackfillRun({
+        db,
+        sessionStore: {
+          getRecentSessions: () => [
+            { id: "session-a", repository: "fixture-repo", updated_at: null, summary: "alpha" },
+          ],
+          getSessionArtifacts: () => ({ turns: [], workspace: null }),
+          getWorkspaceMetadata: () => null,
+        },
+        repository: "fixture-repo",
+        includeOtherRepositories: false,
+        limit: 5,
+        refreshExisting: false,
+        batchSize: 5,
+        snapshotPolicy: "never",
+      });
+
+      assert.strictEqual(result.snapshotPath, null);
+      assert.strictEqual(result.run.snapshot_path, null);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("manual controlled memory_backfill start still creates a snapshot path", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+    try {
+      const runtime = buildRuntime(db, config, {
+        sessionStore: {
+          getRecentSessions: () => [
+            { id: "session-a", repository: "fixture-repo", updated_at: null, summary: "alpha" },
+          ],
+          getSessionArtifacts: () => ({ turns: [], workspace: null }),
+          getWorkspaceMetadata: () => null,
+        },
+      });
+      const tools = createMemoryTools({
+        getRuntime: async () => runtime,
+      });
+      const output = await findTool(tools, "memory_backfill").handler({
+        mode: "controlled",
+        action: "start",
+        limit: 5,
+        batchSize: 5,
+        refreshExisting: false,
+      }, {
+        sessionId: "session-controlled-start",
+      });
+
+      assert.match(output, /snapshotPath: .*lore-.*\.db/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("restoreControlledBackfillRun still fails clearly for runs without snapshots", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+    try {
+      const runId = db.createBackfillRun({
+        strategy: "session_refresh",
+        dryRun: false,
+        repository: "fixture-repo",
+        includeOtherRepositories: false,
+        refreshExisting: false,
+        batchSize: 5,
+        totalCandidates: 1,
+        snapshotPath: null,
+        metadata: {},
+      });
+
+      assert.throws(
+        () => restoreControlledBackfillRun({ db, runId }),
+        /does not have a snapshot path/,
+      );
     } finally {
       cleanup();
     }

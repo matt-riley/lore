@@ -278,6 +278,43 @@ describe("phase-3 progress reporting surfaces", () => {
     }
   });
 
+  test("memory_backfill controlled preview defaults to the public 20-session cap", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+    try {
+      const runtime = buildRuntime(db, config, {
+        sessionStore: {
+          getRecentSessions: ({ limit }) => Array.from({ length: 25 }, (_, index) => ({
+            id: `session-${index + 1}`,
+            repository: "fixture-repo",
+            updated_at: null,
+            summary: `summary-${index + 1}`,
+          })).slice(0, limit),
+          getSessionArtifacts: () => null,
+          getWorkspaceMetadata: () => null,
+        },
+      });
+      const tools = createMemoryTools({
+        getRuntime: async () => runtime,
+      });
+      const output = await findTool(tools, "memory_backfill").handler({
+        mode: "controlled",
+        action: "preview",
+      }, {
+        sessionId: "session-progress-preview-default-cap",
+      });
+
+      assert.match(output, /inspected: 20/);
+      assert.match(output, /candidateCount: 20/);
+      assert.match(output, /progressTotalCount: 20/);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("memory_backfill controlled status reports running counts and current phase", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

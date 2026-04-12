@@ -350,6 +350,37 @@ describe("phase-3 progress reporting surfaces", () => {
     }
   });
 
+  test("controlled backfill rejects invalid snapshot policies", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+    try {
+      assert.throws(
+        () => startControlledBackfillRun({
+          db,
+          sessionStore: {
+            getRecentSessions: () => [
+              { id: "session-a", repository: "fixture-repo", updated_at: null, summary: "alpha" },
+            ],
+            getSessionArtifacts: () => ({ turns: [], workspace: null }),
+            getWorkspaceMetadata: () => null,
+          },
+          repository: "fixture-repo",
+          includeOtherRepositories: false,
+          limit: 5,
+          refreshExisting: false,
+          batchSize: 5,
+          snapshotPolicy: "typo",
+        }),
+        /invalid controlled backfill snapshot policy/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   test("manual controlled memory_backfill start still creates a snapshot path", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

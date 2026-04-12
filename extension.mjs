@@ -686,6 +686,7 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
           refreshExisting: options.refreshExisting,
           batchSize: options.batchSize,
           plan: preview,
+          snapshotPolicy: "never",
         });
         run = started.run;
       }

@@ -32,7 +32,7 @@ It's your project's lore — and now Copilot gets to read it.
 Clone Lore directly into your Copilot extensions directory:
 
 ```sh
-git clone https://github.com/mattriley/lore.git ~/.copilot/extensions/lore
+git clone https://github.com/matt-riley/lore.git ~/.copilot/extensions/lore
 ```
 
 Then restart the **Copilot CLI process** so it rescans the extensions directory and loads Lore.
@@ -47,7 +47,7 @@ git pull
 If you prefer to develop or keep a checkout somewhere else, Lore still ships a helper that copies that checkout into `~/.copilot/extensions/lore`:
 
 ```sh
-git clone https://github.com/mattriley/lore.git ~/dev/lore
+git clone https://github.com/matt-riley/lore.git ~/dev/lore
 cd ~/dev/lore
 node scripts/dev-install.mjs
 ```

@@ -12,13 +12,13 @@
     "local-first",
     "sqlite"
   ],
-  "homepage": "https://github.com/mattriley/lore#readme",
+  "homepage": "https://github.com/matt-riley/lore#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mattriley/lore.git"
+    "url": "https://github.com/matt-riley/lore.git"
   },
   "bugs": {
-    "url": "https://github.com/mattriley/lore/issues"
+    "url": "https://github.com/matt-riley/lore/issues"
   },
   "engines": {
     "node": ">=22.5.0"

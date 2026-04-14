@@ -35,7 +35,7 @@ describe("LoreDb domain and observation helpers", () => {
         kind: "repo",
         title: "Core Lore",
         mission: "Track repo-level memory",
-        repository: "mattriley/lore",
+        repository: "matt-riley/lore",
         scope: "repo",
         directives: ["prefer local-first"],
       });
@@ -47,7 +47,7 @@ describe("LoreDb domain and observation helpers", () => {
         prompt: "What changed recently?",
         focus: "summary",
         summary: "Wave 1 is active.",
-        repository: "mattriley/lore",
+        repository: "matt-riley/lore",
         scope: "repo",
         source: "lore_reflect",
       });
@@ -55,7 +55,7 @@ describe("LoreDb domain and observation helpers", () => {
       loreDb.insertSemanticMemory({
         type: "decision",
         content: "Wave 1 stores domains and observations.",
-        repository: "mattriley/lore",
+        repository: "matt-riley/lore",
         scope: "repo",
         domainKey,
         metadata: { source: "test" },
@@ -63,10 +63,10 @@ describe("LoreDb domain and observation helpers", () => {
 
       assert.equal(loreDb.getMemoryDomain(domainKey)?.title, "Core Lore");
       assert.equal(loreDb.getObservation(observationKey)?.domainKey, domainKey);
-      assert.equal(loreDb.listMemoryDomains({ repository: "mattriley/lore" }).length, 1);
-      assert.equal(loreDb.listObservations({ repository: "mattriley/lore", domainKey }).length, 1);
+      assert.equal(loreDb.listMemoryDomains({ repository: "matt-riley/lore" }).length, 1);
+      assert.equal(loreDb.listObservations({ repository: "matt-riley/lore", domainKey }).length, 1);
       assert.equal(
-        loreDb.searchSemantic({ query: "domains observations", repository: "mattriley/lore" })[0]?.domainKey,
+        loreDb.searchSemantic({ query: "domains observations", repository: "matt-riley/lore" })[0]?.domainKey,
         domainKey,
       );
 

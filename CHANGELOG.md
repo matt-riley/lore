@@ -95,4 +95,4 @@ Release notes in this file are maintained by release-please from conventional co
 
 ---
 
-[Unreleased]: https://github.com/mattriley/lore/commits/main
+[Unreleased]: https://github.com/matt-riley/lore/commits/main

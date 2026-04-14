@@ -17,27 +17,27 @@
       "properties": {
         "copilotHome": {
           "type": "string",
-          "default": "/Users/mattriley/.copilot"
+          "description": "Override Lore's resolved Copilot home directory. Runtime default: ~/.copilot."
         },
         "rawStorePath": {
           "type": "string",
-          "default": "/Users/mattriley/.copilot/session-store.db"
+          "description": "Override the Copilot CLI session store path. Runtime default: <copilotHome>/session-store.db."
         },
         "derivedStorePath": {
           "type": "string",
-          "default": "/Users/mattriley/.copilot/lore.db"
+          "description": "Override Lore's derived SQLite database path. Runtime default: <copilotHome>/lore.db."
         },
         "backupDir": {
           "type": "string",
-          "default": "/Users/mattriley/.copilot/backups/lore"
+          "description": "Override the directory Lore uses for database backups. Runtime default: <copilotHome>/backups/lore."
         },
         "instructionsPath": {
           "type": "string",
-          "default": "/Users/mattriley/.copilot/copilot-instructions.md"
+          "description": "Override the global Copilot instructions file path. Runtime default: <copilotHome>/copilot-instructions.md."
         },
         "scopedInstructionsDir": {
           "type": "string",
-          "default": "/Users/mattriley/.copilot/instructions"
+          "description": "Override the directory for scoped instruction files. Runtime default: <copilotHome>/instructions."
         }
       }
     },

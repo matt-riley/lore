@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.5.1](https://github.com/matt-riley/lore/compare/lore-v0.5.0...lore-v0.5.1) (2026-04-12)
+
+
+### Bug Fixes
+
+* stop session-start backfill snapshots ([#13](https://github.com/matt-riley/lore/issues/13)) ([5c34288](https://github.com/matt-riley/lore/commit/5c3428896928646f09669c2224c6949a2b26a79f))
+
 ## [0.5.0](https://github.com/matt-riley/lore/compare/lore-v0.4.0...lore-v0.5.0) (2026-04-09)
 
 

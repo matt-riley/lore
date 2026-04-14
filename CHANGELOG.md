@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.5.2](https://github.com/matt-riley/lore/compare/lore-v0.5.1...lore-v0.5.2) (2026-04-14)
+
+
+### Bug Fixes
+
+* harden lore config and repo metadata ([6c169ee](https://github.com/matt-riley/lore/commit/6c169ee8cd356f5c1c4872940be771611de10a7a))
+
 ## [0.5.1](https://github.com/matt-riley/lore/compare/lore-v0.5.0...lore-v0.5.1) (2026-04-12)
 
 

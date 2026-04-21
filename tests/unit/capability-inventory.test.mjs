@@ -187,4 +187,22 @@ describe("capability inventory routing", () => {
       fixture.cleanup();
     }
   });
+
+  it("does not treat generic sharpen requests as reverse-prompt work", async () => {
+    const fixture = createCapabilityFixtureRoot();
+    try {
+      const inventory = await scanCapabilityInventory({ rootPath: fixture.rootPath });
+
+      const recommendation = recommendCapabilityRoute({
+        prompt: "Sharpen the documentation for the API endpoints.",
+        inventory,
+        limit: 10,
+      });
+
+      assert.notEqual(recommendation.primaryRoute.targetName, "reverse-prompt");
+      assert.equal(recommendation.promptProfile.promptRewriteIntent, false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
 });

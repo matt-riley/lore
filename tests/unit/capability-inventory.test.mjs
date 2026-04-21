@@ -34,9 +34,9 @@ function createCapabilityFixtureRoot({
 
   if (includeSkillCreator) {
     writeSkillFixture(skillsDir, "skill-creator", {
-      description: "Create or upgrade a local skill under /home/mattriley/.copilot/skills when the user wants better triggers, validation, or support-file structure.",
+      description: "Create or upgrade a local skill under ~/.copilot/skills when the user wants better triggers, validation, or support-file structure.",
       useWhen: [
-        "The user asks to create a new skill under /home/mattriley/.copilot/skills.",
+        "The user asks to create a new skill under ~/.copilot/skills.",
         "The user wants a skill's trigger boundaries, validation steps, or support-file layout improved.",
       ],
       avoidWhen: [
@@ -97,7 +97,7 @@ describe("capability inventory routing", () => {
       const inventory = await scanCapabilityInventory({ rootPath: fixture.rootPath });
 
       const recommendation = recommendCapabilityRoute({
-        prompt: "Before you start, sharpen this request into a repo-grounded brief and then move into planning: add a new skill under /home/mattriley/.copilot/skills.",
+        prompt: "Before you start, sharpen this request into a repo-grounded brief and then move into planning: add a new skill under ~/.copilot/skills.",
         inventory,
         limit: 10,
       });
@@ -117,7 +117,7 @@ describe("capability inventory routing", () => {
       const inventory = await scanCapabilityInventory({ rootPath: fixture.rootPath });
 
       const recommendation = recommendCapabilityRoute({
-        prompt: "Create a new skill under /home/mattriley/.copilot/skills and make its trigger boundaries, validation steps, and support-file layout easier to use correctly.",
+        prompt: "Create a new skill under ~/.copilot/skills and make its trigger boundaries, validation steps, and support-file layout easier to use correctly.",
         inventory,
         limit: 10,
       });
@@ -158,13 +158,31 @@ describe("capability inventory routing", () => {
       const inventory = await scanCapabilityInventory({ rootPath: fixture.rootPath });
 
       const recommendation = recommendCapabilityRoute({
-        prompt: "Before you start, sharpen this request into a repo-grounded brief and then move into planning: add a new skill under /home/mattriley/.copilot/skills.",
+        prompt: "Before you start, sharpen this request into a repo-grounded brief and then move into planning: add a new skill under ~/.copilot/skills.",
         inventory,
         limit: 10,
       });
 
       assert.equal(recommendation.primaryRoute.route, "agent");
       assert.equal(recommendation.primaryRoute.targetName, "implementation-planner");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("does not treat code rewrite requests as reverse-prompt work", async () => {
+    const fixture = createCapabilityFixtureRoot();
+    try {
+      const inventory = await scanCapabilityInventory({ rootPath: fixture.rootPath });
+
+      const recommendation = recommendCapabilityRoute({
+        prompt: "Rewrite this function to use a map instead of a loop.",
+        inventory,
+        limit: 10,
+      });
+
+      assert.notEqual(recommendation.primaryRoute.targetName, "reverse-prompt");
+      assert.equal(recommendation.promptProfile.promptRewriteIntent, false);
     } finally {
       fixture.cleanup();
     }

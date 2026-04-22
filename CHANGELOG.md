@@ -6,6 +6,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.6.0](https://github.com/matt-riley/lore/compare/lore-v0.5.2...lore-v0.6.0) (2026-04-22)
+
+
+### Features
+
+* add skill validation to discovery scanner ([7ed203a](https://github.com/matt-riley/lore/commit/7ed203a7216786c35fe0d0ca05c439658be92a23))
+
+
+### Bug Fixes
+
+* prefer reverse-prompt for prompt-sharpening ([#17](https://github.com/matt-riley/lore/issues/17)) ([3f634e9](https://github.com/matt-riley/lore/commit/3f634e9377a4b8f8efdee2ebf40606c80fe371c6))
+* skill-validator ([3e1c78c](https://github.com/matt-riley/lore/commit/3e1c78c13e8285e63a480cfde4d2eb13978ba51a))
+
 ## [0.5.2](https://github.com/matt-riley/lore/compare/lore-v0.5.1...lore-v0.5.2) (2026-04-14)
 
 

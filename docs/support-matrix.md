@@ -51,6 +51,12 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | `memory_explain` | 🟢 Supported | Explains what context would be injected for a given prompt and why. |
 | `memory_validate` | 🟢 Supported | Validates DB integrity and schema parity. |
 
+### Skill management and diagnostics
+
+| Tool | Status | Notes |
+|---|---|---|
+| `memory_skill_validate` | 🟢 Supported | Validates SKILL.md files and frontmatter. Useful for skill authors and maintainers. |
+
 ### Synthesis and reflection
 
 | Tool | Status | Notes |

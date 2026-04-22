@@ -31,6 +31,7 @@ const EXPECTED_TOOL_NAMES = [
   "memory_backfill",
   "memory_doctor_report",
   "memory_review_gate",
+  "memory_skill_validate",
 ];
 
 const VALID_ROUTE_HINTS = new Set(["retrieval", "direct", "background_task"]);
@@ -186,7 +187,7 @@ describe("LORE_CAPABILITY_SPECS", () => {
     assert.ok(Object.isFrozen(LORE_CAPABILITY_SPECS));
   });
 
-  it("contains all 23 expected tool names", () => {
+  it("contains all expected tool names", () => {
     const manifestNames = LORE_CAPABILITY_SPECS.map((s) => s.name);
     for (const name of EXPECTED_TOOL_NAMES) {
       assert.ok(manifestNames.includes(name), `Missing expected tool: ${name}`);

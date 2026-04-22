@@ -9,8 +9,9 @@ Lore runs entirely on your machine, plugs into Copilot CLI's extension hooks, an
 
 ## What it does
 
-Every Copilot session produces context: decisions, patterns, blockers, file paths, notes, and snippets that matter later.
-Normally that context evaporates when the session ends. Lore keeps the useful parts nearby and brings them back when they are relevant.
+Every time you work with Copilot, you build up context — decisions made, patterns discovered, blockers hit, things learned. Normally that context evaporates when a session ends. **Lore changes that.**
+
+Lore quietly captures what matters from your sessions and surfaces it again when it's relevant. Ask about your work yesterday and Lore will remember. Ask about a pattern you keep hitting and Lore has examples. Ask about a decision from three weeks ago and Lore might have the answer.
 
 At a glance, Lore can:
 
@@ -19,6 +20,8 @@ At a glance, Lore can:
 - explain why a given memory result was selected
 - run bounded maintenance and backfill flows over the local session store
 - expose an optional localhost-only browser dashboard for inspecting stored memories
+
+**Zero runtime dependencies.** Lore is plain ESM built on Node's built-in `node:sqlite` module. No npm bloat. No surprises.
 
 Lore has a stable core and an experimental ring. The support boundary for each surface lives in [`docs/support-matrix.md`](docs/support-matrix.md).
 

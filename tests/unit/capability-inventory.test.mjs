@@ -97,7 +97,7 @@ describe("capability inventory routing", () => {
       const inventory = await scanCapabilityInventory({ rootPath: fixture.rootPath });
 
       const recommendation = recommendCapabilityRoute({
-        prompt: "Before you start, sharpen this request into a repo-grounded brief and then move into planning: add a new skill under ~/.copilot/skills.",
+        prompt: "Before you start, sharpen this prompt into a repo-grounded brief and then move into planning: add a new skill under ~/.copilot/skills.",
         inventory,
         limit: 10,
       });
@@ -158,13 +158,34 @@ describe("capability inventory routing", () => {
       const inventory = await scanCapabilityInventory({ rootPath: fixture.rootPath });
 
       const recommendation = recommendCapabilityRoute({
-        prompt: "Before you start, sharpen this request into a repo-grounded brief and then move into planning: add a new skill under ~/.copilot/skills.",
+        prompt: "Before you start, sharpen this prompt into a repo-grounded brief and then move into planning: add a new skill under ~/.copilot/skills.",
         inventory,
         limit: 10,
       });
 
       assert.equal(recommendation.primaryRoute.route, "agent");
       assert.equal(recommendation.primaryRoute.targetName, "implementation-planner");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("prefers reverse-prompt over implementation-planner for explicit prompt-sharpening requests", async () => {
+    const fixture = createCapabilityFixtureRoot({
+      includePlannerAgent: true,
+    });
+    try {
+      const inventory = await scanCapabilityInventory({ rootPath: fixture.rootPath });
+
+      const recommendation = recommendCapabilityRoute({
+        prompt: "Before you plan any implementation, sharpen this prompt into a concise repo-grounded brief with clarified scope and constraints.",
+        inventory,
+        limit: 10,
+      });
+
+      assert.equal(recommendation.primaryRoute.route, "skill");
+      assert.equal(recommendation.primaryRoute.targetName, "reverse-prompt");
+      assert.equal(recommendation.primaryRoute.executionMode, "skill");
     } finally {
       fixture.cleanup();
     }
@@ -181,7 +202,7 @@ describe("capability inventory routing", () => {
         limit: 10,
       });
 
-      assert.notEqual(recommendation.primaryRoute.targetName, "reverse-prompt");
+      assert.notStrictEqual(recommendation.primaryRoute.targetName, "reverse-prompt");
       assert.equal(recommendation.promptProfile.promptRewriteIntent, false);
     } finally {
       fixture.cleanup();
@@ -199,7 +220,25 @@ describe("capability inventory routing", () => {
         limit: 10,
       });
 
-      assert.notEqual(recommendation.primaryRoute.targetName, "reverse-prompt");
+      assert.notStrictEqual(recommendation.primaryRoute.targetName, "reverse-prompt");
+      assert.equal(recommendation.promptProfile.promptRewriteIntent, false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("does not treat request-handler rewrites as reverse-prompt work", async () => {
+    const fixture = createCapabilityFixtureRoot();
+    try {
+      const inventory = await scanCapabilityInventory({ rootPath: fixture.rootPath });
+
+      const recommendation = recommendCapabilityRoute({
+        prompt: "Rewrite this request handler to validate the payload before streaming the response.",
+        inventory,
+        limit: 10,
+      });
+
+      assert.notStrictEqual(recommendation.primaryRoute.targetName, "reverse-prompt");
       assert.equal(recommendation.promptProfile.promptRewriteIntent, false);
     } finally {
       fixture.cleanup();

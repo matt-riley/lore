@@ -7,13 +7,13 @@ It remembers things across sessions so _you_ don't have to.
 
 ## What it does
 
-Every time you work with Copilot, you build up context — decisions made, patterns discovered, blockers hit, things learned. Normally that context evaporates the moment a session ends. Lore changes that.
+Every time you work with Copilot, you build up context — decisions made, patterns discovered, blockers hit, things learned. Normally that context evaporates when a session ends. **Lore changes that.**
 
-Lore quietly captures what matters from your sessions and surfaces it again when it's relevant. Ask Copilot something tomorrow and it'll know what you were working on yesterday. Ask it about a pattern you keep running into and it'll have examples. Ask about a decision from three weeks ago and it might just have the answer.
+Lore quietly captures what matters from your sessions and surfaces it again when it's relevant. Ask about your work yesterday and Lore will remember. Ask about a pattern you keep hitting and Lore has examples. Ask about a decision from three weeks ago and Lore might have the answer.
 
 It's your project's lore — and now Copilot gets to read it.
 
-**Zero runtime dependencies.** Lore is plain ESM built on Node's built-in `node:sqlite` module. No `npm install`, no bundler, no surprises.
+**Zero runtime dependencies.** Lore is plain ESM built on Node's built-in `node:sqlite` module. No npm bloat. No surprises.
 
 ---
 
@@ -109,21 +109,21 @@ Lore can optionally do a full archive import on session start with progress upda
 
 ## Capabilities at a glance
 
-Lore works across two rings:
+Lore operates across two rings — proven core features and actively-evolving experimental surfaces.
 
-### Supported core 🟢
+### Supported core 🟢 (Stable)
 
-Stable, tested surfaces covered by the compatibility promise in [`docs/compatibility.md`](docs/compatibility.md).
+These surfaces are covered by the compatibility promise in [`docs/compatibility.md`](docs/compatibility.md) and won't break your workflow.
 
-- **Session hooks** — `onSessionStart`, `onUserPromptSubmitted`, `onSessionEnd` fire automatically.
-- **Core memory verbs** — `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`.
-- **Temporal recall** — Lore resolves prompts like `what did we do last Thursday?` through date normalisation, `day_summary`, episode fallback, and bounded raw session-history verification when primary temporal evidence is missing. Temporal answers now include confidence/provenance notes so it is clear whether Lore answered from a day summary, prior-work episodes, or verified session history.
-- **Structured memory shaping** — optional memory domains on `lore_retain` and refreshable observations from `lore_reflect` when their rollout flags are enabled.
-- **Status and diagnostics** — `memory_status`, `memory_explain`, `memory_validate`.
+- **Session hooks** — `onSessionStart`, `onUserPromptSubmitted`, `onSessionEnd` fire automatically
+- **Core memory verbs** — `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`
+- **Temporal recall** — Ask Lore "what did we do last Thursday?" and it resolves it through date normalization, episode lookup, and session-history verification. Answers include confidence notes so you know whether Lore answered from day summaries, prior episodes, or verified history
+- **Structured memory shaping** — optional memory domains on `lore_retain` and refreshable observations from `lore_reflect` (rollout-flagged)
+- **Status and diagnostics** — `memory_status`, `memory_explain`, `memory_validate`
 
-### Experimental ring 🟡
+### Experimental ring 🟡 (Evolving)
 
-Functional and used daily, but interfaces are still evolving. The canonical source for Lore tool lifecycle/category/notes metadata is [`lib/capability-manifest.mjs`](lib/capability-manifest.mjs), and [`docs/support-matrix.md`](docs/support-matrix.md) is expected to mirror it.
+Functional and used daily, but interfaces are still evolving. The canonical source is [`lib/capability-manifest.mjs`](lib/capability-manifest.mjs); [`docs/support-matrix.md`](docs/support-matrix.md) mirrors it.
 
 ---
 

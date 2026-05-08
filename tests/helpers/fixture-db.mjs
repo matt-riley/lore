@@ -183,3 +183,5 @@ async function withFixtureDb({ seed = false, configOverrides = {}, homeOptions =
 
   return { db, config, paths, cleanup };
 }
+
+export { FTS5_AVAILABLE, SEED_MEMORIES, freshDb, seededDb, withFixtureDb };

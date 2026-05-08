@@ -187,3 +187,5 @@ function deepMerge(base, override) {
   }
   return merged;
 }
+
+export { buildFixtureConfig, enabledConfig, freshInstallConfig };

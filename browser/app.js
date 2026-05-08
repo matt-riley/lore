@@ -665,6 +665,71 @@ function queueGraphDraw() {
   window.requestAnimationFrame(() => drawGraphLines())
 }
 
+function countItems(items) {
+  return Array.isArray(items) ? items.length : 0
+}
+
+function renderDaySummaryRelation(day, extraMeta = []) {
+  if (!day) {
+    return ""
+  }
+
+  return `
+    <article class="list-item relation-item">
+      <div><strong>${escapeHtml(day.dateKey)}</strong></div>
+      <div>${escapeHtml(truncateText(day.summary, 220))}</div>
+      <div class="small">${escapeHtml([
+        `repo=${day.repository || "global"}`,
+        `episodes=${countItems(day.episodeIds)}`,
+        ...extraMeta.filter(Boolean),
+      ].join(" · "))}</div>
+    </article>
+  `
+}
+
+function renderDrilldownShell({
+  title,
+  subtitle,
+  summary,
+  meta,
+  summaryCards,
+  graphDescription,
+  graph,
+  detailSections,
+}) {
+  return `
+    <div class="drilldown-shell">
+      <section class="card drilldown-header">
+        <div class="item-header-row">
+          <div>
+            <h2>${escapeHtml(title)}</h2>
+            <div class="small">${escapeHtml(subtitle)}</div>
+          </div>
+          <button type="button" class="action-btn secondary-btn" data-clear-drilldown="true">Clear selection</button>
+        </div>
+        <p>${escapeHtml(summary)}</p>
+        <div class="small">${escapeHtml(meta)}</div>
+      </section>
+
+      ${summaryCards}
+
+      <section class="card section-card">
+        <div class="section-head">
+          <div>
+            <h2>Focused relationship graph</h2>
+            <div class="small">${escapeHtml(graphDescription)}</div>
+          </div>
+        </div>
+        ${renderGraph(graph)}
+      </section>
+
+      <div class="detail-grid">
+        ${detailSections}
+      </div>
+    </div>
+  `
+}
+
 function renderMemoryDrilldown(data) {
   const focus = data?.focus ?? {}
   const provenance = data?.provenance ?? {}
@@ -683,13 +748,7 @@ function renderMemoryDrilldown(data) {
 
   const provenanceItems = [
     provenance.sourceSession ? renderSessionRelationItem(provenance.sourceSession, "Source session") : "",
-    provenance.day ? `
-      <article class="list-item relation-item">
-        <div><strong>${escapeHtml(provenance.day.dateKey)}</strong></div>
-        <div>${escapeHtml(truncateText(provenance.day.summary, 220))}</div>
-        <div class="small">repo=${escapeHtml(provenance.day.repository || "global")} · episodes=${escapeHtml(provenance.day.episodeIds.length)}</div>
-      </article>
-    ` : "",
+    renderDaySummaryRelation(provenance.day),
     ...(Array.isArray(provenance.siblingSessions) ? provenance.siblingSessions.map((session) => renderSessionRelationItem(session, "Same day")) : []),
   ].filter(Boolean).join("")
 
@@ -717,44 +776,29 @@ function renderMemoryDrilldown(data) {
     focus.sourceTurnIndex !== null && focus.sourceTurnIndex !== undefined ? `turn=${focus.sourceTurnIndex}` : null,
   ].filter(Boolean).join(" · ")
 
-  views.drilldown.innerHTML = `
-    <div class="drilldown-shell">
-      <section class="card drilldown-header">
-        <div class="item-header-row">
-          <div>
-            <h2>${escapeHtml(focus.title)}</h2>
-            <div class="small">${escapeHtml(headerSubtitle)}</div>
-          </div>
-          <button type="button" class="action-btn secondary-btn" data-clear-drilldown="true">Clear selection</button>
-        </div>
-        <p>${escapeHtml(focus.content || focus.title || "")}</p>
-        <div class="small">updated=${escapeHtml(formatTime(focus.updatedAt))} · created=${escapeHtml(formatTime(focus.createdAt))} · lastSeen=${escapeHtml(formatTime(focus.lastSeenAt))}</div>
-      </section>
-
-      ${summaryCards}
-
+  const detailSections = [
+    renderSectionList("Provenance & day grouping", provenanceItems, "No provenance rows for this memory.", "Session provenance and neighboring episodes on the same day."),
+    renderSectionList("Lineage", lineageItems, "No supersession links for this memory.", "Navigate reinforced and superseded memories from here."),
+    renderSectionList("Canonical cluster", clusterItems, "This memory is not part of a canonical cluster.", "Cluster members share the same canonical key."),
+    renderSectionList("Linked improvements", improvements.map(renderImprovementRelationItem).join(""), "No improvement artifacts linked to this memory.", "Read-only improvement backlog linkage."),
+    `
       <section class="card section-card">
-        <div class="section-head">
-          <div>
-            <h2>Focused relationship graph</h2>
-            <div class="small">Read-only graph centered on the selected ${escapeHtml(focus.entityType)}.</div>
-          </div>
-        </div>
-        ${renderGraph(data.graph)}
+        <div class="section-head"><h2>Metadata</h2></div>
+        ${renderMetadataList(focus.metadata)}
       </section>
+    `,
+  ].join("")
 
-      <div class="detail-grid">
-        ${renderSectionList("Provenance & day grouping", provenanceItems, "No provenance rows for this memory.", "Session provenance and neighboring episodes on the same day.")}
-        ${renderSectionList("Lineage", lineageItems, "No supersession links for this memory.", "Navigate reinforced and superseded memories from here.")}
-        ${renderSectionList("Canonical cluster", clusterItems, "This memory is not part of a canonical cluster.", "Cluster members share the same canonical key.")}
-        ${renderSectionList("Linked improvements", improvements.map(renderImprovementRelationItem).join(""), "No improvement artifacts linked to this memory.", "Read-only improvement backlog linkage.")}
-        <section class="card section-card">
-          <div class="section-head"><h2>Metadata</h2></div>
-          ${renderMetadataList(focus.metadata)}
-        </section>
-      </div>
-    </div>
-  `
+  views.drilldown.innerHTML = renderDrilldownShell({
+    title: focus.title,
+    subtitle: headerSubtitle,
+    summary: focus.content || focus.title || "",
+    meta: `updated=${formatTime(focus.updatedAt)} · created=${formatTime(focus.createdAt)} · lastSeen=${formatTime(focus.lastSeenAt)}`,
+    summaryCards,
+    graphDescription: `Read-only graph centered on the selected ${focus.entityType}.`,
+    graph: data.graph,
+    detailSections,
+  })
 
   queueGraphDraw()
 }
@@ -764,83 +808,66 @@ function renderSessionDrilldown(data) {
   const dayGroup = data?.dayGroup ?? {}
   const sessionMemories = Array.isArray(data?.sessionMemories) ? data.sessionMemories : []
   const improvements = Array.isArray(data?.linkedImprovements) ? data.linkedImprovements : []
+  const summaryCards = renderMetricGrid([
+    ["Repository", focus.repository ?? "global"],
+    ["Scope", focus.scope ?? "repo"],
+    ["Actions", focus.actionCount ?? 0],
+    ["Decisions", focus.decisionCount ?? 0],
+    ["Learnings", focus.learningCount ?? 0],
+    ["Open items", focus.openItemCount ?? 0],
+  ])
+  const highlightsItems = [
+    focus.actions?.length ? `<article class="list-item relation-item"><strong>Actions</strong><div class="small">${escapeHtml(focus.actions.join(" | "))}</div></article>` : "",
+    focus.decisions?.length ? `<article class="list-item relation-item"><strong>Decisions</strong><div class="small">${escapeHtml(focus.decisions.join(" | "))}</div></article>` : "",
+    focus.learnings?.length ? `<article class="list-item relation-item"><strong>Learnings</strong><div class="small">${escapeHtml(focus.learnings.join(" | "))}</div></article>` : "",
+    focus.openItems?.length ? `<article class="list-item relation-item"><strong>Open items</strong><div class="small">${escapeHtml(focus.openItems.join(" | "))}</div></article>` : "",
+    focus.filesChanged?.length ? `<article class="list-item relation-item"><strong>Files changed</strong><div class="small">${escapeHtml(focus.filesChanged.join(" | "))}</div></article>` : "",
+  ].filter(Boolean).join("")
+  const dayGroupingItems = [
+    renderDaySummaryRelation(
+      dayGroup.day,
+      dayGroup.day?.computedAt ? [`computed=${formatTime(dayGroup.day.computedAt)}`] : [],
+    ),
+    ...(Array.isArray(dayGroup.siblingSessions) ? dayGroup.siblingSessions.map((session) => renderSessionRelationItem(session, "Same day")) : []),
+  ].filter(Boolean).join("")
 
-  views.drilldown.innerHTML = `
-    <div class="drilldown-shell">
-      <section class="card drilldown-header">
-        <div class="item-header-row">
-          <div>
-            <h2>${escapeHtml(focus.title)}</h2>
-            <div class="small">session · ${escapeHtml([focus.repository ?? "global", focus.branch, focus.dateKey].filter(Boolean).join(" · "))}</div>
-          </div>
-          <button type="button" class="action-btn secondary-btn" data-clear-drilldown="true">Clear selection</button>
-        </div>
-        <p>${escapeHtml(focus.summary || "")}</p>
-        <div class="small">updated=${escapeHtml(formatTime(focus.updatedAt))} · created=${escapeHtml(formatTime(focus.createdAt))} · significance=${escapeHtml(focus.significance ?? "—")}</div>
-      </section>
+  const detailSections = [
+    renderSectionList(
+      "Session highlights",
+      highlightsItems,
+      "No highlight arrays recorded on this session digest.",
+      "Pulled from the existing episode digest fields.",
+    ),
+    renderSectionList(
+      "Day grouping",
+      dayGroupingItems,
+      "No day grouping rows for this session.",
+      "Shows the day summary and neighboring sessions from the same day.",
+    ),
+    renderSectionList(
+      "Memories from this session",
+      sessionMemories.map((memory) => renderMemoryRelationItem(memory, "Session memory")).join(""),
+      "No semantic memories reference this session yet.",
+      "Read-only memory provenance by source session.",
+    ),
+    renderSectionList(
+      "Linked improvements",
+      improvements.map(renderImprovementRelationItem).join(""),
+      "No improvement artifacts linked to this session's memories.",
+      "Improvement backlog records joined through linked_memory_id.",
+    ),
+  ].join("")
 
-      ${renderMetricGrid([
-        ["Repository", focus.repository ?? "global"],
-        ["Scope", focus.scope ?? "repo"],
-        ["Actions", focus.actionCount ?? 0],
-        ["Decisions", focus.decisionCount ?? 0],
-        ["Learnings", focus.learningCount ?? 0],
-        ["Open items", focus.openItemCount ?? 0],
-      ])}
-
-      <section class="card section-card">
-        <div class="section-head">
-          <div>
-            <h2>Focused relationship graph</h2>
-            <div class="small">Session provenance, linked memories, and improvement artifacts.</div>
-          </div>
-        </div>
-        ${renderGraph(data.graph)}
-      </section>
-
-      <div class="detail-grid">
-        ${renderSectionList(
-          "Session highlights",
-          [
-            focus.actions?.length ? `<article class="list-item relation-item"><strong>Actions</strong><div class="small">${escapeHtml(focus.actions.join(" | "))}</div></article>` : "",
-            focus.decisions?.length ? `<article class="list-item relation-item"><strong>Decisions</strong><div class="small">${escapeHtml(focus.decisions.join(" | "))}</div></article>` : "",
-            focus.learnings?.length ? `<article class="list-item relation-item"><strong>Learnings</strong><div class="small">${escapeHtml(focus.learnings.join(" | "))}</div></article>` : "",
-            focus.openItems?.length ? `<article class="list-item relation-item"><strong>Open items</strong><div class="small">${escapeHtml(focus.openItems.join(" | "))}</div></article>` : "",
-            focus.filesChanged?.length ? `<article class="list-item relation-item"><strong>Files changed</strong><div class="small">${escapeHtml(focus.filesChanged.join(" | "))}</div></article>` : "",
-          ].filter(Boolean).join(""),
-          "No highlight arrays recorded on this session digest.",
-          "Pulled from the existing episode digest fields.",
-        )}
-        ${renderSectionList(
-          "Day grouping",
-          [
-            dayGroup.day ? `
-              <article class="list-item relation-item">
-                <div><strong>${escapeHtml(dayGroup.day.dateKey)}</strong></div>
-                <div>${escapeHtml(truncateText(dayGroup.day.summary, 220))}</div>
-                <div class="small">repo=${escapeHtml(dayGroup.day.repository || "global")} · episodes=${escapeHtml(dayGroup.day.episodeIds.length)} · computed=${escapeHtml(formatTime(dayGroup.day.computedAt))}</div>
-              </article>
-            ` : "",
-            ...(Array.isArray(dayGroup.siblingSessions) ? dayGroup.siblingSessions.map((session) => renderSessionRelationItem(session, "Same day")) : []),
-          ].filter(Boolean).join(""),
-          "No day grouping rows for this session.",
-          "Shows the day summary and neighboring sessions from the same day.",
-        )}
-        ${renderSectionList(
-          "Memories from this session",
-          sessionMemories.map((memory) => renderMemoryRelationItem(memory, "Session memory")).join(""),
-          "No semantic memories reference this session yet.",
-          "Read-only memory provenance by source session.",
-        )}
-        ${renderSectionList(
-          "Linked improvements",
-          improvements.map(renderImprovementRelationItem).join(""),
-          "No improvement artifacts linked to this session's memories.",
-          "Improvement backlog records joined through linked_memory_id.",
-        )}
-      </div>
-    </div>
-  `
+  views.drilldown.innerHTML = renderDrilldownShell({
+    title: focus.title,
+    subtitle: `session · ${[focus.repository ?? "global", focus.branch, focus.dateKey].filter(Boolean).join(" · ")}`,
+    summary: focus.summary || "",
+    meta: `updated=${formatTime(focus.updatedAt)} · created=${formatTime(focus.createdAt)} · significance=${focus.significance ?? "—"}`,
+    summaryCards,
+    graphDescription: "Session provenance, linked memories, and improvement artifacts.",
+    graph: data.graph,
+    detailSections,
+  })
 
   queueGraphDraw()
 }

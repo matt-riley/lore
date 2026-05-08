@@ -107,6 +107,24 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
+  test("omitted promptNeed keeps non-temporal prompts out of temporal fallback paths", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    try {
+      const loreDb = makeDb(tempHome);
+
+      const { trace } = loreDb.explainPromptContext({
+        prompt: "continue auth migration",
+        repository: TEST_REPO,
+      });
+
+      assert.equal(trace.temporal, null);
+      assert.equal(trace.lookups.daySummary.reason, "no_temporal_signal");
+      loreDb.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
   test("high confidence when day summary is included", { skip: SKIP_NO_FTS5 }, () => {
     const tempHome = makeTempDir();
     try {
@@ -377,6 +395,10 @@ describe("temporal provenance — trace.temporal contract", () => {
       assert.ok(text.includes("Temporal recall:"), "provenance note should appear in text");
       assert.ok(text.includes("high confidence"), "note should include confidence level");
       assert.ok(text.includes("day summary"), "note should identify source as day summary");
+      assert.ok(
+        !text.includes("## Response Style And Addressing"),
+        "pure temporal recall should not inject a style-addressing section",
+      );
 
       const provenanceIndex = text.indexOf("Temporal recall:");
       const summaryIndex = text.indexOf("## Relevant Day Summary");
@@ -586,6 +608,11 @@ describe("temporal provenance — trace.temporal contract", () => {
       assert.equal(verifierCalls, 0);
       assert.equal(trace.lookups.temporalVerifier.reason, "primary_temporal_evidence_available");
       assert.equal(trace.lookups.temporalVerifier.includedRows.length, 0);
+      assert.equal(
+        trace.omissions.some((entry) => entry.stage === "temporal_verifier"),
+        false,
+        "verifier omissions should stay absent when primary evidence already satisfied the recall",
+      );
       loreDb.close();
     } finally {
       rmSync(tempHome, { recursive: true, force: true });

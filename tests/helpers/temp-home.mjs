@@ -86,3 +86,5 @@ function createTempHome({ configOverrides = {} } = {}) {
 
   return { home, paths: p, cleanup };
 }
+
+export { buildHomePaths, createTempHome };

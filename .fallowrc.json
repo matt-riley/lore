@@ -1,0 +1,17 @@
+{
+  "entry": [
+    "tests/**/*.test.mjs"
+  ],
+  "dynamicallyLoaded": [
+    "browser/index.html",
+    "browser/app.js",
+    "browser/styles.css"
+  ],
+  "ignoreDependencies": [
+    "@github/copilot-sdk",
+    "node:sqlite"
+  ],
+  "rules": {
+    "unused-class-members": "off"
+  }
+}

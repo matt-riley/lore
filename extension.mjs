@@ -409,6 +409,78 @@ function buildLatencyWarning(hookName, measuredMs, targetMs) {
   return `${hookName} exceeded latency target (${Math.round(measuredMs)}ms > ${targetMs}ms)`;
 }
 
+function writeActivitySuccessUpdates({ db, repository, updates }) {
+  db.upsertActivitySuccess({ repository, updates });
+  db.upsertActivitySuccess({ repository: null, updates });
+}
+
+function buildTraceSuccessUpdates({ traceRecord, traceId, durationMs, hook }) {
+  const recordedAt = traceRecord.recordedAt ?? new Date().toISOString();
+  const traceUpdates = {
+    lastTraceRecordedAt: recordedAt,
+    lastTraceHook: hook,
+    lastTraceId: traceId,
+  };
+  const sectionTitles = traceRecord?.output?.sectionTitles ?? [];
+  const contextInjected = traceRecord?.output?.contextInjected === true;
+  const contextInjectionUpdates = contextInjected || sectionTitles.length > 0
+    ? {
+      lastContextInjectionAt: recordedAt,
+      lastContextInjectionHook: hook,
+      lastContextInjectionSections: sectionTitles,
+      lastContextInjectionTraceId: traceId,
+      lastContextInjectionDurationMs: durationMs,
+    }
+    : null;
+
+  return {
+    recordedAt,
+    traceUpdates,
+    contextInjectionUpdates,
+  };
+}
+
+function persistDurableTraceSample({
+  activeRuntime,
+  repository,
+  traceRecord,
+  traceId,
+  hook,
+  recordedAt,
+}) {
+  activeRuntime.db.insertRetrievalTraceSample({
+    id: traceId,
+    repository,
+    scopeType: repository ? "repo" : "global",
+    hook,
+    route: traceRecord?.routerDecision?.route ?? null,
+    routeReason: traceRecord?.routerDecision?.reason ?? null,
+    contextInjected: traceRecord?.output?.contextInjected === true,
+    latencyMs: traceRecord?.latencyMs ?? null,
+    promptPreview: traceRecord?.promptPreview ?? "",
+    sectionTitles: traceRecord?.output?.sectionTitles ?? [],
+    promptNeed: traceRecord?.promptNeed ?? {},
+    eligibility: traceRecord?.eligibility ?? {},
+    lookups: traceRecord?.lookups ?? {},
+    omissions: traceRecord?.omissions ?? [],
+    output: traceRecord?.output ?? {},
+    trace: {
+      mode: traceRecord?.mode ?? null,
+    },
+    recordedAt,
+  });
+
+  activeRuntime.tracePersistenceWrites = (activeRuntime.tracePersistenceWrites ?? 0) + 1;
+  if (activeRuntime.tracePersistenceWrites % 10 === 0) {
+    activeRuntime.db.pruneRetrievalTraceSamples({
+      repository,
+      maxRowsPerRepository: activeRuntime.config?.traceRecorder?.durableMaxRowsPerRepository ?? 120,
+      maxRowsGlobal: activeRuntime.config?.traceRecorder?.durableMaxRowsGlobal ?? 240,
+      maxAgeMs: activeRuntime.config?.traceRecorder?.durableMaxAgeMs ?? (14 * 24 * 60 * 60 * 1000),
+    });
+  }
+}
+
 function persistTraceSuccess({ activeRuntime, repository, traceResult, durationMs, hook }) {
   if (!activeRuntime?.db || !traceResult || typeof traceResult !== "object") {
     return;
@@ -421,46 +493,22 @@ function persistTraceSuccess({ activeRuntime, repository, traceResult, durationM
 
   queueMicrotask(() => {
     try {
-      const recordedAt = traceRecord.recordedAt ?? new Date().toISOString();
-      activeRuntime.db.upsertActivitySuccess({
+      const { recordedAt, traceUpdates, contextInjectionUpdates } = buildTraceSuccessUpdates({
+        traceRecord,
+        traceId,
+        durationMs,
+        hook,
+      });
+      writeActivitySuccessUpdates({
+        db: activeRuntime.db,
         repository,
-        updates: {
-          lastTraceRecordedAt: recordedAt,
-          lastTraceHook: hook,
-          lastTraceId: traceId,
-        },
+        updates: traceUpdates,
       });
-      activeRuntime.db.upsertActivitySuccess({
-        repository: null,
-        updates: {
-          lastTraceRecordedAt: recordedAt,
-          lastTraceHook: hook,
-          lastTraceId: traceId,
-        },
-      });
-
-      const sectionTitles = traceRecord?.output?.sectionTitles ?? [];
-      const contextInjected = traceRecord?.output?.contextInjected === true;
-      if (contextInjected || sectionTitles.length > 0) {
-        activeRuntime.db.upsertActivitySuccess({
+      if (contextInjectionUpdates) {
+        writeActivitySuccessUpdates({
+          db: activeRuntime.db,
           repository,
-          updates: {
-            lastContextInjectionAt: recordedAt,
-            lastContextInjectionHook: hook,
-            lastContextInjectionSections: sectionTitles,
-            lastContextInjectionTraceId: traceId,
-            lastContextInjectionDurationMs: durationMs,
-          },
-        });
-        activeRuntime.db.upsertActivitySuccess({
-          repository: null,
-          updates: {
-            lastContextInjectionAt: recordedAt,
-            lastContextInjectionHook: hook,
-            lastContextInjectionSections: sectionTitles,
-            lastContextInjectionTraceId: traceId,
-            lastContextInjectionDurationMs: durationMs,
-          },
+          updates: contextInjectionUpdates,
         });
       }
 
@@ -468,37 +516,14 @@ function persistTraceSuccess({ activeRuntime, repository, traceResult, durationM
         return;
       }
 
-      activeRuntime.db.insertRetrievalTraceSample({
-        id: traceId,
+      persistDurableTraceSample({
+        activeRuntime,
         repository,
-        scopeType: repository ? "repo" : "global",
+        traceRecord,
+        traceId,
         hook,
-        route: traceRecord?.routerDecision?.route ?? null,
-        routeReason: traceRecord?.routerDecision?.reason ?? null,
-        contextInjected: traceRecord?.output?.contextInjected === true,
-        latencyMs: traceRecord?.latencyMs ?? null,
-        promptPreview: traceRecord?.promptPreview ?? "",
-        sectionTitles: traceRecord?.output?.sectionTitles ?? [],
-        promptNeed: traceRecord?.promptNeed ?? {},
-        eligibility: traceRecord?.eligibility ?? {},
-        lookups: traceRecord?.lookups ?? {},
-        omissions: traceRecord?.omissions ?? [],
-        output: traceRecord?.output ?? {},
-        trace: {
-          mode: traceRecord?.mode ?? null,
-        },
         recordedAt,
       });
-
-      activeRuntime.tracePersistenceWrites = (activeRuntime.tracePersistenceWrites ?? 0) + 1;
-      if (activeRuntime.tracePersistenceWrites % 10 === 0) {
-        activeRuntime.db.pruneRetrievalTraceSamples({
-          repository,
-          maxRowsPerRepository: activeRuntime.config?.traceRecorder?.durableMaxRowsPerRepository ?? 120,
-          maxRowsGlobal: activeRuntime.config?.traceRecorder?.durableMaxRowsGlobal ?? 240,
-          maxAgeMs: activeRuntime.config?.traceRecorder?.durableMaxAgeMs ?? (14 * 24 * 60 * 60 * 1000),
-        });
-      }
     } catch {
       // best-effort visibility persistence; never block hook path
     }
@@ -782,6 +807,65 @@ function maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, 
   });
 }
 
+async function maybeSeedSessionStartOnboarding(session, activeRuntime, sessionId) {
+  const onboardingSeed = activeRuntime.db
+    ? seedOnboardingMemories({
+      db: activeRuntime.db,
+      sessionId,
+    })
+    : { insertedCount: 0, after: null };
+  if (onboardingSeed.insertedCount > 0) {
+    await session.log(
+      "lore onboarding bootstrapped a default personality profile",
+      { ephemeral: true },
+    );
+  }
+  return onboardingSeed;
+}
+
+async function assembleSessionStartCapsule({ prompt, repository, activeRuntime }) {
+  const relevantInstructionFiles = detectRelevantInstructionFiles(prompt);
+  const proceduralProfile = await buildProceduralProfile({
+    prompt,
+    relevantInstructionFiles,
+    config: activeRuntime.config,
+  });
+  const watermark = buildDbWatermark(activeRuntime.db);
+  const startCacheKey = cacheKey([
+    "session-start",
+    repository ?? "global",
+    prompt,
+    proceduralProfile,
+    watermark,
+    activeRuntime.traceRecorder?.isEnabled?.() === true ? "trace" : "context-only",
+  ]);
+  const assembled = activeRuntime.db
+    ? readCache(capsuleCache, startCacheKey)
+      ?? writeCache(
+        capsuleCache,
+        startCacheKey,
+        await assembleMemoryCapsule({
+          prompt,
+          repository,
+          proceduralProfile,
+          db: activeRuntime.db,
+          sessionStore: activeRuntime.sessionStore,
+          config: activeRuntime.config,
+          includeTrace: activeRuntime.traceRecorder?.isEnabled?.() === true,
+          includeProposalAwareness: true,
+        }),
+        5 * 60 * 1000,
+        24,
+      )
+    : { text: "", sections: [] };
+
+  return {
+    assembled,
+    proceduralProfile,
+    startCacheKey,
+  };
+}
+
 const session = await joinSession({
   onPermissionRequest: approveAll,
   hooks: {
@@ -806,57 +890,17 @@ const session = await joinSession({
         return;
       }
 
-      const onboardingSeed = activeRuntime.db
-        ? seedOnboardingMemories({
-          db: activeRuntime.db,
-          sessionId: invocation.sessionId,
-        })
-        : { insertedCount: 0, after: null };
-      if (onboardingSeed.insertedCount > 0) {
-        await session.log(
-          "lore onboarding bootstrapped a default personality profile",
-          { ephemeral: true },
-        );
-      }
+      await maybeSeedSessionStartOnboarding(session, activeRuntime, invocation.sessionId);
 
       await maybeRunMaintenanceScheduler(session, activeRuntime, repository);
       await maybeRunSessionStartBackfill(session, activeRuntime, repository);
       maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, invocation.sessionId);
 
-      const relevantInstructionFiles = detectRelevantInstructionFiles(input.initialPrompt ?? "");
-      const proceduralProfile = await buildProceduralProfile({
+      const { assembled } = await assembleSessionStartCapsule({
         prompt: input.initialPrompt ?? "",
-        relevantInstructionFiles,
-        config: activeRuntime.config,
+        repository,
+        activeRuntime,
       });
-      const watermark = buildDbWatermark(activeRuntime.db);
-      const startCacheKey = cacheKey([
-        "session-start",
-        repository ?? "global",
-        input.initialPrompt ?? "",
-        proceduralProfile,
-        watermark,
-        activeRuntime.traceRecorder?.isEnabled?.() === true ? "trace" : "context-only",
-      ]);
-      const assembled = activeRuntime.db
-        ? readCache(capsuleCache, startCacheKey)
-          ?? writeCache(
-            capsuleCache,
-            startCacheKey,
-            await assembleMemoryCapsule({
-              prompt: input.initialPrompt ?? "",
-              repository,
-              proceduralProfile,
-              db: activeRuntime.db,
-              sessionStore: activeRuntime.sessionStore,
-              config: activeRuntime.config,
-              includeTrace: activeRuntime.traceRecorder?.isEnabled?.() === true,
-              includeProposalAwareness: true,
-            }),
-            5 * 60 * 1000,
-            24,
-          )
-        : { text: "", sections: [] };
 
       const durationMs = Date.now() - startedAt;
       const sessionStartTrace = activeRuntime.traceRecorder?.record({

@@ -35,7 +35,7 @@ import path from "node:path";
  *                               keys, deep for nested objects like `paths`).
  * @returns {object} A complete config object suitable for new LoreDb(config).
  */
-export function buildFixtureConfig(home, overrides = {}) {
+function buildFixtureConfig(home, overrides = {}) {
   const defaults = {
     enabled: false,
     paths: {
@@ -136,7 +136,7 @@ export function buildFixtureConfig(home, overrides = {}) {
  * @param {string} home
  * @returns {object}
  */
-export function freshInstallConfig(home) {
+function freshInstallConfig(home) {
   return buildFixtureConfig(home, { enabled: false });
 }
 
@@ -147,7 +147,7 @@ export function freshInstallConfig(home) {
  * @param {string} home
  * @returns {object}
  */
-export function enabledConfig(home) {
+function enabledConfig(home) {
   return buildFixtureConfig(home, {
     enabled: true,
     rollout: {

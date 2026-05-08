@@ -35,7 +35,7 @@ import path from "node:path";
  * @param {string} home - Absolute path to the temp home root.
  * @returns {object} Path constants derived from home.
  */
-export function buildHomePaths(home) {
+function buildHomePaths(home) {
   return {
     home,
     configFile: path.join(home, "lore.json"),
@@ -62,7 +62,7 @@ export function buildHomePaths(home) {
  * @param {{ configOverrides?: object }} [options]
  * @returns {{ home: string, paths: object, cleanup: () => void }}
  */
-export function createTempHome({ configOverrides = {} } = {}) {
+function createTempHome({ configOverrides = {} } = {}) {
   // Prefix ensures log output clearly identifies lore test dirs.
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-test-"));
   const p = buildHomePaths(home);

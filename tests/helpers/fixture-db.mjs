@@ -51,7 +51,7 @@ import { LoreDb } from "../../lib/db.mjs";
  *
  *   test('...', { skip: !FTS5_AVAILABLE && 'FTS5 not in this Node build' }, () => { ... })
  */
-export const FTS5_AVAILABLE = (() => {
+const FTS5_AVAILABLE = (() => {
   try {
     const db = new DatabaseSync(":memory:");
     db.exec("CREATE VIRTUAL TABLE _fts5_probe USING fts5(content)");
@@ -73,7 +73,7 @@ export const FTS5_AVAILABLE = (() => {
  * querying first.  The repository field is "fixture-repo" so tests can scope
  * queries to known data without risk of cross-contamination with other rows.
  */
-export const SEED_MEMORIES = Object.freeze([
+const SEED_MEMORIES = Object.freeze([
   {
     id: "fixture-mem-001",
     type: "preference",
@@ -123,7 +123,7 @@ export const SEED_MEMORIES = Object.freeze([
  * @param {object} config - A fixture config from fixture-config.mjs.
  * @returns {LoreDb} An open, initialised database instance.
  */
-export function freshDb(config) {
+function freshDb(config) {
   const db = new LoreDb(config);
   db.initialize();
   return db;
@@ -139,7 +139,7 @@ export function freshDb(config) {
  * @param {object} config - A fixture config from fixture-config.mjs.
  * @returns {LoreDb} An open, seeded database instance.
  */
-export function seededDb(config) {
+function seededDb(config) {
   const db = freshDb(config);
   for (const memory of SEED_MEMORIES) {
     db.insertSemanticMemory(memory);
@@ -167,7 +167,7 @@ export function seededDb(config) {
  * @param {object} [options.homeOptions={}] - Passed to createTempHome.
  * @returns {{ db: LoreDb, config: object, paths: object, cleanup: () => void }}
  */
-export async function withFixtureDb({ seed = false, configOverrides = {}, homeOptions = {} } = {}) {
+async function withFixtureDb({ seed = false, configOverrides = {}, homeOptions = {} } = {}) {
   // Lazy imports to avoid circular dependency issues in callers.
   const { createTempHome } = await import("./temp-home.mjs");
   const { buildFixtureConfig } = await import("./fixture-config.mjs");

@@ -307,6 +307,65 @@ async function loadMemories() {
   applyMemoriesFilterControls()
 }
 
+function renderMaintenanceDueTasks(dueTasks) {
+  return dueTasks.map((task) => `
+    <article class="list-item">
+      <div><strong>${escapeHtml(task.label)}</strong> <span class="tag">${escapeHtml(task.dueReason)}</span></div>
+      <div class="small">lastRunMinutesAgo=${escapeHtml(task.lastRunMinutesAgo ?? "n/a")} cadenceMinutes=${escapeHtml(task.cadenceMinutes)}</div>
+    </article>
+  `).join("") || renderEmptyBlock("No due tasks right now.")
+}
+
+function renderMaintenanceTaskRows(taskStates) {
+  return taskStates.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.task_name)}</td>
+      <td>${escapeHtml(row.last_status)}</td>
+      <td>${escapeHtml(row.total_runs)}</td>
+      <td>${escapeHtml(row.total_failures)}</td>
+      <td>${escapeHtml(row.total_needs_attention)}</td>
+      <td>${escapeHtml(formatTime(row.last_completed_at))}</td>
+    </tr>
+  `).join("") || '<tr><td colspan="6" class="row-muted">No task states.</td></tr>'
+}
+
+function renderMaintenanceRunRows(runs) {
+  return runs.map((run) => `
+    <tr>
+      <td>${escapeHtml(formatTime(run.started_at))}</td>
+      <td>${escapeHtml(run.status)}</td>
+      <td>${escapeHtml(run.trigger)}</td>
+      <td>${escapeHtml(run.repository ?? "")}</td>
+      <td>${escapeHtml(run.completed_count ?? 0)}</td>
+      <td>${escapeHtml(run.failed_count ?? 0)}</td>
+      <td>${escapeHtml(run.needs_attention_count ?? 0)}</td>
+    </tr>
+  `).join("") || '<tr><td colspan="7" class="row-muted">No maintenance runs.</td></tr>'
+}
+
+function renderDeferredExtractionRows(deferred) {
+  return deferred.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.sessionId)}</td>
+      <td>${escapeHtml(row.repository ?? "")}</td>
+      <td>${escapeHtml(row.status)}</td>
+      <td>${escapeHtml(row.priority)}</td>
+      <td>${escapeHtml(formatTime(row.availableAt))}</td>
+      <td>${escapeHtml(row.attempts)}</td>
+      <td>${escapeHtml(row.lastError ?? "")}</td>
+    </tr>
+  `).join("") || '<tr><td colspan="7" class="row-muted">No deferred items.</td></tr>'
+}
+
+function renderDoctorReports(doctorReports) {
+  return doctorReports.map((row) => `
+    <article class="list-item">
+      <div><strong>${escapeHtml(row.summary)}</strong></div>
+      <div class="small">severity=${escapeHtml(row.severity)} · outcome=${escapeHtml(row.outcome)} · created=${escapeHtml(formatTime(row.created_at))}</div>
+    </article>
+  `).join("") || renderEmptyBlock("No doctor reports found.")
+}
+
 function renderMaintenance(data) {
   const runs = data?.runs ?? []
   const taskStates = data?.taskStates ?? []
@@ -317,12 +376,7 @@ function renderMaintenance(data) {
   views.maintenance.innerHTML = `
     <h2>Due maintenance tasks</h2>
     <div class="list">
-      ${dueTasks.map((task) => `
-        <article class="list-item">
-          <div><strong>${escapeHtml(task.label)}</strong> <span class="tag">${escapeHtml(task.dueReason)}</span></div>
-          <div class="small">lastRunMinutesAgo=${escapeHtml(task.lastRunMinutesAgo ?? "n/a")} cadenceMinutes=${escapeHtml(task.cadenceMinutes)}</div>
-        </article>
-      `).join("") || renderEmptyBlock("No due tasks right now.")}
+      ${renderMaintenanceDueTasks(dueTasks)}
     </div>
 
     <h2>Maintenance task state</h2>
@@ -332,16 +386,7 @@ function renderMaintenance(data) {
           <tr><th>task</th><th>status</th><th>runs</th><th>failures</th><th>needs attention</th><th>completed</th></tr>
         </thead>
         <tbody>
-          ${taskStates.map((row) => `
-            <tr>
-              <td>${escapeHtml(row.task_name)}</td>
-              <td>${escapeHtml(row.last_status)}</td>
-              <td>${escapeHtml(row.total_runs)}</td>
-              <td>${escapeHtml(row.total_failures)}</td>
-              <td>${escapeHtml(row.total_needs_attention)}</td>
-              <td>${escapeHtml(formatTime(row.last_completed_at))}</td>
-            </tr>
-          `).join("") || '<tr><td colspan="6" class="row-muted">No task states.</td></tr>'}
+          ${renderMaintenanceTaskRows(taskStates)}
         </tbody>
       </table>
     </div>
@@ -353,17 +398,7 @@ function renderMaintenance(data) {
           <tr><th>started</th><th>status</th><th>trigger</th><th>repository</th><th>completed</th><th>failed</th><th>needs attention</th></tr>
         </thead>
         <tbody>
-          ${runs.map((run) => `
-            <tr>
-              <td>${escapeHtml(formatTime(run.started_at))}</td>
-              <td>${escapeHtml(run.status)}</td>
-              <td>${escapeHtml(run.trigger)}</td>
-              <td>${escapeHtml(run.repository ?? "")}</td>
-              <td>${escapeHtml(run.completed_count ?? 0)}</td>
-              <td>${escapeHtml(run.failed_count ?? 0)}</td>
-              <td>${escapeHtml(run.needs_attention_count ?? 0)}</td>
-            </tr>
-          `).join("") || '<tr><td colspan="7" class="row-muted">No maintenance runs.</td></tr>'}
+          ${renderMaintenanceRunRows(runs)}
         </tbody>
       </table>
     </div>
@@ -375,29 +410,14 @@ function renderMaintenance(data) {
           <tr><th>session</th><th>repo</th><th>status</th><th>priority</th><th>available</th><th>attempts</th><th>error</th></tr>
         </thead>
         <tbody>
-          ${deferred.map((row) => `
-            <tr>
-              <td>${escapeHtml(row.sessionId)}</td>
-              <td>${escapeHtml(row.repository ?? "")}</td>
-              <td>${escapeHtml(row.status)}</td>
-              <td>${escapeHtml(row.priority)}</td>
-              <td>${escapeHtml(formatTime(row.availableAt))}</td>
-              <td>${escapeHtml(row.attempts)}</td>
-              <td>${escapeHtml(row.lastError ?? "")}</td>
-            </tr>
-          `).join("") || '<tr><td colspan="7" class="row-muted">No deferred items.</td></tr>'}
+          ${renderDeferredExtractionRows(deferred)}
         </tbody>
       </table>
     </div>
 
     <h2>Doctor reports</h2>
     <div class="list">
-      ${doctorReports.map((row) => `
-        <article class="list-item">
-          <div><strong>${escapeHtml(row.summary)}</strong></div>
-          <div class="small">severity=${escapeHtml(row.severity)} · outcome=${escapeHtml(row.outcome)} · created=${escapeHtml(formatTime(row.created_at))}</div>
-        </article>
-      `).join("") || renderEmptyBlock("No doctor reports found.")}
+      ${renderDoctorReports(doctorReports)}
     </div>
   `
 }
@@ -730,14 +750,12 @@ function renderDrilldownShell({
   `
 }
 
-function renderMemoryDrilldown(data) {
-  const focus = data?.focus ?? {}
-  const provenance = data?.provenance ?? {}
-  const lineage = data?.lineage ?? {}
-  const cluster = data?.canonicalCluster
-  const improvements = Array.isArray(data?.linkedImprovements) ? data.linkedImprovements : []
+function joinRenderedParts(parts) {
+  return parts.filter(Boolean).join("")
+}
 
-  const summaryCards = renderMetricGrid([
+function buildMemorySummaryCards(focus) {
+  return renderMetricGrid([
     ["Type", focus.type],
     ["Repository", focus.repository ?? "global"],
     ["Scope", focus.scope ?? "repo"],
@@ -745,70 +763,86 @@ function renderMemoryDrilldown(data) {
     ["Reinforcements", focus.reinforcementCount ?? 1],
     ["Canonical key", focus.canonicalKey ?? "—"],
   ])
+}
 
-  const provenanceItems = [
-    provenance.sourceSession ? renderSessionRelationItem(provenance.sourceSession, "Source session") : "",
-    renderDaySummaryRelation(provenance.day),
-    ...(Array.isArray(provenance.siblingSessions) ? provenance.siblingSessions.map((session) => renderSessionRelationItem(session, "Same day")) : []),
-  ].filter(Boolean).join("")
-
-  const lineageItems = [
-    lineage.supersededBy ? renderMemoryRelationItem(lineage.supersededBy, "Superseded by") : "",
-    ...(Array.isArray(lineage.supersedes) ? lineage.supersedes.map((memory) => renderMemoryRelationItem(memory, "Supersedes")) : []),
-  ].filter(Boolean).join("")
-
-  const clusterItems = cluster
-    ? [
-      `
-        <article class="list-item relation-item">
-          <div><strong>${escapeHtml(cluster.key)}</strong></div>
-          <div class="small">members=${escapeHtml(cluster.totalMembers)} · active=${escapeHtml(cluster.activeMembers)} · total reinforcement=${escapeHtml(cluster.totalReinforcement)}</div>
-        </article>
-      `,
-      ...(Array.isArray(cluster.members) ? cluster.members.map((memory) => renderMemoryRelationItem(memory, memory.id === focus.id ? "Focused memory" : "Cluster member")) : []),
-    ].join("")
-    : ""
-
-  const headerSubtitle = [
+function buildMemoryHeaderSubtitle(focus) {
+  return [
     focus.entityType,
     focus.repository ?? "global",
     focus.scope ? `scope=${focus.scope}` : null,
     focus.sourceTurnIndex !== null && focus.sourceTurnIndex !== undefined ? `turn=${focus.sourceTurnIndex}` : null,
   ].filter(Boolean).join(" · ")
-
-  const detailSections = [
-    renderSectionList("Provenance & day grouping", provenanceItems, "No provenance rows for this memory.", "Session provenance and neighboring episodes on the same day."),
-    renderSectionList("Lineage", lineageItems, "No supersession links for this memory.", "Navigate reinforced and superseded memories from here."),
-    renderSectionList("Canonical cluster", clusterItems, "This memory is not part of a canonical cluster.", "Cluster members share the same canonical key."),
-    renderSectionList("Linked improvements", improvements.map(renderImprovementRelationItem).join(""), "No improvement artifacts linked to this memory.", "Read-only improvement backlog linkage."),
-    `
-      <section class="card section-card">
-        <div class="section-head"><h2>Metadata</h2></div>
-        ${renderMetadataList(focus.metadata)}
-      </section>
-    `,
-  ].join("")
-
-  views.drilldown.innerHTML = renderDrilldownShell({
-    title: focus.title,
-    subtitle: headerSubtitle,
-    summary: focus.content || focus.title || "",
-    meta: `updated=${formatTime(focus.updatedAt)} · created=${formatTime(focus.createdAt)} · lastSeen=${formatTime(focus.lastSeenAt)}`,
-    summaryCards,
-    graphDescription: `Read-only graph centered on the selected ${focus.entityType}.`,
-    graph: data.graph,
-    detailSections,
-  })
-
-  queueGraphDraw()
 }
 
-function renderSessionDrilldown(data) {
-  const focus = data?.focus ?? {}
-  const dayGroup = data?.dayGroup ?? {}
-  const sessionMemories = Array.isArray(data?.sessionMemories) ? data.sessionMemories : []
-  const improvements = Array.isArray(data?.linkedImprovements) ? data.linkedImprovements : []
-  const summaryCards = renderMetricGrid([
+function buildMemoryMeta(focus) {
+  return [
+    `updated=${formatTime(focus.updatedAt)}`,
+    `created=${formatTime(focus.createdAt)}`,
+    `lastSeen=${formatTime(focus.lastSeenAt)}`,
+  ].join(" · ")
+}
+
+function buildMemoryProvenanceItems(provenance) {
+  return joinRenderedParts([
+    provenance.sourceSession ? renderSessionRelationItem(provenance.sourceSession, "Source session") : "",
+    renderDaySummaryRelation(provenance.day),
+    ...(Array.isArray(provenance.siblingSessions) ? provenance.siblingSessions.map((session) => renderSessionRelationItem(session, "Same day")) : []),
+  ])
+}
+
+function buildMemoryLineageItems(lineage) {
+  return joinRenderedParts([
+    lineage.supersededBy ? renderMemoryRelationItem(lineage.supersededBy, "Superseded by") : "",
+    ...(Array.isArray(lineage.supersedes) ? lineage.supersedes.map((memory) => renderMemoryRelationItem(memory, "Supersedes")) : []),
+  ])
+}
+
+function renderMemoryClusterHeader(cluster) {
+  if (!cluster) {
+    return ""
+  }
+
+  return `
+    <article class="list-item relation-item">
+      <div><strong>${escapeHtml(cluster.key)}</strong></div>
+      <div class="small">members=${escapeHtml(cluster.totalMembers)} · active=${escapeHtml(cluster.activeMembers)} · total reinforcement=${escapeHtml(cluster.totalReinforcement)}</div>
+    </article>
+  `
+}
+
+function buildMemoryClusterItems(cluster, focusId) {
+  if (!cluster) {
+    return ""
+  }
+
+  const members = Array.isArray(cluster.members) ? cluster.members : []
+  return joinRenderedParts([
+    renderMemoryClusterHeader(cluster),
+    ...members.map((memory) => renderMemoryRelationItem(memory, memory.id === focusId ? "Focused memory" : "Cluster member")),
+  ])
+}
+
+function renderMemoryMetadataSection(metadata) {
+  return `
+    <section class="card section-card">
+      <div class="section-head"><h2>Metadata</h2></div>
+      ${renderMetadataList(metadata)}
+    </section>
+  `
+}
+
+function buildMemoryDetailSections({ focus, provenance, lineage, cluster, improvements }) {
+  return joinRenderedParts([
+    renderSectionList("Provenance & day grouping", buildMemoryProvenanceItems(provenance), "No provenance rows for this memory.", "Session provenance and neighboring episodes on the same day."),
+    renderSectionList("Lineage", buildMemoryLineageItems(lineage), "No supersession links for this memory.", "Navigate reinforced and superseded memories from here."),
+    renderSectionList("Canonical cluster", buildMemoryClusterItems(cluster, focus.id), "This memory is not part of a canonical cluster.", "Cluster members share the same canonical key."),
+    renderSectionList("Linked improvements", improvements.map(renderImprovementRelationItem).join(""), "No improvement artifacts linked to this memory.", "Read-only improvement backlog linkage."),
+    renderMemoryMetadataSection(focus.metadata),
+  ])
+}
+
+function buildSessionSummaryCards(focus) {
+  return renderMetricGrid([
     ["Repository", focus.repository ?? "global"],
     ["Scope", focus.scope ?? "repo"],
     ["Actions", focus.actionCount ?? 0],
@@ -816,31 +850,59 @@ function renderSessionDrilldown(data) {
     ["Learnings", focus.learningCount ?? 0],
     ["Open items", focus.openItemCount ?? 0],
   ])
-  const highlightsItems = [
-    focus.actions?.length ? `<article class="list-item relation-item"><strong>Actions</strong><div class="small">${escapeHtml(focus.actions.join(" | "))}</div></article>` : "",
-    focus.decisions?.length ? `<article class="list-item relation-item"><strong>Decisions</strong><div class="small">${escapeHtml(focus.decisions.join(" | "))}</div></article>` : "",
-    focus.learnings?.length ? `<article class="list-item relation-item"><strong>Learnings</strong><div class="small">${escapeHtml(focus.learnings.join(" | "))}</div></article>` : "",
-    focus.openItems?.length ? `<article class="list-item relation-item"><strong>Open items</strong><div class="small">${escapeHtml(focus.openItems.join(" | "))}</div></article>` : "",
-    focus.filesChanged?.length ? `<article class="list-item relation-item"><strong>Files changed</strong><div class="small">${escapeHtml(focus.filesChanged.join(" | "))}</div></article>` : "",
-  ].filter(Boolean).join("")
-  const dayGroupingItems = [
+}
+
+function renderHighlightItem(label, values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return ""
+  }
+
+  return `<article class="list-item relation-item"><strong>${escapeHtml(label)}</strong><div class="small">${escapeHtml(values.join(" | "))}</div></article>`
+}
+
+function buildSessionHighlightsItems(focus) {
+  return joinRenderedParts([
+    renderHighlightItem("Actions", focus.actions),
+    renderHighlightItem("Decisions", focus.decisions),
+    renderHighlightItem("Learnings", focus.learnings),
+    renderHighlightItem("Open items", focus.openItems),
+    renderHighlightItem("Files changed", focus.filesChanged),
+  ])
+}
+
+function buildSessionDayGroupingItems(dayGroup) {
+  return joinRenderedParts([
     renderDaySummaryRelation(
       dayGroup.day,
       dayGroup.day?.computedAt ? [`computed=${formatTime(dayGroup.day.computedAt)}`] : [],
     ),
     ...(Array.isArray(dayGroup.siblingSessions) ? dayGroup.siblingSessions.map((session) => renderSessionRelationItem(session, "Same day")) : []),
-  ].filter(Boolean).join("")
+  ])
+}
 
-  const detailSections = [
+function buildSessionSubtitle(focus) {
+  return `session · ${[focus.repository ?? "global", focus.branch, focus.dateKey].filter(Boolean).join(" · ")}`
+}
+
+function buildSessionMeta(focus) {
+  return [
+    `updated=${formatTime(focus.updatedAt)}`,
+    `created=${formatTime(focus.createdAt)}`,
+    `significance=${focus.significance ?? "—"}`,
+  ].join(" · ")
+}
+
+function buildSessionDetailSections({ focus, dayGroup, sessionMemories, improvements }) {
+  return joinRenderedParts([
     renderSectionList(
       "Session highlights",
-      highlightsItems,
+      buildSessionHighlightsItems(focus),
       "No highlight arrays recorded on this session digest.",
       "Pulled from the existing episode digest fields.",
     ),
     renderSectionList(
       "Day grouping",
-      dayGroupingItems,
+      buildSessionDayGroupingItems(dayGroup),
       "No day grouping rows for this session.",
       "Shows the day summary and neighboring sessions from the same day.",
     ),
@@ -856,17 +918,45 @@ function renderSessionDrilldown(data) {
       "No improvement artifacts linked to this session's memories.",
       "Improvement backlog records joined through linked_memory_id.",
     ),
-  ].join("")
+  ])
+}
+
+function renderMemoryDrilldown(data) {
+  const focus = data?.focus ?? {}
+  const provenance = data?.provenance ?? {}
+  const lineage = data?.lineage ?? {}
+  const cluster = data?.canonicalCluster
+  const improvements = Array.isArray(data?.linkedImprovements) ? data.linkedImprovements : []
 
   views.drilldown.innerHTML = renderDrilldownShell({
     title: focus.title,
-    subtitle: `session · ${[focus.repository ?? "global", focus.branch, focus.dateKey].filter(Boolean).join(" · ")}`,
+    subtitle: buildMemoryHeaderSubtitle(focus),
+    summary: focus.content || focus.title || "",
+    meta: buildMemoryMeta(focus),
+    summaryCards: buildMemorySummaryCards(focus),
+    graphDescription: `Read-only graph centered on the selected ${focus.entityType}.`,
+    graph: data.graph,
+    detailSections: buildMemoryDetailSections({ focus, provenance, lineage, cluster, improvements }),
+  })
+
+  queueGraphDraw()
+}
+
+function renderSessionDrilldown(data) {
+  const focus = data?.focus ?? {}
+  const dayGroup = data?.dayGroup ?? {}
+  const sessionMemories = Array.isArray(data?.sessionMemories) ? data.sessionMemories : []
+  const improvements = Array.isArray(data?.linkedImprovements) ? data.linkedImprovements : []
+
+  views.drilldown.innerHTML = renderDrilldownShell({
+    title: focus.title,
+    subtitle: buildSessionSubtitle(focus),
     summary: focus.summary || "",
-    meta: `updated=${formatTime(focus.updatedAt)} · created=${formatTime(focus.createdAt)} · significance=${focus.significance ?? "—"}`,
-    summaryCards,
+    meta: buildSessionMeta(focus),
+    summaryCards: buildSessionSummaryCards(focus),
     graphDescription: "Session provenance, linked memories, and improvement artifacts.",
     graph: data.graph,
-    detailSections,
+    detailSections: buildSessionDetailSections({ focus, dayGroup, sessionMemories, improvements }),
   })
 
   queueGraphDraw()

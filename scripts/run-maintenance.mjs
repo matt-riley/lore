@@ -29,7 +29,66 @@ function mergeDeep(base, override) {
   return merged;
 }
 
-function parseArgs(argv) {
+function resolveArgPath(value) {
+  return path.resolve(process.cwd(), String(value ?? ""));
+}
+
+function parseTaskList(value) {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function applyActionArg(args, action) {
+  args.action = action;
+  args.dryRun = true;
+}
+
+function consumeValueArg(args, key, value, transform = (next) => next) {
+  args[key] = transform(value);
+  return true;
+}
+
+const ARG_HANDLERS = Object.freeze({
+  "--dry-run": (args) => {
+    args.dryRun = true;
+    return false;
+  },
+  "--force": (args) => {
+    args.force = true;
+    return false;
+  },
+  "--status": (args) => {
+    applyActionArg(args, "status");
+    return false;
+  },
+  "--recommended-schedule": (args) => {
+    applyActionArg(args, "recommended-schedule");
+    return false;
+  },
+  "--help": (args) => {
+    applyActionArg(args, "help");
+    return false;
+  },
+  "-h": (args) => {
+    applyActionArg(args, "help");
+    return false;
+  },
+  "--tasks": (args, value) => consumeValueArg(args, "tasks", value, parseTaskList),
+  "--config": (args, value) => consumeValueArg(args, "configPath", value, resolveArgPath),
+  "--repository": (args, value) => consumeValueArg(
+    args,
+    "repository",
+    value,
+    (next) => String(next ?? "").trim() || null,
+  ),
+  "--derived-store-path": (args, value) => consumeValueArg(args, "derivedStorePath", value, resolveArgPath),
+  "--backup-dir": (args, value) => consumeValueArg(args, "backupDir", value, resolveArgPath),
+  "--raw-store-path": (args, value) => consumeValueArg(args, "rawStorePath", value, resolveArgPath),
+});
+
+export function parseArgs(argv) {
   const args = {
     action: "run",
     dryRun: false,
@@ -38,61 +97,12 @@ function parseArgs(argv) {
   };
   for (let index = 0; index < argv.length; index += 1) {
     const part = argv[index];
-    if (part === "--dry-run") {
-      args.dryRun = true;
+    const handler = ARG_HANDLERS[part];
+    if (!handler) {
       continue;
     }
-    if (part === "--force") {
-      args.force = true;
-      continue;
-    }
-    if (part === "--status") {
-      args.action = "status";
-      args.dryRun = true;
-      continue;
-    }
-    if (part === "--recommended-schedule") {
-      args.action = "recommended-schedule";
-      args.dryRun = true;
-      continue;
-    }
-    if (part === "--help" || part === "-h") {
-      args.action = "help";
-      args.dryRun = true;
-      continue;
-    }
-    if (part === "--tasks") {
-      args.tasks = String(argv[index + 1] ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean);
+    if (handler(args, argv[index + 1]) === true) {
       index += 1;
-      continue;
-    }
-    if (part === "--config") {
-      args.configPath = path.resolve(process.cwd(), String(argv[index + 1] ?? ""));
-      index += 1;
-      continue;
-    }
-    if (part === "--repository") {
-      args.repository = String(argv[index + 1] ?? "").trim() || null;
-      index += 1;
-      continue;
-    }
-    if (part === "--derived-store-path") {
-      args.derivedStorePath = path.resolve(process.cwd(), String(argv[index + 1] ?? ""));
-      index += 1;
-      continue;
-    }
-    if (part === "--backup-dir") {
-      args.backupDir = path.resolve(process.cwd(), String(argv[index + 1] ?? ""));
-      index += 1;
-      continue;
-    }
-    if (part === "--raw-store-path") {
-      args.rawStorePath = path.resolve(process.cwd(), String(argv[index + 1] ?? ""));
-      index += 1;
-      continue;
     }
   }
   return args;

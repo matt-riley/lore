@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
+import { pathToFileURL } from "node:url";
 
 import {
   renderExplanationReport,
@@ -12,6 +14,71 @@ import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
+const DIAGNOSTICS_PATH = "/Users/matthew.riley/.copilot/extensions/lore/lib/diagnostics.mjs";
+const DIAGNOSTICS_SOURCE = readFileSync(DIAGNOSTICS_PATH, "utf8");
+
+let diagnosticsHotspotsPromise = null;
+
+function findBalancedIndex(source, start, openChar, closeChar) {
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === openChar) {
+      depth += 1;
+      continue;
+    }
+    if (char !== closeChar) {
+      continue;
+    }
+    depth -= 1;
+    if (depth === 0) {
+      return index;
+    }
+  }
+
+  throw new Error(`could not find closing ${closeChar} for ${openChar} at ${start}`);
+}
+
+function extractFunctionSource(name) {
+  const markers = [`async function ${name}`, `function ${name}`];
+  const start = markers
+    .map((marker) => DIAGNOSTICS_SOURCE.indexOf(marker))
+    .find((index) => index !== -1);
+  assert.notEqual(start, undefined, `expected ${name} to exist in diagnostics.mjs`);
+
+  const paramsStart = DIAGNOSTICS_SOURCE.indexOf("(", start);
+  const paramsEnd = findBalancedIndex(DIAGNOSTICS_SOURCE, paramsStart, "(", ")");
+  const braceStart = DIAGNOSTICS_SOURCE.indexOf("{", paramsEnd);
+  const bodyEnd = findBalancedIndex(DIAGNOSTICS_SOURCE, braceStart, "{", "}");
+  return DIAGNOSTICS_SOURCE.slice(start, bodyEnd + 1);
+}
+
+function loadFunctions(names, dependencies = {}) {
+  const functionSources = names.map((name) => extractFunctionSource(name)).join("\n\n");
+  return Function(
+    ...Object.keys(dependencies),
+    `"use strict"; ${functionSources}; return { ${names.join(", ")} };`,
+  )(...Object.values(dependencies));
+}
+
+function countLines(source) {
+  return source.trim().split("\n").length;
+}
+
+async function loadDiagnosticsHotspots() {
+  if (!diagnosticsHotspotsPromise) {
+    const diagnosticsUrl = pathToFileURL(DIAGNOSTICS_PATH).href;
+    const source = DIAGNOSTICS_SOURCE
+      .replace(/from "\.\/capsule-assembler\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/capsule-assembler.mjs").href}"`)
+      .replace(/from "\.\/memory-operations\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/memory-operations.mjs").href}"`)
+      .replace(/from "\.\/procedural-memory\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/procedural-memory.mjs").href}"`)
+      .replace("function evaluateCase(definition, explanation) {", "export function evaluateCase(definition, explanation) {")
+      .replace("function classifyReplayMiss(definition, explanation, evidence) {", "export function classifyReplayMiss(definition, explanation, evidence) {")
+      .replace("function persistReplayFailureArtifact({", "export function persistReplayFailureArtifact({");
+    diagnosticsHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${diagnosticsUrl}\n`).toString("base64")}`);
+  }
+  return diagnosticsHotspotsPromise;
+}
 
 describe("runValidationSet", () => {
   test("reports the latency snapshot with rounded summary fields and nested defaults", { skip: SKIP_NO_FTS5 }, async () => {
@@ -96,6 +163,454 @@ describe("runValidationSet", () => {
     } finally {
       cleanup();
     }
+  });
+});
+
+describe("diagnostics hotspot helpers", () => {
+  test("keeps classifyReplayMiss compact enough for hotspot maintenance", () => {
+    assert.ok(countLines(extractFunctionSource("classifyReplayMiss")) <= 20, "classifyReplayMiss should stay within 20 lines");
+    assert.ok(countLines(extractFunctionSource("renderLookup")) <= 24, "renderLookup should stay within 24 lines");
+    assert.ok(countLines(extractFunctionSource("buildDiagnosticInsights")) <= 36, "buildDiagnosticInsights should stay within 36 lines");
+    assert.ok(countLines(extractFunctionSource("runReplayCorpus")) <= 48, "runReplayCorpus should stay within 48 lines");
+  });
+
+  test("renderLookup preserves lookup summaries, filtered reasons, and samples", () => {
+    const { renderLookup } = loadFunctions([
+      "ensureArray",
+      "summarizeTraceRow",
+      "formatLookupLabel",
+      "aggregateFilteredReasons",
+      "normalizeLookupCounts",
+      "buildLookupMetadataLines",
+      "buildLookupCountLines",
+      "buildLookupSampleLines",
+      "renderLookup",
+    ]);
+
+    const output = renderLookup("localEpisodes", {
+      enabled: true,
+      query: "prompt shaping",
+      scopes: ["repo"],
+      eligibleScopes: ["repo:fixture-repo"],
+      rows: [{ type: "episode", summary: "Prompt shaping summary" }],
+      includedRows: [{ type: "episode", summary: "Prompt shaping summary" }],
+      filtered: [
+        { reason: "cutoff" },
+        { reason: "cutoff" },
+        { reason: "scope" },
+      ],
+      reason: "included_match",
+    });
+
+    assert.match(output, /### Local Episodes/);
+    assert.match(output, /- enabled: true/);
+    assert.match(output, /- query: prompt shaping/);
+    assert.match(output, /- scopes: repo/);
+    assert.match(output, /- eligibleScopes: repo:fixture-repo/);
+    assert.match(output, /- matched: 1/);
+    assert.match(output, /- included: 1/);
+    assert.match(output, /- dropped: 3/);
+    assert.match(output, /- filtered: cutoff x2, scope x1/);
+    assert.match(output, /  - Prompt shaping summary/);
+  });
+
+  test("buildDiagnosticInsights aggregates lookup hit rates, sections, and omissions", () => {
+    const { buildDiagnosticInsights } = loadFunctions([
+      "ensureArray",
+      "countTraceRows",
+      "incrementCount",
+      "lookupInsightEntry",
+      "collectLookupInsight",
+      "collectDiagnosticMaps",
+      "sortLookupHitRates",
+      "buildLookupHitRates",
+      "buildSectionUsage",
+      "buildRepeatedWins",
+      "buildRepeatedMisses",
+      "buildDiagnosticInsights",
+    ]);
+
+    const insights = buildDiagnosticInsights([
+      {
+        caseType: "must_pass",
+        sectionTitles: ["Relevant Prior Work", "Recent Related Work"],
+        trace: {
+          omissions: [{ stage: "rank", reason: "cutoff" }],
+          lookups: {
+            localEpisodes: {
+              rows: [{ summary: "one" }],
+              includedRows: [{ summary: "one" }],
+              filtered: [{ reason: "cutoff" }],
+            },
+          },
+        },
+      },
+      {
+        sectionTitles: ["Relevant Prior Work"],
+        trace: {
+          omissions: [{ stage: "rank", reason: "cutoff" }],
+          lookups: {
+            localEpisodes: {
+              rankedRows: [{ summary: "two" }],
+              includedRows: [],
+            },
+            localMemories: {
+              includedRows: [{ summary: "memory" }],
+            },
+          },
+        },
+      },
+    ]);
+
+    assert.equal(insights.totalCases, 2);
+    assert.deepEqual(insights.sectionUsage[0], {
+      title: "Relevant Prior Work",
+      count: 2,
+      rate: 1,
+    });
+    const localEpisodes = insights.lookupHitRates.find((entry) => entry.name === "localEpisodes");
+    assert.deepEqual(localEpisodes, {
+      name: "localEpisodes",
+      seenCases: 2,
+      matchedCases: 2,
+      includedCases: 1,
+      filteredCases: 1,
+      matchedRows: 2,
+      includedRows: 1,
+      matchedRate: 1,
+      includedRate: 0.5,
+    });
+    assert.deepEqual(insights.repeatedMisses, [{ label: "rank:cutoff", count: 2 }]);
+    assert.deepEqual(insights.repeatedWins, []);
+  });
+
+  test("runReplayCorpus summarizes replay cases and records failed artifacts", async () => {
+    const persisted = [];
+    const cleaned = [];
+    const { runReplayCorpus } = loadFunctions([
+      "deriveReplayRankingOutcome",
+      "buildReplayCaseResult",
+      "replayCaseFailed",
+      "buildReplayImprovementArtifact",
+      "runReplayDefinition",
+      "collectReplayCases",
+      "summarizeReplayCaseTotals",
+      "buildReplayCorpusResult",
+      "runReplayCorpus",
+    ], {
+      REPLAY_CASES: [
+        { id: "must-pass", caseType: "must_pass", title: "Must pass", mode: "prompt", prompt: "prompt 1" },
+        { id: "ranking", caseType: "ranking_target", title: "Ranking", mode: "prompt", prompt: "prompt 2" },
+      ],
+      seedDiagnosticsMemories() {
+        return ["seed-base"];
+      },
+      seedExtraDiagnosticsMemories(_runtime, memories) {
+        return memories.map((memory) => memory.id);
+      },
+      cleanupSeedDiagnosticsMemories(_runtime, ids) {
+        cleaned.push(ids);
+      },
+      async explainMemoryRetrieval({ prompt }) {
+        return {
+          text: `explanation for ${prompt}`,
+          trace: { output: { sectionTitles: ["Relevant Prior Work"] } },
+          estimatedTokens: 12,
+          promptNeed: { wantsCrossRepoExamples: false },
+        };
+      },
+      evaluateCase(definition) {
+        return {
+          passed: definition.id === "must-pass",
+          assertions: [{ label: definition.id, passed: definition.id === "must-pass" }],
+          sectionTitles: ["Relevant Prior Work"],
+        };
+      },
+      evaluateExpectedEvidence(definition) {
+        return definition.id === "ranking"
+          ? { expectedCount: 1, missingCount: 1, includedCount: 0, rankedOnlyCount: 1 }
+          : { expectedCount: 0, missingCount: 0, includedCount: 0, rankedOnlyCount: 0 };
+      },
+      classifyReplayMiss(definition) {
+        return definition.id === "ranking" ? "lexical_ranking" : null;
+      },
+      persistReplayFailureArtifact({ definition, rankingOutcome, missCategory }) {
+        persisted.push({ id: definition.id, rankingOutcome, missCategory });
+        return `artifact-${definition.id}`;
+      },
+      latencySnapshot() {
+        return { sessionStartP95Ms: 0, userPromptSubmittedP95Ms: 0 };
+      },
+      buildDiagnosticInsights(cases) {
+        return { totalCases: cases.length, lookupHitRates: [], sectionUsage: [], repeatedWins: [], repeatedMisses: [] };
+      },
+    });
+
+    const result = await runReplayCorpus({
+      runtime: { repository: "fixture-repo", metrics: {} },
+    });
+
+    assert.equal(result.total, 2);
+    assert.equal(result.mustPassFailed, 0);
+    assert.equal(result.rankingTargetPartial, 1);
+    assert.deepEqual(result.improvementArtifacts, [
+      {
+        id: "artifact-ranking",
+        sourceKind: "replay",
+        sourceCaseId: "ranking",
+        title: "Ranking",
+        missCategory: "lexical_ranking",
+      },
+    ]);
+    assert.deepEqual(persisted, [{ id: "ranking", rankingOutcome: "partial", missCategory: "lexical_ranking" }]);
+    assert.deepEqual(cleaned, [[], [], ["seed-base"]]);
+  });
+
+  test("evaluateCase records the configured expectation checks", async () => {
+    const { evaluateCase } = await loadDiagnosticsHotspots();
+    const evaluation = evaluateCase({
+      expect: {
+        promptNeed: {
+          requiresLookup: true,
+          wantsContinuity: false,
+        },
+        traceTruthyPaths: ["output.sectionTitles", "routerDecision.route"],
+        traceMinCounts: {
+          "lookups.localEpisodes.includedRows": 1,
+        },
+        traceEquals: {
+          "routerDecision.route": "memory_recall",
+        },
+        mustIncludeSections: ["Relevant Prior Work"],
+        mustNotIncludeSections: ["Cross-Repo Examples"],
+        mustIncludeOneOfSections: ["Relevant Prior Work", "Cross-Repo Hints"],
+        textMustIncludeAny: ["scope override audit", "manual overrides"],
+        textMustIncludeAll: ["Relevant Prior Work"],
+        textMustNotInclude: ["Cross-Repo Examples"],
+      },
+    }, {
+      promptNeed: {
+        requiresLookup: true,
+        wantsContinuity: false,
+      },
+      text: "## Relevant Prior Work\n\nWe added scope override audit coverage for manual overrides.",
+      trace: {
+        output: {
+          sectionTitles: ["Relevant Prior Work"],
+        },
+        routerDecision: {
+          route: "memory_recall",
+        },
+        lookups: {
+          localEpisodes: {
+            includedRows: [{ summary: "Added scope override audit coverage." }],
+          },
+        },
+      },
+    });
+
+    assert.equal(evaluation.passed, true);
+    assert.equal(evaluation.assertions.length, 12);
+    assert.deepEqual(evaluation.sectionTitles, ["Relevant Prior Work"]);
+  });
+
+  test("classifyReplayMiss distinguishes cross-repo leaks from extraction-shape misses", async () => {
+    const { classifyReplayMiss } = await loadDiagnosticsHotspots();
+
+    const scopeMiss = classifyReplayMiss(
+      { caseType: "ranking_target" },
+      {
+        text: "## Cross-Repo Examples",
+        promptNeed: { wantsCrossRepoExamples: false },
+        trace: {
+          output: {
+            sectionTitles: ["Cross-Repo Examples"],
+          },
+        },
+      },
+      { missingCount: 1 },
+    );
+    const extractionMiss = classifyReplayMiss(
+      { caseType: "ranking_target" },
+      {
+        text: "",
+        promptNeed: { wantsCrossRepoExamples: false },
+        trace: {
+          lookups: {
+            localEpisodes: {
+              rankedRows: [{ summary: "files created remaining work" }],
+            },
+            localMemories: {
+              includedRows: [],
+            },
+          },
+        },
+      },
+      { missingCount: 1 },
+    );
+
+    assert.equal(scopeMiss, "scope_classification");
+    assert.equal(extractionMiss, "extraction_shape");
+  });
+
+  test("persistReplayFailureArtifact preserves ranking-miss artifact and trajectory content", async () => {
+    const { persistReplayFailureArtifact } = await loadDiagnosticsHotspots();
+    const inserted = {
+      memory: null,
+      artifact: null,
+      trajectory: null,
+    };
+    const artifactId = persistReplayFailureArtifact({
+      runtime: {
+        repository: "diagnostics/current-repo",
+        config: {
+          rollout: {
+            autoWriteImprovementGoals: true,
+          },
+        },
+        db: {
+          insertSemanticMemory(memory) {
+            inserted.memory = memory;
+            return "mem-1";
+          },
+          upsertImprovementArtifact(artifact) {
+            inserted.artifact = artifact;
+            return "imp-1";
+          },
+          insertTrajectoryArtifact(artifact) {
+            inserted.trajectory = artifact;
+          },
+        },
+      },
+      definition: {
+        id: "ranking-controlled-backfill-rollback",
+        title: "Controlled backfill rollback details are retrievable",
+        mode: "prompt",
+        prompt: "How does the controlled backfill rollback work in lore?",
+        caseType: "ranking_target",
+      },
+      evaluation: {
+        assertions: [{ label: "unused", passed: true }],
+      },
+      explanation: {
+        estimatedTokens: 44,
+        trace: {
+          output: {
+            sectionTitles: ["Relevant Prior Work"],
+          },
+        },
+      },
+      evidence: {
+        expectedCount: 1,
+        includedCount: 0,
+        rankedOnlyCount: 1,
+      },
+      rankingOutcome: "partial",
+      missCategory: "lexical_ranking",
+    });
+
+    assert.equal(artifactId, "imp-1");
+    assert.equal(inserted.memory.type, "recurring_mistake");
+    assert.equal(inserted.artifact.summary, "Ranking outcome: partial | Miss category: lexical_ranking");
+    assert.deepEqual(inserted.artifact.evidence, {
+      mode: "prompt",
+      prompt: "How does the controlled backfill rollback work in lore?",
+      caseType: "ranking_target",
+      rankingOutcome: "partial",
+      missCategory: "lexical_ranking",
+      failedAssertions: [],
+      expectedEvidence: {
+        expectedCount: 1,
+        includedCount: 0,
+        rankedOnlyCount: 1,
+      },
+      estimatedTokens: 44,
+    });
+    assert.deepEqual(inserted.trajectory.context, {
+      title: "Controlled backfill rollback details are retrievable",
+      caseType: "ranking_target",
+      mode: "prompt",
+      rankingOutcome: "partial",
+      missCategory: "lexical_ranking",
+      failedAssertionCount: 0,
+      expectedEvidenceCount: 1,
+      includedEvidenceCount: 0,
+      rankedOnlyEvidenceCount: 1,
+      estimatedTokens: 44,
+    });
+  });
+
+  test("persistReplayFailureArtifact preserves must-pass failure summaries and counts", async () => {
+    const { persistReplayFailureArtifact } = await loadDiagnosticsHotspots();
+    const inserted = {
+      memory: null,
+      artifact: null,
+      trajectory: null,
+    };
+    const artifactId = persistReplayFailureArtifact({
+      runtime: {
+        repository: "diagnostics/current-repo",
+        config: {
+          rollout: {
+            autoWriteImprovementGoals: true,
+          },
+        },
+        db: {
+          insertSemanticMemory(memory) {
+            inserted.memory = memory;
+            return "mem-2";
+          },
+          upsertImprovementArtifact(artifact) {
+            inserted.artifact = artifact;
+            return "imp-2";
+          },
+          insertTrajectoryArtifact(artifact) {
+            inserted.trajectory = artifact;
+          },
+        },
+      },
+      definition: {
+        id: "identity-greeting",
+        title: "Identity greeting",
+        mode: "prompt",
+        prompt: "Hi Jules, can you help me today?",
+        caseType: "must_pass",
+      },
+      evaluation: {
+        assertions: [
+          { label: "assistant identity included", passed: false, details: "No identity evidence found" },
+          { label: "style omitted", passed: true },
+        ],
+      },
+      explanation: {
+        estimatedTokens: 12,
+        trace: {
+          output: {
+            sectionTitles: [],
+          },
+        },
+      },
+      evidence: {
+        expectedCount: 0,
+        includedCount: 0,
+        rankedOnlyCount: 0,
+      },
+      rankingOutcome: null,
+      missCategory: null,
+    });
+
+    assert.equal(artifactId, "imp-2");
+    assert.equal(inserted.memory.type, "recurring_mistake");
+    assert.equal(
+      inserted.artifact.summary,
+      "assistant identity included (No identity evidence found)",
+    );
+    assert.deepEqual(inserted.artifact.evidence.failedAssertions, [
+      { label: "assistant identity included", passed: false, details: "No identity evidence found" },
+    ]);
+    assert.equal(inserted.trajectory.summary, "Replay failure for identity-greeting: assistant identity included (No identity evidence found)");
+    assert.equal(inserted.trajectory.context.failedAssertionCount, 1);
+    assert.equal(inserted.trajectory.outcome, "must_pass_failed");
   });
 });
 

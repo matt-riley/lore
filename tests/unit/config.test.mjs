@@ -45,6 +45,37 @@ async function freshConfig(envOverrides = {}) {
 }
 
 describe("loadConfig", () => {
+  test("normalizeRolloutConfig coerces string booleans against rollout defaults", async () => {
+    const mod = await freshConfig();
+
+    assert.deepStrictEqual(
+      mod.normalizeRolloutConfig({
+        memoryOperations: "false",
+        traceRecorder: "yes",
+        hybridRetrieval: "off",
+      }),
+      {
+        ambientPersonaMode: false,
+        autoWriteImprovementGoals: false,
+        memoryOperations: false,
+        workstreamOverlays: true,
+        temporalQueryNormalization: true,
+        memoryDomains: false,
+        refreshableObservations: false,
+        retentionSanitization: true,
+        directives: true,
+        traceRecorder: true,
+        evolutionLedger: true,
+        proposalGeneration: false,
+        generatedArtifactIntegrity: true,
+        overlayAutoHydration: true,
+        loreDoctor: false,
+        reviewGate: false,
+        hybridRetrieval: false,
+      },
+    );
+  });
+
   test("throws an actionable error for a malformed config file", async () => {
     const mod = await freshConfig({ LORE_CONFIG: MALFORMED_FIXTURE });
 

@@ -178,6 +178,13 @@ function methodNotAllowed(res) {
   })
 }
 
+function buildReadOnlyPayload(payload = {}) {
+  return {
+    mode: "read_only",
+    ...payload,
+  }
+}
+
 function getStaticContentType(filePath) {
   if (filePath.endsWith(".html")) {
     return "text/html; charset=utf-8"
@@ -650,21 +657,12 @@ function buildSessionFocus(episode) {
   }
 }
 
-function buildMemoryDrilldown({ db, id, entityType }) {
-  const memory = getMemoryById(db, id)
-  if (!memory) {
-    throw new HttpError(404, "memory_not_found", `No memory found for ${id}`)
-  }
-  if (entityType === "workstream" && memory.type !== "workstream_overlay") {
-    throw new HttpError(404, "workstream_not_found", `No workstream found for ${id}`)
-  }
-
-  const focus = buildMemoryFocus(memory, entityType)
+function buildMemoryProvenance({ db, memory }) {
   const sourceEpisode = memory.sourceSessionId ? getEpisodeBySessionId(db, memory.sourceSessionId) : null
   const sourceDay = sourceEpisode
     ? getDaySummary(db, { dateKey: sourceEpisode.dateKey, repository: sourceEpisode.repository })
     : null
-  const dayEpisodes = sourceEpisode
+  const siblingSessions = sourceEpisode
     ? listDayEpisodes(db, {
       dateKey: sourceEpisode.dateKey,
       repository: sourceEpisode.repository,
@@ -672,6 +670,25 @@ function buildMemoryDrilldown({ db, id, entityType }) {
       limit: 8,
     })
     : []
+
+  return {
+    sourceEpisode,
+    sourceDay,
+    siblingSessions,
+    sourceSession: sourceEpisode ?? (memory.sourceSessionId
+      ? {
+        sessionId: memory.sourceSessionId,
+        summary: "Source session digest not available yet",
+        repository: memory.repository,
+        dateKey: null,
+        branch: null,
+        significance: null,
+      }
+      : null),
+  }
+}
+
+function buildMemoryRelations({ db, memory }) {
   const supersededBy = memory.supersededBy ? getMemoryById(db, memory.supersededBy) : null
   const supersedes = listMemoriesSupersededBy(db, memory.id, { limit: 8 })
   const linkedImprovements = listImprovementsForMemory(db, memory.id, { limit: 8 })
@@ -682,15 +699,24 @@ function buildMemoryDrilldown({ db, id, entityType }) {
     }
     : null
 
-  const centerNode = buildMemoryNode(memory, {
-    column: "center",
-    entityType,
-    focus: true,
-  })
-  const graph = createGraph(centerNode)
+  return {
+    supersededBy,
+    supersedes,
+    linkedImprovements,
+    canonicalCluster,
+  }
+}
 
-  if (sourceEpisode) {
-    const sessionNode = buildSessionNode(sourceEpisode, { column: "left" })
+function populateMemoryDrilldownGraph({
+  graph,
+  centerNode,
+  memory,
+  provenance,
+  relations,
+  entityType,
+}) {
+  if (provenance.sourceEpisode) {
+    const sessionNode = buildSessionNode(provenance.sourceEpisode, { column: "left" })
     graph.addNode(sessionNode)
     graph.addEdge(sessionNode.id, centerNode.id, "source_session", "source session")
   } else if (memory.sourceSessionId) {
@@ -699,21 +725,21 @@ function buildMemoryDrilldown({ db, id, entityType }) {
     graph.addEdge(sessionNode.id, centerNode.id, "source_session", "source session")
   }
 
-  if (sourceDay) {
-    const dayNode = buildDayNode(sourceDay, { column: "left" })
+  if (provenance.sourceDay) {
+    const dayNode = buildDayNode(provenance.sourceDay, { column: "left" })
     graph.addNode(dayNode)
-    if (sourceEpisode) {
-      graph.addEdge(dayNode.id, buildNodeId("session", sourceEpisode.sessionId), "day_group", "day grouping")
+    if (provenance.sourceEpisode) {
+      graph.addEdge(dayNode.id, buildNodeId("session", provenance.sourceEpisode.sessionId), "day_group", "day grouping")
     } else {
       graph.addEdge(dayNode.id, centerNode.id, "day_group", "day grouping")
     }
   }
 
-  if (canonicalCluster) {
-    const clusterNode = buildClusterNode(canonicalCluster, { column: "left" })
+  if (relations.canonicalCluster) {
+    const clusterNode = buildClusterNode(relations.canonicalCluster, { column: "left" })
     graph.addNode(clusterNode)
     graph.addEdge(clusterNode.id, centerNode.id, "canonical_cluster", "canonical cluster")
-    canonicalCluster.members
+    relations.canonicalCluster.members
       .filter((candidate) => candidate.id !== memory.id)
       .slice(0, 5)
       .forEach((candidate) => {
@@ -726,7 +752,7 @@ function buildMemoryDrilldown({ db, id, entityType }) {
       })
   }
 
-  supersedes.slice(0, 4).forEach((candidate) => {
+  relations.supersedes.slice(0, 4).forEach((candidate) => {
     const node = buildMemoryNode(candidate, {
       column: "left",
       entityType: getMemoryEntityType(candidate),
@@ -735,45 +761,57 @@ function buildMemoryDrilldown({ db, id, entityType }) {
     graph.addEdge(node.id, centerNode.id, "superseded_by", "superseded by")
   })
 
-  if (supersededBy) {
-    const node = buildMemoryNode(supersededBy, {
+  if (relations.supersededBy) {
+    const node = buildMemoryNode(relations.supersededBy, {
       column: "right",
-      entityType: getMemoryEntityType(supersededBy),
+      entityType: getMemoryEntityType(relations.supersededBy),
     })
     graph.addNode(node)
     graph.addEdge(centerNode.id, node.id, "superseded_by", "superseded by")
   }
 
-  linkedImprovements.slice(0, 4).forEach((improvement) => {
+  relations.linkedImprovements.slice(0, 4).forEach((improvement) => {
     const node = buildImprovementNode(improvement, { column: "far" })
     graph.addNode(node)
     graph.addEdge(node.id, centerNode.id, "linked_memory", "linked improvement")
   })
+}
+
+function buildMemoryDrilldown({ db, id, entityType }) {
+  const memory = getMemoryById(db, id)
+  if (!memory) {
+    throw new HttpError(404, "memory_not_found", `No memory found for ${id}`)
+  }
+  if (entityType === "workstream" && memory.type !== "workstream_overlay") {
+    throw new HttpError(404, "workstream_not_found", `No workstream found for ${id}`)
+  }
+
+  const focus = buildMemoryFocus(memory, entityType)
+  const provenance = buildMemoryProvenance({ db, memory })
+  const relations = buildMemoryRelations({ db, memory })
+  const centerNode = buildMemoryNode(memory, {
+    column: "center",
+    entityType,
+    focus: true,
+  })
+  const graph = createGraph(centerNode)
+  populateMemoryDrilldownGraph({ graph, centerNode, memory, provenance, relations, entityType })
 
   return {
     entityType,
     focus,
     provenance: {
-      sourceSession: sourceEpisode ?? (memory.sourceSessionId
-        ? {
-          sessionId: memory.sourceSessionId,
-          summary: "Source session digest not available yet",
-          repository: memory.repository,
-          dateKey: null,
-          branch: null,
-          significance: null,
-        }
-        : null),
+      sourceSession: provenance.sourceSession,
       sourceTurnIndex: memory.sourceTurnIndex,
-      day: sourceDay,
-      siblingSessions: dayEpisodes,
+      day: provenance.sourceDay,
+      siblingSessions: provenance.siblingSessions,
     },
     lineage: {
-      supersededBy,
-      supersedes,
+      supersededBy: relations.supersededBy,
+      supersedes: relations.supersedes,
     },
-    canonicalCluster,
-    linkedImprovements,
+    canonicalCluster: relations.canonicalCluster,
+    linkedImprovements: relations.linkedImprovements,
     graph: graph.toJSON(),
   }
 }
@@ -1129,6 +1167,99 @@ function queryDrilldown({ db, url }) {
   throw new HttpError(400, "unsupported_drilldown_entity", `Unsupported drilldown entity: ${entityType}`)
 }
 
+function buildBrowserApiResponse({ db, url, host, normalizedRepository }) {
+  if (url.pathname === "/api/health") {
+    return {
+      statusCode: 200,
+      payload: buildReadOnlyPayload({
+        ok: true,
+        host,
+        repository: normalizedRepository,
+        dbPath: db.config?.paths?.derivedStorePath ?? null,
+      }),
+    }
+  }
+
+  if (url.pathname === "/api/overview") {
+    return {
+      statusCode: 200,
+      payload: buildReadOnlyPayload({
+        ok: true,
+        data: queryOverview({ db, repository: normalizedRepository }),
+      }),
+    }
+  }
+
+  if (url.pathname === "/api/memories") {
+    return {
+      statusCode: 200,
+      payload: buildReadOnlyPayload({
+        ok: true,
+        data: queryMemories({ db, url }),
+      }),
+    }
+  }
+
+  if (url.pathname === "/api/memories/filters") {
+    return {
+      statusCode: 200,
+      payload: buildReadOnlyPayload({
+        ok: true,
+        data: queryMemoryFilters({ db }),
+      }),
+    }
+  }
+
+  if (url.pathname === "/api/maintenance") {
+    return {
+      statusCode: 200,
+      payload: buildReadOnlyPayload({
+        ok: true,
+        data: queryMaintenance({ db, repository: normalizedRepository }),
+      }),
+    }
+  }
+
+  if (url.pathname === "/api/episodes") {
+    return {
+      statusCode: 200,
+      payload: buildReadOnlyPayload({
+        ok: true,
+        data: queryEpisodes({ db, repository: normalizedRepository }),
+      }),
+    }
+  }
+
+  if (url.pathname === "/api/drilldown") {
+    return {
+      statusCode: 200,
+      payload: buildReadOnlyPayload({
+        ok: true,
+        data: queryDrilldown({ db, url }),
+      }),
+    }
+  }
+
+  return null
+}
+
+function handleBrowserRequestError(res, error) {
+  if (error instanceof HttpError) {
+    jsonResponse(res, error.statusCode, buildReadOnlyPayload({
+      ok: false,
+      error: error.code,
+      message: error.message,
+    }))
+    return
+  }
+
+  jsonResponse(res, 500, buildReadOnlyPayload({
+    ok: false,
+    error: "internal_error",
+    message: error instanceof Error ? error.message : String(error),
+  }))
+}
+
 export function startLoreBrowserServer({
   db,
   host = "127.0.0.1",
@@ -1150,88 +1281,15 @@ export function startLoreBrowserServer({
     const url = new URL(req.url || "/", `http://${host}:${port}`)
 
     try {
-      if (url.pathname === "/api/health") {
-        jsonResponse(res, 200, {
-          ok: true,
-          mode: "read_only",
-          host,
-          repository: normalizedRepository,
-          dbPath: db.config?.paths?.derivedStorePath ?? null,
-        })
-        return
-      }
-
-      if (url.pathname === "/api/overview") {
-        jsonResponse(res, 200, {
-          ok: true,
-          mode: "read_only",
-          data: queryOverview({ db, repository: normalizedRepository }),
-        })
-        return
-      }
-
-      if (url.pathname === "/api/memories") {
-        jsonResponse(res, 200, {
-          ok: true,
-          mode: "read_only",
-          data: queryMemories({ db, url }),
-        })
-        return
-      }
-
-      if (url.pathname === "/api/memories/filters") {
-        jsonResponse(res, 200, {
-          ok: true,
-          mode: "read_only",
-          data: queryMemoryFilters({ db }),
-        })
-        return
-      }
-
-      if (url.pathname === "/api/maintenance") {
-        jsonResponse(res, 200, {
-          ok: true,
-          mode: "read_only",
-          data: queryMaintenance({ db, repository: normalizedRepository }),
-        })
-        return
-      }
-
-      if (url.pathname === "/api/episodes") {
-        jsonResponse(res, 200, {
-          ok: true,
-          mode: "read_only",
-          data: queryEpisodes({ db, repository: normalizedRepository }),
-        })
-        return
-      }
-
-      if (url.pathname === "/api/drilldown") {
-        jsonResponse(res, 200, {
-          ok: true,
-          mode: "read_only",
-          data: queryDrilldown({ db, url }),
-        })
+      const apiResponse = buildBrowserApiResponse({ db, url, host, normalizedRepository })
+      if (apiResponse) {
+        jsonResponse(res, apiResponse.statusCode, apiResponse.payload)
         return
       }
 
       await serveStatic(req, res, url.pathname)
     } catch (error) {
-      if (error instanceof HttpError) {
-        jsonResponse(res, error.statusCode, {
-          ok: false,
-          mode: "read_only",
-          error: error.code,
-          message: error.message,
-        })
-        return
-      }
-
-      jsonResponse(res, 500, {
-        ok: false,
-        error: "internal_error",
-        message: error instanceof Error ? error.message : String(error),
-      })
+      handleBrowserRequestError(res, error)
     }
   })
 

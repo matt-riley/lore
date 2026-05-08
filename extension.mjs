@@ -301,6 +301,260 @@ function buildSessionStartBackfillProgressMessage({ run, scopeLabel }) {
   return base;
 }
 
+async function loadSessionStartBackfillDecisionState({ activeRuntime, repository, options }) {
+  const latestRun = activeRuntime.db.listBackfillRuns({ limit: 1 })[0] ?? null;
+  let preview = null;
+  const decision = latestRun?.status === "running"
+    ? buildSessionStartBackfillDecision({ preview: null, latestRun })
+    : (() => null)();
+  if (decision) {
+    return {
+      latestRun,
+      preview,
+      decision,
+    };
+  }
+
+  preview = await buildSessionStartBackfillPreview({
+    db: activeRuntime.db,
+    sessionStore: activeRuntime.sessionStore,
+    repository,
+    includeOtherRepositories: options.includeOtherRepositories,
+    maxCandidates: options.maxCandidates,
+    maxInspected: options.maxInspected,
+    refreshExisting: options.refreshExisting,
+  });
+
+  return {
+    latestRun,
+    preview,
+    decision: buildSessionStartBackfillDecision({ preview, latestRun }),
+  };
+}
+
+function shouldReportSessionStartBackfillProgress({
+  force = false,
+  currentRun,
+  progress,
+  lastReportedCompleted,
+  hasReportedIntermediateProgress,
+  notifyEveryItems,
+}) {
+  const isTerminal = currentRun.status === "completed" || currentRun.status === "failed";
+  const reachedNotifyThreshold = (progress.completedCount - lastReportedCompleted) >= notifyEveryItems;
+  return force
+    || isTerminal
+    || (!hasReportedIntermediateProgress && progress.completedCount > 0)
+    || reachedNotifyThreshold;
+}
+
+async function reportSessionStartBackfillProgress({
+  session,
+  currentRun,
+  repository,
+  options,
+  currentScopeLabel,
+  state,
+  force = false,
+}) {
+  const progress = summarizeBackfillRunProgress(currentRun);
+  const shouldReport = shouldReportSessionStartBackfillProgress({
+    force,
+    currentRun,
+    progress,
+    lastReportedCompleted: state.lastReportedCompleted,
+    hasReportedIntermediateProgress: state.hasReportedIntermediateProgress,
+    notifyEveryItems: options.notifyEveryItems,
+  });
+  if (!shouldReport) {
+    return state;
+  }
+
+  const isTerminal = currentRun.status === "completed" || currentRun.status === "failed";
+  const nextState = {
+    lastReportedCompleted: progress.completedCount,
+    hasReportedIntermediateProgress: state.hasReportedIntermediateProgress || !isTerminal,
+  };
+  const scopeDescription = buildSessionStartBackfillScopeDescription({
+    run: currentRun,
+    repository,
+    includeOtherRepositories: options.includeOtherRepositories,
+    currentScopeLabel,
+  });
+  await session.log(
+    buildSessionStartBackfillProgressMessage({
+      run: currentRun,
+      scopeLabel: scopeDescription,
+    }),
+    {
+      ephemeral: true,
+      ...(currentRun.status === "failed" ? { level: "warning" } : {}),
+    },
+  );
+  return nextState;
+}
+
+async function waitForSessionStartBackfillDependencies(activeRuntime) {
+  while (activeRuntime.processingMaintenance || activeRuntime.processingDeferred) {
+    await delay(25);
+  }
+}
+
+async function initializeSessionStartBackfillRun({
+  session,
+  activeRuntime,
+  repository,
+  options,
+  currentScopeLabel,
+  latestRun,
+  preview,
+  decision,
+}) {
+  if (decision.action === "resume") {
+    const run = latestRun;
+    const progress = summarizeBackfillRunProgress(run);
+    const scopeDescription = buildSessionStartBackfillScopeDescription({
+      run,
+      repository,
+      includeOtherRepositories: options.includeOtherRepositories,
+      currentScopeLabel,
+    });
+    await session.log(
+      `lore archive import resumed for ${scopeDescription}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%)`,
+      { ephemeral: true },
+    );
+    return {
+      run,
+      state: {
+        lastReportedCompleted: progress.completedCount,
+        hasReportedIntermediateProgress: false,
+      },
+    };
+  }
+
+  await session.log(
+    decision.reason === "partial_candidates"
+      ? `lore archive import started for ${currentScopeLabel}: 0/${decision.candidateCount} session(s) queued after a bounded preview scanned ${preview?.inspected ?? 0}/${preview?.inspectionLimit ?? options.maxInspected} session(s). Progress updates will appear here.`
+      : `lore archive import started for ${currentScopeLabel}: 0/${decision.candidateCount} session(s) queued. Progress updates will appear here.`,
+    { ephemeral: true },
+  );
+  return {
+    run: startControlledBackfillRun({
+      db: activeRuntime.db,
+      sessionStore: activeRuntime.sessionStore,
+      repository,
+      includeOtherRepositories: options.includeOtherRepositories,
+      limit: options.maxCandidates,
+      refreshExisting: options.refreshExisting,
+      batchSize: options.batchSize,
+      plan: preview,
+      snapshotPolicy: "never",
+    }).run,
+    state: {
+      lastReportedCompleted: 0,
+      hasReportedIntermediateProgress: false,
+    },
+  };
+}
+
+async function drainSessionStartBackfillRun({
+  session,
+  activeRuntime,
+  repository,
+  options,
+  currentScopeLabel,
+  run,
+  state,
+}) {
+  let currentRun = run;
+  let currentState = await reportSessionStartBackfillProgress({
+    session,
+    currentRun,
+    repository,
+    options,
+    currentScopeLabel,
+    state,
+    force: currentRun.status === "completed" || currentRun.status === "failed",
+  });
+
+  while (currentRun.status === "running") {
+    currentRun = processControlledBackfillRun({
+      db: activeRuntime.db,
+      sessionStore: activeRuntime.sessionStore,
+      runId: currentRun.id,
+      limit: options.batchSize,
+      retryFailed: true,
+    }).run;
+    currentState = await reportSessionStartBackfillProgress({
+      session,
+      currentRun,
+      repository,
+      options,
+      currentScopeLabel,
+      state: currentState,
+    });
+    if (currentRun.status === "running") {
+      // Yield between synchronous batches so session-start import stays cooperative.
+      await delay(0);
+    }
+  }
+
+  await reportSessionStartBackfillProgress({
+    session,
+    currentRun,
+    repository,
+    options,
+    currentScopeLabel,
+    state: currentState,
+    force: true,
+  });
+}
+
+async function runSessionStartBackfillWork({
+  session,
+  activeRuntime,
+  repository,
+  options,
+  currentScopeLabel,
+}) {
+  await waitForSessionStartBackfillDependencies(activeRuntime);
+
+  const { latestRun, preview, decision } = await loadSessionStartBackfillDecisionState({
+    activeRuntime,
+    repository,
+    options,
+  });
+  if (decision.action === "skip") {
+    if (decision.reason === "inspection_bound") {
+      await session.log(
+        `lore archive import deferred for ${currentScopeLabel}: inspected ${preview?.inspected ?? 0}/${preview?.inspectionLimit ?? options.maxInspected} session(s) without finding pending candidates. More history remains for future startup sweeps.`,
+        { ephemeral: true },
+      );
+    }
+    return;
+  }
+
+  const { run, state } = await initializeSessionStartBackfillRun({
+    session,
+    activeRuntime,
+    repository,
+    options,
+    currentScopeLabel,
+    latestRun,
+    preview,
+    decision,
+  });
+  await drainSessionStartBackfillRun({
+    session,
+    activeRuntime,
+    repository,
+    options,
+    currentScopeLabel,
+    run,
+    state,
+  });
+}
+
 function buildTraceRecorderEligibility(repository, promptNeed) {
   return {
     local: repository ? ["global", `repo:${repository}`] : ["global"],
@@ -448,17 +702,33 @@ function persistDurableTraceSample({
   hook,
   recordedAt,
 }) {
-  activeRuntime.db.insertRetrievalTraceSample({
-    id: traceId,
+  activeRuntime.db.insertRetrievalTraceSample(buildDurableTraceSamplePayload({
     repository,
-    scopeType: repository ? "repo" : "global",
+    traceRecord,
+    traceId,
     hook,
+    recordedAt,
+  }));
+
+  maybePruneDurableTraceSamples({
+    activeRuntime,
+    repository,
+  });
+}
+
+function buildDurableTraceSampleRecordFields(traceRecord) {
+  return {
     route: traceRecord?.routerDecision?.route ?? null,
     routeReason: traceRecord?.routerDecision?.reason ?? null,
     contextInjected: traceRecord?.output?.contextInjected === true,
     latencyMs: traceRecord?.latencyMs ?? null,
     promptPreview: traceRecord?.promptPreview ?? "",
     sectionTitles: traceRecord?.output?.sectionTitles ?? [],
+  };
+}
+
+function buildDurableTraceSampleEvidenceFields(traceRecord) {
+  return {
     promptNeed: traceRecord?.promptNeed ?? {},
     eligibility: traceRecord?.eligibility ?? {},
     lookups: traceRecord?.lookups ?? {},
@@ -467,18 +737,40 @@ function persistDurableTraceSample({
     trace: {
       mode: traceRecord?.mode ?? null,
     },
-    recordedAt,
-  });
+  };
+}
 
+function buildDurableTraceSamplePayload({
+  repository,
+  traceRecord,
+  traceId,
+  hook,
+  recordedAt,
+}) {
+  return {
+    id: traceId,
+    repository,
+    scopeType: repository ? "repo" : "global",
+    hook,
+    ...buildDurableTraceSampleRecordFields(traceRecord),
+    ...buildDurableTraceSampleEvidenceFields(traceRecord),
+    recordedAt,
+  };
+}
+
+function maybePruneDurableTraceSamples({ activeRuntime, repository }) {
   activeRuntime.tracePersistenceWrites = (activeRuntime.tracePersistenceWrites ?? 0) + 1;
-  if (activeRuntime.tracePersistenceWrites % 10 === 0) {
-    activeRuntime.db.pruneRetrievalTraceSamples({
-      repository,
-      maxRowsPerRepository: activeRuntime.config?.traceRecorder?.durableMaxRowsPerRepository ?? 120,
-      maxRowsGlobal: activeRuntime.config?.traceRecorder?.durableMaxRowsGlobal ?? 240,
-      maxAgeMs: activeRuntime.config?.traceRecorder?.durableMaxAgeMs ?? (14 * 24 * 60 * 60 * 1000),
-    });
+  const shouldPrune = activeRuntime.tracePersistenceWrites % 10 === 0;
+  if (!shouldPrune) {
+    return;
   }
+
+  activeRuntime.db.pruneRetrievalTraceSamples({
+    repository,
+    maxRowsPerRepository: activeRuntime.config?.traceRecorder?.durableMaxRowsPerRepository ?? 120,
+    maxRowsGlobal: activeRuntime.config?.traceRecorder?.durableMaxRowsGlobal ?? 240,
+    maxAgeMs: activeRuntime.config?.traceRecorder?.durableMaxAgeMs ?? (14 * 24 * 60 * 60 * 1000),
+  });
 }
 
 function persistTraceSuccess({ activeRuntime, repository, traceResult, durationMs, hook }) {
@@ -646,130 +938,13 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
   activeRuntime.processingBackfill = true;
   setTimeout(async () => {
     try {
-      while (activeRuntime.processingMaintenance || activeRuntime.processingDeferred) {
-        await delay(25);
-      }
-
-      const latestRun = activeRuntime.db.listBackfillRuns({ limit: 1 })[0] ?? null;
-      let preview = null;
-      let decision = null;
-      if (latestRun?.status === "running") {
-        decision = buildSessionStartBackfillDecision({ preview: null, latestRun });
-      } else {
-        preview = await buildSessionStartBackfillPreview({
-          db: activeRuntime.db,
-          sessionStore: activeRuntime.sessionStore,
-          repository,
-          includeOtherRepositories: options.includeOtherRepositories,
-          maxCandidates: options.maxCandidates,
-          maxInspected: options.maxInspected,
-          refreshExisting: options.refreshExisting,
-        });
-        decision = buildSessionStartBackfillDecision({ preview, latestRun });
-      }
-      if (decision.action === "skip") {
-        if (decision.reason === "inspection_bound") {
-          await session.log(
-            `lore archive import deferred for ${currentScopeLabel}: inspected ${preview?.inspected ?? 0}/${preview?.inspectionLimit ?? options.maxInspected} session(s) without finding pending candidates. More history remains for future startup sweeps.`,
-            { ephemeral: true },
-          );
-        }
-        return;
-      }
-
-      let run = null;
-      let lastReportedCompleted = 0;
-      let hasReportedIntermediateProgress = false;
-
-      if (decision.action === "resume") {
-        run = latestRun;
-        const progress = summarizeBackfillRunProgress(run);
-        lastReportedCompleted = progress.completedCount;
-        const scopeDescription = buildSessionStartBackfillScopeDescription({
-          run,
-          repository,
-          includeOtherRepositories: options.includeOtherRepositories,
-          currentScopeLabel,
-        });
-        await session.log(
-          `lore archive import resumed for ${scopeDescription}: ${progress.completedCount}/${progress.totalCount} (${progress.progressPercent}%)`,
-          { ephemeral: true },
-        );
-      } else {
-        await session.log(
-          decision.reason === "partial_candidates"
-            ? `lore archive import started for ${currentScopeLabel}: 0/${decision.candidateCount} session(s) queued after a bounded preview scanned ${preview?.inspected ?? 0}/${preview?.inspectionLimit ?? options.maxInspected} session(s). Progress updates will appear here.`
-            : `lore archive import started for ${currentScopeLabel}: 0/${decision.candidateCount} session(s) queued. Progress updates will appear here.`,
-          { ephemeral: true },
-        );
-        const started = startControlledBackfillRun({
-          db: activeRuntime.db,
-          sessionStore: activeRuntime.sessionStore,
-          repository,
-          includeOtherRepositories: options.includeOtherRepositories,
-          limit: options.maxCandidates,
-          refreshExisting: options.refreshExisting,
-          batchSize: options.batchSize,
-          plan: preview,
-          snapshotPolicy: "never",
-        });
-        run = started.run;
-      }
-
-      const reportProgress = async (currentRun, { force = false } = {}) => {
-        const progress = summarizeBackfillRunProgress(currentRun);
-        const isTerminal = currentRun.status === "completed" || currentRun.status === "failed";
-        const reachedNotifyThreshold = (progress.completedCount - lastReportedCompleted) >= options.notifyEveryItems;
-        const shouldReport = force
-          || isTerminal
-          || (!hasReportedIntermediateProgress && progress.completedCount > 0)
-          || reachedNotifyThreshold;
-        if (!shouldReport) {
-          return;
-        }
-        if (!isTerminal) {
-          hasReportedIntermediateProgress = true;
-        }
-        lastReportedCompleted = progress.completedCount;
-        const scopeDescription = buildSessionStartBackfillScopeDescription({
-          run: currentRun,
-          repository,
-          includeOtherRepositories: options.includeOtherRepositories,
-          currentScopeLabel,
-        });
-        await session.log(
-          buildSessionStartBackfillProgressMessage({
-            run: currentRun,
-            scopeLabel: scopeDescription,
-          }),
-          {
-            ephemeral: true,
-            ...(currentRun.status === "failed" ? { level: "warning" } : {}),
-          },
-        );
-      };
-
-      await reportProgress(run, {
-        force: run.status === "completed" || run.status === "failed",
+      await runSessionStartBackfillWork({
+        session,
+        activeRuntime,
+        repository,
+        options,
+        currentScopeLabel,
       });
-
-      while (run.status === "running") {
-        const result = processControlledBackfillRun({
-          db: activeRuntime.db,
-          sessionStore: activeRuntime.sessionStore,
-          runId: run.id,
-          limit: options.batchSize,
-          retryFailed: true,
-        });
-        run = result.run;
-        await reportProgress(run);
-        if (run.status === "running") {
-          // Yield between synchronous batches so session-start import stays cooperative.
-          await delay(0);
-        }
-      }
-
-      await reportProgress(run, { force: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await session.log(`lore archive import skipped: ${message}`, {

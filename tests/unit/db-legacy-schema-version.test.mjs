@@ -18,6 +18,29 @@ const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   : false;
 
 describe("LoreDb legacy schema version compatibility", () => {
+  test("fresh-install migration plans skip legacy pre-schema upgrade steps", () => {
+    const loreDb = new LoreDb({
+      paths: {
+        derivedStorePath: "ignored.db",
+        backupDir: "ignored-backups",
+      },
+    });
+
+    assert.deepEqual(
+      loreDb.buildMigrationPlan(0).map((step) => step.label),
+      [
+        "schema-statements",
+        "scope-migration",
+        "scope-governance",
+        "growth-memory",
+        "improvement-backlog",
+        "lore-visibility-substrate",
+        "memory-domain-observation",
+        "approval-substrate",
+      ],
+    );
+  });
+
   test("adopts coherence_schema_version into lore_schema_version", { skip: SKIP_NO_FTS5 }, () => {
     const tempHome = makeTempDir();
     const dbPath = path.join(tempHome, "coherence.db");

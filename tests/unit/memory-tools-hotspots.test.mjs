@@ -1,0 +1,300 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, test } from "node:test";
+
+import { createMemoryTools } from "../../lib/memory-tools.mjs";
+import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
+
+const SKIP_NO_FTS5 = !FTS5_AVAILABLE
+  ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
+  : false;
+
+const MEMORY_TOOLS_SOURCE = readFileSync(new URL("../../lib/memory-tools.mjs", import.meta.url), "utf8");
+
+function findBalancedIndex(source, start, openChar, closeChar) {
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === openChar) {
+      depth += 1;
+      continue;
+    }
+    if (char !== closeChar) {
+      continue;
+    }
+    depth -= 1;
+    if (depth === 0) {
+      return index;
+    }
+  }
+
+  throw new Error(`could not find closing ${closeChar} for ${openChar} at ${start}`);
+}
+
+function extractFunctionSource(name) {
+  const markers = [`async function ${name}`, `function ${name}`];
+  const start = markers
+    .map((marker) => MEMORY_TOOLS_SOURCE.indexOf(marker))
+    .find((index) => index !== -1);
+  assert.notEqual(start, undefined, `expected ${name} to exist in memory-tools.mjs`);
+
+  const paramsStart = MEMORY_TOOLS_SOURCE.indexOf("(", start);
+  const paramsEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, paramsStart, "(", ")");
+  const braceStart = MEMORY_TOOLS_SOURCE.indexOf("{", paramsEnd);
+  assert.notEqual(braceStart, -1, `expected ${name} to have a function body`);
+
+  const bodyEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, braceStart, "{", "}");
+  return MEMORY_TOOLS_SOURCE.slice(start, bodyEnd + 1);
+}
+
+function extractToolHandlerSource(name) {
+  const toolStart = MEMORY_TOOLS_SOURCE.indexOf(`toolDef("${name}"`);
+  assert.notEqual(toolStart, -1, `expected ${name} tool definition`);
+
+  const handlerStart = MEMORY_TOOLS_SOURCE.indexOf("handler: async", toolStart);
+  assert.notEqual(handlerStart, -1, `expected ${name} to define an async handler`);
+
+  const paramsStart = MEMORY_TOOLS_SOURCE.indexOf("(", handlerStart);
+  const paramsEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, paramsStart, "(", ")");
+  const arrowIndex = MEMORY_TOOLS_SOURCE.indexOf("=>", paramsEnd);
+  const braceStart = MEMORY_TOOLS_SOURCE.indexOf("{", arrowIndex);
+  const bodyEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, braceStart, "{", "}");
+  return MEMORY_TOOLS_SOURCE.slice(handlerStart, bodyEnd + 1);
+}
+
+function extractConstSource(name) {
+  const start = MEMORY_TOOLS_SOURCE.indexOf(`const ${name} =`);
+  assert.notEqual(start, -1, `expected ${name} constant to exist in memory-tools.mjs`);
+  const braceStart = MEMORY_TOOLS_SOURCE.indexOf("{", start);
+  const braceEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, braceStart, "{", "}");
+  const statementEnd = MEMORY_TOOLS_SOURCE.indexOf(";", braceEnd);
+  return MEMORY_TOOLS_SOURCE.slice(start, statementEnd + 1);
+}
+
+function loadDeclarations({ functions = [], consts = [], dependencies = {} }) {
+  const sources = [
+    ...consts.map((name) => extractConstSource(name)),
+    ...functions.map((name) => extractFunctionSource(name)),
+  ].join("\n\n");
+  return Function(
+    ...Object.keys(dependencies),
+    `"use strict"; ${sources}; return { ${[...consts, ...functions].join(", ")} };`,
+  )(...Object.values(dependencies));
+}
+
+function countLines(source) {
+  return source.trim().split("\n").length;
+}
+
+function findTool(tools, name) {
+  const tool = tools.find((entry) => entry.name === name);
+  assert.ok(tool, `expected ${name} tool`);
+  return tool;
+}
+
+function buildRuntime(db, config, overrides = {}) {
+  return {
+    initialized: true,
+    lastError: null,
+    db,
+    config,
+    repository: "fixture-repo",
+    ...overrides,
+  };
+}
+
+describe("memory-tools hotspot helpers", () => {
+  test("keeps hotspot functions compact enough for file-scoped maintenance", () => {
+    assert.ok(countLines(extractFunctionSource("deriveImprovementTheme")) <= 20, "deriveImprovementTheme should stay within 20 lines");
+    assert.ok(countLines(extractToolHandlerSource("memory_intent_journal")) <= 28, "memory_intent_journal handler should stay within 28 lines");
+    assert.ok(countLines(extractToolHandlerSource("memory_evolution_ledger")) <= 40, "memory_evolution_ledger handler should stay within 40 lines");
+    assert.ok(countLines(extractToolHandlerSource("memory_scope_override")) <= 32, "memory_scope_override handler should stay within 32 lines");
+    assert.ok(countLines(extractToolHandlerSource("lore_onboard")) <= 24, "lore_onboard handler should stay within 24 lines");
+    assert.ok(countLines(extractFunctionSource("buildMemoryStatusImprovementLines")) <= 14, "buildMemoryStatusImprovementLines should stay within 14 lines");
+    assert.ok(countLines(extractFunctionSource("buildMemoryStatusTraceArtifactLines")) <= 14, "buildMemoryStatusTraceArtifactLines should stay within 14 lines");
+    assert.ok(countLines(extractFunctionSource("formatRecentTraceRecord")) <= 18, "formatRecentTraceRecord should stay within 18 lines");
+  });
+
+  test("deriveImprovementTheme prioritizes source-specific evidence", () => {
+    const { deriveImprovementTheme } = loadDeclarations({
+      consts: ["IMPROVEMENT_THEME_DERIVERS"],
+      functions: [
+        "ensureArray",
+        "normalizeImprovementEvidenceTag",
+        "deriveReplayImprovementTheme",
+        "deriveSignalImprovementTheme",
+        "deriveValidationImprovementTheme",
+        "deriveImprovementFallbackTheme",
+        "deriveImprovementTheme",
+      ],
+    });
+
+    assert.equal(deriveImprovementTheme({
+      source_kind: "replay",
+      evidence: { missCategory: "MissingContext" },
+    }), "miss:missingcontext");
+    assert.equal(deriveImprovementTheme({
+      source_kind: "signal",
+      evidence: { signalType: "Router" },
+    }), "signal:router");
+    assert.equal(deriveImprovementTheme({
+      source_kind: "validation",
+      evidence: { failedAssertions: [{ label: "NeedsHistory" }] },
+    }), "assertion:needshistory");
+    assert.equal(deriveImprovementTheme({
+      source_kind: "session",
+      evidence: { prompt: "history" },
+    }), "evidence:prompt");
+    assert.equal(deriveImprovementTheme({ evidence: {} }), "general");
+  });
+});
+
+describe("memory-tools hotspot behavior", () => {
+  test("memory_intent_journal records and lists entries with repository defaults", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+        },
+      },
+    });
+
+    try {
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config),
+      });
+      const journal = findTool(tools, "memory_intent_journal");
+
+      const recordOutput = await journal.handler({
+        action: "record",
+        kind: "routing",
+        summary: "Route to memory recall",
+        rationale: "Need repo-specific history",
+        context: { route: "memory_recall" },
+      }, {
+        sessionId: "intent-session",
+      });
+
+      const listOutput = await journal.handler({
+        action: "list",
+        kind: "routing",
+        limit: 5,
+      }, {
+        sessionId: "intent-session",
+      });
+
+      assert.match(recordOutput, /Recorded intent journal entry .* \(routing\)\./);
+      assert.match(listOutput, /repository: fixture-repo/);
+      assert.match(listOutput, /kindFilter: routing/);
+      assert.match(listOutput, /summary=Route to memory recall/);
+      assert.match(listOutput, /contextKeys=route/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("memory_evolution_ledger summarizes captured signal clusters by derived theme", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          evolutionLedger: true,
+        },
+      },
+    });
+
+    try {
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config),
+      });
+      const ledger = findTool(tools, "memory_evolution_ledger");
+
+      await ledger.handler({
+        action: "capture_signal",
+        signalType: "router",
+        title: "Router miss",
+        summary: "Missed a reusable route",
+        sourceCaseId: "router-case-1",
+      }, {
+        sessionId: "ledger-session",
+      });
+      await ledger.handler({
+        action: "capture_signal",
+        signalType: "router",
+        title: "Router retry",
+        summary: "Captured another router miss",
+        sourceCaseId: "router-case-2",
+      }, {
+        sessionId: "ledger-session",
+      });
+
+      const summaryOutput = await ledger.handler({
+        action: "summary",
+        limit: 10,
+      }, {
+        sessionId: "ledger-session",
+      });
+
+      assert.match(summaryOutput, /evolutionLedgerEnabled: true/);
+      assert.match(summaryOutput, /## Active Artifact Clusters/);
+      assert.match(summaryOutput, /signal:signal:router/);
+      assert.match(summaryOutput, /count=2/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("memory_scope_override previews by default and applies when explicitly requested", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+        },
+      },
+    });
+
+    try {
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config),
+      });
+      const scopeOverride = findTool(tools, "memory_scope_override");
+      const memoryId = db.insertSemanticMemory({
+        type: "directive",
+        content: "Prefer focused regression tests before refactors.",
+        scope: "global",
+        repository: null,
+      });
+
+      const previewOutput = await scopeOverride.handler({
+        targetType: "semantic",
+        ids: [memoryId],
+        scope: "repo",
+      }, {
+        sessionId: "scope-session",
+      });
+
+      const appliedOutput = await scopeOverride.handler({
+        targetType: "semantic",
+        ids: [memoryId],
+        action: "set",
+        scope: "repo",
+        repository: "fixture-repo",
+        dryRun: false,
+        reason: "Need repo-specific scope for follow-up testing",
+      }, {
+        sessionId: "scope-session",
+      });
+
+      assert.match(previewOutput, /action: set/);
+      assert.match(previewOutput, /matchedCount: 1/);
+      assert.match(previewOutput, /next=repo/);
+      assert.match(appliedOutput, /Applied set override to 1 semantic row\(s\)\./);
+      const auditRows = db.listScopeOverrideAudit({ limit: 5 });
+      assert.equal(auditRows[0]?.reason, "Need repo-specific scope for follow-up testing");
+    } finally {
+      cleanup();
+    }
+  });
+});

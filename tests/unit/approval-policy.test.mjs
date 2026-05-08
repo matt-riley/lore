@@ -30,6 +30,7 @@
 
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { LoreDb } from "../../lib/db.mjs";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
@@ -48,6 +49,49 @@ import {
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
+const APPROVAL_POLICY_SOURCE = readFileSync(new URL("../../lib/approval-policy.mjs", import.meta.url), "utf8");
+
+function findBalancedIndex(source, start, openChar, closeChar) {
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === openChar) {
+      depth += 1;
+      continue;
+    }
+    if (char !== closeChar) {
+      continue;
+    }
+    depth -= 1;
+    if (depth === 0) {
+      return index;
+    }
+  }
+
+  throw new Error(`could not find closing ${closeChar} for ${openChar} at ${start}`);
+}
+
+function extractFunctionSource(name) {
+  const markers = [`async function ${name}`, `function ${name}`];
+  const start = markers
+    .map((marker) => APPROVAL_POLICY_SOURCE.indexOf(marker))
+    .find((index) => index !== -1);
+  assert.notEqual(start, undefined, `expected ${name} to exist in approval-policy.mjs`);
+
+  const paramsStart = APPROVAL_POLICY_SOURCE.indexOf("(", start);
+  const paramsEnd = findBalancedIndex(APPROVAL_POLICY_SOURCE, paramsStart, "(", ")");
+  const braceStart = APPROVAL_POLICY_SOURCE.indexOf("{", paramsEnd);
+  const bodyEnd = findBalancedIndex(APPROVAL_POLICY_SOURCE, braceStart, "{", "}");
+  return APPROVAL_POLICY_SOURCE.slice(start, bodyEnd + 1);
+}
+
+function loadApprovalFunctions(names, dependencies = {}) {
+  const functionSources = names.map((name) => extractFunctionSource(name)).join("\n\n");
+  return Function(
+    ...Object.keys(dependencies),
+    `"use strict"; ${functionSources}; return { ${names.join(", ")} };`,
+  )(...Object.values(dependencies));
+}
 
 // ---------------------------------------------------------------------------
 // Test fixture helpers
@@ -99,6 +143,84 @@ describe("APPROVAL_FAMILY constants", () => {
 describe("recordApproval", { skip: SKIP_NO_FTS5 }, () => {
   beforeEach(setup);
   afterEach(teardown);
+
+  test("normalizeRecordApprovalInput applies defaults and decision normalization", () => {
+    const { normalizeRecordApprovalInput } = loadApprovalFunctions(
+      ["normalizeRecordApprovalInput"],
+      {
+        normalizeDecision(value) {
+          return String(value).toLowerCase();
+        },
+      },
+    );
+
+    assert.deepStrictEqual(
+      normalizeRecordApprovalInput({
+        actionFamily: "memory_write",
+        decision: "ALLOW",
+      }),
+      {
+        actionFamily: "memory_write",
+        repository: null,
+        targetIdentity: null,
+        normalizedDecision: "allow",
+        durable: false,
+        reason: null,
+        grantedBy: "user",
+        expiresAt: null,
+      },
+    );
+  });
+
+  test("findReusableApproval returns only live non-durable matches", () => {
+    const { findReusableApproval } = loadApprovalFunctions(
+      ["findReusableApproval"],
+      {
+        isExpired(row) {
+          return row.expires_at === "expired";
+        },
+      },
+    );
+
+    const queries = [];
+    const reusable = findReusableApproval({
+      db: {
+        db: {
+          prepare(sql) {
+            queries.push(sql);
+            return {
+              get() {
+                return { id: "live-row", durable: 0, expires_at: null };
+              },
+            };
+          },
+        },
+      },
+      actionFamily: "memory_write",
+      repository: "owner/repo",
+      targetIdentity: "mem-1",
+    });
+    assert.equal(reusable.id, "live-row");
+    assert.equal(queries.length, 1);
+
+    const expired = findReusableApproval({
+      db: {
+        db: {
+          prepare() {
+            return {
+              get() {
+                return { id: "expired-row", durable: 0, expires_at: "expired" };
+              },
+            };
+          },
+        },
+      },
+      actionFamily: "memory_write",
+      repository: null,
+      targetIdentity: null,
+    });
+    assert.equal(expired, null);
+  });
 
   test("persists a new row and returns a UUID string", () => {
     const id = recordApproval(db, {

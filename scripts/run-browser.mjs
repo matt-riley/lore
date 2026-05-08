@@ -37,7 +37,40 @@ function normalizeLoopbackHost(value) {
   return host;
 }
 
-function parseArgs(argv) {
+function resolveArgPath(value) {
+  return path.resolve(process.cwd(), String(value ?? ""));
+}
+
+function consumeBrowserArg(args, key, value, transform = (next) => next) {
+  args[key] = transform(value);
+  return true;
+}
+
+const BROWSER_ARG_HANDLERS = Object.freeze({
+  "--host": (args, value) => consumeBrowserArg(args, "host", value, normalizeLoopbackHost),
+  "--port": (args, value) => {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      args.port = Math.max(1, Math.min(65535, Math.round(parsed)));
+    }
+    return true;
+  },
+  "--repository": (args, value) => consumeBrowserArg(
+    args,
+    "repository",
+    value,
+    (next) => {
+      const normalized = String(next ?? "").trim();
+      return normalized.length > 0 ? normalized : null;
+    },
+  ),
+  "--config": (args, value) => consumeBrowserArg(args, "configPath", value, resolveArgPath),
+  "--derived-store-path": (args, value) => consumeBrowserArg(args, "derivedStorePath", value, resolveArgPath),
+  "--backup-dir": (args, value) => consumeBrowserArg(args, "backupDir", value, resolveArgPath),
+  "--raw-store-path": (args, value) => consumeBrowserArg(args, "rawStorePath", value, resolveArgPath),
+});
+
+export function parseArgs(argv) {
   const args = {
     host: "127.0.0.1",
     port: 43111,
@@ -45,45 +78,12 @@ function parseArgs(argv) {
   };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const part = argv[index];
-    if (part === "--host") {
-      args.host = normalizeLoopbackHost(argv[index + 1] ?? args.host);
-      index += 1;
+    const handler = BROWSER_ARG_HANDLERS[argv[index]];
+    if (!handler) {
       continue;
     }
-    if (part === "--port") {
-      const parsed = Number(argv[index + 1]);
-      if (Number.isFinite(parsed)) {
-        args.port = Math.max(1, Math.min(65535, Math.round(parsed)));
-      }
+    if (handler(args, argv[index + 1]) === true) {
       index += 1;
-      continue;
-    }
-    if (part === "--repository") {
-      const value = String(argv[index + 1] ?? "").trim();
-      args.repository = value.length > 0 ? value : null;
-      index += 1;
-      continue;
-    }
-    if (part === "--config") {
-      args.configPath = path.resolve(process.cwd(), String(argv[index + 1] ?? ""));
-      index += 1;
-      continue;
-    }
-    if (part === "--derived-store-path") {
-      args.derivedStorePath = path.resolve(process.cwd(), String(argv[index + 1] ?? ""));
-      index += 1;
-      continue;
-    }
-    if (part === "--backup-dir") {
-      args.backupDir = path.resolve(process.cwd(), String(argv[index + 1] ?? ""));
-      index += 1;
-      continue;
-    }
-    if (part === "--raw-store-path") {
-      args.rawStorePath = path.resolve(process.cwd(), String(argv[index + 1] ?? ""));
-      index += 1;
-      continue;
     }
   }
 

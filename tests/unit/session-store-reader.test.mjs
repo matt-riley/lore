@@ -500,3 +500,62 @@ describe("SessionStoreReader.findSessionsByDate", () => {
     }
   });
 });
+
+describe("SessionStoreReader.collectRelevantSessionMatches", () => {
+  test("keeps the strongest hydrated match per session and drops repository mismatches", () => {
+    const reader = new SessionStoreReader({
+      paths: {
+        copilotHome: "/ignored",
+      },
+    });
+    reader.hydrateSessionRow = (row) => ({
+      id: row.id,
+      repository: row.id === "session-1" ? "hydrated-repo" : "other-repo",
+      branch: `${row.id}-branch`,
+      updated_at: row.updated_at,
+    });
+
+    const matches = reader.collectRelevantSessionMatches({
+      rows: [
+        {
+          session_id: "session-1",
+          repository: "raw-repo",
+          branch: "raw-branch",
+          updated_at: "2026-03-30T10:00:00Z",
+          source_type: "turn",
+          content: "auth rollback follow-up",
+        },
+        {
+          session_id: "session-1",
+          repository: "raw-repo",
+          branch: "raw-branch",
+          updated_at: "2026-03-30T11:00:00Z",
+          source_type: "checkpoint_history",
+          content: "auth rollback migration checkpoint summary",
+        },
+        {
+          session_id: "session-2",
+          repository: "raw-other",
+          branch: "raw-other-branch",
+          updated_at: "2026-03-30T12:00:00Z",
+          source_type: "checkpoint_overview",
+          content: "auth rollback notes in another repo",
+        },
+      ],
+      promptTerms: ["auth", "rollback"],
+      repository: "hydrated-repo",
+    });
+
+    assert.deepStrictEqual(matches, [
+      {
+        session_id: "session-1",
+        repository: "hydrated-repo",
+        branch: "session-1-branch",
+        updated_at: "2026-03-30T11:00:00Z",
+        score: 3.5,
+        source_type: "checkpoint_history",
+        excerpt: "auth rollback migration checkpoint summary",
+      },
+    ]);
+  });
+});

@@ -1,15 +1,57 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 
 import {
+  evaluateRouterAssertions,
   evaluateCapabilityRouter,
   renderCapabilityRecommendationReport,
   recommendCapabilityRoute,
   scanCapabilityInventory,
 } from "../../lib/capability-inventory.mjs";
+
+const CAPABILITY_INVENTORY_SOURCE = readFileSync(new URL("../../lib/capability-inventory.mjs", import.meta.url), "utf8");
+
+function findBalancedIndex(source, start, openChar, closeChar) {
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === openChar) {
+      depth += 1;
+      continue;
+    }
+    if (char !== closeChar) {
+      continue;
+    }
+    depth -= 1;
+    if (depth === 0) {
+      return index;
+    }
+  }
+
+  throw new Error(`could not find closing ${closeChar} for ${openChar} at ${start}`);
+}
+
+function extractFunctionSource(name) {
+  const markers = [`async function ${name}`, `function ${name}`];
+  const start = markers
+    .map((marker) => CAPABILITY_INVENTORY_SOURCE.indexOf(marker))
+    .find((index) => index !== -1);
+  assert.notEqual(start, undefined, `expected ${name} to exist in capability-inventory.mjs`);
+
+  const paramsStart = CAPABILITY_INVENTORY_SOURCE.indexOf("(", start);
+  const paramsEnd = findBalancedIndex(CAPABILITY_INVENTORY_SOURCE, paramsStart, "(", ")");
+  const braceStart = CAPABILITY_INVENTORY_SOURCE.indexOf("{", paramsEnd);
+  const bodyEnd = findBalancedIndex(CAPABILITY_INVENTORY_SOURCE, braceStart, "{", "}");
+  return CAPABILITY_INVENTORY_SOURCE.slice(start, bodyEnd + 1);
+}
+
+function loadCapabilityFunctions(names) {
+  const functionSources = names.map((name) => extractFunctionSource(name)).join("\n\n");
+  return Function(`"use strict"; ${functionSources}; return { ${names.join(", ")} };`)();
+}
 
 function createCapabilityFixtureRoot({
   includeReversePrompt = true,
@@ -106,6 +148,231 @@ ${summary}
 }
 
 describe("capability inventory routing", () => {
+  it("buildSkillRouteHeuristicAdjustments preserves reverse-prompt boosts and conservative penalties", () => {
+    const { buildSkillRouteHeuristicAdjustments } = loadCapabilityFunctions(["buildSkillRouteHeuristicAdjustments"]);
+
+    assert.deepStrictEqual(
+      buildSkillRouteHeuristicAdjustments({
+        promptProfile: {
+          promptRewriteIntent: true,
+          promptNeed: { requiresLookup: false },
+          referenceQuestion: false,
+          planBeforeExecution: false,
+          ciMigrationIntent: false,
+        },
+        selectedTarget: {
+          targetName: "reverse-prompt",
+          nameMatched: true,
+        },
+        explicitIntentScore: 3,
+        targetMatchScore: 6,
+      }),
+      [
+        {
+          scoreDelta: 18,
+          reason: "Explicit prompt-sharpening requests should prefer the reverse-prompt skill.",
+        },
+        {
+          scoreDelta: 11,
+          reason: "Prompt explicitly asks for a reusable workflow or skill-like playbook.",
+        },
+        {
+          scoreDelta: 6,
+          reason: "Matched skill target reverse-prompt.",
+        },
+      ],
+    );
+
+    assert.deepStrictEqual(
+      buildSkillRouteHeuristicAdjustments({
+        promptProfile: {
+          promptRewriteIntent: false,
+          promptNeed: { requiresLookup: true },
+          referenceQuestion: true,
+          planBeforeExecution: false,
+          ciMigrationIntent: false,
+        },
+        selectedTarget: {
+          targetName: "circleci-to-github-actions-migration",
+          nameMatched: false,
+        },
+        explicitIntentScore: 0,
+        targetMatchScore: 3,
+      }),
+      [
+        {
+          scoreDelta: 3,
+          reason: "Matched skill target circleci-to-github-actions-migration.",
+        },
+        {
+          scoreDelta: -8,
+          reason: "Skill routing stays conservative without a clear workflow or skill signal.",
+        },
+        {
+          scoreDelta: -6,
+          reason: "Prompt looks more like recall/explanation than a skill workflow.",
+        },
+      ],
+    );
+
+    assert.deepStrictEqual(
+      buildSkillRouteHeuristicAdjustments({
+        promptProfile: {
+          promptRewriteIntent: false,
+          promptNeed: { requiresLookup: false },
+          referenceQuestion: true,
+          planBeforeExecution: false,
+          ciMigrationIntent: false,
+        },
+        selectedTarget: {
+          targetName: "circleci-to-github-actions-migration",
+          nameMatched: false,
+        },
+        explicitIntentScore: 0,
+        targetMatchScore: 0,
+      }),
+      [
+        {
+          scoreDelta: -8,
+          reason: "Skill routing stays conservative without a clear workflow or skill signal.",
+        },
+        {
+          scoreDelta: -28,
+          reason: "Generic reference questions should stay direct unless they clearly ask for a local workflow.",
+        },
+      ],
+    );
+  });
+
+  it("buildAgentRouteHeuristicAdjustments preserves reverse-prompt suppression and plan-first boosts", () => {
+    const { buildAgentRouteHeuristicAdjustments } = loadCapabilityFunctions(["buildAgentRouteHeuristicAdjustments"]);
+
+    assert.deepStrictEqual(
+      buildAgentRouteHeuristicAdjustments({
+        promptProfile: {
+          promptRewriteIntent: true,
+          hasReversePromptSkill: true,
+          promptNeed: { requiresLookup: false },
+          planBeforeExecution: false,
+          ciMigrationIntent: false,
+        },
+        selectedTarget: {
+          targetName: "implementation-planner",
+          manualOnly: true,
+          nameMatched: false,
+        },
+        explicitIntentScore: 0,
+        targetMatchScore: 0,
+      }),
+      [
+        {
+          scoreDelta: -18,
+          reason: "Explicit prompt-sharpening requests should stay on the skill workflow path instead of agent delegation.",
+        },
+        {
+          scoreDelta: -4,
+          reason: "Manual-only agents need clearer delegation intent than this prompt provides.",
+        },
+        {
+          scoreDelta: -8,
+          reason: "Agent routing stays conservative without clear delegation intent.",
+        },
+      ],
+    );
+
+    assert.deepStrictEqual(
+      buildAgentRouteHeuristicAdjustments({
+        promptProfile: {
+          promptRewriteIntent: false,
+          hasReversePromptSkill: false,
+          promptNeed: { requiresLookup: true },
+          planBeforeExecution: true,
+          ciMigrationIntent: true,
+        },
+        selectedTarget: {
+          targetName: "implementation-planner",
+          manualOnly: false,
+          nameMatched: true,
+        },
+        explicitIntentScore: 5,
+        targetMatchScore: 7,
+      }),
+      [
+        {
+          scoreDelta: 13,
+          reason: "Prompt asks for planning, research, delegation, or orchestration.",
+        },
+        {
+          scoreDelta: 7,
+          reason: "Matched agent target implementation-planner.",
+        },
+        {
+          scoreDelta: 28,
+          reason: "Plan-first CI migration prompts should prefer the migration orchestrator before execution.",
+        },
+      ],
+    );
+  });
+
+  it("buildCapabilityRecommendationReportSections preserves empty-match fallback and ranked sections", () => {
+    const {
+      takeLimited,
+      buildRouteCandidateLines,
+      buildCapabilityMatchLines,
+      buildCapabilityRecommendationReportSections,
+    } = loadCapabilityFunctions([
+      "takeLimited",
+      "buildRouteCandidateLines",
+      "buildCapabilityMatchLines",
+      "buildCapabilityRecommendationReportSections",
+    ]);
+
+    const sections = buildCapabilityRecommendationReportSections(
+      {
+        routeCandidates: [
+          {
+            route: "direct",
+            score: 3,
+            baseScore: 2,
+            heuristicScore: 1,
+            supportLevel: "ready",
+            available: true,
+            targetName: "direct_response",
+            targetType: "direct",
+            executionMode: "direct",
+            matchedTokens: [],
+            supportingMatches: [],
+            reasons: ["fallback"],
+            gaps: [],
+          },
+        ],
+        capabilityMatches: [],
+      },
+      { limit: 3 },
+    );
+
+    assert.deepStrictEqual(sections, [
+      "",
+      "## Ranked Route Candidates",
+      "",
+      "- direct score=3 base=2 heuristic=1 support=ready available=true",
+      "  target: direct_response (direct, direct)",
+      "  matchedTokens: none",
+      "  supportingMatches: none",
+      "  reasons: fallback",
+      "",
+      "## Matched Local Capabilities",
+      "",
+      "- none",
+      "",
+      "## Recommendation Notes",
+      "",
+      "- This router core is recommendation-only; it does not invoke skills, agents, or background work automatically.",
+      "- The inventory is local-first and scans repo-authored skills, agents, and extension/lore tool surfaces.",
+      "- Retrieval targets are selected explicitly among lore_recall, lore_reflect, memory_search, and memory_explain.",
+    ]);
+  });
+
   it("prefers a local skill over a broad agent for explicit reverse-prompt requests", async () => {
     const fixture = createCapabilityFixtureRoot();
     try {
@@ -415,5 +682,38 @@ describe("capability inventory routing", () => {
     assert.match(output, /## Matched Local Capabilities/);
     assert.match(output, /\[skill\] circleci-to-github-actions-migration score=18/);
     assert.match(output, /## Recommendation Notes/);
+  });
+
+  it("does not require capability matches for direct router assertions", () => {
+    const evaluation = evaluateRouterAssertions(
+      {
+        expectedRouteKind: "direct",
+        expectedTargetName: "direct_response",
+        expectedExecutionMode: "direct",
+        minConfidence: 0.45,
+      },
+      {
+        primaryRoute: {
+          route: "direct",
+          targetName: "direct_response",
+          executionMode: "direct",
+          reasons: ["No stronger local route signal was detected."],
+        },
+        confidence: { value: 0.52 },
+        routeCandidates: [
+          {
+            route: "direct",
+            targetName: "direct_response",
+          },
+        ],
+        capabilityMatches: [],
+      },
+    );
+
+    assert.equal(evaluation.passed, true);
+    assert.equal(
+      evaluation.assertions.some((assertion) => assertion.label === "matched capabilities are present"),
+      false,
+    );
   });
 });

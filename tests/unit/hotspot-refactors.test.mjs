@@ -465,6 +465,52 @@ describe("LoreDb.upsertActivitySuccess", () => {
   });
 });
 
+describe("LoreDb.serializeActivityStateFallback", () => {
+  test("derives updatedAt from provided fallback rows when timestamps are omitted", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+
+    try {
+      const activityState = db.serializeActivityStateFallback({
+        scopeKey: "global",
+        scopeType: "global",
+        repository: null,
+        latestContextRow: {
+          id: "trace-ctx-1",
+          hook: "onUserPromptSubmitted",
+          latency_ms: 42,
+          section_titles_json: JSON.stringify(["Relevant Knowledge", "Recent Related Work"]),
+          recorded_at: "2024-04-02T10:00:00.000Z",
+        },
+        latestTraceRow: {
+          id: "trace-sample-1",
+          hook: "onSessionStart",
+          recorded_at: "2024-04-02T13:00:00.000Z",
+        },
+        latestMaintenanceRow: {
+          id: "maintenance-1",
+          status: "completed",
+          completed_at: "2024-04-02T12:00:00.000Z",
+        },
+        latestExtractionRow: {
+          repository: TEST_REPO,
+          updated_at: "2024-04-02T15:00:00.000Z",
+        },
+      });
+
+      assert.equal(activityState.last_context_injection_trace_id, "trace-ctx-1");
+      assert.equal(activityState.last_trace_id, "trace-sample-1");
+      assert.equal(activityState.last_extraction_repository, TEST_REPO);
+      assert.equal(activityState.updated_at, "2024-04-02T15:00:00.000Z");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe("assembleMemoryCapsule", () => {
   test("keeps local related-work fallbacks suppressed once three episode lines are present", async () => {
     const tempHome = makeTempDir();
@@ -776,6 +822,195 @@ describe("assembleMemoryCapsule", () => {
       );
     } finally {
       rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("LoreDb.refreshBackfillRunSummary", () => {
+  test("derives lastError from failed items when callers omit a summary error", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+
+    try {
+      const runId = db.createBackfillRun({
+        repository: TEST_REPO,
+        totalCandidates: 2,
+      });
+
+      db.insertBackfillRunItems(runId, [
+        {
+          sessionId: "backfill-session-a",
+          repository: TEST_REPO,
+          ordinal: 1,
+          plannedAction: "create",
+        },
+        {
+          sessionId: "backfill-session-b",
+          repository: TEST_REPO,
+          ordinal: 2,
+          plannedAction: "refresh",
+        },
+      ]);
+      db.updateBackfillRunItem({
+        runId,
+        sessionId: "backfill-session-a",
+        status: "completed",
+      });
+      db.updateBackfillRunItem({
+        runId,
+        sessionId: "backfill-session-b",
+        status: "failed",
+        error: "session artifacts not found",
+      });
+
+      const summary = db.refreshBackfillRunSummary(runId);
+
+      assert.equal(summary.status, "failed");
+      assert.equal(summary.processed_count, 2);
+      assert.equal(summary.created_episode_count, 1);
+      assert.equal(summary.refreshed_episode_count, 0);
+      assert.equal(summary.failed_count, 1);
+      assert.equal(summary.last_error, "session artifacts not found");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("LoreDb.applyGrowthMemoryMigration", () => {
+  test("keeps duplicate lastSeenAt aligned with the freshest last-seen fallback timestamp", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+
+    try {
+      const insert = db.db.prepare(`
+        INSERT INTO semantic_memory (
+          id,
+          type,
+          content,
+          confidence,
+          scope,
+          scope_source,
+          repository,
+          tags,
+          created_at,
+          updated_at,
+          canonical_key,
+          reinforcement_count,
+          last_seen_at,
+          metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      insert.run(
+        "manual-user-memory",
+        "user_identity",
+        "The user's preferred name is Matt.",
+        0.5,
+        "global",
+        "manual",
+        null,
+        "manual,preferred-name",
+        "2024-04-01T08:00:00.000Z",
+        "2024-04-01T09:00:00.000Z",
+        null,
+        1,
+        null,
+        JSON.stringify({ preferredName: "Matt", source: "manual" }),
+      );
+      insert.run(
+        "auto-user-memory",
+        "user_identity",
+        "The user's preferred name is Matt.",
+        0.9,
+        "global",
+        "auto",
+        null,
+        "auto,imported",
+        "2024-04-02T08:00:00.000Z",
+        "2024-04-03T09:00:00.000Z",
+        null,
+        3,
+        "2024-04-02T09:00:00.000Z",
+        JSON.stringify({ preferredName: "Matt", imported: true }),
+      );
+
+      db.applyGrowthMemoryMigration();
+
+      const winner = db.db.prepare(`
+        SELECT canonical_key, reinforcement_count, last_seen_at, tags, superseded_by
+        FROM semantic_memory
+        WHERE id = 'manual-user-memory'
+      `).get();
+      const loser = db.db.prepare(`
+        SELECT superseded_by
+        FROM semantic_memory
+        WHERE id = 'auto-user-memory'
+      `).get();
+
+      assert.equal(winner.canonical_key, "user_identity:matt");
+      assert.equal(winner.reinforcement_count, 4);
+      assert.equal(winner.last_seen_at, "2024-04-03T09:00:00.000Z");
+      assert.match(winner.tags, /manual/);
+      assert.match(winner.tags, /imported/);
+      assert.equal(winner.superseded_by, null);
+      assert.equal(loser.superseded_by, "manual-user-memory");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("LoreDb.insertRetrievalTraceSample", () => {
+  test("stores section titles as bounded display strings", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+
+    try {
+      db.insertRetrievalTraceSample({
+        repository: ` ${TEST_REPO} `,
+        hook: " onUserPromptSubmitted ",
+        sectionTitles: [
+          "Relevant Knowledge",
+          42,
+          null,
+          { title: "Recent Related Work" },
+          "One",
+          "Two",
+          "Three",
+          "Four",
+          "Five",
+        ],
+      });
+
+      const [sample] = db.listRetrievalTraceSamples({
+        repository: TEST_REPO,
+        includeGlobal: false,
+      });
+
+      assert.equal(sample.repository, TEST_REPO);
+      assert.equal(sample.hook, "onUserPromptSubmitted");
+      assert.deepEqual(sample.sectionTitles, [
+        "Relevant Knowledge",
+        "42",
+        "",
+        "[object Object]",
+        "One",
+        "Two",
+        "Three",
+        "Four",
+      ]);
+    } finally {
+      cleanup();
     }
   });
 });

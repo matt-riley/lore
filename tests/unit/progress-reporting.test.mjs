@@ -819,4 +819,103 @@ describe("phase-3 progress reporting surfaces", () => {
       cleanup();
     }
   });
+
+  test("memory_status preserves improvement and trace-artifact summary lines", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+    try {
+      const runtime = buildRuntime(db, config);
+      runtime.traceRecorder = {
+        getStats() {
+          return null;
+        },
+      };
+      runtime.db.getStats = () => ({
+        dbPath: "lore.db",
+        schemaVersion: 7,
+        semanticCount: 1,
+        episodeCount: 2,
+        semanticGlobalCount: 0,
+        semanticTransferableCount: 0,
+        semanticRepoCount: 1,
+        semanticManualCount: 0,
+        episodeTransferableCount: 0,
+        episodeRepoCount: 2,
+        episodeManualCount: 0,
+        daySummaryCount: 1,
+        overrideAuditCount: 0,
+        semanticCanonicalCount: 0,
+        semanticReinforcedCount: 0,
+        assistantGoalCount: 0,
+        recurringMistakeCount: 0,
+        userIdentityCount: 0,
+        workstreamOverlayCount: 0,
+        domainCount: 0,
+        observationCount: 0,
+        directiveCount: 0,
+        improvementCount: 4,
+        improvementActiveCount: 2,
+        improvementResolvedCount: 1,
+        improvementSupersededCount: 1,
+        improvementProposalCount: 2,
+        draftProposalCount: 1,
+        approvedProposalCount: 1,
+        rejectedProposalCount: 0,
+        supersededProposalCount: 0,
+        maintenanceCompletedCount: 3,
+        maintenanceNeedsAttentionCount: 1,
+        maintenanceFailedCount: 0,
+        maintenanceSkippedCount: 2,
+        maintenanceTaskStateCount: 4,
+        lastMaintenanceStatus: "completed",
+        lastMaintenanceStartedAt: "2024-04-05T09:00:00.000Z",
+        lastMaintenanceCompletedAt: "2024-04-05T09:02:00.000Z",
+        trajectoryArtifactCount: 5,
+        trajectoryReplayFailureCount: 2,
+        trajectoryValidationMissCount: 1,
+        trajectoryProposalFailureCount: 1,
+        trajectoryLatencyOutlierCount: 1,
+        retrievalTraceSampleCount: 3,
+        retrievalTraceSampleRepositoryCount: 2,
+        retrievalTraceSampleGlobalCount: 1,
+        intentJournalCount: 6,
+        intentRoutingCount: 2,
+        intentRolloutCount: 1,
+        intentReviewerCount: 1,
+        intentFallbackCount: 1,
+        intentSerendipityCount: 1,
+        lastBackupPath: null,
+        deferredPendingCount: 0,
+        deferredRunningCount: 0,
+        deferredFailedCount: 0,
+        deferredCompletedCount: 0,
+        backfillRunningCount: 0,
+        backfillCompletedCount: 0,
+        backfillFailedCount: 0,
+        backfillDryRunCount: 0,
+      });
+      runtime.db.getActivityState = () => [];
+      runtime.db.listRetrievalTraceSamples = () => [];
+      runtime.db.listTrajectoryArtifacts = () => [];
+      const tools = createMemoryTools({
+        getRuntime: async () => runtime,
+      });
+      const output = await findTool(tools, "memory_status").handler({}, {
+        sessionId: "session-memory-status-summary",
+      });
+
+      assert.match(output, /improvementCount: 4/);
+      assert.match(output, /approvedProposalCount: 1/);
+      assert.match(output, /maintenanceSkippedCount: 2/);
+      assert.match(output, /trajectoryArtifactCount: 5/);
+      assert.match(output, /intentSerendipityCount: 1/);
+      assert.match(output, /lastBackupPath: none/);
+      assert.match(output, /configPath: /);
+    } finally {
+      cleanup();
+    }
+  });
 });

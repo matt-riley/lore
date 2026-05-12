@@ -147,6 +147,7 @@ describe("diagnostics hotspot helpers", () => {
   test("renderLookup preserves lookup summaries, filtered reasons, and samples", () => {
     const { renderLookup } = loadFunctions([
       "ensureArray",
+      "nonEmptyString",
       "summarizeTraceRow",
       "formatLookupLabel",
       "aggregateFilteredReasons",

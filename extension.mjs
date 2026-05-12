@@ -693,27 +693,21 @@ function persistDurableTraceSample({
 }
 
 function buildDurableTraceSampleRecordFields(traceRecord) {
+  const rec = traceRecord ?? {};
+  const { routerDecision = {}, output = {}, latencyMs = null, promptPreview = "" } = rec;
   return {
-    route: traceRecord?.routerDecision?.route ?? null,
-    routeReason: traceRecord?.routerDecision?.reason ?? null,
-    contextInjected: traceRecord?.output?.contextInjected === true,
-    latencyMs: traceRecord?.latencyMs ?? null,
-    promptPreview: traceRecord?.promptPreview ?? "",
-    sectionTitles: traceRecord?.output?.sectionTitles ?? [],
+    route: routerDecision.route ?? null,
+    routeReason: routerDecision.reason ?? null,
+    contextInjected: output.contextInjected === true,
+    latencyMs,
+    promptPreview,
+    sectionTitles: output.sectionTitles ?? [],
   };
 }
 
 function buildDurableTraceSampleEvidenceFields(traceRecord) {
-  return {
-    promptNeed: traceRecord?.promptNeed ?? {},
-    eligibility: traceRecord?.eligibility ?? {},
-    lookups: traceRecord?.lookups ?? {},
-    omissions: traceRecord?.omissions ?? [],
-    output: traceRecord?.output ?? {},
-    trace: {
-      mode: traceRecord?.mode ?? null,
-    },
-  };
+  const { promptNeed = {}, eligibility = {}, lookups = {}, omissions = [], output = {}, mode = null } = traceRecord ?? {};
+  return { promptNeed, eligibility, lookups, omissions, output, trace: { mode } };
 }
 
 function buildDurableTraceSamplePayload({

@@ -149,7 +149,79 @@ ${summary}
 
 describe("capability inventory routing", () => {
   it("buildSkillRouteHeuristicAdjustments preserves reverse-prompt boosts and conservative penalties", () => {
-    const { buildSkillRouteHeuristicAdjustments } = loadCapabilityFunctions(["buildSkillRouteHeuristicAdjustments"]);
+    const {
+      buildSkillRewriteHeuristicAdjustments,
+      buildSkillExplicitIntentHeuristicAdjustments,
+      buildSkillTargetMatchHeuristicAdjustments,
+      buildSkillConservativeHeuristicAdjustments,
+      buildSkillLookupHeuristicAdjustments,
+      buildSkillReferenceHeuristicAdjustments,
+      buildSkillMigrationPlanningHeuristicAdjustments,
+      buildSkillRouteHeuristicAdjustments,
+    } = loadCapabilityFunctions([
+      "buildSkillRewriteHeuristicAdjustments",
+      "buildSkillExplicitIntentHeuristicAdjustments",
+      "buildSkillTargetMatchHeuristicAdjustments",
+      "buildSkillConservativeHeuristicAdjustments",
+      "buildSkillLookupHeuristicAdjustments",
+      "buildSkillReferenceHeuristicAdjustments",
+      "buildSkillMigrationPlanningHeuristicAdjustments",
+      "buildSkillRouteHeuristicAdjustments",
+    ]);
+
+    assert.deepStrictEqual(
+      buildSkillRewriteHeuristicAdjustments(
+        {
+          promptRewriteIntent: true,
+        },
+        {
+          targetName: "reverse-prompt",
+        },
+      ),
+      [
+        {
+          scoreDelta: 18,
+          reason: "Explicit prompt-sharpening requests should prefer the reverse-prompt skill.",
+        },
+      ],
+    );
+
+    assert.deepStrictEqual(buildSkillExplicitIntentHeuristicAdjustments(0), []);
+    assert.deepStrictEqual(buildSkillTargetMatchHeuristicAdjustments({ targetName: "reverse-prompt" }, 0), []);
+    assert.deepStrictEqual(buildSkillConservativeHeuristicAdjustments(8, 7), []);
+    assert.deepStrictEqual(
+      buildSkillLookupHeuristicAdjustments(
+        {
+          promptNeed: { requiresLookup: true },
+        },
+        0,
+      ),
+      [
+        {
+          scoreDelta: -6,
+          reason: "Prompt looks more like recall/explanation than a skill workflow.",
+        },
+      ],
+    );
+    assert.deepStrictEqual(
+      buildSkillReferenceHeuristicAdjustments(
+        {
+          referenceQuestion: true,
+          promptNeed: { requiresLookup: false },
+        },
+        0,
+        {
+          nameMatched: false,
+        },
+      ),
+      [
+        {
+          scoreDelta: -28,
+          reason: "Generic reference questions should stay direct unless they clearly ask for a local workflow.",
+        },
+      ],
+    );
+    assert.deepStrictEqual(buildSkillMigrationPlanningHeuristicAdjustments({ planBeforeExecution: false, ciMigrationIntent: true }), []);
 
     assert.deepStrictEqual(
       buildSkillRouteHeuristicAdjustments({
@@ -242,10 +314,47 @@ describe("capability inventory routing", () => {
         },
       ],
     );
+
+    assert.deepStrictEqual(
+      buildSkillRouteHeuristicAdjustments({
+        promptProfile: {
+          promptRewriteIntent: false,
+          promptNeed: { requiresLookup: false },
+          referenceQuestion: false,
+          planBeforeExecution: true,
+          ciMigrationIntent: true,
+        },
+        selectedTarget: {
+          targetName: "circleci-to-github-actions-migration",
+          nameMatched: false,
+        },
+        explicitIntentScore: 0,
+        targetMatchScore: 0,
+      }),
+      [
+        {
+          scoreDelta: -8,
+          reason: "Skill routing stays conservative without a clear workflow or skill signal.",
+        },
+        {
+          scoreDelta: -16,
+          reason: "Prompt asks for migration planning before editing, so orchestration should outrank a direct migration skill.",
+        },
+      ],
+    );
   });
 
   it("buildAgentRouteHeuristicAdjustments preserves reverse-prompt suppression and plan-first boosts", () => {
-    const { buildAgentRouteHeuristicAdjustments } = loadCapabilityFunctions(["buildAgentRouteHeuristicAdjustments"]);
+    const { buildAgentRouteHeuristicAdjustments } = loadCapabilityFunctions([
+      "checkPromptResharpening",
+      "checkExplicitIntentScore",
+      "checkTargetMatch",
+      "checkManualOnlyAgent",
+      "checkConservativeRouting",
+      "checkLookupIntent",
+      "checkCiMigrationPlanFirst",
+      "buildAgentRouteHeuristicAdjustments",
+    ]);
 
     assert.deepStrictEqual(
       buildAgentRouteHeuristicAdjustments({

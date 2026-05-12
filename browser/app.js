@@ -936,12 +936,20 @@ function buildSessionDetailSections({ focus, dayGroup, sessionMemories, improvem
   ])
 }
 
+function ensureDefaultValue(value, defaultValue = {}) {
+  return value ?? defaultValue
+}
+
+function ensureArray(value) {
+  return Array.isArray(value) ? value : []
+}
+
 function renderMemoryDrilldown(data) {
-  const focus = data?.focus ?? {}
-  const provenance = data?.provenance ?? {}
-  const lineage = data?.lineage ?? {}
+  const focus = ensureDefaultValue(data?.focus)
+  const provenance = ensureDefaultValue(data?.provenance)
+  const lineage = ensureDefaultValue(data?.lineage)
   const cluster = data?.canonicalCluster
-  const improvements = Array.isArray(data?.linkedImprovements) ? data.linkedImprovements : []
+  const improvements = ensureArray(data?.linkedImprovements)
 
   views.drilldown.innerHTML = renderDrilldownShell({
     title: focus.title,
@@ -958,10 +966,10 @@ function renderMemoryDrilldown(data) {
 }
 
 function renderSessionDrilldown(data) {
-  const focus = data?.focus ?? {}
-  const dayGroup = data?.dayGroup ?? {}
-  const sessionMemories = Array.isArray(data?.sessionMemories) ? data.sessionMemories : []
-  const improvements = Array.isArray(data?.linkedImprovements) ? data.linkedImprovements : []
+  const focus = ensureDefaultValue(data?.focus)
+  const dayGroup = ensureDefaultValue(data?.dayGroup)
+  const sessionMemories = ensureArray(data?.sessionMemories)
+  const improvements = ensureArray(data?.linkedImprovements)
 
   views.drilldown.innerHTML = renderDrilldownShell({
     title: focus.title,

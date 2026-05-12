@@ -6,6 +6,7 @@ import { buildRecallEnvelope } from "../../lib/memory-operations.mjs";
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 import { makeSourceExtractor, findBalancedIndex } from "../helpers/source-parser.mjs";
+import { findTool } from "../helpers/tool-helpers.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
@@ -51,12 +52,6 @@ function loadDeclarations({ functions = [], consts = [], dependencies = {} }) {
 
 function countLines(source) {
   return source.trim().split("\n").length;
-}
-
-function findTool(tools, name) {
-  const tool = tools.find((entry) => entry.name === name);
-  assert.ok(tool, `expected ${name} tool`);
-  return tool;
 }
 
 function buildRuntime(db, config, overrides = {}) {

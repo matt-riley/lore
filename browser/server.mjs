@@ -1013,42 +1013,39 @@ function queryMemoryFilters({ db }) {
   }
 }
 
-function queryMemories({ db, url }) {
-  const type = url.searchParams.get("type")?.trim() || null
-  const scope = url.searchParams.get("scope")?.trim() || null
-  const repository = normalizeRepository(url.searchParams.get("repository"))
-  const canonicalKey = url.searchParams.get("canonicalKey")?.trim() || null
-  const state = (url.searchParams.get("state") || "active").trim().toLowerCase()
-  const page = clampInteger(url.searchParams.get("page"), 1, { min: 1, max: 2000 })
-  const pageSize = clampInteger(url.searchParams.get("pageSize"), 25, { min: 1, max: 100 })
-  const offset = (page - 1) * pageSize
+function buildMemoryQueryParams(url) {
+  return {
+    type: url.searchParams.get("type")?.trim() || null,
+    scope: url.searchParams.get("scope")?.trim() || null,
+    repository: normalizeRepository(url.searchParams.get("repository")),
+    canonicalKey: url.searchParams.get("canonicalKey")?.trim() || null,
+    state: (url.searchParams.get("state") || "active").trim().toLowerCase(),
+    page: clampInteger(url.searchParams.get("page"), 1, { min: 1, max: 2000 }),
+    pageSize: clampInteger(url.searchParams.get("pageSize"), 25, { min: 1, max: 100 }),
+  }
+}
 
+function buildMemoryFilters({ type, scope, repository, canonicalKey, state }) {
   const clauses = []
   const params = []
-
-  if (type) {
-    clauses.push("type = ?")
-    params.push(type)
-  }
-  if (scope) {
-    clauses.push("scope = ?")
-    params.push(scope)
-  }
-  if (repository) {
-    clauses.push("repository = ?")
-    params.push(repository)
-  }
-  if (canonicalKey) {
-    clauses.push("canonical_key = ?")
-    params.push(canonicalKey)
-  }
+  if (type) { clauses.push("type = ?"); params.push(type) }
+  if (scope) { clauses.push("scope = ?"); params.push(scope) }
+  if (repository) { clauses.push("repository = ?"); params.push(repository) }
+  if (canonicalKey) { clauses.push("canonical_key = ?"); params.push(canonicalKey) }
   if (state === "active") {
     clauses.push("superseded_by IS NULL")
   } else if (state === "superseded") {
     clauses.push("superseded_by IS NOT NULL")
   }
+  return { clauses, params }
+}
 
+function queryMemories({ db, url }) {
+  const { type, scope, repository, canonicalKey, state, page, pageSize } = buildMemoryQueryParams(url)
+  const offset = (page - 1) * pageSize
+  const { clauses, params } = buildMemoryFilters({ type, scope, repository, canonicalKey, state })
   const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""
+
   const countRow = db.db.prepare(`
     SELECT COUNT(*) AS count
     FROM semantic_memory

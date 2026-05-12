@@ -27,11 +27,11 @@ function buildRawStore(tempHome, sessions) {
     );
   `);
   const insert = db.prepare(`
-    INSERT INTO sessions (id, repository, summary, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
-  for (const [id, repo, summary, created, updated] of sessions) {
-    insert.run(id, repo, summary, created, updated);
+  for (const [id, repo, branch, summary, created, updated] of sessions) {
+    insert.run(id, repo, branch, summary, created, updated);
   }
   db.close();
   return rawStorePath;
@@ -97,29 +97,11 @@ describe("SessionStoreReader.searchIndex", () => {
 describe("SessionStoreReader.getRecentSessionsWindow", () => {
   test("returns hydrated rows with limit and offset applied", () => {
     const tempHome = makeTempDir();
-    const rawStorePath = path.join(tempHome, "session-store.db");
     try {
-      const db = new DatabaseSync(rawStorePath);
-      db.exec(`
-        CREATE TABLE sessions (
-          id TEXT PRIMARY KEY,
-          cwd TEXT,
-          repository TEXT,
-          branch TEXT,
-          summary TEXT,
-          created_at TEXT,
-          updated_at TEXT
-        );
-      `);
-      db.prepare(`
-        INSERT INTO sessions (id, repository, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run("session-1", "repo-one", "first", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z");
-      db.prepare(`
-        INSERT INTO sessions (id, repository, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run("session-2", "repo-two", "second", "2026-03-30T10:01:00Z", "2026-03-30T10:01:00Z");
-      db.close();
+      buildRawStore(tempHome, [
+        ["session-1", "repo-one", null, "first", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-2", "repo-two", null, "second", "2026-03-30T10:01:00Z", "2026-03-30T10:01:00Z"],
+      ]);
 
       const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
       reader.initialize();
@@ -138,9 +120,9 @@ describe("SessionStoreReader.getRecentSessionsWindow", () => {
     const tempHome = makeTempDir();
     try {
       buildRawStore(tempHome, [
-        ["session-a", "repo-one", "a", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
-        ["session-c", "repo-one", "c", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
-        ["session-b", "repo-one", "b", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-a", "repo-one", null, "a", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-c", "repo-one", null, "c", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-b", "repo-one", null, "b", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
       ]);
 
       const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
@@ -167,9 +149,9 @@ describe("SessionStoreReader.getRecentSessionsWindow", () => {
     const tempHome = makeTempDir();
     try {
       buildRawStore(tempHome, [
-        ["session-a", "repo-one", "a", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
-        ["session-c", "repo-one", "c", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
-        ["session-b", "repo-one", "b", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-a", "repo-one", null, "a", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-c", "repo-one", null, "c", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-b", "repo-one", null, "b", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
       ]);
 
       const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
@@ -200,27 +182,11 @@ describe("SessionStoreReader.getRecentSessionsWindow", () => {
 
   test("exposes raw session-store updated_at for keyset cursors when hydration overrides updated_at", () => {
     const tempHome = makeTempDir();
-    const rawStorePath = path.join(tempHome, "session-store.db");
     try {
-      const db = new DatabaseSync(rawStorePath);
-      db.exec(`
-        CREATE TABLE sessions (
-          id TEXT PRIMARY KEY,
-          cwd TEXT,
-          repository TEXT,
-          branch TEXT,
-          summary TEXT,
-          created_at TEXT,
-          updated_at TEXT
-        );
-      `);
-      const insert = db.prepare(`
-        INSERT INTO sessions (id, repository, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-      `);
-      insert.run("session-a", "repo-one", "a", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z");
-      insert.run("session-b", "repo-one", "b", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z");
-      db.close();
+      buildRawStore(tempHome, [
+        ["session-a", "repo-one", null, "a", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-b", "repo-one", null, "b", "2026-03-30T10:00:00Z", "2026-03-30T10:00:00Z"],
+      ]);
 
       const workspaceDir = path.join(tempHome, "session-state", "session-b");
       mkdirSync(workspaceDir, { recursive: true });
@@ -256,28 +222,12 @@ describe("SessionStoreReader.getRecentSessionsWindow", () => {
 describe("SessionStoreReader.findSessionsByDate", () => {
   test("filters sessions by the provided date key", () => {
     const tempHome = makeTempDir();
-    const rawStorePath = path.join(tempHome, "session-store.db");
     try {
-      const db = new DatabaseSync(rawStorePath);
-      db.exec(`
-        CREATE TABLE sessions (
-          id TEXT PRIMARY KEY,
-          cwd TEXT,
-          repository TEXT,
-          branch TEXT,
-          summary TEXT,
-          created_at TEXT,
-          updated_at TEXT
-        );
-      `);
-      const insert = db.prepare(`
-        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      insert.run("session-match-1", "repo-one", "main", "match one", "2026-03-29T08:00:00Z", "2026-03-30T10:00:00Z");
-      insert.run("session-match-2", "repo-two", "feature", "match two", "2026-03-30T09:00:00Z", null);
-      insert.run("session-other", "repo-one", "main", "other date", "2026-03-31T09:00:00Z", "2026-03-31T10:00:00Z");
-      db.close();
+      buildRawStore(tempHome, [
+        ["session-match-1", "repo-one", "main", "match one", "2026-03-29T08:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-match-2", "repo-two", "feature", "match two", "2026-03-30T09:00:00Z", null],
+        ["session-other", "repo-one", "main", "other date", "2026-03-31T09:00:00Z", "2026-03-31T10:00:00Z"],
+      ]);
 
       const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
       reader.initialize();
@@ -304,32 +254,10 @@ describe("SessionStoreReader.findSessionsByDate", () => {
 
   test("applies repository filtering after hydration and retains raw session-store timestamps", () => {
     const tempHome = makeTempDir();
-    const rawStorePath = path.join(tempHome, "session-store.db");
     try {
-      const db = new DatabaseSync(rawStorePath);
-      db.exec(`
-        CREATE TABLE sessions (
-          id TEXT PRIMARY KEY,
-          cwd TEXT,
-          repository TEXT,
-          branch TEXT,
-          summary TEXT,
-          created_at TEXT,
-          updated_at TEXT
-        );
-      `);
-      db.prepare(`
-        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
-        "session-workspace",
-        "raw-repo",
-        "raw-branch",
-        "raw summary",
-        "2026-03-30T08:00:00Z",
-        "2026-03-30T10:00:00Z",
-      );
-      db.close();
+      buildRawStore(tempHome, [
+        ["session-workspace", "raw-repo", "raw-branch", "raw summary", "2026-03-30T08:00:00Z", "2026-03-30T10:00:00Z"],
+      ]);
 
       const workspaceDir = path.join(tempHome, "session-state", "session-workspace");
       mkdirSync(workspaceDir, { recursive: true });
@@ -372,27 +300,11 @@ describe("SessionStoreReader.findSessionsByDate", () => {
 
   test("honors cross-repo inclusion and local-only restrictions", () => {
     const tempHome = makeTempDir();
-    const rawStorePath = path.join(tempHome, "session-store.db");
     try {
-      const db = new DatabaseSync(rawStorePath);
-      db.exec(`
-        CREATE TABLE sessions (
-          id TEXT PRIMARY KEY,
-          cwd TEXT,
-          repository TEXT,
-          branch TEXT,
-          summary TEXT,
-          created_at TEXT,
-          updated_at TEXT
-        );
-      `);
-      const insert = db.prepare(`
-        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      insert.run("local-session", "repo-local", "main", "local", "2026-03-30T08:00:00Z", "2026-03-30T11:00:00Z");
-      insert.run("other-session", "repo-other", "main", "other", "2026-03-30T08:00:00Z", "2026-03-30T10:00:00Z");
-      db.close();
+      buildRawStore(tempHome, [
+        ["local-session", "repo-local", "main", "local", "2026-03-30T08:00:00Z", "2026-03-30T11:00:00Z"],
+        ["other-session", "repo-other", "main", "other", "2026-03-30T08:00:00Z", "2026-03-30T10:00:00Z"],
+      ]);
 
       const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
       reader.initialize();
@@ -426,29 +338,13 @@ describe("SessionStoreReader.findSessionsByDate", () => {
 
   test("returns bounded rows using deterministic updated-at ordering", () => {
     const tempHome = makeTempDir();
-    const rawStorePath = path.join(tempHome, "session-store.db");
     try {
-      const db = new DatabaseSync(rawStorePath);
-      db.exec(`
-        CREATE TABLE sessions (
-          id TEXT PRIMARY KEY,
-          cwd TEXT,
-          repository TEXT,
-          branch TEXT,
-          summary TEXT,
-          created_at TEXT,
-          updated_at TEXT
-        );
-      `);
-      const insert = db.prepare(`
-        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      insert.run("session-a", "repo-one", "main", "a", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z");
-      insert.run("session-c", "repo-one", "main", "c", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z");
-      insert.run("session-b", "repo-one", "main", "b", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z");
-      insert.run("session-new", "repo-one", "main", "new", "2026-03-30T07:00:00Z", "2026-03-30T11:00:00Z");
-      db.close();
+      buildRawStore(tempHome, [
+        ["session-a", "repo-one", "main", "a", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-c", "repo-one", "main", "c", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-b", "repo-one", "main", "b", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-new", "repo-one", "main", "new", "2026-03-30T07:00:00Z", "2026-03-30T11:00:00Z"],
+      ]);
 
       const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
       reader.initialize();
@@ -470,35 +366,18 @@ describe("SessionStoreReader.findSessionsByDate", () => {
 
   test("falls back to the default limit when passed a non-numeric limit", () => {
     const tempHome = makeTempDir();
-    const rawStorePath = path.join(tempHome, "session-store.db");
     try {
-      const db = new DatabaseSync(rawStorePath);
-      db.exec(`
-        CREATE TABLE sessions (
-          id TEXT PRIMARY KEY,
-          cwd TEXT,
-          repository TEXT,
-          branch TEXT,
-          summary TEXT,
-          created_at TEXT,
-          updated_at TEXT
-        );
-      `);
-      const insert = db.prepare(`
-        INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      for (let index = 0; index < 6; index += 1) {
-        insert.run(
-          `session-${index}`,
+      buildRawStore(
+        tempHome,
+        Array.from({ length: 6 }, (_, i) => [
+          `session-${i}`,
           "repo-one",
           "main",
-          `summary ${index}`,
-          `2026-03-30T0${index}:00:00Z`,
-          `2026-03-30T1${index}:00:00Z`,
-        );
-      }
-      db.close();
+          `summary ${i}`,
+          `2026-03-30T0${i}:00:00Z`,
+          `2026-03-30T1${i}:00:00Z`,
+        ]),
+      );
 
       const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
       reader.initialize();

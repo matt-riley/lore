@@ -125,6 +125,7 @@ function parseMarkdownTableRows(lines, startIndex) {
   return { nextIndex: index, entries };
 }
 
+// fallow-ignore-next-line complexity
 function parseMemoryToolsSupportMatrix(markdown) {
   const lines = stripFencedCodeBlocks(markdown);
   let memoryToolsStart = -1;

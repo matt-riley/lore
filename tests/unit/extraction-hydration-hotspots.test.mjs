@@ -16,6 +16,7 @@ async function loadRuleExtractorHotspots() {
       .replace(/from "\.\/memory-scope\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/memory-scope.mjs").href}"`)
       .replace(/from "\.\/rollout-flags\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/rollout-flags.mjs").href}"`)
       .replace(/from "\.\/retention-sanitizer\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/retention-sanitizer.mjs").href}"`)
+      .replace(/from "\.\/text-normalizer\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/text-normalizer.mjs").href}"`)
       .replace("function extractInteractionStyleMemory({ message, repository, sessionId, turnIndex }) {", "export function extractInteractionStyleMemory({ message, repository, sessionId, turnIndex }) {");
     ruleExtractorHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${ruleExtractorUrl}\n`).toString("base64")}`);
   }

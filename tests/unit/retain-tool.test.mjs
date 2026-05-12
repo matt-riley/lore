@@ -3,16 +3,11 @@ import { describe, test } from "node:test";
 
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
+import { findTool } from "../helpers/tool-helpers.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
-
-function findTool(tools, name) {
-  const tool = tools.find((entry) => entry.name === name);
-  assert.ok(tool, `expected ${name} tool`);
-  return tool;
-}
 
 describe("lore_retain tool", () => {
   test("returns a clear rollout-disabled message for domain-backed retains", { skip: SKIP_NO_FTS5 }, async () => {

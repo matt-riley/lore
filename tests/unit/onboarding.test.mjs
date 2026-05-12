@@ -246,6 +246,19 @@ describe("onboarding state", () => {
   });
 });
 
+function buildLoreOnboardTool(db, config) {
+  const runtime = {
+    initialized: true,
+    lastError: null,
+    db,
+    config,
+    repository: "fixture-repo",
+    sessionStore: null,
+  };
+  const tools = createMemoryTools({ getRuntime: async () => runtime });
+  return tools.find((tool) => tool.name === "lore_onboard");
+}
+
 describe("lore_onboard tool", () => {
   test("persists the user's preferred name and explicit style overrides", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
@@ -261,18 +274,7 @@ describe("lore_onboard tool", () => {
         sessionId: "session-seed",
       });
 
-      const runtime = {
-        initialized: true,
-        lastError: null,
-        db,
-        config,
-        repository: "fixture-repo",
-        sessionStore: null,
-      };
-      const tools = createMemoryTools({
-        getRuntime: async () => runtime,
-      });
-      const loreOnboard = tools.find((tool) => tool.name === "lore_onboard");
+      const loreOnboard = buildLoreOnboardTool(db, config);
       assert.ok(loreOnboard, "expected lore_onboard tool to be registered");
 
       const result = await loreOnboard.handler({
@@ -333,18 +335,7 @@ describe("lore_onboard tool", () => {
         },
       });
 
-      const runtime = {
-        initialized: true,
-        lastError: null,
-        db,
-        config,
-        repository: "fixture-repo",
-        sessionStore: null,
-      };
-      const tools = createMemoryTools({
-        getRuntime: async () => runtime,
-      });
-      const loreOnboard = tools.find((tool) => tool.name === "lore_onboard");
+      const loreOnboard = buildLoreOnboardTool(db, config);
 
       const result = await loreOnboard.handler({
         warmth: "balanced",
@@ -378,18 +369,7 @@ describe("lore_onboard tool", () => {
         sessionId: "session-seed",
       });
 
-      const runtime = {
-        initialized: true,
-        lastError: null,
-        db,
-        config,
-        repository: "fixture-repo",
-        sessionStore: null,
-      };
-      const tools = createMemoryTools({
-        getRuntime: async () => runtime,
-      });
-      const loreOnboard = tools.find((tool) => tool.name === "lore_onboard");
+      const loreOnboard = buildLoreOnboardTool(db, config);
       assert.ok(loreOnboard, "expected lore_onboard tool to be registered");
 
       await loreOnboard.handler({

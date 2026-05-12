@@ -41,6 +41,17 @@ const TEST_REPO = "owner/test-repo";
 // "what did we do yesterday" is a pure temporal recall: no content terms extracted
 const PURE_TEMPORAL_PROMPT = "what did we do yesterday";
 
+const TEMPORAL_PROMPT_NEED = {
+  hasTemporalSignal: true,
+  identityOnly: false,
+  directAddressed: false,
+  wantsContinuity: false,
+  wantsStyleContext: false,
+  wantsCrossRepoExamples: false,
+  wantsRepoLocalTaskContext: true,
+  allowCrossRepoFallback: false,
+};
+
 function seedDaySummary(loreDb, { date = yesterdayDateKey(), repository = TEST_REPO } = {}) {
   loreDb.upsertEpisodeDigest({
     id: `ep-${date}`,
@@ -134,16 +145,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { trace } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.ok(trace.temporal, "trace.temporal should be present");
@@ -166,16 +168,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { trace } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.ok(trace.temporal, "trace.temporal should be present");
@@ -197,16 +190,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { trace } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.ok(trace.temporal, "trace.temporal should be present");
@@ -228,16 +212,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { trace } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.equal(trace.temporal?.verifierReason, "missing_day_summary");
@@ -256,16 +231,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { trace } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.equal(trace.temporal?.scope, "local");
@@ -284,16 +250,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { trace } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: true,
-        },
+        promptNeed: { ...TEMPORAL_PROMPT_NEED, allowCrossRepoFallback: true },
       });
 
       assert.equal(trace.temporal?.scope, "cross_repo");
@@ -312,16 +269,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { trace } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.equal(trace.temporal?.verifierUsed, false);
@@ -345,16 +293,7 @@ describe("temporal provenance — trace.temporal contract", () => {
         prompt: "what did we do last week",
         repository: TEST_REPO,
         sessionStore,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.equal(trace.temporal?.date, null);
@@ -380,16 +319,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { text } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.ok(text.includes("Temporal recall:"), "provenance note should appear in text");
@@ -420,16 +350,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { text } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.ok(!text.includes("Temporal recall:"), "no provenance note when no evidence is found");
@@ -448,16 +369,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { text, trace } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.ok(text.includes("Temporal recall:"), "provenance note should appear in text");
@@ -486,16 +398,7 @@ describe("temporal provenance — trace.temporal contract", () => {
       const { trace } = loreDb.explainPromptContext({
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       // daySummary lookup fields intact
@@ -548,16 +451,7 @@ describe("temporal provenance — trace.temporal contract", () => {
         repository: TEST_REPO,
         sessionStore,
         limit: 2,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.equal(trace.temporal?.source, "session_store_verifier");
@@ -593,16 +487,7 @@ describe("temporal provenance — trace.temporal contract", () => {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         sessionStore,
-        promptNeed: {
-          hasTemporalSignal: true,
-          identityOnly: false,
-          directAddressed: false,
-          wantsContinuity: false,
-          wantsStyleContext: false,
-          wantsCrossRepoExamples: false,
-          wantsRepoLocalTaskContext: true,
-          allowCrossRepoFallback: false,
-        },
+        promptNeed: TEMPORAL_PROMPT_NEED,
       });
 
       assert.equal(verifierCalls, 0);

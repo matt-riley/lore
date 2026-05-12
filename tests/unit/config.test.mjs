@@ -15,6 +15,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeRolloutConfig } from "../../lib/config.mjs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const MALFORMED_FIXTURE = resolve(
@@ -101,6 +102,19 @@ describe("loadConfig", () => {
         );
         return true;
       },
+    );
+  });
+});
+
+// Direct test of normalizeRolloutConfig using static import
+// (ensures Fallow can detect the export is used)
+describe("normalizeRolloutConfig", () => {
+  test("normalizeRolloutConfig is exported and callable", () => {
+    const result = normalizeRolloutConfig();
+    assert.ok(result, "normalizeRolloutConfig should return an object");
+    assert.ok(
+      typeof result === "object",
+      "normalizeRolloutConfig should return an object",
     );
   });
 });

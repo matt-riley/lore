@@ -2,43 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
+import { makeSourceExtractor, findBalancedIndex } from "../helpers/source-parser.mjs";
+
 const EXTENSION_SOURCE = readFileSync(new URL("../../extension.mjs", import.meta.url), "utf8");
-
-function findBalancedIndex(source, start, openChar, closeChar) {
-  let depth = 0;
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === openChar) {
-      depth += 1;
-      continue;
-    }
-    if (char !== closeChar) {
-      continue;
-    }
-    depth -= 1;
-    if (depth === 0) {
-      return index;
-    }
-  }
-
-  throw new Error(`could not find closing ${closeChar} for ${openChar} at ${start}`);
-}
-
-function extractFunctionSource(name) {
-  const markers = [`async function ${name}`, `function ${name}`];
-  const start = markers
-    .map((marker) => EXTENSION_SOURCE.indexOf(marker))
-    .find((index) => index !== -1);
-  assert.notEqual(start, undefined, `expected ${name} to exist in extension.mjs`);
-
-  const paramsStart = EXTENSION_SOURCE.indexOf("(", start);
-  const paramsEnd = findBalancedIndex(EXTENSION_SOURCE, paramsStart, "(", ")");
-  const braceStart = EXTENSION_SOURCE.indexOf("{", paramsEnd);
-  assert.notEqual(braceStart, -1, `expected ${name} to have a function body`);
-
-  const bodyEnd = findBalancedIndex(EXTENSION_SOURCE, braceStart, "{", "}");
-  return EXTENSION_SOURCE.slice(start, bodyEnd + 1);
-}
+const extractFunctionSource = makeSourceExtractor(EXTENSION_SOURCE);
 
 function loadFunction(name, dependencies = {}) {
   const functionSource = extractFunctionSource(name);

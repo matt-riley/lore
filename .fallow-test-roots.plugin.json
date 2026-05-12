@@ -1,0 +1,11 @@
+{
+  "name": "lore-test-roots",
+  "detection": {
+    "type": "fileExists",
+    "pattern": "tests/**/*.test.mjs"
+  },
+  "entryPoints": [
+    "tests/**/*.test.mjs"
+  ],
+  "entryPointRole": "test"
+}

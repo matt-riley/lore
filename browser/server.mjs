@@ -901,6 +901,22 @@ function buildSessionDrilldown({ db, id }) {
   }
 }
 
+function getStatusMaintenancePlan({ db, repository }) {
+  return buildMaintenancePlan({
+    runtime: {
+      config: db.config,
+      db,
+      traceRecorder: {
+        isEnabled: () => Boolean(db.config?.rollout?.traceRecorder),
+      },
+    },
+    repository,
+    trigger: "status",
+    force: false,
+    requestedTasks: [],
+  })
+}
+
 function queryOverview({ db, repository, traceLimit = 40, maintenanceLimit = 10 }) {
   const stats = db.getStats()
   const traces = db.listRetrievalTraceSamples({
@@ -938,19 +954,7 @@ function queryOverview({ db, repository, traceLimit = 40, maintenanceLimit = 10 
     })
     .filter((row) => row.status !== "done")
 
-  const maintenancePlan = buildMaintenancePlan({
-    runtime: {
-      config: db.config,
-      db,
-      traceRecorder: {
-        isEnabled: () => Boolean(db.config?.rollout?.traceRecorder),
-      },
-    },
-    repository,
-    trigger: "status",
-    force: false,
-    requestedTasks: [],
-  })
+  const maintenancePlan = getStatusMaintenancePlan({ db, repository })
 
   const recentRuns = db.listMaintenanceRuns({
     limit: clampInteger(maintenanceLimit, 10, { min: 1, max: 50 }),
@@ -1102,19 +1106,7 @@ function queryMaintenance({ db, repository }) {
     metadata: parseJsonObject(row.metadata_json),
   }))
 
-  const maintenancePlan = buildMaintenancePlan({
-    runtime: {
-      config: db.config,
-      db,
-      traceRecorder: {
-        isEnabled: () => Boolean(db.config?.rollout?.traceRecorder),
-      },
-    },
-    repository,
-    trigger: "status",
-    force: false,
-    requestedTasks: [],
-  })
+  const maintenancePlan = getStatusMaintenancePlan({ db, repository })
 
   return {
     runs,

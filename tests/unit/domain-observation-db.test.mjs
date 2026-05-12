@@ -75,4 +75,5 @@ describe("LoreDb domain and observation helpers", () => {
       rmSync(tempHome, { recursive: true, force: true });
     }
   });
+
 });

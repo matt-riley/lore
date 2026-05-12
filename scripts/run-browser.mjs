@@ -1,31 +1,14 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { USER_CONFIG_DEFAULTS } from "../lib/config.mjs";
+import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/config.mjs";
+export { mergeDeep };
 import { LoreDb } from "../lib/db.mjs";
 import { startLoreBrowserServer } from "../browser/server.mjs";
-
-function isPlainObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function mergeDeep(base, override) {
-  if (!isPlainObject(base) || !isPlainObject(override)) {
-    return override;
-  }
-  const merged = { ...base };
-  for (const [key, value] of Object.entries(override)) {
-    if (isPlainObject(value) && isPlainObject(base[key])) {
-      merged[key] = mergeDeep(base[key], value);
-      continue;
-    }
-    merged[key] = value;
-  }
-  return merged;
-}
+import { COMMON_PATH_ARG_HANDLERS, consumeValueArg, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
 
 const ALLOWED_LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
@@ -37,17 +20,8 @@ function normalizeLoopbackHost(value) {
   return host;
 }
 
-function resolveArgPath(value) {
-  return path.resolve(process.cwd(), String(value ?? ""));
-}
-
-function consumeBrowserArg(args, key, value, transform = (next) => next) {
-  args[key] = transform(value);
-  return true;
-}
-
 const BROWSER_ARG_HANDLERS = Object.freeze({
-  "--host": (args, value) => consumeBrowserArg(args, "host", value, normalizeLoopbackHost),
+  "--host": (args, value) => consumeValueArg(args, "host", value, normalizeLoopbackHost),
   "--port": (args, value) => {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) {
@@ -55,72 +29,44 @@ const BROWSER_ARG_HANDLERS = Object.freeze({
     }
     return true;
   },
-  "--repository": (args, value) => consumeBrowserArg(
-    args,
-    "repository",
-    value,
-    (next) => {
-      const normalized = String(next ?? "").trim();
-      return normalized.length > 0 ? normalized : null;
-    },
-  ),
-  "--config": (args, value) => consumeBrowserArg(args, "configPath", value, resolveArgPath),
-  "--derived-store-path": (args, value) => consumeBrowserArg(args, "derivedStorePath", value, resolveArgPath),
-  "--backup-dir": (args, value) => consumeBrowserArg(args, "backupDir", value, resolveArgPath),
-  "--raw-store-path": (args, value) => consumeBrowserArg(args, "rawStorePath", value, resolveArgPath),
+  ...COMMON_PATH_ARG_HANDLERS,
 });
 
 export function parseArgs(argv) {
-  const args = {
-    host: "127.0.0.1",
-    port: 43111,
-    repository: null,
-  };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const handler = BROWSER_ARG_HANDLERS[argv[index]];
-    if (!handler) {
-      continue;
-    }
-    if (handler(args, argv[index + 1]) === true) {
-      index += 1;
-    }
-  }
-
-  return args;
+  return parseArgsWith(BROWSER_ARG_HANDLERS, { host: "127.0.0.1", port: 43111, repository: null }, argv);
 }
 
-function loadFileConfig(configPath) {
-  if (!configPath || !existsSync(configPath)) {
+function applyMaintenanceCompatibility(fileConfig) {
+  if (!isPlainObject(fileConfig)) {
     return {};
   }
-  return JSON.parse(readFileSync(configPath, "utf8"));
+  if (isPlainObject(fileConfig.maintenance) && !isPlainObject(fileConfig.maintenanceScheduler)) {
+    return {
+      ...fileConfig,
+      maintenanceScheduler: fileConfig.maintenance,
+    };
+  }
+  return fileConfig;
 }
 
-function buildConfig(args) {
+function resolveRuntimeConfigPath(argsConfigPath, defaultConfigPath) {
+  if (typeof argsConfigPath === "string" && argsConfigPath.trim().length > 0) {
+    return argsConfigPath;
+  }
+  if (existsSync(defaultConfigPath)) {
+    return defaultConfigPath;
+  }
+  return "(defaults)";
+}
+
+export function buildConfig(args) {
   // LORE_CONFIG env var provides a portable default config path that does
   // not depend on the working directory, useful for test fixtures and CI.
-  const envConfigPath = process.env.LORE_CONFIG?.trim() || null;
-  const envCopilotHome = process.env.LORE_COPILOT_HOME?.trim() || null;
-  const defaultConfigPath = envConfigPath
-    ?? (envCopilotHome ? path.join(envCopilotHome, "lore.json") : null)
-    ?? path.resolve(process.cwd(), "lore.json");
-  const fileConfig = loadFileConfig(args.configPath ?? defaultConfigPath);
-  if (isPlainObject(fileConfig.maintenance) && !isPlainObject(fileConfig.maintenanceScheduler)) {
-    fileConfig.maintenanceScheduler = fileConfig.maintenance;
-  }
+  const defaultConfigPath = resolveDefaultLoreConfigPath();
+  const requestedConfigPath = args.configPath ?? defaultConfigPath;
+  const fileConfig = applyMaintenanceCompatibility(loadFileConfigSync(requestedConfigPath));
   const merged = mergeDeep(USER_CONFIG_DEFAULTS, fileConfig);
-
-  return {
-    ...merged,
-    paths: {
-      ...merged.paths,
-      rawStorePath: args.rawStorePath ?? merged.paths.rawStorePath,
-      derivedStorePath: args.derivedStorePath ?? merged.paths.derivedStorePath,
-      backupDir: args.backupDir ?? merged.paths.backupDir,
-    },
-    configPath: args.configPath ?? (existsSync(defaultConfigPath) ? defaultConfigPath : "(defaults)"),
-  };
+  return finalizeScriptConfig(merged, args, resolveRuntimeConfigPath(args.configPath, defaultConfigPath));
 }
 
 async function main() {

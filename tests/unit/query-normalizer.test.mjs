@@ -23,6 +23,9 @@ import assert from "node:assert/strict";
 import {
   inferDateFromPrompt,
   extractTemporalContentTerms,
+  extractFtsTerms,
+  sanitizeFtsQuery,
+  normalizeFtsToken,
 } from "../../lib/query-normalizer.mjs";
 
 // ---------------------------------------------------------------------------
@@ -220,5 +223,23 @@ describe("extractTemporalContentTerms — operator and punctuation stripping", (
   test("filters terms shorter than 3 characters", () => {
     const terms = extractTemporalContentTerms("a go js do");
     assert.deepStrictEqual(terms, []);
+  });
+});
+
+describe("extractFtsTerms", () => {
+  test("expands custom aliases and keeps only normalized unique terms", () => {
+    const terms = extractFtsTerms("controlled rollback", {
+      aliases: {
+        controlled: ["backfill"],
+        rollback: ["restore"],
+      },
+      normalize: normalizeFtsToken,
+    });
+
+    assert.deepStrictEqual(terms, ["controlled", "backfill", "rollback", "restore"]);
+  });
+
+  test("sanitizes default lore aliases to a compact MATCH string", () => {
+    assert.strictEqual(sanitizeFtsQuery("lore"), "lore memory");
   });
 });

@@ -1,7 +1,7 @@
 import { approveAll } from "@github/copilot-sdk";
 import { joinSession } from "@github/copilot-sdk/extension";
 
-import { loadConfig } from "./lib/config.mjs";
+import { loadConfig, normalizeBoolean, clampInteger } from "./lib/config.mjs";
 import {
   applySessionExtraction,
   buildSessionStartBackfillDecision,
@@ -108,30 +108,6 @@ function writeCache(map, key, value, ttlMs, maxEntries = 32) {
     }
   }
   return value;
-}
-
-function normalizeBoolean(value, fallback) {
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "string") {
-    const lowered = value.trim().toLowerCase();
-    if (["1", "true", "yes", "on"].includes(lowered)) {
-      return true;
-    }
-    if (["0", "false", "no", "off"].includes(lowered)) {
-      return false;
-    }
-  }
-  return fallback;
-}
-
-function clampInteger(value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return fallback;
-  }
-  return Math.min(max, Math.max(min, Math.round(numeric)));
 }
 
 function buildDbWatermark(db) {
@@ -1041,6 +1017,151 @@ async function assembleSessionStartCapsule({ prompt, repository, activeRuntime }
   };
 }
 
+function isHookRuntimeUnavailable(activeRuntime) {
+  return !activeRuntime.initialized || activeRuntime.lastError;
+}
+
+function recordHookTraceAndMetric({
+  activeRuntime,
+  repository,
+  traceResult,
+  durationMs,
+  hook,
+  metricWindow,
+}) {
+  persistTraceSuccess({
+    activeRuntime,
+    repository,
+    traceResult,
+    durationMs,
+    hook,
+  });
+  recordMetric(
+    metricWindow,
+    durationMs,
+    activeRuntime.config.limits.metricWindowSize,
+  );
+}
+
+async function maybeEmitHookLatencyWarning({
+  session,
+  activeRuntime,
+  durationMs,
+  latencyMetric,
+  hookLabel,
+  targetMs,
+}) {
+  const latencySnapshot = buildLatencyMetrics(activeRuntime.config);
+  if (!shouldEmitLatencyWarning(latencySnapshot[latencyMetric])) {
+    return;
+  }
+  const warning = buildLatencyWarning(hookLabel, durationMs, targetMs);
+  if (warning) {
+    await session.log(warning, { ephemeral: true, level: "warning" });
+  }
+}
+
+async function finalizeHookObservation({
+  session,
+  activeRuntime,
+  repository,
+  hook,
+  prompt,
+  promptNeed,
+  trace,
+  contextText,
+  durationMs,
+  metricWindow,
+  latencyMetric,
+  hookLabel,
+  targetMs,
+  includeLatencyWarning = true,
+}) {
+  const traceResult = activeRuntime.traceRecorder?.record({
+    hook,
+    prompt,
+    repository,
+    latencyMs: durationMs,
+    promptNeed,
+    trace,
+    contextText,
+  });
+  recordHookTraceAndMetric({
+    activeRuntime,
+    repository,
+    traceResult,
+    durationMs,
+    hook,
+    metricWindow,
+  });
+  if (!includeLatencyWarning) {
+    return;
+  }
+  await maybeEmitHookLatencyWarning({
+    session,
+    activeRuntime,
+    durationMs,
+    latencyMetric,
+    hookLabel,
+    targetMs,
+  });
+}
+
+function readAmbientInteractionStylePresence(activeRuntime) {
+  if (!activeRuntime.db) {
+    return false;
+  }
+  const stylePresenceKey = cacheKey([
+    "ambient-style-presence",
+    buildDbWatermark(activeRuntime.db),
+  ]);
+  return readCache(ambientStylePresenceCache, stylePresenceKey)
+    ?? writeCache(
+      ambientStylePresenceCache,
+      stylePresenceKey,
+      !!activeRuntime.db.searchSemantic({
+        query: "",
+        repository: null,
+        includeOtherRepositories: false,
+        types: ["interaction_style"],
+        scopes: ["global"],
+        limit: 1,
+      }).length,
+      60 * 1000,
+      4,
+    );
+}
+
+async function recordUserPromptBypassObservation({
+  session,
+  activeRuntime,
+  repository,
+  inputPrompt,
+  need,
+  durationMs,
+}) {
+  await finalizeHookObservation({
+    session,
+    activeRuntime,
+    repository,
+    hook: "onUserPromptSubmitted",
+    prompt: inputPrompt,
+    promptNeed: need,
+    trace: buildBypassTrace({
+      repository,
+      promptNeed: need,
+      reason: "lookup_not_required_and_no_ambient_style",
+    }),
+    contextText: "",
+    durationMs,
+    metricWindow: metrics.userPromptSubmittedMs,
+    latencyMetric: "userPromptSubmitted",
+    hookLabel: "lore onUserPromptSubmitted",
+    targetMs: activeRuntime.config.latencyTargetsMs.userPromptSubmittedP95,
+    includeLatencyWarning: false,
+  });
+}
+
 const session = await joinSession({
   onPermissionRequest: approveAll,
   hooks: {
@@ -1051,7 +1172,7 @@ const session = await joinSession({
       const context = await getContext(session, invocation.sessionId, input.cwd);
       const { runtime: activeRuntime, repository, workspacePath } = context;
 
-      if (!activeRuntime.initialized || activeRuntime.lastError) {
+      if (isHookRuntimeUnavailable(activeRuntime)) {
         return;
       }
 
@@ -1078,38 +1199,21 @@ const session = await joinSession({
       });
 
       const durationMs = Date.now() - startedAt;
-      const sessionStartTrace = activeRuntime.traceRecorder?.record({
+      await finalizeHookObservation({
+        session,
+        activeRuntime,
+        repository,
         hook: "onSessionStart",
         prompt: input.initialPrompt ?? "",
-        repository,
-        latencyMs: durationMs,
         promptNeed: assembled.trace?.promptNeed ?? detectPromptContextNeed(input.initialPrompt ?? ""),
         trace: assembled.trace,
         contextText: assembled.text,
-      });
-      persistTraceSuccess({
-        activeRuntime,
-        repository,
-        traceResult: sessionStartTrace,
         durationMs,
-        hook: "onSessionStart",
+        metricWindow: metrics.sessionStartMs,
+        latencyMetric: "sessionStart",
+        hookLabel: "lore onSessionStart",
+        targetMs: activeRuntime.config.latencyTargetsMs.sessionStartP95,
       });
-      recordMetric(
-        metrics.sessionStartMs,
-        durationMs,
-        activeRuntime.config.limits.metricWindowSize,
-      );
-      const latencySnapshot = buildLatencyMetrics(activeRuntime.config);
-      if (shouldEmitLatencyWarning(latencySnapshot.sessionStart)) {
-        const warning = buildLatencyWarning(
-          "lore onSessionStart",
-          durationMs,
-          activeRuntime.config.latencyTargetsMs.sessionStartP95,
-        );
-        if (warning) {
-          await session.log(warning, { ephemeral: true, level: "warning" });
-        }
-      }
 
       if (!assembled.text) {
         return;
@@ -1127,59 +1231,21 @@ const session = await joinSession({
       const context = await getContext(session, invocation.sessionId, input.cwd);
       const { runtime: activeRuntime, repository } = context;
 
-      if (!activeRuntime.initialized || activeRuntime.lastError || !hooksEnabled(activeRuntime.config)) {
+      if (isHookRuntimeUnavailable(activeRuntime) || !hooksEnabled(activeRuntime.config)) {
         return;
       }
 
       const need = detectPromptContextNeed(input.prompt);
-      const stylePresenceKey = cacheKey([
-        "ambient-style-presence",
-        buildDbWatermark(activeRuntime.db),
-      ]);
-      const hasAmbientInteractionStyle = activeRuntime.db
-        ? (readCache(ambientStylePresenceCache, stylePresenceKey)
-          ?? writeCache(
-            ambientStylePresenceCache,
-            stylePresenceKey,
-            !!activeRuntime.db.searchSemantic({
-              query: "",
-              repository: null,
-              includeOtherRepositories: false,
-              types: ["interaction_style"],
-              scopes: ["global"],
-              limit: 1,
-            }).length,
-            60 * 1000,
-            4,
-          ))
-        : false;
+      const hasAmbientInteractionStyle = readAmbientInteractionStylePresence(activeRuntime);
       if (!need.requiresLookup && !hasAmbientInteractionStyle) {
-        const durationMs = Date.now() - startedAt;
-        const bypassTrace = activeRuntime.traceRecorder?.record({
-          hook: "onUserPromptSubmitted",
-          prompt: input.prompt,
-          repository,
-          latencyMs: durationMs,
-          promptNeed: need,
-          trace: buildBypassTrace({
-            repository,
-            promptNeed: need,
-            reason: "lookup_not_required_and_no_ambient_style",
-          }),
-          contextText: "",
-        });
-        persistTraceSuccess({
+        await recordUserPromptBypassObservation({
+          session,
           activeRuntime,
           repository,
-          traceResult: bypassTrace,
-          durationMs,
-          hook: "onUserPromptSubmitted",
+          inputPrompt: input.prompt,
+          need,
+          durationMs: Date.now() - startedAt,
         });
-        recordMetric(
-          metrics.userPromptSubmittedMs,
-          durationMs,
-          activeRuntime.config.limits.metricWindowSize,
-        );
         return;
       }
 
@@ -1194,39 +1260,21 @@ const session = await joinSession({
       });
       const additionalContext = recall.text;
 
-      const durationMs = Date.now() - startedAt;
-      const promptTrace = activeRuntime.traceRecorder?.record({
+      await finalizeHookObservation({
+        session,
+        activeRuntime,
+        repository,
         hook: "onUserPromptSubmitted",
         prompt: input.prompt,
-        repository,
-        latencyMs: durationMs,
         promptNeed: need,
         trace: recall.trace,
         contextText: additionalContext,
+        durationMs: Date.now() - startedAt,
+        metricWindow: metrics.userPromptSubmittedMs,
+        latencyMetric: "userPromptSubmitted",
+        hookLabel: "lore onUserPromptSubmitted",
+        targetMs: activeRuntime.config.latencyTargetsMs.userPromptSubmittedP95,
       });
-      persistTraceSuccess({
-        activeRuntime,
-        repository,
-        traceResult: promptTrace,
-        durationMs,
-        hook: "onUserPromptSubmitted",
-      });
-      recordMetric(
-        metrics.userPromptSubmittedMs,
-        durationMs,
-        activeRuntime.config.limits.metricWindowSize,
-      );
-      const latencySnapshot = buildLatencyMetrics(activeRuntime.config);
-      if (shouldEmitLatencyWarning(latencySnapshot.userPromptSubmitted)) {
-        const warning = buildLatencyWarning(
-          "lore onUserPromptSubmitted",
-          durationMs,
-          activeRuntime.config.latencyTargetsMs.userPromptSubmittedP95,
-        );
-        if (warning) {
-          await session.log(warning, { ephemeral: true, level: "warning" });
-        }
-      }
 
       if (!additionalContext) {
         return;

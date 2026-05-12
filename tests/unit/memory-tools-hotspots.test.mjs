@@ -4,48 +4,14 @@ import { describe, test } from "node:test";
 
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
+import { makeSourceExtractor, findBalancedIndex } from "../helpers/source-parser.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
 
 const MEMORY_TOOLS_SOURCE = readFileSync(new URL("../../lib/memory-tools.mjs", import.meta.url), "utf8");
-
-function findBalancedIndex(source, start, openChar, closeChar) {
-  let depth = 0;
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === openChar) {
-      depth += 1;
-      continue;
-    }
-    if (char !== closeChar) {
-      continue;
-    }
-    depth -= 1;
-    if (depth === 0) {
-      return index;
-    }
-  }
-
-  throw new Error(`could not find closing ${closeChar} for ${openChar} at ${start}`);
-}
-
-function extractFunctionSource(name) {
-  const markers = [`async function ${name}`, `function ${name}`];
-  const start = markers
-    .map((marker) => MEMORY_TOOLS_SOURCE.indexOf(marker))
-    .find((index) => index !== -1);
-  assert.notEqual(start, undefined, `expected ${name} to exist in memory-tools.mjs`);
-
-  const paramsStart = MEMORY_TOOLS_SOURCE.indexOf("(", start);
-  const paramsEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, paramsStart, "(", ")");
-  const braceStart = MEMORY_TOOLS_SOURCE.indexOf("{", paramsEnd);
-  assert.notEqual(braceStart, -1, `expected ${name} to have a function body`);
-
-  const bodyEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, braceStart, "{", "}");
-  return MEMORY_TOOLS_SOURCE.slice(start, bodyEnd + 1);
-}
+const extractFunctionSource = makeSourceExtractor(MEMORY_TOOLS_SOURCE);
 
 function extractToolHandlerSource(name) {
   const toolStart = MEMORY_TOOLS_SOURCE.indexOf(`toolDef("${name}"`);

@@ -2,6 +2,9 @@
   "entry": [
     "tests/**/*.test.mjs"
   ],
+  "plugins": [
+    ".fallow-test-roots.plugin.json"
+  ],
   "dynamicallyLoaded": [
     "browser/index.html",
     "browser/app.js",

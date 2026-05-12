@@ -46,44 +46,13 @@ import {
   purgeExpiredApprovals,
 } from "../../lib/approval-policy.mjs";
 
+import { makeSourceExtractor } from "../helpers/source-parser.mjs";
+
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
 const APPROVAL_POLICY_SOURCE = readFileSync(new URL("../../lib/approval-policy.mjs", import.meta.url), "utf8");
-
-function findBalancedIndex(source, start, openChar, closeChar) {
-  let depth = 0;
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === openChar) {
-      depth += 1;
-      continue;
-    }
-    if (char !== closeChar) {
-      continue;
-    }
-    depth -= 1;
-    if (depth === 0) {
-      return index;
-    }
-  }
-
-  throw new Error(`could not find closing ${closeChar} for ${openChar} at ${start}`);
-}
-
-function extractFunctionSource(name) {
-  const markers = [`async function ${name}`, `function ${name}`];
-  const start = markers
-    .map((marker) => APPROVAL_POLICY_SOURCE.indexOf(marker))
-    .find((index) => index !== -1);
-  assert.notEqual(start, undefined, `expected ${name} to exist in approval-policy.mjs`);
-
-  const paramsStart = APPROVAL_POLICY_SOURCE.indexOf("(", start);
-  const paramsEnd = findBalancedIndex(APPROVAL_POLICY_SOURCE, paramsStart, "(", ")");
-  const braceStart = APPROVAL_POLICY_SOURCE.indexOf("{", paramsEnd);
-  const bodyEnd = findBalancedIndex(APPROVAL_POLICY_SOURCE, braceStart, "{", "}");
-  return APPROVAL_POLICY_SOURCE.slice(start, bodyEnd + 1);
-}
+const extractFunctionSource = makeSourceExtractor(APPROVAL_POLICY_SOURCE);
 
 function loadApprovalFunctions(names, dependencies = {}) {
   const functionSources = names.map((name) => extractFunctionSource(name)).join("\n\n");

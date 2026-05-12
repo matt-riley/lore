@@ -13,6 +13,17 @@ import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE && "FTS5 not available in this Node build";
 
+const BASE_ROLLOUT = {
+  memoryOperations: true,
+  workstreamOverlays: true,
+  temporalQueryNormalization: true,
+  retentionSanitization: true,
+  directives: true,
+  hybridRetrieval: true,
+};
+
+const AMBIENT_ROLLOUT = { ambientPersonaMode: true, ...BASE_ROLLOUT };
+
 describe("buildOnboardingMemories", () => {
   test("chooses an assistant name during onboarding when none is provided", () => {
     const built = buildOnboardingMemories({
@@ -50,14 +61,7 @@ describe("onboarding state", () => {
     const { db, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
-        rollout: {
-          memoryOperations: true,
-          workstreamOverlays: true,
-          temporalQueryNormalization: true,
-          retentionSanitization: true,
-          directives: true,
-          hybridRetrieval: true,
-        },
+        rollout: BASE_ROLLOUT,
       },
     });
 
@@ -84,14 +88,7 @@ describe("onboarding state", () => {
     const { db, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
-        rollout: {
-          memoryOperations: true,
-          workstreamOverlays: true,
-          temporalQueryNormalization: true,
-          retentionSanitization: true,
-          directives: true,
-          hybridRetrieval: true,
-        },
+        rollout: BASE_ROLLOUT,
       },
     });
 
@@ -116,14 +113,7 @@ describe("onboarding state", () => {
     const { db, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
-        rollout: {
-          memoryOperations: true,
-          workstreamOverlays: true,
-          temporalQueryNormalization: true,
-          retentionSanitization: true,
-          directives: true,
-          hybridRetrieval: true,
-        },
+        rollout: BASE_ROLLOUT,
       },
     });
 
@@ -152,14 +142,7 @@ describe("onboarding state", () => {
     const { db, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
-        rollout: {
-          memoryOperations: true,
-          workstreamOverlays: true,
-          temporalQueryNormalization: true,
-          retentionSanitization: true,
-          directives: true,
-          hybridRetrieval: true,
-        },
+        rollout: BASE_ROLLOUT,
       },
     });
 
@@ -193,6 +176,74 @@ describe("onboarding state", () => {
       cleanup();
     }
   });
+
+  test("buildOnboardingSection emits a complete trace with empty missing list once onboarding is done", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+
+    try {
+      const built = buildOnboardingMemories({
+        userName: "Matt",
+        assistantName: "Coda",
+        sessionId: "session-complete",
+      });
+      for (const memory of built.memories) {
+        db.insertSemanticMemory(memory);
+      }
+
+      const section = buildOnboardingSection({
+        db,
+        promptNeed: {
+          seriousPrompt: false,
+        },
+      });
+
+      assert.equal(section.text, "");
+      assert.deepEqual(section.trace, {
+        enabled: false,
+        reason: "complete",
+        missing: [],
+        assistantName: "Coda",
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("buildOnboardingSection keeps missing fields on serious prompts", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+
+    try {
+      seedOnboardingMemories({
+        db,
+        sessionId: "session-serious",
+      });
+
+      const section = buildOnboardingSection({
+        db,
+        promptNeed: {
+          seriousPrompt: true,
+        },
+      });
+
+      assert.equal(section.text, "");
+      assert.deepEqual(section.trace, {
+        enabled: false,
+        reason: "serious_prompt",
+        missing: ["assistantName", "userName"],
+        assistantName: null,
+      });
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("lore_onboard tool", () => {
@@ -200,15 +251,7 @@ describe("lore_onboard tool", () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
-        rollout: {
-          ambientPersonaMode: true,
-          memoryOperations: true,
-          workstreamOverlays: true,
-          temporalQueryNormalization: true,
-          retentionSanitization: true,
-          directives: true,
-          hybridRetrieval: true,
-        },
+        rollout: AMBIENT_ROLLOUT,
       },
     });
 
@@ -270,15 +313,7 @@ describe("lore_onboard tool", () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
-        rollout: {
-          ambientPersonaMode: true,
-          memoryOperations: true,
-          workstreamOverlays: true,
-          temporalQueryNormalization: true,
-          retentionSanitization: true,
-          directives: true,
-          hybridRetrieval: true,
-        },
+        rollout: AMBIENT_ROLLOUT,
       },
     });
 
@@ -333,15 +368,7 @@ describe("lore_onboard tool", () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
-        rollout: {
-          ambientPersonaMode: true,
-          memoryOperations: true,
-          workstreamOverlays: true,
-          temporalQueryNormalization: true,
-          retentionSanitization: true,
-          directives: true,
-          hybridRetrieval: true,
-        },
+        rollout: AMBIENT_ROLLOUT,
       },
     });
 

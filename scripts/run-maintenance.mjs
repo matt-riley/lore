@@ -1,37 +1,15 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { USER_CONFIG_DEFAULTS } from "../lib/config.mjs";
+import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/config.mjs";
 import { LoreDb } from "../lib/db.mjs";
 import { runMaintenanceSweep } from "../lib/maintenance-scheduler.mjs";
 import { SessionStoreReader } from "../lib/session-store-reader.mjs";
 import { createTraceRecorder } from "../lib/trace-recorder.mjs";
-
-function isPlainObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function mergeDeep(base, override) {
-  if (!isPlainObject(base) || !isPlainObject(override)) {
-    return override;
-  }
-  const merged = { ...base };
-  for (const [key, value] of Object.entries(override)) {
-    if (isPlainObject(value) && isPlainObject(base[key])) {
-      merged[key] = mergeDeep(base[key], value);
-      continue;
-    }
-    merged[key] = value;
-  }
-  return merged;
-}
-
-function resolveArgPath(value) {
-  return path.resolve(process.cwd(), String(value ?? ""));
-}
+import { COMMON_PATH_ARG_HANDLERS, consumeValueArg, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
 
 function parseTaskList(value) {
   return String(value ?? "")
@@ -43,11 +21,6 @@ function parseTaskList(value) {
 function applyActionArg(args, action) {
   args.action = action;
   args.dryRun = true;
-}
-
-function consumeValueArg(args, key, value, transform = (next) => next) {
-  args[key] = transform(value);
-  return true;
 }
 
 const ARG_HANDLERS = Object.freeze({
@@ -76,36 +49,11 @@ const ARG_HANDLERS = Object.freeze({
     return false;
   },
   "--tasks": (args, value) => consumeValueArg(args, "tasks", value, parseTaskList),
-  "--config": (args, value) => consumeValueArg(args, "configPath", value, resolveArgPath),
-  "--repository": (args, value) => consumeValueArg(
-    args,
-    "repository",
-    value,
-    (next) => String(next ?? "").trim() || null,
-  ),
-  "--derived-store-path": (args, value) => consumeValueArg(args, "derivedStorePath", value, resolveArgPath),
-  "--backup-dir": (args, value) => consumeValueArg(args, "backupDir", value, resolveArgPath),
-  "--raw-store-path": (args, value) => consumeValueArg(args, "rawStorePath", value, resolveArgPath),
+  ...COMMON_PATH_ARG_HANDLERS,
 });
 
 export function parseArgs(argv) {
-  const args = {
-    action: "run",
-    dryRun: false,
-    force: false,
-    tasks: [],
-  };
-  for (let index = 0; index < argv.length; index += 1) {
-    const part = argv[index];
-    const handler = ARG_HANDLERS[part];
-    if (!handler) {
-      continue;
-    }
-    if (handler(args, argv[index + 1]) === true) {
-      index += 1;
-    }
-  }
-  return args;
+  return parseArgsWith(ARG_HANDLERS, { action: "run", dryRun: false, force: false, tasks: [] }, argv);
 }
 
 function renderHelp() {
@@ -161,36 +109,17 @@ function renderRecommendedSchedule(config) {
   ].join("\n");
 }
 
-function loadFileConfig(configPath) {
-  if (!configPath || !existsSync(configPath)) {
-    return {};
-  }
-  return JSON.parse(readFileSync(configPath, "utf8"));
-}
-
 function buildConfig(args) {
   // LORE_CONFIG env var provides a portable default config path that does
   // not depend on the working directory, useful for cron/CI/fixture environments.
-  const envConfigPath = process.env.LORE_CONFIG?.trim() || null;
-  const envCopilotHome = process.env.LORE_COPILOT_HOME?.trim() || null;
-  const defaultConfigPath = envConfigPath
-    ?? (envCopilotHome ? path.join(envCopilotHome, "lore.json") : null)
-    ?? path.resolve(process.cwd(), "lore.json");
-  const fileConfig = loadFileConfig(args.configPath ?? defaultConfigPath);
+  const defaultConfigPath = resolveDefaultLoreConfigPath();
+  const fileConfig = loadFileConfigSync(args.configPath ?? defaultConfigPath);
   if (isPlainObject(fileConfig.maintenance) && !isPlainObject(fileConfig.maintenanceScheduler)) {
     fileConfig.maintenanceScheduler = fileConfig.maintenance;
   }
   const merged = mergeDeep(USER_CONFIG_DEFAULTS, fileConfig);
-  return {
-    ...merged,
-    paths: {
-      ...merged.paths,
-      rawStorePath: args.rawStorePath ?? merged.paths.rawStorePath,
-      derivedStorePath: args.derivedStorePath ?? merged.paths.derivedStorePath,
-      backupDir: args.backupDir ?? merged.paths.backupDir,
-    },
-    configPath: args.configPath ?? (existsSync(defaultConfigPath) ? defaultConfigPath : "(defaults)"),
-  };
+  const configPath = args.configPath ?? (existsSync(defaultConfigPath) ? defaultConfigPath : "(defaults)");
+  return finalizeScriptConfig(merged, args, configPath);
 }
 
 function formatRows(rows, render) {
@@ -230,6 +159,56 @@ function renderResult(result) {
   ].filter((line) => line !== null).join("\n");
 }
 
+function buildEmptyLatencyMetric() {
+  return {
+    p50Ms: 0,
+    p95Ms: 0,
+    averageMs: 0,
+    maxMs: 0,
+    latestMs: 0,
+    samples: 0,
+    minSamples: 0,
+    targetMs: 0,
+    targetStatus: "warming_up",
+    recentAverageMs: 0,
+    previousAverageMs: 0,
+    trend: "no_samples",
+    trendDeltaMs: 0,
+    readiness: "insufficient_samples",
+  };
+}
+
+function buildScriptRuntime({ args, config }) {
+  const db = new LoreDb(config);
+  db.initialize();
+  const sessionStore = new SessionStoreReader(config);
+  sessionStore.initialize();
+  const traceRecorder = createTraceRecorder(config);
+
+  return {
+    db,
+    runtime: {
+      initialized: true,
+      config,
+      db,
+      sessionStore,
+      traceRecorder,
+      repository: args.repository ?? null,
+      lastError: null,
+      metrics: {
+        sessionStartP95: 0,
+        userPromptSubmittedP95: 0,
+        sampleSize: {
+          sessionStart: 0,
+          userPromptSubmitted: 0,
+        },
+        sessionStart: buildEmptyLatencyMetric(),
+        userPromptSubmitted: buildEmptyLatencyMetric(),
+      },
+    },
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.action === "help") {
@@ -241,60 +220,7 @@ async function main() {
     console.log(renderRecommendedSchedule(config));
     return;
   }
-  const db = new LoreDb(config);
-  db.initialize();
-  const sessionStore = new SessionStoreReader(config);
-  sessionStore.initialize();
-  const traceRecorder = createTraceRecorder(config);
-  const runtime = {
-    initialized: true,
-    config,
-    db,
-    sessionStore,
-    traceRecorder,
-    repository: args.repository ?? null,
-    lastError: null,
-    metrics: {
-      sessionStartP95: 0,
-      userPromptSubmittedP95: 0,
-      sampleSize: {
-        sessionStart: 0,
-        userPromptSubmitted: 0,
-      },
-      sessionStart: {
-        p50Ms: 0,
-        p95Ms: 0,
-        averageMs: 0,
-        maxMs: 0,
-        latestMs: 0,
-        samples: 0,
-        minSamples: 0,
-        targetMs: 0,
-        targetStatus: "warming_up",
-        recentAverageMs: 0,
-        previousAverageMs: 0,
-        trend: "no_samples",
-        trendDeltaMs: 0,
-        readiness: "insufficient_samples",
-      },
-      userPromptSubmitted: {
-        p50Ms: 0,
-        p95Ms: 0,
-        averageMs: 0,
-        maxMs: 0,
-        latestMs: 0,
-        samples: 0,
-        minSamples: 0,
-        targetMs: 0,
-        targetStatus: "warming_up",
-        recentAverageMs: 0,
-        previousAverageMs: 0,
-        trend: "no_samples",
-        trendDeltaMs: 0,
-        readiness: "insufficient_samples",
-      },
-    },
-  };
+  const { db, runtime } = buildScriptRuntime({ args, config });
 
   try {
     const result = await runMaintenanceSweep({

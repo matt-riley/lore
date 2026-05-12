@@ -10,48 +10,16 @@ import {
   runValidationSet,
 } from "../../lib/diagnostics.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
+import { makeSourceExtractor } from "../helpers/source-parser.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
 const DIAGNOSTICS_PATH = "/Users/matthew.riley/.copilot/extensions/lore/lib/diagnostics.mjs";
 const DIAGNOSTICS_SOURCE = readFileSync(DIAGNOSTICS_PATH, "utf8");
+const extractFunctionSource = makeSourceExtractor(DIAGNOSTICS_SOURCE);
 
 let diagnosticsHotspotsPromise = null;
-
-function findBalancedIndex(source, start, openChar, closeChar) {
-  let depth = 0;
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === openChar) {
-      depth += 1;
-      continue;
-    }
-    if (char !== closeChar) {
-      continue;
-    }
-    depth -= 1;
-    if (depth === 0) {
-      return index;
-    }
-  }
-
-  throw new Error(`could not find closing ${closeChar} for ${openChar} at ${start}`);
-}
-
-function extractFunctionSource(name) {
-  const markers = [`async function ${name}`, `function ${name}`];
-  const start = markers
-    .map((marker) => DIAGNOSTICS_SOURCE.indexOf(marker))
-    .find((index) => index !== -1);
-  assert.notEqual(start, undefined, `expected ${name} to exist in diagnostics.mjs`);
-
-  const paramsStart = DIAGNOSTICS_SOURCE.indexOf("(", start);
-  const paramsEnd = findBalancedIndex(DIAGNOSTICS_SOURCE, paramsStart, "(", ")");
-  const braceStart = DIAGNOSTICS_SOURCE.indexOf("{", paramsEnd);
-  const bodyEnd = findBalancedIndex(DIAGNOSTICS_SOURCE, braceStart, "{", "}");
-  return DIAGNOSTICS_SOURCE.slice(start, bodyEnd + 1);
-}
 
 function loadFunctions(names, dependencies = {}) {
   const functionSources = names.map((name) => extractFunctionSource(name)).join("\n\n");

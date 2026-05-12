@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
+import { buildRecallEnvelope } from "../../lib/memory-operations.mjs";
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 import { makeSourceExtractor, findBalancedIndex } from "../helpers/source-parser.mjs";
@@ -69,6 +70,16 @@ function buildRuntime(db, config, overrides = {}) {
   };
 }
 
+async function setupFixtureTools(configOverrides = {}, runtimeOverrides = {}) {
+  const fixture = await withFixtureDb({ configOverrides });
+  return {
+    ...fixture,
+    tools: createMemoryTools({
+      getRuntime: async () => buildRuntime(fixture.db, fixture.config, runtimeOverrides),
+    }),
+  };
+}
+
 describe("memory-tools hotspot helpers", () => {
   test("keeps hotspot functions compact enough for file-scoped maintenance", () => {
     assert.ok(countLines(extractFunctionSource("deriveImprovementTheme")) <= 20, "deriveImprovementTheme should stay within 20 lines");
@@ -112,6 +123,72 @@ describe("memory-tools hotspot helpers", () => {
       evidence: { prompt: "history" },
     }), "evidence:prompt");
     assert.equal(deriveImprovementTheme({ evidence: {} }), "general");
+  });
+
+  test("formatRecallEnvelope keeps the rendered evidence layout stable", () => {
+    const { formatRecallSummary, formatRecallReport, formatRecallSupportingFactsLines, formatRecallLookupLines, formatRecallEvidenceLines, formatRecallEnvelope } = loadDeclarations({
+      functions: [
+        "formatRecallSummary",
+        "formatRecallReport",
+        "formatRecallSupportingFactsLines",
+        "formatRecallLookupLines",
+        "formatRecallEvidenceLines",
+        "formatRecallEnvelope",
+      ],
+      dependencies: {
+        buildRecallEnvelope,
+      },
+    });
+
+    const output = formatRecallEnvelope({
+      repository: "fixture-repo",
+      estimatedTokens: 42,
+      text: "Remember the previous hotspot fix.",
+      trace: {
+        lookups: {
+          localEpisodes: {
+            reason: "included_match",
+            rows: [{ summary: "Past fix" }],
+            includedRows: [{ summary: "Past fix" }],
+            rankedRows: [{ summary: "Past fix" }],
+            filtered: [{ reason: "cutoff" }, { reason: "cutoff" }],
+          },
+        },
+        output: {
+          sectionTitles: ["Relevant Knowledge"],
+        },
+      },
+      overlays: [],
+    }, {
+      detailLevel: "full",
+      includeTrace: true,
+    });
+
+    assert.equal(output, [
+      "repository: fixture-repo",
+      "estimatedTokens: 42",
+      "sections: Relevant Knowledge",
+      "",
+      "## Context",
+      "",
+      "Remember the previous hotspot fix.",
+      "",
+      "## Lookup Summary",
+      "",
+      "- localEpisodes: matched=1 included=1 reason=included_match",
+      "",
+      "## Supporting Facts",
+      "",
+      "- Past fix",
+      "",
+      "## Lookup Evidence",
+      "",
+      "- localEpisodes: matched=1 included=1 reason=included_match",
+      "  - Past fix",
+      "  - ranking:",
+      "    - Past fix",
+      "  - filtered: cutoff x2",
+    ].join("\n"));
   });
 });
 
@@ -206,6 +283,97 @@ describe("memory-tools hotspot behavior", () => {
       assert.match(summaryOutput, /## Active Artifact Clusters/);
       assert.match(summaryOutput, /signal:signal:router/);
       assert.match(summaryOutput, /count=2/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("memory_improvement_backlog resolves and supersedes artifacts through the public tool", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, tools, cleanup } = await setupFixtureTools({
+      enabled: true,
+    });
+
+    try {
+      const backlog = findTool(tools, "memory_improvement_backlog");
+      const resolvedId = db.upsertImprovementArtifact({
+        sourceCaseId: "hotspot-resolve",
+        sourceKind: "signal",
+        title: "Resolve hotspot artifact",
+        summary: "Exercise the resolve path.",
+      });
+      const supersededId = db.upsertImprovementArtifact({
+        sourceCaseId: "hotspot-supersede",
+        sourceKind: "session",
+        title: "Supersede hotspot artifact",
+        summary: "Exercise the supersede path.",
+      });
+
+      const listOutput = await backlog.handler({
+        action: "list",
+        limit: 5,
+      }, {
+        sessionId: "improvement-backlog",
+      });
+      const resolveOutput = await backlog.handler({
+        action: "resolve",
+        id: resolvedId,
+      }, {
+        sessionId: "improvement-backlog",
+      });
+      const supersedeOutput = await backlog.handler({
+        action: "supersede",
+        id: supersededId,
+        supersededBy: resolvedId,
+      }, {
+        sessionId: "improvement-backlog",
+      });
+
+      assert.match(listOutput, /## Improvement Backlog/);
+      assert.match(listOutput, new RegExp(resolvedId));
+      assert.equal(resolveOutput, `Resolved improvement artifact ${resolvedId}.`);
+      assert.equal(supersedeOutput, `Superseded improvement artifact ${supersededId} with ${resolvedId}.`);
+      assert.equal(db.listImprovementArtifacts({ status: "resolved", limit: 5 })[0]?.id, resolvedId);
+      assert.equal(db.listImprovementArtifacts({ status: "superseded", limit: 5 })[0]?.id, supersededId);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("memory_save and memory_deferred_process exercise the public handler paths", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, tools, cleanup } = await setupFixtureTools({
+      enabled: true,
+    }, {
+      sessionStore: null,
+    });
+
+    try {
+      const save = findTool(tools, "memory_save");
+      const deferred = findTool(tools, "memory_deferred_process");
+
+      const saveOutput = await save.handler({
+        type: "user_preference",
+        content: "Prefer exact envelope regression tests.",
+      }, {
+        sessionId: "memory-save",
+      });
+      const deferredOutput = await deferred.handler({
+        limit: 2,
+      }, {
+        sessionId: "memory-deferred",
+      });
+
+      assert.match(saveOutput, /Saved semantic memory/);
+      assert.equal(
+        db.searchSemantic({
+          query: "exact envelope regression tests",
+          repository: "fixture-repo",
+          includeOtherRepositories: false,
+          types: ["user_preference"],
+          limit: 2,
+        }).length > 0,
+        true,
+      );
+      assert.equal(deferredOutput, "Processed 0 deferred job(s), failed 0, inspected 0.");
     } finally {
       cleanup();
     }

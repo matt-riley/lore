@@ -9,6 +9,7 @@ import {
   renderValidationReport,
   runValidationSet,
 } from "../../lib/diagnostics.mjs";
+import { collectFilteredReasonSummaries } from "../../lib/text-utils.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 import { makeSourceExtractor } from "../helpers/source-parser.mjs";
 
@@ -40,6 +41,7 @@ async function loadDiagnosticsHotspots() {
       .replace(/from "\.\/capsule-assembler\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/capsule-assembler.mjs").href}"`)
       .replace(/from "\.\/memory-operations\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/memory-operations.mjs").href}"`)
       .replace(/from "\.\/procedural-memory\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/procedural-memory.mjs").href}"`)
+      .replace(/from "\.\/text-utils\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/text-utils.mjs").href}"`)
       .replace("function evaluateCase(definition, explanation) {", "export function evaluateCase(definition, explanation) {")
       .replace("function classifyReplayMiss(definition, explanation, evidence) {", "export function classifyReplayMiss(definition, explanation, evidence) {")
       .replace("function persistReplayFailureArtifact({", "export function persistReplayFailureArtifact({");
@@ -153,7 +155,9 @@ describe("diagnostics hotspot helpers", () => {
       "buildLookupCountLines",
       "buildLookupSampleLines",
       "renderLookup",
-    ]);
+    ], {
+      collectFilteredReasonSummaries,
+    });
 
     const output = renderLookup("localEpisodes", {
       enabled: true,

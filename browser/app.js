@@ -124,25 +124,8 @@ function renderEmptyBlock(message) {
   return `<div class="row-muted empty-state">${escapeHtml(message)}</div>`
 }
 
-function renderOverview(data) {
-  const stats = data?.stats ?? {}
-  const trend = data?.latencyTrend ?? {}
-  const activityRows = Array.isArray(data?.activity) ? data.activity : []
-  const workstreams = Array.isArray(data?.activeWorkstreams) ? data.activeWorkstreams : []
-  const dueTasks = data?.maintenance?.dueTasks ?? []
-
-  views.overview.innerHTML = `
-    ${renderMetricGrid([
-      ["Semantic memories", stats.semanticCount],
-      ["Episode digests", stats.episodeCount],
-      ["Day summaries", stats.daySummaryCount],
-      ["Active workstreams", workstreams.length],
-      ["Due maintenance tasks", dueTasks.length],
-      ["Trace samples", stats.retrievalTraceSampleCount],
-      ["Recent latency avg", `${trend.recentAverageMs ?? 0}ms`],
-      ["Latency trend", trend.trend ?? "no_samples"],
-    ])}
-
+function renderActivityTable(activityRows) {
+  return `
     <h2>Last successful Lore activity</h2>
     <div class="table-wrap">
       <table class="table">
@@ -170,25 +153,57 @@ function renderOverview(data) {
         </tbody>
       </table>
     </div>
+  `
+}
 
+function renderWorkstreamItem(ws) {
+  return `
+    <article class="list-item">
+      <div class="item-header-row">
+        <div>
+          <strong>${escapeHtml(ws.title)}</strong> <span class="tag">${escapeHtml(ws.status)}</span>
+        </div>
+        ${renderDrilldownAction("workstream", ws.id, "View graph")}
+      </div>
+      <div class="small">repo=${escapeHtml(ws.repository ?? "global")} · scope=${escapeHtml(ws.scope ?? "repo")} · updated=${escapeHtml(formatTime(ws.updatedAt))}</div>
+      ${ws.mission ? `<div class="small">mission: ${escapeHtml(ws.mission)}</div>` : ""}
+      ${ws.objective ? `<div class="small">objective: ${escapeHtml(ws.objective)}</div>` : ""}
+      ${Array.isArray(ws.blockers) && ws.blockers.length > 0 ? `<div class="small">blockers: ${escapeHtml(ws.blockers.join(" | "))}</div>` : ""}
+      ${Array.isArray(ws.nextActions) && ws.nextActions.length > 0 ? `<div class="small">next: ${escapeHtml(ws.nextActions.join(" | "))}</div>` : ""}
+    </article>
+  `
+}
+
+function renderWorkstreamsList(workstreams) {
+  return `
     <h2>Active workstreams</h2>
     <div class="list">
-      ${workstreams.map((ws) => `
-        <article class="list-item">
-          <div class="item-header-row">
-            <div>
-              <strong>${escapeHtml(ws.title)}</strong> <span class="tag">${escapeHtml(ws.status)}</span>
-            </div>
-            ${renderDrilldownAction("workstream", ws.id, "View graph")}
-          </div>
-          <div class="small">repo=${escapeHtml(ws.repository ?? "global")} · scope=${escapeHtml(ws.scope ?? "repo")} · updated=${escapeHtml(formatTime(ws.updatedAt))}</div>
-          ${ws.mission ? `<div class="small">mission: ${escapeHtml(ws.mission)}</div>` : ""}
-          ${ws.objective ? `<div class="small">objective: ${escapeHtml(ws.objective)}</div>` : ""}
-          ${Array.isArray(ws.blockers) && ws.blockers.length > 0 ? `<div class="small">blockers: ${escapeHtml(ws.blockers.join(" | "))}</div>` : ""}
-          ${Array.isArray(ws.nextActions) && ws.nextActions.length > 0 ? `<div class="small">next: ${escapeHtml(ws.nextActions.join(" | "))}</div>` : ""}
-        </article>
-      `).join("") || renderEmptyBlock("No active workstreams.")}
+      ${workstreams.map(renderWorkstreamItem).join("") || renderEmptyBlock("No active workstreams.")}
     </div>
+  `
+}
+
+function renderOverview(data) {
+  const stats = data?.stats ?? {}
+  const trend = data?.latencyTrend ?? {}
+  const activityRows = Array.isArray(data?.activity) ? data.activity : []
+  const workstreams = Array.isArray(data?.activeWorkstreams) ? data.activeWorkstreams : []
+  const dueTasks = data?.maintenance?.dueTasks ?? []
+
+  views.overview.innerHTML = `
+    ${renderMetricGrid([
+      ["Semantic memories", stats.semanticCount],
+      ["Episode digests", stats.episodeCount],
+      ["Day summaries", stats.daySummaryCount],
+      ["Active workstreams", workstreams.length],
+      ["Due maintenance tasks", dueTasks.length],
+      ["Trace samples", stats.retrievalTraceSampleCount],
+      ["Recent latency avg", `${trend.recentAverageMs ?? 0}ms`],
+      ["Latency trend", trend.trend ?? "no_samples"],
+    ])}
+
+    ${renderActivityTable(activityRows)}
+    ${renderWorkstreamsList(workstreams)}
   `
 }
 

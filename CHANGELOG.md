@@ -6,6 +6,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.6.1](https://github.com/matt-riley/lore/compare/lore-v0.6.0...lore-v0.6.1) (2026-05-19)
+
+
+### Bug Fixes
+
+* fallow fix ([1ca9707](https://github.com/matt-riley/lore/commit/1ca97079b2b74b57c59b0250532440cbc3119900))
+* more fallow fixes ([76f9f81](https://github.com/matt-riley/lore/commit/76f9f8166539202d210bfe4c17ba31fa5d37bb97))
+* some fallow fixes ([ea3f7db](https://github.com/matt-riley/lore/commit/ea3f7db00a6a33a8e5fedf0705334d298ce154f7))
+* some fallow issues ([10e7ff3](https://github.com/matt-riley/lore/commit/10e7ff3fae5905012a28d7a10e880216c261fb73))
+
 ## [0.6.0](https://github.com/matt-riley/lore/compare/lore-v0.5.2...lore-v0.6.0) (2026-04-22)
 
 

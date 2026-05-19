@@ -1,13 +1,16 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  evaluateRouterAssertions,
-} from "../../lib/capability-inventory.mjs";
 import { loadCapabilityFunctions } from "../helpers/capability-inventory-fixtures.mjs";
 
 describe("capability inventory helpers", () => {
   it("does not require capability matches for direct router assertions", () => {
+    const { evaluateRouterAssertions } = loadCapabilityFunctions([
+      "buildRouterAssertion",
+      "buildBaseRouterAssertions",
+      "buildCapabilityPresenceAssertion",
+      "evaluateRouterAssertions",
+    ]);
     const evaluation = evaluateRouterAssertions(
       {
         expectedRouteKind: "direct",

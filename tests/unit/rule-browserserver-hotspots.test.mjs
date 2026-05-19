@@ -18,6 +18,7 @@ async function loadBrowserServerHotspots() {
     const serverUrl = pathToFileURL(serverPath).href;
     const source = readFileSync(serverPath, "utf8")
       .replace(/from "\.\.\/lib\/maintenance-scheduler\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/maintenance-scheduler.mjs").href}"`)
+      .replace(/from "\.\.\/lib\/data-utils\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/data-utils.mjs").href}"`)
       .replace('const __dirname = path.dirname(fileURLToPath(import.meta.url))', `const __dirname = ${JSON.stringify("/Users/matthew.riley/.copilot/extensions/lore/browser")}`)
       .replace("function buildMemoryDrilldown({ db, id, entityType }) {", "export function buildMemoryDrilldown({ db, id, entityType }) {");
     browserServerHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${serverUrl}\n`).toString("base64")}`);

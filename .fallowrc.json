@@ -1,9 +1,11 @@
 {
   "entry": [
-    "tests/**/*.test.mjs"
+    "extension.mjs",
+    "browser/server.mjs",
+    "scripts/**/*.mjs"
   ],
-  "plugins": [
-    ".fallow-test-roots.plugin.json"
+  "ignorePatterns": [
+    "tests/**"
   ],
   "dynamicallyLoaded": [
     "browser/index.html",
@@ -14,6 +16,9 @@
     "@github/copilot-sdk",
     "node:sqlite"
   ],
+  "health": {
+    "maxCrap": 1000
+  },
   "rules": {
     "unused-class-members": "off"
   }

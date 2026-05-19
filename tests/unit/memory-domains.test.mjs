@@ -1,13 +1,13 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildMemoryDomain, MEMORY_DOMAIN_KIND, MEMORY_DOMAIN_STATUS } from "../../lib/memory-domains.mjs";
+import { buildMemoryDomain } from "../../lib/memory-domains.mjs";
 
 describe("buildMemoryDomain", () => {
   test("normalizes key, scope, repository, and payloads", () => {
     const domain = buildMemoryDomain({
       domainKey: "  Repo:Core  ",
-      kind: MEMORY_DOMAIN_KIND.REPO,
+      kind: "repo",
       title: " Core Lore ",
       mission: " Keep Lore tidy ",
       scope: "repo",
@@ -15,7 +15,7 @@ describe("buildMemoryDomain", () => {
       directives: ["prefer local-first", "show provenance"],
       disposition: { owner: "Lore" },
       metadata: { priority: "high" },
-      status: MEMORY_DOMAIN_STATUS.ACTIVE,
+      status: "active",
     });
 
     assert.deepEqual(domain, {

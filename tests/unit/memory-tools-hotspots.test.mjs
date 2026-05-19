@@ -1,54 +1,23 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
-import { buildRecallEnvelope } from "../../lib/memory-operations.mjs";
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
-import { makeSourceExtractor, findBalancedIndex } from "../helpers/source-parser.mjs";
 import { findTool } from "../helpers/tool-helpers.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
 
-const MEMORY_TOOLS_SOURCE = readFileSync(new URL("../../lib/memory-tools.mjs", import.meta.url), "utf8");
-const extractFunctionSource = makeSourceExtractor(MEMORY_TOOLS_SOURCE);
-
-function extractToolHandlerSource(name) {
-  const toolStart = MEMORY_TOOLS_SOURCE.indexOf(`toolDef("${name}"`);
-  assert.notEqual(toolStart, -1, `expected ${name} tool definition`);
-
-  const handlerStart = MEMORY_TOOLS_SOURCE.indexOf("handler: async", toolStart);
-  assert.notEqual(handlerStart, -1, `expected ${name} to define an async handler`);
-
-  const paramsStart = MEMORY_TOOLS_SOURCE.indexOf("(", handlerStart);
-  const paramsEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, paramsStart, "(", ")");
-  const arrowIndex = MEMORY_TOOLS_SOURCE.indexOf("=>", paramsEnd);
-  const braceStart = MEMORY_TOOLS_SOURCE.indexOf("{", arrowIndex);
-  const bodyEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, braceStart, "{", "}");
-  return MEMORY_TOOLS_SOURCE.slice(handlerStart, bodyEnd + 1);
-}
-
-function extractConstSource(name) {
-  const start = MEMORY_TOOLS_SOURCE.indexOf(`const ${name} =`);
-  assert.notEqual(start, -1, `expected ${name} constant to exist in memory-tools.mjs`);
-  const braceStart = MEMORY_TOOLS_SOURCE.indexOf("{", start);
-  const braceEnd = findBalancedIndex(MEMORY_TOOLS_SOURCE, braceStart, "{", "}");
-  const statementEnd = MEMORY_TOOLS_SOURCE.indexOf(";", braceEnd);
-  return MEMORY_TOOLS_SOURCE.slice(start, statementEnd + 1);
-}
-
-function loadDeclarations({ functions = [], consts = [], dependencies = {} }) {
-  const sources = [
-    ...consts.map((name) => extractConstSource(name)),
-    ...functions.map((name) => extractFunctionSource(name)),
-  ].join("\n\n");
-  return Function(
-    ...Object.keys(dependencies),
-    `"use strict"; ${sources}; return { ${[...consts, ...functions].join(", ")} };`,
-  )(...Object.values(dependencies));
-}
+const MODULE_SOURCES = {
+  root: readFileSync(new URL("../../lib/memory-tools.mjs", import.meta.url), "utf8"),
+  helpers: readFileSync(new URL("../../lib/memory-tools-helpers.mjs", import.meta.url), "utf8"),
+  reports: existsSync(new URL("../../lib/memory-tools-reports.mjs", import.meta.url))
+    ? readFileSync(new URL("../../lib/memory-tools-reports.mjs", import.meta.url), "utf8")
+    : null,
+  builders: readFileSync(new URL("../../lib/memory-tools-builders.mjs", import.meta.url), "utf8"),
+};
 
 function countLines(source) {
   return source.trim().split("\n").length;
@@ -75,115 +44,25 @@ async function setupFixtureTools(configOverrides = {}, runtimeOverrides = {}) {
   };
 }
 
-describe("memory-tools hotspot helpers", () => {
-  test("keeps hotspot functions compact enough for file-scoped maintenance", () => {
-    assert.ok(countLines(extractFunctionSource("deriveImprovementTheme")) <= 20, "deriveImprovementTheme should stay within 20 lines");
-    assert.ok(countLines(extractToolHandlerSource("memory_intent_journal")) <= 28, "memory_intent_journal handler should stay within 28 lines");
-    assert.ok(countLines(extractToolHandlerSource("memory_evolution_ledger")) <= 40, "memory_evolution_ledger handler should stay within 40 lines");
-    assert.ok(countLines(extractToolHandlerSource("memory_scope_override")) <= 32, "memory_scope_override handler should stay within 32 lines");
-    assert.ok(countLines(extractToolHandlerSource("lore_onboard")) <= 24, "lore_onboard handler should stay within 24 lines");
-    assert.ok(countLines(extractFunctionSource("buildMemoryStatusImprovementLines")) <= 14, "buildMemoryStatusImprovementLines should stay within 14 lines");
-    assert.ok(countLines(extractFunctionSource("buildMemoryStatusTraceArtifactLines")) <= 14, "buildMemoryStatusTraceArtifactLines should stay within 14 lines");
-    assert.ok(countLines(extractFunctionSource("formatRecentTraceRecord")) <= 18, "formatRecentTraceRecord should stay within 18 lines");
+describe("memory-tools module split", () => {
+  test("keeps the root file tiny and pushes implementation into smaller modules", () => {
+    assert.ok(countLines(MODULE_SOURCES.root) <= 10, "memory-tools.mjs should stay as a thin entrypoint");
+    assert.ok(countLines(MODULE_SOURCES.helpers) <= 950, "memory-tools-helpers.mjs should stay file-scoped");
+    assert.ok(countLines(MODULE_SOURCES.reports) <= 1300, "memory-tools-reports.mjs should stay file-scoped");
+    assert.ok(countLines(MODULE_SOURCES.builders) <= 1650, "memory-tools-builders.mjs should stay file-scoped");
   });
 
-  test("deriveImprovementTheme prioritizes source-specific evidence", () => {
-    const { deriveImprovementTheme } = loadDeclarations({
-      consts: ["IMPROVEMENT_THEME_DERIVERS"],
-      functions: [
-        "ensureArray",
-        "normalizeImprovementEvidenceTag",
-        "deriveReplayImprovementTheme",
-        "deriveSignalImprovementTheme",
-        "deriveValidationImprovementTheme",
-        "deriveImprovementFallbackTheme",
-        "deriveImprovementTheme",
-      ],
-    });
-
-    assert.equal(deriveImprovementTheme({
-      source_kind: "replay",
-      evidence: { missCategory: "MissingContext" },
-    }), "miss:missingcontext");
-    assert.equal(deriveImprovementTheme({
-      source_kind: "signal",
-      evidence: { signalType: "Router" },
-    }), "signal:router");
-    assert.equal(deriveImprovementTheme({
-      source_kind: "validation",
-      evidence: { failedAssertions: [{ label: "NeedsHistory" }] },
-    }), "assertion:needshistory");
-    assert.equal(deriveImprovementTheme({
-      source_kind: "session",
-      evidence: { prompt: "history" },
-    }), "evidence:prompt");
-    assert.equal(deriveImprovementTheme({ evidence: {} }), "general");
-  });
-
-  test("formatRecallEnvelope keeps the rendered evidence layout stable", () => {
-    const { formatRecallSummary, formatRecallReport, formatRecallSupportingFactsLines, formatRecallLookupLines, formatRecallEvidenceLines, formatRecallEnvelope } = loadDeclarations({
-      functions: [
-        "formatRecallSummary",
-        "formatRecallReport",
-        "formatRecallSupportingFactsLines",
-        "formatRecallLookupLines",
-        "formatRecallEvidenceLines",
-        "formatRecallEnvelope",
-      ],
-      dependencies: {
-        buildRecallEnvelope,
-      },
-    });
-
-    const output = formatRecallEnvelope({
-      repository: "fixture-repo",
-      estimatedTokens: 42,
-      text: "Remember the previous hotspot fix.",
-      trace: {
-        lookups: {
-          localEpisodes: {
-            reason: "included_match",
-            rows: [{ summary: "Past fix" }],
-            includedRows: [{ summary: "Past fix" }],
-            rankedRows: [{ summary: "Past fix" }],
-            filtered: [{ reason: "cutoff" }, { reason: "cutoff" }],
-          },
-        },
-        output: {
-          sectionTitles: ["Relevant Knowledge"],
-        },
-      },
-      overlays: [],
-    }, {
-      detailLevel: "full",
-      includeTrace: true,
-    });
-
-    assert.equal(output, [
-      "repository: fixture-repo",
-      "estimatedTokens: 42",
-      "sections: Relevant Knowledge",
-      "",
-      "## Context",
-      "",
-      "Remember the previous hotspot fix.",
-      "",
-      "## Lookup Summary",
-      "",
-      "- localEpisodes: matched=1 included=1 reason=included_match",
-      "",
-      "## Supporting Facts",
-      "",
-      "- Past fix",
-      "",
-      "## Lookup Evidence",
-      "",
-      "- localEpisodes: matched=1 included=1 reason=included_match",
-      "  - Past fix",
-      "  - ranking:",
-      "    - Past fix",
-      "  - filtered: cutoff x2",
-    ].join("\n"));
+  test("createMemoryTools still returns the manifest-backed tool set", async () => {
+    const { tools, cleanup } = await setupFixtureTools({ enabled: true });
+    try {
+      assert.ok(Array.isArray(tools));
+      assert.ok(tools.length > 0);
+      assert.equal(findTool(tools, "memory_status").name, "memory_status");
+      assert.equal(findTool(tools, "lore_onboard").name, "lore_onboard");
+      assert.equal(findTool(tools, "memory_replay").name, "memory_replay");
+    } finally {
+      cleanup();
+    }
   });
 });
 

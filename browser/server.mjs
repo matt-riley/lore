@@ -4,6 +4,12 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { buildMaintenancePlan } from "../lib/maintenance-scheduler.mjs"
+import {
+  clampInteger,
+  normalizeRepository,
+  parseJsonArray,
+  parseJsonObject,
+} from "../lib/data-utils.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const STATIC_ROOT = __dirname
@@ -47,48 +53,6 @@ class HttpError extends Error {
     this.statusCode = statusCode
     this.code = code
   }
-}
-
-function clampInteger(value, fallback, { min = 1, max = 500 } = {}) {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) {
-    return fallback
-  }
-  return Math.max(min, Math.min(max, Math.round(numeric)))
-}
-
-function parseJsonObject(value) {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return {}
-  }
-  try {
-    const parsed = JSON.parse(value)
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? parsed
-      : {}
-  } catch {
-    return {}
-  }
-}
-
-function parseJsonArray(value) {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return []
-  }
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function normalizeRepository(value) {
-  if (typeof value !== "string") {
-    return null
-  }
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
 }
 
 function splitTags(value) {

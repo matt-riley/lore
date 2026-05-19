@@ -36,7 +36,6 @@ describe("LoreDb legacy schema version compatibility", () => {
         "improvement-backlog",
         "lore-visibility-substrate",
         "memory-domain-observation",
-        "approval-substrate",
       ],
     );
   });

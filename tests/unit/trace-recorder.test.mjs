@@ -12,6 +12,7 @@ async function loadTraceHotspots() {
     const tracePath = "/Users/matthew.riley/.copilot/extensions/lore/lib/trace-recorder.mjs";
     const traceUrl = pathToFileURL(tracePath).href;
     const source = readFileSync(tracePath, "utf8")
+      .replace(/from "\.\/data-utils\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/data-utils.mjs").href}"`)
       .replace("function buildTraceRecord(event, options, index) {", "export function buildTraceRecord(event, options, index) {")
       .replace("function normalizeRecorderOptions(config) {", "export function normalizeRecorderOptions(config) {");
     traceHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${traceUrl}\n`).toString("base64")}`);

@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRefreshableObservation, OBSERVATION_STATUS } from "../../lib/observations.mjs";
+import { buildRefreshableObservation } from "../../lib/observations.mjs";
 
 describe("buildRefreshableObservation", () => {
   test("normalizes observation metadata and bounds freshness/confidence", () => {
@@ -19,7 +19,7 @@ describe("buildRefreshableObservation", () => {
       source: "lore_reflect",
       trace: { sectionCount: 3 },
       metadata: { detailLevel: "summary" },
-      status: OBSERVATION_STATUS.CURRENT,
+      status: "current",
     });
 
     assert.deepEqual(observation, {

@@ -21,9 +21,11 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  extractDirectTerms,
   inferDateFromPrompt,
   extractTemporalContentTerms,
   extractFtsTerms,
+  GENERIC_QUERY_TERMS,
   sanitizeFtsQuery,
   normalizeFtsToken,
 } from "../../lib/query-normalizer.mjs";
@@ -223,6 +225,17 @@ describe("extractTemporalContentTerms — operator and punctuation stripping", (
   test("filters terms shorter than 3 characters", () => {
     const terms = extractTemporalContentTerms("a go js do");
     assert.deepStrictEqual(terms, []);
+  });
+});
+
+describe("extractDirectTerms", () => {
+  test("supports custom exclusion sets for non-temporal query terms", () => {
+    assert.deepStrictEqual(
+      extractDirectTerms("continue prior auth work", {
+        excludedTerms: GENERIC_QUERY_TERMS,
+      }),
+      ["auth"],
+    );
   });
 });
 

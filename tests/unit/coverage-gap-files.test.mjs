@@ -170,6 +170,7 @@ describe("scripts/validate-config-schema.mjs", () => {
     const { collectSchemaLeaves } = loadValidateSchemaFunctions(
       [
         "isPlainObject",
+        "getSchemaLeafValue",
         "collectSchemaLeaves",
       ],
       {

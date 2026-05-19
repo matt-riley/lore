@@ -54,6 +54,12 @@ function collectConfigLeaves(obj, prefix = "") {
   return result;
 }
 
+function getSchemaLeafValue(propSchema) {
+  return Object.prototype.hasOwnProperty.call(propSchema, "default")
+    ? propSchema.default
+    : NO_DEFAULT;
+}
+
 /**
  * Walk JSON Schema "properties" recursively and collect all leaf paths.
  * Returns a Map<dottedPath, declaredDefault | NO_DEFAULT>.
@@ -71,22 +77,55 @@ function collectSchemaLeaves(schemaObj, prefix = "") {
     const dotPath = prefix ? `${prefix}.${key}` : key;
 
     if (propSchema.type === "object" && isPlainObject(propSchema.properties)) {
-      for (const [subPath, subValue] of collectSchemaLeaves(
-        propSchema,
-        dotPath,
-      )) {
+      for (const [subPath, subValue] of collectSchemaLeaves(propSchema, dotPath)) {
         result.set(subPath, subValue);
       }
     } else {
-      result.set(
-        dotPath,
-        Object.prototype.hasOwnProperty.call(propSchema, "default")
-          ? propSchema.default
-          : NO_DEFAULT,
-      );
+      result.set(dotPath, getSchemaLeafValue(propSchema));
     }
   }
   return result;
+}
+
+function checkConfigInSchema(configLeaves, schemaLeaves) {
+  const errors = [];
+  for (const dotPath of configLeaves.keys()) {
+    if (!schemaLeaves.has(dotPath)) {
+      errors.push(`MISSING from schema: "${dotPath}"`);
+    }
+  }
+  return errors;
+}
+
+function checkSchemaInConfig(schemaLeaves, configLeaves) {
+  const errors = [];
+  for (const dotPath of schemaLeaves.keys()) {
+    if (!configLeaves.has(dotPath)) {
+      errors.push(`MISSING from config defaults: "${dotPath}"`);
+    }
+  }
+  return errors;
+}
+
+function checkDefaultParity(configLeaves, schemaLeaves) {
+  const errors = [];
+  for (const [dotPath, configValue] of configLeaves.entries()) {
+    if (dotPath.startsWith(PATHS_PREFIX)) continue;
+    const schemaDefault = schemaLeaves.get(dotPath);
+    if (schemaDefault === undefined) continue;
+    if (schemaDefault === NO_DEFAULT) {
+      errors.push(
+        `MISSING default in schema for: "${dotPath}" (config default: ${JSON.stringify(configValue)})`,
+      );
+      continue;
+    }
+    if (schemaDefault !== configValue) {
+      errors.push(
+        `DEFAULT MISMATCH at "${dotPath}": schema=${JSON.stringify(schemaDefault)}, config=${JSON.stringify(configValue)}`,
+      );
+    }
+  }
+  return errors;
 }
 
 async function main() {
@@ -96,44 +135,11 @@ async function main() {
   const configLeaves = collectConfigLeaves(USER_CONFIG_DEFAULTS);
   const schemaLeaves = collectSchemaLeaves(schema);
 
-  const errors = [];
-
-  // 1. Every config leaf must exist in the schema.
-  for (const dotPath of configLeaves.keys()) {
-    if (!schemaLeaves.has(dotPath)) {
-      errors.push(`MISSING from schema: "${dotPath}"`);
-    }
-  }
-
-  // 2. Every schema leaf must exist in the config defaults.
-  for (const dotPath of schemaLeaves.keys()) {
-    if (!configLeaves.has(dotPath)) {
-      errors.push(`MISSING from config defaults: "${dotPath}"`);
-    }
-  }
-
-  // 3. Default-value parity for non-paths.* leaves.
-  for (const [dotPath, configValue] of configLeaves.entries()) {
-    // paths.* defaults are environment-specific — exempt from value parity.
-    if (dotPath.startsWith(PATHS_PREFIX)) continue;
-
-    const schemaDefault = schemaLeaves.get(dotPath);
-    // Missing key is already reported above; skip to avoid duplicate noise.
-    if (schemaDefault === undefined) continue;
-
-    if (schemaDefault === NO_DEFAULT) {
-      errors.push(
-        `MISSING default in schema for: "${dotPath}" (config default: ${JSON.stringify(configValue)})`,
-      );
-      continue;
-    }
-
-    if (schemaDefault !== configValue) {
-      errors.push(
-        `DEFAULT MISMATCH at "${dotPath}": schema=${JSON.stringify(schemaDefault)}, config=${JSON.stringify(configValue)}`,
-      );
-    }
-  }
+  const errors = [
+    ...checkConfigInSchema(configLeaves, schemaLeaves),
+    ...checkSchemaInConfig(schemaLeaves, configLeaves),
+    ...checkDefaultParity(configLeaves, schemaLeaves),
+  ];
 
   if (errors.length > 0) {
     console.error("Schema/config drift detected:\n");

@@ -120,9 +120,9 @@ describe("readMemoryDomainsEnabled — cascading", () => {
     assert.strictEqual(readMemoryDomainsEnabled(c), false);
   });
 
-  test("falls back to false when memoryDomains is absent", () => {
+  test("falls back to true when memoryDomains is absent", () => {
     const c = cfg({ memoryOperations: true });
-    assert.strictEqual(readMemoryDomainsEnabled(c), false);
+    assert.strictEqual(readMemoryDomainsEnabled(c), true);
   });
 });
 
@@ -140,9 +140,9 @@ describe("readRefreshableObservationsEnabled — cascading", () => {
     assert.strictEqual(readRefreshableObservationsEnabled(c), false);
   });
 
-  test("falls back to false when refreshableObservations is absent", () => {
+  test("falls back to true when refreshableObservations is absent", () => {
     const c = cfg({ memoryOperations: true, memoryDomains: true });
-    assert.strictEqual(readRefreshableObservationsEnabled(c), false);
+    assert.strictEqual(readRefreshableObservationsEnabled(c), true);
   });
 });
 
@@ -282,9 +282,9 @@ describe("readProposalGenerationEnabled — cascading", () => {
     assert.strictEqual(readProposalGenerationEnabled(c), false);
   });
 
-  test("falls back to false when proposalGeneration is absent", () => {
+  test("falls back to true when proposalGeneration is absent", () => {
     const c = cfg({ evolutionLedger: true });
-    assert.strictEqual(readProposalGenerationEnabled(c), false);
+    assert.strictEqual(readProposalGenerationEnabled(c), true);
   });
 });
 
@@ -359,9 +359,9 @@ describe("readLoreDoctorEnabled — cascading", () => {
     assert.strictEqual(readLoreDoctorEnabled(c), false);
   });
 
-  test("falls back to false when loreDoctor is absent", () => {
+  test("falls back to true when loreDoctor is absent", () => {
     const c = cfg({ evolutionLedger: true });
-    assert.strictEqual(readLoreDoctorEnabled(c), false);
+    assert.strictEqual(readLoreDoctorEnabled(c), true);
   });
 });
 
@@ -399,9 +399,9 @@ describe("readReviewGateEnabled — cascading", () => {
     assert.strictEqual(readReviewGateEnabled(c), false);
   });
 
-  test("falls back to false when reviewGate is absent", () => {
+  test("falls back to true when reviewGate is absent", () => {
     const c = cfg({ evolutionLedger: true });
-    assert.strictEqual(readReviewGateEnabled(c), false);
+    assert.strictEqual(readReviewGateEnabled(c), true);
   });
 });
 
@@ -476,13 +476,13 @@ describe("readApprovalSubstrateEnabled — cascading", () => {
     assert.strictEqual(readApprovalSubstrateEnabled(c), false);
   });
 
-  test("falls back to false when approvalSubstrate is absent", () => {
+  test("falls back to true when approvalSubstrate is absent", () => {
     const c = cfg({ evolutionLedger: true });
-    assert.strictEqual(readApprovalSubstrateEnabled(c), false);
+    assert.strictEqual(readApprovalSubstrateEnabled(c), true);
   });
 
-  test("returns true for null/undefined config (evolutionLedger defaults true, approvalSubstrate defaults false)", () => {
-    assert.strictEqual(readApprovalSubstrateEnabled(null), false);
-    assert.strictEqual(readApprovalSubstrateEnabled(undefined), false);
+  test("returns true for null/undefined config (evolutionLedger defaults true, approvalSubstrate defaults true)", () => {
+    assert.strictEqual(readApprovalSubstrateEnabled(null), true);
+    assert.strictEqual(readApprovalSubstrateEnabled(undefined), true);
   });
 });

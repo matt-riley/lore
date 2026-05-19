@@ -13,7 +13,7 @@ const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
 
-describe("backfill controlled operations", () => {
+describe("backfill controlled operations", { concurrency: false }, () => {
   test("memory_backfill controlled preview reports stable progress totals and phase", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {
@@ -84,6 +84,44 @@ describe("backfill controlled operations", () => {
       assert.match(output, /inspected: 20/);
       assert.match(output, /candidateCount: 20/);
       assert.match(output, /progressTotalCount: 20/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("memory_backfill controlled preview accepts explicit limits above 20 up to 100", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+    try {
+      const runtime = buildRuntime(db, config, {
+        sessionStore: {
+          getRecentSessions: ({ limit }) => Array.from({ length: 120 }, (_, index) => ({
+            id: `session-${index + 1}`,
+            repository: "fixture-repo",
+            updated_at: null,
+            summary: `summary-${index + 1}`,
+          })).slice(0, limit),
+          getSessionArtifacts: () => null,
+          getWorkspaceMetadata: () => null,
+        },
+      });
+      const tools = createMemoryTools({
+        getRuntime: async () => runtime,
+      });
+      const output = await findTool(tools, "memory_backfill").handler({
+        mode: "controlled",
+        action: "preview",
+        limit: 80,
+      }, {
+        sessionId: "session-progress-preview-expanded-cap",
+      });
+
+      assert.match(output, /inspected: 80/);
+      assert.match(output, /candidateCount: 80/);
+      assert.match(output, /progressTotalCount: 80/);
     } finally {
       cleanup();
     }

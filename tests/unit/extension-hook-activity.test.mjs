@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
-import { makeSourceExtractor, findBalancedIndex } from "../helpers/source-parser.mjs";
+import { makeSourceExtractor } from "../helpers/source-parser.mjs";
 
 const EXTENSION_SOURCE = readFileSync(new URL("../../extension.mjs", import.meta.url), "utf8");
 const extractFunctionSource = makeSourceExtractor(EXTENSION_SOURCE);

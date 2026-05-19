@@ -162,7 +162,7 @@ function getStaticContentType(filePath) {
   return "text/plain; charset=utf-8"
 }
 
-async function serveStatic(req, res, pathname) {
+async function serveStatic(res, pathname) {
   const candidate = pathname === "/" ? "/index.html" : pathname
   const resolved = path.resolve(STATIC_ROOT, `.${candidate}`)
   if (!resolved.startsWith(STATIC_ROOT)) {
@@ -180,7 +180,7 @@ async function serveStatic(req, res, pathname) {
     res.end(content)
   } catch {
     if (candidate !== "/index.html") {
-      return serveStatic(req, res, "/index.html")
+      return serveStatic(res, "/index.html")
     }
     notFound(res)
   }
@@ -677,7 +677,6 @@ function populateMemoryDrilldownGraph({
   memory,
   provenance,
   relations,
-  entityType,
 }) {
   if (provenance.sourceEpisode) {
     const sessionNode = buildSessionNode(provenance.sourceEpisode, { column: "left" })
@@ -759,7 +758,7 @@ function buildMemoryDrilldown({ db, id, entityType }) {
     focus: true,
   })
   const graph = createGraph(centerNode)
-  populateMemoryDrilldownGraph({ graph, centerNode, memory, provenance, relations, entityType })
+  populateMemoryDrilldownGraph({ graph, centerNode, memory, provenance, relations })
 
   return {
     entityType,
@@ -1240,7 +1239,7 @@ export function startLoreBrowserServer({
         return
       }
 
-      await serveStatic(req, res, url.pathname)
+      await serveStatic(res, url.pathname)
     } catch (error) {
       handleBrowserRequestError(res, error)
     }

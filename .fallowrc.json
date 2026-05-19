@@ -2,10 +2,8 @@
   "entry": [
     "extension.mjs",
     "browser/server.mjs",
-    "scripts/**/*.mjs"
-  ],
-  "ignorePatterns": [
-    "tests/**"
+    "scripts/**/*.mjs",
+    "tests/**/*.test.mjs"
   ],
   "dynamicallyLoaded": [
     "browser/index.html",

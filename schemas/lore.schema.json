@@ -367,11 +367,11 @@
         },
         "memoryDomains": {
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "refreshableObservations": {
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "workstreamOverlays": {
           "type": "boolean",
@@ -399,7 +399,7 @@
         },
         "proposalGeneration": {
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "generatedArtifactIntegrity": {
           "type": "boolean",
@@ -411,11 +411,15 @@
         },
         "loreDoctor": {
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "reviewGate": {
           "type": "boolean",
-          "default": false
+          "default": true
+        },
+        "approvalSubstrate": {
+          "type": "boolean",
+          "default": true
         },
         "hybridRetrieval": {
           "type": "boolean",

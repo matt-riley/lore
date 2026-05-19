@@ -37,7 +37,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | Tool | Status | Notes |
 |---|---|---|
 | `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. |
-| `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope and category. Domain association is experimental behind `memoryDomains`. |
+| `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope, category, and optional domain association. |
 | `lore_onboard` | 🟢 Supported | Captures the user name plus Lore's assistant/style profile in one step. |
 | `memory_search` | 🟢 Supported | Keyword + semantic search across the derived store. |
 | `memory_save` | 🟢 Supported | Explicit save for freeform notes and decisions. |
@@ -61,7 +61,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Optional persisted observations require `refreshableObservations`. |
+| `lore_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Optional persisted observations are supported and enabled by default via `refreshableObservations`. |
 
 ### Scope control
 
@@ -135,25 +135,26 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 ## Rollout flags
 
-Experimental surfaces are controlled by rollout flags in the `rollout` section of `lore.json`. The table below maps each flag to its governed surfaces.
+Experimental surfaces are controlled by rollout flags in the `rollout` section of `lore.json`. For quick-start config snippets for `traceRecorder` and `maintenanceScheduler`, see the [README optional features section](../README.md#optional-features). The table below maps each flag to its governed surfaces.
 
-| Flag | Default | Governed surfaces |
-|---|---|---|
-| `memoryOperations` | `true` | `lore_recall`, `lore_retain`, `lore_reflect`, workstream overlays, temporal normalisation, temporal provenance/confidence notes, retention sanitisation |
-| `memoryDomains` | `false` (requires `memoryOperations`) | Domain-aware semantic retention and domain metadata persisted alongside memories |
-| `refreshableObservations` | `false` (requires `memoryDomains`) | Persisted observations produced from `lore_reflect` |
-| `workstreamOverlays` | `true` (requires `memoryOperations`) | Workstream overlay injection at prompt time |
-| `temporalQueryNormalization` | `true` (requires `memoryOperations`) | Temporal phrase normalisation in queries |
-| `retentionSanitization` | `true` (requires `memoryOperations`) | Anti-feedback-loop guards on transcript-based retention |
-| `hybridRetrieval` | `true` (requires `memoryOperations`) | Hybrid keyword + semantic retrieval path |
-| `directives` | `true` (requires `memoryOperations`) | Directive injection into memory capsules |
-| `overlayAutoHydration` | `true` (requires `workstreamOverlays`) | Auto-hydrates workstream overlay on session start |
-| `traceRecorder` | `false` | Trace recorder for prompt-need classification and retrieval audits |
-| `evolutionLedger` | `true` | `memory_improvement_backlog`, `memory_evolution_ledger`, proposal generation, integrity checks, doctor, review gate |
-| `proposalGeneration` | `false` (requires `evolutionLedger`) | AI-assisted improvement proposal generation |
-| `generatedArtifactIntegrity` | `true` (requires `evolutionLedger`) | Integrity checks on generated manifests and caches |
-| `loreDoctor` | `false` (requires `evolutionLedger`) | `memory_doctor_report` |
-| `reviewGate` | `false` (requires `evolutionLedger`) | `memory_review_gate` |
+| Flag | Status | Default | Governed surfaces |
+|---|---|---|---|
+| `memoryOperations` | 🟢 Supported | `true` | `lore_recall`, `lore_retain`, `lore_reflect`, workstream overlays, temporal normalisation, temporal provenance/confidence notes, retention sanitisation |
+| `memoryDomains` | 🟢 Supported | `true` (requires `memoryOperations`) | Domain-aware semantic retention and domain metadata persisted alongside memories |
+| `refreshableObservations` | 🟢 Supported | `true` (requires `memoryDomains`) | Persisted observations produced from `lore_reflect` |
+| `workstreamOverlays` | 🟢 Supported | `true` (requires `memoryOperations`) | Workstream overlay injection at prompt time |
+| `temporalQueryNormalization` | 🟢 Supported | `true` (requires `memoryOperations`) | Temporal phrase normalisation in queries |
+| `retentionSanitization` | 🟢 Supported | `true` (requires `memoryOperations`) | Anti-feedback-loop guards on transcript-based retention |
+| `hybridRetrieval` | 🟢 Supported | `true` (requires `memoryOperations`) | Hybrid keyword + semantic retrieval path |
+| `directives` | 🟢 Supported | `true` (requires `memoryOperations`) | Directive injection into memory capsules |
+| `overlayAutoHydration` | 🟢 Supported | `true` (requires `workstreamOverlays`) | Auto-hydrates workstream overlay on session start |
+| `traceRecorder` | 🟡 Experimental | `false` | Trace recorder for prompt-need classification and retrieval audits |
+| `evolutionLedger` | 🟡 Experimental | `true` | `memory_improvement_backlog`, `memory_evolution_ledger`, proposal generation, integrity checks, doctor, review gate, approval substrate |
+| `proposalGeneration` | 🟢 Supported | `true` (requires `evolutionLedger`) | AI-assisted improvement proposal generation |
+| `generatedArtifactIntegrity` | 🟡 Experimental | `true` (requires `evolutionLedger`) | Integrity checks on generated manifests and caches |
+| `loreDoctor` | 🟢 Supported | `true` (requires `evolutionLedger`) | `memory_doctor_report` |
+| `reviewGate` | 🟢 Supported | `true` (requires `evolutionLedger`) | `memory_review_gate` |
+| `approvalSubstrate` | 🟢 Supported | `true` (requires `evolutionLedger`) | Approval-workflow substrate for ledger-backed proposal review state |
 
 Temporal recall notes:
 
@@ -195,7 +196,7 @@ Additional task gates:
 - Optional archive import is separate from the maintenance task list and is configured under `maintenanceScheduler.sessionStartBackfill.*`. When enabled, Lore announces start/progress/completion in the CLI while reusing the existing controlled backfill run state, `maxCandidates` bounds how many pending sessions it queues per startup sweep, `maxInspected` bounds how much raw history it scans before deferring the rest to later starts, and startup runs do not create restore snapshots.
 - `deferredExtraction` also requires `deferredExtraction.enabled: true`, and on session start it additionally requires `deferredExtraction.autoProcessOnSessionStart: true`.
 - `doctorSnapshot` requires `rollout.loreDoctor: true`.
-- Proposal/integrity/review surfaces stay bounded by the `evolutionLedger`, `proposalGeneration`, `generatedArtifactIntegrity`, and `reviewGate` rollout flags.
+- Proposal/integrity/review surfaces stay bounded by the `evolutionLedger`, `proposalGeneration`, `generatedArtifactIntegrity`, `reviewGate`, and `approvalSubstrate` rollout flags.
 
 You can always inspect or force the loop manually with `maintenance_schedule_run` or `node scripts/run-maintenance.mjs`.
 

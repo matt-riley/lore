@@ -81,6 +81,74 @@ If you want a quieter setup, copy the file first and then dial features back in 
 
 ---
 
+## Optional features
+
+The checked-in example config already turns these on. If you started from a smaller `~/.copilot/lore.json`, these are the main opt-in features worth knowing about.
+
+### `traceRecorder`
+
+`traceRecorder` records bounded samples of Lore's prompt-need classification and retrieval decisions so you can debug why context was injected, skipped, or filtered.
+
+To enable it, turn on the rollout flag and then optionally tune the recorder limits:
+
+```json
+{
+  "rollout": {
+    "traceRecorder": true
+  },
+  "traceRecorder": {
+    "maxRecords": 80,
+    "persistDurableSample": true,
+    "durableSampleRate": 0.5
+  }
+}
+```
+
+Use `memory_status` for recorder health and recent samples. `includeRecentTraces: true` appends recent in-memory entries, and `includeRecentTrajectoryArtifacts: true` shows persisted durable samples. For a single prompt, `memory_explain` is the quickest way to inspect the current retrieval decision.
+
+### `maintenanceScheduler`
+
+`maintenanceScheduler` is the opt-in maintenance loop for deferred extraction processing, validation and replay corpus runs, backlog review, and index upkeep. On session start, Lore evaluates the maintenance plan and auto-runs the startup-safe deferred-extraction pass when it is enabled and due. The same scheduler also powers manual or scripted sweeps through `maintenance_schedule_run` and `node scripts/run-maintenance.mjs`.
+
+```json
+{
+  "maintenanceScheduler": {
+    "enabled": true,
+    "autoRunOnSessionStart": true,
+    "maxTasksPerRun": 4,
+    "tasks": {
+      "deferredExtraction": true,
+      "validationCorpus": true,
+      "replayCorpus": true,
+      "backlogReview": true,
+      "indexUpkeep": true
+    }
+  }
+}
+```
+
+#### `sessionStartBackfill`
+
+If you want Lore to import older session history gradually as you keep working, enable `maintenanceScheduler.sessionStartBackfill`:
+
+```json
+{
+  "maintenanceScheduler": {
+    "enabled": true,
+    "sessionStartBackfill": {
+      "enabled": true,
+      "includeOtherRepositories": true,
+      "batchSize": 25,
+      "maxCandidates": 250
+    }
+  }
+}
+```
+
+This uses the controlled backfill engine during session start, stays read-only against `session-store.db`, and reports progress in the CLI as it works through queued history.
+
+---
+
 ## Validate
 
 Before trusting a config change, validate that the runtime defaults and schema still agree:

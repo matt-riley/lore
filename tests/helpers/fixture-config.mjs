@@ -122,6 +122,7 @@ function buildFixtureConfig(home, overrides = {}) {
       overlayAutoHydration: false,
       loreDoctor: false,
       reviewGate: false,
+      approvalSubstrate: false,
       hybridRetrieval: false,
     },
   };

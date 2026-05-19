@@ -3,14 +3,30 @@ import os from "node:os";
 import path from "node:path";
 import { makeSourceExtractor } from "./source-parser.mjs";
 
-const CAPABILITY_INVENTORY_SOURCE = readFileSync(
-  new URL("../../lib/capability-inventory.mjs", import.meta.url),
-  "utf8"
-);
-const extractFunctionSource = makeSourceExtractor(CAPABILITY_INVENTORY_SOURCE);
+const CAPABILITY_SOURCE_EXTRACTORS = [
+  "../../lib/capability-utils.mjs",
+  "../../lib/capability-scanner.mjs",
+  "../../lib/capability-router.mjs",
+  "../../lib/capability-renderer.mjs",
+].map((relativePath) => makeSourceExtractor(readFileSync(new URL(relativePath, import.meta.url), "utf8")));
+
+function extractCapabilityFunctionSource(name) {
+  for (const extractFunctionSource of CAPABILITY_SOURCE_EXTRACTORS) {
+    try {
+      return extractFunctionSource(name);
+    } catch (error) {
+      if (/expected .* to exist in source/.test(String(error?.message))) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`expected ${name} to exist in capability sources`);
+}
 
 export function loadCapabilityFunctions(names) {
-  const functionSources = names.map((name) => extractFunctionSource(name)).join("\n\n");
+  const functionSources = names.map((name) => extractCapabilityFunctionSource(name)).join("\n\n");
   return Function(`"use strict"; ${functionSources}; return { ${names.join(", ")} };`)();
 }
 

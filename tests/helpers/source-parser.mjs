@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-export function findBalancedIndex(source, start, openChar, closeChar) {
+function findBalancedIndex(source, start, openChar, closeChar) {
   let depth = 0;
   for (let index = start; index < source.length; index += 1) {
     const char = source[index];

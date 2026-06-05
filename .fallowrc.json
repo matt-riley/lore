@@ -1,23 +1,25 @@
 {
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
     "extension.mjs",
+    "browser/app.js",
     "browser/server.mjs",
-    "scripts/**/*.mjs",
+    "scripts/*.mjs",
     "tests/**/*.test.mjs"
   ],
-  "dynamicallyLoaded": [
-    "browser/index.html",
-    "browser/app.js",
-    "browser/styles.css"
+  "ignorePatterns": [
+    "docs/**",
+    "schemas/**",
+    "tests/fixtures/**"
   ],
-  "ignoreDependencies": [
-    "@github/copilot-sdk",
-    "node:sqlite"
-  ],
-  "health": {
-    "maxCrap": 1000
-  },
+  "ignoreExportsUsedInFile": true,
   "rules": {
-    "unused-class-members": "off"
+    "unused-files": "warn",
+    "unused-exports": "warn",
+    "unused-deps": "warn",
+    "unlisted-deps": "error",
+    "unused-types": "off",
+    "circular-dependencies": "warn",
+    "boundary-violations": "off"
   }
 }

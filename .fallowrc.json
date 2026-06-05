@@ -16,10 +16,10 @@
   "rules": {
     "unused-files": "warn",
     "unused-exports": "warn",
-    "unused-deps": "warn",
-    "unlisted-deps": "error",
+    "unused-dependencies": "warn",
+    "unlisted-dependencies": "error",
     "unused-types": "off",
     "circular-dependencies": "warn",
-    "boundary-violations": "off"
+    "boundary-violation": "off"
   }
 }

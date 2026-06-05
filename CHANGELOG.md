@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.6.2](https://github.com/matt-riley/lore/compare/lore-v0.6.1...lore-v0.6.2) (2026-06-05)
+
+
+### Bug Fixes
+
+* return typed memory_search rows when lexical query misses ([#21](https://github.com/matt-riley/lore/issues/21)) ([d4dffd6](https://github.com/matt-riley/lore/commit/d4dffd6dd7081a883b7d0336303910aca2249092))
+
 ## [0.6.1](https://github.com/matt-riley/lore/compare/lore-v0.6.0...lore-v0.6.1) (2026-05-19)
 
 

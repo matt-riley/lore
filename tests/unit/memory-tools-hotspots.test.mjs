@@ -67,6 +67,118 @@ describe("memory-tools module split", () => {
 });
 
 describe("memory-tools hotspot behavior", () => {
+  test("searchSemantic keeps typed fallback opt-in for shared relevance searches", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+
+    try {
+      db.insertSemanticMemory({
+        type: "user_preference",
+        content: "Prefer narrow code review fixes with targeted validation.",
+        scope: "transferable",
+        repository: "other-repo",
+      });
+
+      const rows = db.searchSemantic({
+        query: "network timeout oauth retries",
+        repository: "fixture-repo",
+        includeOtherRepositories: true,
+        types: ["user_preference"],
+        scopes: ["transferable"],
+        limit: 5,
+      });
+
+      assert.deepEqual(rows, []);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("memory_search with a type filter falls back to typed rows when lexical query misses", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, tools, cleanup } = await setupFixtureTools({
+      enabled: true,
+    });
+
+    try {
+      db.insertSemanticMemory({
+        type: "open_loop",
+        content: "Resolve the lingering README conflict before final review.",
+        scope: "repo",
+        repository: "fixture-repo",
+      });
+      db.insertSemanticMemory({
+        type: "open_loop",
+        content: "Triage pending follow-up actions for memory search parity.",
+        scope: "repo",
+        repository: "fixture-repo",
+      });
+
+      const memorySearch = findTool(tools, "memory_search");
+      const output = await memorySearch.handler({
+        query: "network timeout oauth retries",
+        type: "open_loop",
+        limit: 10,
+      }, {
+        sessionId: "memory-search-open-loop",
+      });
+
+      assert.match(output, /Resolve the lingering README conflict before final review\./);
+      assert.match(output, /Triage pending follow-up actions for memory search parity\./);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("memory_search typed fallback fills remaining slots without duplicate overlap", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, tools, cleanup } = await setupFixtureTools({
+      enabled: true,
+    });
+
+    try {
+      db.insertSemanticMemory({
+        id: "open-loop-lexical-hit",
+        type: "open_loop",
+        content: "Address oauth timeout regression in memory search flow.",
+        scope: "repo",
+        repository: "fixture-repo",
+        confidence: 1.0,
+      });
+      db.insertSemanticMemory({
+        id: "open-loop-fallback-a",
+        type: "open_loop",
+        content: "Resolve dangling open loop triage after lexical fallback.",
+        scope: "repo",
+        repository: "fixture-repo",
+        confidence: 0.1,
+      });
+      db.insertSemanticMemory({
+        id: "open-loop-fallback-b",
+        type: "open_loop",
+        content: "Close assistant goal follow-ups discovered in maintenance.",
+        scope: "repo",
+        repository: "fixture-repo",
+        confidence: 0.1,
+      });
+
+      const memorySearch = findTool(tools, "memory_search");
+      const output = await memorySearch.handler({
+        query: "oauth timeout regression",
+        type: "open_loop",
+        limit: 2,
+      }, {
+        sessionId: "memory-search-overlap-fallback",
+      });
+
+      assert.match(output, /Address oauth timeout regression in memory search flow\./);
+      assert.equal((output.match(/\[open-loop-/g) || []).length, 2);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("memory_intent_journal records and lists entries with repository defaults", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

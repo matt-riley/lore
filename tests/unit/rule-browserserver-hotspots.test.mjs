@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, test } from "node:test";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { extractSessionMemories } from "../../lib/rule-extractor.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
@@ -10,16 +11,18 @@ const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
 let browserServerHotspotsPromise = null;
 
 async function loadBrowserServerHotspots() {
   if (!browserServerHotspotsPromise) {
-    const serverPath = "/Users/matthew.riley/.copilot/extensions/lore/browser/server.mjs";
+    const serverPath = path.join(REPO_ROOT, "browser", "server.mjs");
     const serverUrl = pathToFileURL(serverPath).href;
     const source = readFileSync(serverPath, "utf8")
-      .replace(/from "\.\.\/lib\/maintenance-scheduler\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/maintenance-scheduler.mjs").href}"`)
-      .replace(/from "\.\.\/lib\/data-utils\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/data-utils.mjs").href}"`)
-      .replace('const __dirname = path.dirname(fileURLToPath(import.meta.url))', `const __dirname = ${JSON.stringify("/Users/matthew.riley/.copilot/extensions/lore/browser")}`)
+      .replace(/from "\.\.\/lib\/maintenance-scheduler\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "maintenance-scheduler.mjs")).href}"`)
+      .replace(/from "\.\.\/lib\/data-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "data-utils.mjs")).href}"`)
+      .replace('const __dirname = path.dirname(fileURLToPath(import.meta.url))', `const __dirname = ${JSON.stringify(path.join(REPO_ROOT, "browser"))}`)
       .replace("function buildMemoryDrilldown({ db, id, entityType }) {", "export function buildMemoryDrilldown({ db, id, entityType }) {");
     browserServerHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${serverUrl}\n`).toString("base64")}`);
   }

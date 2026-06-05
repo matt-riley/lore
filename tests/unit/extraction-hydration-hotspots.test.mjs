@@ -6,17 +6,19 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { hydrateWorkstreamOverlay } from "../../lib/overlay-hydrator.mjs";
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
 let ruleExtractorHotspotsPromise = null;
 
 async function loadRuleExtractorHotspots() {
   if (!ruleExtractorHotspotsPromise) {
-    const ruleExtractorPath = "/Users/matthew.riley/.copilot/extensions/lore/lib/rule-extractor.mjs";
+    const ruleExtractorPath = path.join(REPO_ROOT, "lib", "rule-extractor.mjs");
     const ruleExtractorUrl = pathToFileURL(ruleExtractorPath).href;
     const source = readFileSync(ruleExtractorPath, "utf8")
-      .replace(/from "\.\/memory-scope\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/memory-scope.mjs").href}"`)
-      .replace(/from "\.\/rollout-flags\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/rollout-flags.mjs").href}"`)
-      .replace(/from "\.\/retention-sanitizer\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/retention-sanitizer.mjs").href}"`)
-      .replace(/from "\.\/text-normalizer\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/text-normalizer.mjs").href}"`)
+      .replace(/from "\.\/memory-scope\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory-scope.mjs")).href}"`)
+      .replace(/from "\.\/rollout-flags\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "rollout-flags.mjs")).href}"`)
+      .replace(/from "\.\/retention-sanitizer\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "retention-sanitizer.mjs")).href}"`)
+      .replace(/from "\.\/text-normalizer\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "text-normalizer.mjs")).href}"`)
       .replace("function extractInteractionStyleMemory({ message, repository, sessionId, turnIndex }) {", "export function extractInteractionStyleMemory({ message, repository, sessionId, turnIndex }) {");
     ruleExtractorHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${ruleExtractorUrl}\n`).toString("base64")}`);
   }

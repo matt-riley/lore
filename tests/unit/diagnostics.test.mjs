@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, test } from "node:test";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   renderExplanationReport,
@@ -16,7 +17,8 @@ import { makeSourceExtractor } from "../helpers/source-parser.mjs";
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
-const DIAGNOSTICS_PATH = "/Users/matthew.riley/.copilot/extensions/lore/lib/diagnostics.mjs";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const DIAGNOSTICS_PATH = path.join(REPO_ROOT, "lib", "diagnostics.mjs");
 const DIAGNOSTICS_SOURCE = readFileSync(DIAGNOSTICS_PATH, "utf8");
 const extractFunctionSource = makeSourceExtractor(DIAGNOSTICS_SOURCE);
 
@@ -38,10 +40,10 @@ async function loadDiagnosticsHotspots() {
   if (!diagnosticsHotspotsPromise) {
     const diagnosticsUrl = pathToFileURL(DIAGNOSTICS_PATH).href;
     const source = DIAGNOSTICS_SOURCE
-      .replace(/from "\.\/capsule-assembler\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/capsule-assembler.mjs").href}"`)
-      .replace(/from "\.\/memory-operations\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/memory-operations.mjs").href}"`)
-      .replace(/from "\.\/procedural-memory\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/procedural-memory.mjs").href}"`)
-      .replace(/from "\.\/filtered-reason-summary\.mjs"/g, `from "${pathToFileURL("/Users/matthew.riley/.copilot/extensions/lore/lib/filtered-reason-summary.mjs").href}"`)
+      .replace(/from "\.\/capsule-assembler\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "capsule-assembler.mjs")).href}"`)
+      .replace(/from "\.\/memory-operations\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory-operations.mjs")).href}"`)
+      .replace(/from "\.\/procedural-memory\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "procedural-memory.mjs")).href}"`)
+      .replace(/from "\.\/filtered-reason-summary\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "filtered-reason-summary.mjs")).href}"`)
       .replace("function evaluateCase(definition, explanation) {", "export function evaluateCase(definition, explanation) {")
       .replace("function classifyReplayMiss(definition, explanation, evidence) {", "export function classifyReplayMiss(definition, explanation, evidence) {")
       .replace("function persistReplayFailureArtifact({", "export function persistReplayFailureArtifact({");

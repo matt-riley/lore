@@ -67,6 +67,36 @@ describe("memory-tools module split", () => {
 });
 
 describe("memory-tools hotspot behavior", () => {
+  test("searchSemantic keeps typed fallback opt-in for shared relevance searches", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+      },
+    });
+
+    try {
+      db.insertSemanticMemory({
+        type: "user_preference",
+        content: "Prefer narrow code review fixes with targeted validation.",
+        scope: "transferable",
+        repository: "other-repo",
+      });
+
+      const rows = db.searchSemantic({
+        query: "network timeout oauth retries",
+        repository: "fixture-repo",
+        includeOtherRepositories: true,
+        types: ["user_preference"],
+        scopes: ["transferable"],
+        limit: 5,
+      });
+
+      assert.deepEqual(rows, []);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("memory_search with a type filter falls back to typed rows when lexical query misses", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, tools, cleanup } = await setupFixtureTools({
       enabled: true,

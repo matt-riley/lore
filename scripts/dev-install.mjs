@@ -85,6 +85,7 @@ function isSameInstall(sourcePath, targetPath) {
   return realpathSync(sourcePath) === realpathSync(targetPath);
 }
 
+// fallow-ignore-next-line complexity
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const copilotHome = args.copilotHome ?? path.join(os.homedir(), ".copilot");

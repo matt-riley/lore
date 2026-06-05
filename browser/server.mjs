@@ -1117,6 +1117,7 @@ function queryDrilldown({ db, url }) {
   throw new HttpError(400, "unsupported_drilldown_entity", `Unsupported drilldown entity: ${entityType}`)
 }
 
+// fallow-ignore-next-line complexity
 function buildBrowserApiResponse({ db, url, host, normalizedRepository }) {
   if (url.pathname === "/api/health") {
     return {

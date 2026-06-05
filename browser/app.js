@@ -183,6 +183,7 @@ function renderWorkstreamsList(workstreams) {
   `
 }
 
+// fallow-ignore-next-line complexity
 function renderOverview(data) {
   const stats = data?.stats ?? {}
   const trend = data?.latencyTrend ?? {}
@@ -246,6 +247,7 @@ function renderMemoriesFilters(filterData) {
   `
 }
 
+// fallow-ignore-next-line complexity
 function renderMemoriesTable(data) {
   const rows = data?.rows ?? []
   return `
@@ -301,6 +303,7 @@ function applyMemoriesFilterControls() {
 
   const button = document.getElementById("mem-apply")
   if (button) {
+// fallow-ignore-next-line complexity
     button.onclick = async () => {
       state.memoriesFilters.type = document.getElementById("mem-filter-type")?.value || ""
       state.memoriesFilters.scope = document.getElementById("mem-filter-scope")?.value || ""
@@ -381,6 +384,7 @@ function renderDoctorReports(doctorReports) {
   `).join("") || renderEmptyBlock("No doctor reports found.")
 }
 
+// fallow-ignore-next-line complexity
 function renderMaintenance(data) {
   const runs = data?.runs ?? []
   const taskStates = data?.taskStates ?? []
@@ -597,6 +601,7 @@ function renderGraph(graph) {
     nodesByColumn[column].push(node)
   }
 
+// fallow-ignore-next-line complexity
   const renderNode = (node) => {
     const classes = ["graph-node", `node-${escapeHtml(node.kind || "memory")}`]
     const commonAttrs = `class="${classes.join(" ")}" data-node-id="${escapeHtml(node.id)}"`

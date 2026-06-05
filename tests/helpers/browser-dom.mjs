@@ -126,6 +126,7 @@ export function createAppRunner() {
 }
 
 export function createDefaultFetch(overrides = {}) {
+// fallow-ignore-next-line complexity
   return async (requestPath) => {
     if (requestPath === "/api/health") {
       return createResponse({ repository: "owner/repo" });

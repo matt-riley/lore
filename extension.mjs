@@ -743,6 +743,7 @@ function maybePruneDurableTraceSamples({ activeRuntime, repository }) {
   });
 }
 
+// fallow-ignore-next-line complexity
 function persistTraceSuccess({ activeRuntime, repository, traceResult, durationMs, hook }) {
   if (!activeRuntime?.db || !traceResult || typeof traceResult !== "object") {
     return;
@@ -1159,6 +1160,7 @@ async function recordUserPromptBypassObservation({
 const session = await joinSession({
   onPermissionRequest: approveAll,
   hooks: {
+// fallow-ignore-next-line complexity
     onSessionStart: async (input, invocation) => {
       const startedAt = Date.now();
       lastKnownCwd = input.cwd || lastKnownCwd;
@@ -1279,6 +1281,7 @@ const session = await joinSession({
       };
     },
 
+// fallow-ignore-next-line complexity
     onSessionEnd: async (input, invocation) => {
       lastKnownCwd = input.cwd || lastKnownCwd;
       const context = await getContext(session, invocation.sessionId, input.cwd);

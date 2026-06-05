@@ -21,7 +21,10 @@ async function loadBrowserServerHotspots() {
     const serverUrl = pathToFileURL(serverPath).href;
     const source = readFileSync(serverPath, "utf8")
       .replace(/from "\.\.\/lib\/maintenance-scheduler\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "maintenance-scheduler.mjs")).href}"`)
-      .replace(/from "\.\.\/lib\/data-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "data-utils.mjs")).href}"`)
+      .replace(/from "\.\.\/lib\/numeric-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "numeric-utils.mjs")).href}"`)
+      .replace(/from "\.\.\/lib\/json-array-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "json-array-utils.mjs")).href}"`)
+      .replace(/from "\.\.\/lib\/json-object-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "json-object-utils.mjs")).href}"`)
+      .replace(/from "\.\.\/lib\/repository-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "repository-utils.mjs")).href}"`)
       .replace('const __dirname = path.dirname(fileURLToPath(import.meta.url))', `const __dirname = ${JSON.stringify(path.join(REPO_ROOT, "browser"))}`)
       .replace("function buildMemoryDrilldown({ db, id, entityType }) {", "export function buildMemoryDrilldown({ db, id, entityType }) {");
     browserServerHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${serverUrl}\n`).toString("base64")}`);

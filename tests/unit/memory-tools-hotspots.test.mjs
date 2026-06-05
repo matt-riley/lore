@@ -67,6 +67,41 @@ describe("memory-tools module split", () => {
 });
 
 describe("memory-tools hotspot behavior", () => {
+  test("memory_search with a type filter falls back to typed rows when lexical query misses", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, tools, cleanup } = await setupFixtureTools({
+      enabled: true,
+    });
+
+    try {
+      db.insertSemanticMemory({
+        type: "open_loop",
+        content: "Resolve the lingering README conflict before final review.",
+        scope: "repo",
+        repository: "fixture-repo",
+      });
+      db.insertSemanticMemory({
+        type: "open_loop",
+        content: "Triage pending follow-up actions for memory search parity.",
+        scope: "repo",
+        repository: "fixture-repo",
+      });
+
+      const memorySearch = findTool(tools, "memory_search");
+      const output = await memorySearch.handler({
+        query: "network timeout oauth retries",
+        type: "open_loop",
+        limit: 10,
+      }, {
+        sessionId: "memory-search-open-loop",
+      });
+
+      assert.match(output, /Resolve the lingering README conflict before final review\./);
+      assert.match(output, /Triage pending follow-up actions for memory search parity\./);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("memory_intent_journal records and lists entries with repository defaults", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

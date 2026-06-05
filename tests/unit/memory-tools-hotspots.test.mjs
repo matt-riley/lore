@@ -102,6 +102,53 @@ describe("memory-tools hotspot behavior", () => {
     }
   });
 
+  test("memory_search typed fallback fills remaining slots without duplicate overlap", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, tools, cleanup } = await setupFixtureTools({
+      enabled: true,
+    });
+
+    try {
+      db.insertSemanticMemory({
+        id: "open-loop-lexical-hit",
+        type: "open_loop",
+        content: "Address oauth timeout regression in memory search flow.",
+        scope: "repo",
+        repository: "fixture-repo",
+        confidence: 1.0,
+      });
+      db.insertSemanticMemory({
+        id: "open-loop-fallback-a",
+        type: "open_loop",
+        content: "Resolve dangling open loop triage after lexical fallback.",
+        scope: "repo",
+        repository: "fixture-repo",
+        confidence: 0.1,
+      });
+      db.insertSemanticMemory({
+        id: "open-loop-fallback-b",
+        type: "open_loop",
+        content: "Close assistant goal follow-ups discovered in maintenance.",
+        scope: "repo",
+        repository: "fixture-repo",
+        confidence: 0.1,
+      });
+
+      const memorySearch = findTool(tools, "memory_search");
+      const output = await memorySearch.handler({
+        query: "oauth timeout regression",
+        type: "open_loop",
+        limit: 2,
+      }, {
+        sessionId: "memory-search-overlap-fallback",
+      });
+
+      assert.match(output, /Address oauth timeout regression in memory search flow\./);
+      assert.equal((output.match(/\[open-loop-/g) || []).length, 2);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("memory_intent_journal records and lists entries with repository defaults", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

@@ -183,12 +183,28 @@ function renderWorkstreamsList(workstreams) {
   `
 }
 
+function asArray(value) {
+  return Array.isArray(value) ? value : []
+}
+
+function normalizeOverviewData(data) {
+  return {
+    stats: data?.stats ?? {},
+    trend: data?.latencyTrend ?? {},
+    activityRows: asArray(data?.activity),
+    workstreams: asArray(data?.activeWorkstreams),
+    dueTasks: data?.maintenance?.dueTasks ?? [],
+  }
+}
+
 function renderOverview(data) {
-  const stats = data?.stats ?? {}
-  const trend = data?.latencyTrend ?? {}
-  const activityRows = Array.isArray(data?.activity) ? data.activity : []
-  const workstreams = Array.isArray(data?.activeWorkstreams) ? data.activeWorkstreams : []
-  const dueTasks = data?.maintenance?.dueTasks ?? []
+  const {
+    stats,
+    trend,
+    activityRows,
+    workstreams,
+    dueTasks,
+  } = normalizeOverviewData(data)
 
   views.overview.innerHTML = `
     ${renderMetricGrid([
@@ -265,22 +281,53 @@ function renderMemoriesTable(data) {
           </tr>
         </thead>
         <tbody>
-          ${rows.map((row) => `
-            <tr>
-              <td>${escapeHtml(formatTime(row.updatedAt))}</td>
-              <td>${escapeHtml(row.type)}</td>
-              <td>${escapeHtml(row.scope)}</td>
-              <td>${escapeHtml(row.repository ?? "")}</td>
-              <td>${escapeHtml(row.canonicalKey ?? "")}</td>
-              <td>${row.supersededBy ? '<span class="tag warn">superseded</span>' : '<span class="tag ok">active</span>'}</td>
-              <td>${escapeHtml(row.content)}</td>
-              <td>${renderDrilldownAction(row.type === "workstream_overlay" ? "workstream" : "memory", row.id, "Open")}</td>
-            </tr>
-          `).join("") || '<tr><td colspan="8" class="row-muted">No memories match filters.</td></tr>'}
+          ${renderMemoryTableRows(rows)}
         </tbody>
       </table>
     </div>
   `
+}
+
+function renderMemoryStateTag(row) {
+  return row.supersededBy
+    ? '<span class="tag warn">superseded</span>'
+    : '<span class="tag ok">active</span>'
+}
+
+function resolveMemoryDrilldownEntity(row) {
+  return row.type === "workstream_overlay" ? "workstream" : "memory"
+}
+
+function renderMemoryTableRows(rows) {
+  if (rows.length === 0) {
+    return '<tr><td colspan="8" class="row-muted">No memories match filters.</td></tr>'
+  }
+  return rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(formatTime(row.updatedAt))}</td>
+      <td>${escapeHtml(row.type)}</td>
+      <td>${escapeHtml(row.scope)}</td>
+      <td>${escapeHtml(row.repository ?? "")}</td>
+      <td>${escapeHtml(row.canonicalKey ?? "")}</td>
+      <td>${renderMemoryStateTag(row)}</td>
+      <td>${escapeHtml(row.content)}</td>
+      <td>${renderDrilldownAction(resolveMemoryDrilldownEntity(row), row.id, "Open")}</td>
+    </tr>
+  `).join("")
+}
+
+function readMemoriesFilterValue(id, fallback = "") {
+  return document.getElementById(id)?.value || fallback
+}
+
+async function applyMemoriesFiltersFromDom() {
+  state.memoriesFilters.type = readMemoriesFilterValue("mem-filter-type")
+  state.memoriesFilters.scope = readMemoriesFilterValue("mem-filter-scope")
+  state.memoriesFilters.repository = readMemoriesFilterValue("mem-filter-repo")
+  state.memoriesFilters.canonicalKey = readMemoriesFilterValue("mem-filter-canonical")
+  state.memoriesFilters.state = readMemoriesFilterValue("mem-filter-state", "active")
+  state.memoriesFilters.page = 1
+  await loadMemories()
 }
 
 function applyMemoriesFilterControls() {
@@ -301,15 +348,7 @@ function applyMemoriesFilterControls() {
 
   const button = document.getElementById("mem-apply")
   if (button) {
-    button.onclick = async () => {
-      state.memoriesFilters.type = document.getElementById("mem-filter-type")?.value || ""
-      state.memoriesFilters.scope = document.getElementById("mem-filter-scope")?.value || ""
-      state.memoriesFilters.repository = document.getElementById("mem-filter-repo")?.value || ""
-      state.memoriesFilters.canonicalKey = document.getElementById("mem-filter-canonical")?.value || ""
-      state.memoriesFilters.state = document.getElementById("mem-filter-state")?.value || "active"
-      state.memoriesFilters.page = 1
-      await loadMemories()
-    }
+    button.onclick = async () => applyMemoriesFiltersFromDom()
   }
 }
 
@@ -381,12 +420,25 @@ function renderDoctorReports(doctorReports) {
   `).join("") || renderEmptyBlock("No doctor reports found.")
 }
 
+function normalizeMaintenanceData(data) {
+  const maintenancePlan = data?.maintenancePlan ?? {}
+  return {
+    runs: asArray(data?.runs),
+    taskStates: asArray(data?.taskStates),
+    deferred: asArray(data?.deferred),
+    doctorReports: asArray(data?.doctorReports),
+    dueTasks: asArray(maintenancePlan.dueTasks),
+  }
+}
+
 function renderMaintenance(data) {
-  const runs = data?.runs ?? []
-  const taskStates = data?.taskStates ?? []
-  const deferred = data?.deferred ?? []
-  const doctorReports = data?.doctorReports ?? []
-  const dueTasks = data?.maintenancePlan?.dueTasks ?? []
+  const {
+    runs,
+    taskStates,
+    deferred,
+    doctorReports,
+    dueTasks,
+  } = normalizeMaintenanceData(data)
 
   views.maintenance.innerHTML = `
     <h2>Due maintenance tasks</h2>
@@ -597,9 +649,17 @@ function renderGraph(graph) {
     nodesByColumn[column].push(node)
   }
 
+  const renderNodeDetails = (node) => [
+    `<span class="graph-node-title">${escapeHtml(node.title)}</span>`,
+    node.subtitle ? `<span class="graph-node-subtitle">${escapeHtml(node.subtitle)}</span>` : "",
+    node.meta ? `<span class="graph-node-meta">${escapeHtml(node.meta)}</span>` : "",
+    node.badge ? `<span class="tag node-badge">${escapeHtml(node.badge)}</span>` : "",
+  ].filter(Boolean).join("")
+
   const renderNode = (node) => {
     const classes = ["graph-node", `node-${escapeHtml(node.kind || "memory")}`]
     const commonAttrs = `class="${classes.join(" ")}" data-node-id="${escapeHtml(node.id)}"`
+    const nodeDetails = renderNodeDetails(node)
 
     if (node.navigable && node.entityType && node.entityId) {
       return `
@@ -609,20 +669,14 @@ function renderGraph(graph) {
           data-drilldown-entity="${escapeHtml(node.entityType)}"
           data-drilldown-id="${escapeHtml(node.entityId)}"
         >
-          <span class="graph-node-title">${escapeHtml(node.title)}</span>
-          ${node.subtitle ? `<span class="graph-node-subtitle">${escapeHtml(node.subtitle)}</span>` : ""}
-          ${node.meta ? `<span class="graph-node-meta">${escapeHtml(node.meta)}</span>` : ""}
-          ${node.badge ? `<span class="tag node-badge">${escapeHtml(node.badge)}</span>` : ""}
+          ${nodeDetails}
         </button>
       `
     }
 
     return `
       <div ${commonAttrs}>
-        <span class="graph-node-title">${escapeHtml(node.title)}</span>
-        ${node.subtitle ? `<span class="graph-node-subtitle">${escapeHtml(node.subtitle)}</span>` : ""}
-        ${node.meta ? `<span class="graph-node-meta">${escapeHtml(node.meta)}</span>` : ""}
-        ${node.badge ? `<span class="tag node-badge">${escapeHtml(node.badge)}</span>` : ""}
+        ${nodeDetails}
       </div>
     `
   }

@@ -85,6 +85,40 @@ function isSameInstall(sourcePath, targetPath) {
   return realpathSync(sourcePath) === realpathSync(targetPath);
 }
 
+function logInstallSummary(label, installTarget) {
+  console.log(`${label}Lore dev-install`);
+  console.log(`  repo root   : ${REPO_ROOT}`);
+  console.log(`  install dir : ${installTarget}`);
+  console.log(`  mode        : directory-copy`);
+}
+
+function logDryRunNoChanges() {
+  console.log("[dry-run] Copilot CLI discovery is more reliable with a real directory install than a symlink.");
+  console.log("[dry-run] No changes made.");
+}
+
+function describeTargetAction(targetType, label) {
+  if (targetType === "symlink") {
+    console.log(`${label}Replacing existing symlink with a real directory install.`);
+    return;
+  }
+  if (targetType === "directory") {
+    console.log(`${label}Refreshing existing Lore install directory.`);
+    return;
+  }
+  console.log(`${label}Installing Lore into Copilot extensions.`);
+}
+
+function ensureExtensionsDir(extensionsDir, dryRun, label) {
+  if (existsSync(extensionsDir)) {
+    return;
+  }
+  console.log(`${label}Creating extensions dir: ${extensionsDir}`);
+  if (!dryRun) {
+    mkdirSync(extensionsDir, { recursive: true });
+  }
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const copilotHome = args.copilotHome ?? path.join(os.homedir(), ".copilot");
@@ -93,26 +127,18 @@ function main() {
   const label = args.dryRun ? "[dry-run] " : "";
   const targetState = describeTarget(installTarget);
 
-  console.log(`${label}Lore dev-install`);
-  console.log(`  repo root   : ${REPO_ROOT}`);
-  console.log(`  install dir : ${installTarget}`);
-  console.log(`  mode        : directory-copy`);
+  logInstallSummary(label, installTarget);
 
   if (isSameInstall(REPO_ROOT, installTarget)) {
     console.log(`${label}Lore is already running from the install directory.`);
     console.log(`${label}Use 'git pull' in ${installTarget} to update this checkout.`);
     if (args.dryRun) {
-      console.log("[dry-run] No changes made.");
+      logDryRunNoChanges();
     }
     return;
   }
 
-  if (!existsSync(extensionsDir)) {
-    console.log(`${label}Creating extensions dir: ${extensionsDir}`);
-    if (!args.dryRun) {
-      mkdirSync(extensionsDir, { recursive: true });
-    }
-  }
+  ensureExtensionsDir(extensionsDir, args.dryRun, label);
 
   if (targetState.type === "other") {
     console.error(`ERROR: ${installTarget} exists but is not a directory or symlink.`);
@@ -120,17 +146,10 @@ function main() {
     process.exit(1);
   }
 
-  if (targetState.type === "symlink") {
-    console.log(`${label}Replacing existing symlink with a real directory install.`);
-  } else if (targetState.type === "directory") {
-    console.log(`${label}Refreshing existing Lore install directory.`);
-  } else {
-    console.log(`${label}Installing Lore into Copilot extensions.`);
-  }
+  describeTargetAction(targetState.type, label);
 
   if (args.dryRun) {
-    console.log("[dry-run] Copilot CLI discovery is more reliable with a real directory install than a symlink.");
-    console.log("[dry-run] No changes made.");
+    logDryRunNoChanges();
     return;
   }
 

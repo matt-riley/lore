@@ -743,12 +743,30 @@ function maybePruneDurableTraceSamples({ activeRuntime, repository }) {
   });
 }
 
+function persistTraceContextInjectionUpdates(activeRuntime, repository, contextInjectionUpdates) {
+  if (!contextInjectionUpdates) {
+    return;
+  }
+  writeActivitySuccessUpdates({
+    db: activeRuntime.db,
+    repository,
+    updates: contextInjectionUpdates,
+  });
+}
+
+function resolveTraceSuccessRecord(traceResult) {
+  const traceRecord = traceResult.record ?? null;
+  return {
+    traceRecord,
+    traceId: traceResult.id ?? traceRecord?.id ?? null,
+  };
+}
+
 function persistTraceSuccess({ activeRuntime, repository, traceResult, durationMs, hook }) {
   if (!activeRuntime?.db || !traceResult || typeof traceResult !== "object") {
     return;
   }
-  const traceRecord = traceResult.record ?? null;
-  const traceId = traceResult.id ?? traceRecord?.id ?? null;
+  const { traceRecord, traceId } = resolveTraceSuccessRecord(traceResult);
   if (!traceRecord) {
     return;
   }
@@ -766,13 +784,7 @@ function persistTraceSuccess({ activeRuntime, repository, traceResult, durationM
         repository,
         updates: traceUpdates,
       });
-      if (contextInjectionUpdates) {
-        writeActivitySuccessUpdates({
-          db: activeRuntime.db,
-          repository,
-          updates: contextInjectionUpdates,
-        });
-      }
+      persistTraceContextInjectionUpdates(activeRuntime, repository, contextInjectionUpdates);
 
       if (traceResult.durableSelected !== true) {
         return;
@@ -790,6 +802,127 @@ function persistTraceSuccess({ activeRuntime, repository, traceResult, durationM
       // best-effort visibility persistence; never block hook path
     }
   });
+}
+
+async function handleSessionStartHook({
+  session,
+  invocation,
+  input,
+  metrics,
+}) {
+  const startedAt = Date.now();
+  const context = await getContext(session, invocation.sessionId, input.cwd);
+  const { runtime: activeRuntime, repository, workspacePath } = context;
+
+  if (isHookRuntimeUnavailable(activeRuntime)) {
+    return;
+  }
+
+  if (!hooksEnabled(activeRuntime.config)) {
+    await logOnce(
+      session,
+      "lore-disabled",
+      `lore hooks are disabled by default; create ${activeRuntime.config.configPath} with { "enabled": true }, or set LORE_ENABLED=1 to enable`,
+      "info",
+    );
+    return;
+  }
+
+  await maybeSeedSessionStartOnboarding(session, activeRuntime, invocation.sessionId);
+  await maybeRunMaintenanceScheduler(session, activeRuntime, repository);
+  await maybeRunSessionStartBackfill(session, activeRuntime, repository);
+  maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, invocation.sessionId);
+
+  const prompt = input.initialPrompt ?? "";
+  const { assembled } = await assembleSessionStartCapsule({
+    prompt,
+    repository,
+    activeRuntime,
+  });
+
+  await finalizeHookObservation({
+    session,
+    activeRuntime,
+    repository,
+    hook: "onSessionStart",
+    prompt,
+    promptNeed: assembled.trace?.promptNeed ?? detectPromptContextNeed(prompt),
+    trace: assembled.trace,
+    contextText: assembled.text,
+    durationMs: Date.now() - startedAt,
+    metricWindow: metrics.sessionStartMs,
+    latencyMetric: "sessionStart",
+    hookLabel: "lore onSessionStart",
+    targetMs: activeRuntime.config.latencyTargetsMs.sessionStartP95,
+  });
+
+  return assembled.text
+    ? { additionalContext: assembled.text }
+    : undefined;
+}
+
+function readSessionEndExtraction(activeRuntime, sessionId) {
+  return activeRuntime.sessionStore
+    ? activeRuntime.sessionStore.getSessionArtifacts(sessionId)
+    : null;
+}
+
+function maybeEnqueueDeferredSessionExtraction(activeRuntime, sessionId, repository) {
+  if (!activeRuntime.config?.deferredExtraction?.enabled
+    || !activeRuntime.config.deferredExtraction.autoEnqueueOnSessionEnd) {
+    return;
+  }
+  activeRuntime.db.enqueueDeferredExtraction({
+    sessionId,
+    repository,
+    reason: "session_end",
+    priority: 10,
+    metadata: {
+      mode: "deferred",
+    },
+  });
+}
+
+async function handleSessionEndHook({
+  session,
+  invocation,
+  input,
+}) {
+  const context = await getContext(session, invocation.sessionId, input.cwd);
+  const { runtime: activeRuntime, workspace, repository } = context;
+
+  if (!activeRuntime.initialized || activeRuntime.lastError || !hooksEnabled(activeRuntime.config)) {
+    return;
+  }
+
+  try {
+    const extraction = readSessionEndExtraction(activeRuntime, invocation.sessionId);
+    if (!extraction) {
+      return;
+    }
+
+    applySessionExtraction({
+      db: activeRuntime.db,
+      sessionId: invocation.sessionId,
+      repository,
+      sessionArtifacts: extraction,
+      workspace,
+    });
+    maybeEnqueueDeferredSessionExtraction(activeRuntime, invocation.sessionId, repository);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await session.log(`lore session-end extraction skipped: ${message}`, {
+      ephemeral: true,
+      level: "warning",
+    });
+  }
+
+  if (input.reason === "error") {
+    await session.log("lore observed session end with error", {
+      ephemeral: true,
+      level: "warning",
+    });
+  }
 }
 
 async function maybeProcessDeferredExtractions(session, activeRuntime, repository) {
@@ -1160,62 +1293,8 @@ const session = await joinSession({
   onPermissionRequest: approveAll,
   hooks: {
     onSessionStart: async (input, invocation) => {
-      const startedAt = Date.now();
       lastKnownCwd = input.cwd || lastKnownCwd;
-
-      const context = await getContext(session, invocation.sessionId, input.cwd);
-      const { runtime: activeRuntime, repository, workspacePath } = context;
-
-      if (isHookRuntimeUnavailable(activeRuntime)) {
-        return;
-      }
-
-      if (!hooksEnabled(activeRuntime.config)) {
-        await logOnce(
-          session,
-          "lore-disabled",
-          `lore hooks are disabled by default; create ${activeRuntime.config.configPath} with { "enabled": true }, or set LORE_ENABLED=1 to enable`,
-          "info",
-        );
-        return;
-      }
-
-      await maybeSeedSessionStartOnboarding(session, activeRuntime, invocation.sessionId);
-
-      await maybeRunMaintenanceScheduler(session, activeRuntime, repository);
-      await maybeRunSessionStartBackfill(session, activeRuntime, repository);
-      maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, invocation.sessionId);
-
-      const { assembled } = await assembleSessionStartCapsule({
-        prompt: input.initialPrompt ?? "",
-        repository,
-        activeRuntime,
-      });
-
-      const durationMs = Date.now() - startedAt;
-      await finalizeHookObservation({
-        session,
-        activeRuntime,
-        repository,
-        hook: "onSessionStart",
-        prompt: input.initialPrompt ?? "",
-        promptNeed: assembled.trace?.promptNeed ?? detectPromptContextNeed(input.initialPrompt ?? ""),
-        trace: assembled.trace,
-        contextText: assembled.text,
-        durationMs,
-        metricWindow: metrics.sessionStartMs,
-        latencyMetric: "sessionStart",
-        hookLabel: "lore onSessionStart",
-        targetMs: activeRuntime.config.latencyTargetsMs.sessionStartP95,
-      });
-
-      if (!assembled.text) {
-        return;
-      }
-
-      return {
-        additionalContext: assembled.text,
-      };
+      return handleSessionStartHook({ session, invocation, input, metrics });
     },
 
     onUserPromptSubmitted: async (input, invocation) => {
@@ -1281,55 +1360,7 @@ const session = await joinSession({
 
     onSessionEnd: async (input, invocation) => {
       lastKnownCwd = input.cwd || lastKnownCwd;
-      const context = await getContext(session, invocation.sessionId, input.cwd);
-      const { runtime: activeRuntime, workspace, repository } = context;
-
-      if (!activeRuntime.initialized || activeRuntime.lastError || !hooksEnabled(activeRuntime.config)) {
-        return;
-      }
-
-      try {
-        const extraction = activeRuntime.sessionStore
-          ? activeRuntime.sessionStore.getSessionArtifacts(invocation.sessionId)
-          : null;
-        if (!extraction) {
-          return;
-        }
-
-        applySessionExtraction({
-          db: activeRuntime.db,
-          sessionId: invocation.sessionId,
-          repository,
-          sessionArtifacts: extraction,
-          workspace,
-        });
-
-        if (activeRuntime.config?.deferredExtraction?.enabled
-          && activeRuntime.config.deferredExtraction.autoEnqueueOnSessionEnd) {
-          activeRuntime.db.enqueueDeferredExtraction({
-            sessionId: invocation.sessionId,
-            repository,
-            reason: "session_end",
-            priority: 10,
-            metadata: {
-              mode: "deferred",
-            },
-          });
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await session.log(`lore session-end extraction skipped: ${message}`, {
-          ephemeral: true,
-          level: "warning",
-        });
-      }
-
-      if (input.reason === "error") {
-        await session.log("lore observed session end with error", {
-          ephemeral: true,
-          level: "warning",
-        });
-      }
+      return handleSessionEndHook({ session, invocation, input });
     },
   },
   tools: createMemoryTools({

@@ -1117,80 +1117,39 @@ function queryDrilldown({ db, url }) {
   throw new HttpError(400, "unsupported_drilldown_entity", `Unsupported drilldown entity: ${entityType}`)
 }
 
+function buildBrowserApiSuccessPayload(data, host, normalizedRepository, dbPath) {
+  return buildReadOnlyPayload({
+    ok: true,
+    host,
+    repository: normalizedRepository,
+    dbPath,
+    ...data,
+  })
+}
+
 function buildBrowserApiResponse({ db, url, host, normalizedRepository }) {
+  const dbPath = db.config?.paths?.derivedStorePath ?? null
+  const dataFactories = {
+    "/api/overview": () => ({ data: queryOverview({ db, repository: normalizedRepository }) }),
+    "/api/memories": () => ({ data: queryMemories({ db, url }) }),
+    "/api/memories/filters": () => ({ data: queryMemoryFilters({ db }) }),
+    "/api/maintenance": () => ({ data: queryMaintenance({ db, repository: normalizedRepository }) }),
+    "/api/episodes": () => ({ data: queryEpisodes({ db, repository: normalizedRepository }) }),
+    "/api/drilldown": () => ({ data: queryDrilldown({ db, url }) }),
+  }
   if (url.pathname === "/api/health") {
     return {
       statusCode: 200,
-      payload: buildReadOnlyPayload({
-        ok: true,
-        host,
-        repository: normalizedRepository,
-        dbPath: db.config?.paths?.derivedStorePath ?? null,
-      }),
+      payload: buildBrowserApiSuccessPayload({}, host, normalizedRepository, dbPath),
     }
   }
-
-  if (url.pathname === "/api/overview") {
-    return {
+  const factory = dataFactories[url.pathname]
+  return factory
+    ? {
       statusCode: 200,
-      payload: buildReadOnlyPayload({
-        ok: true,
-        data: queryOverview({ db, repository: normalizedRepository }),
-      }),
+      payload: buildBrowserApiSuccessPayload(factory(), host, normalizedRepository, dbPath),
     }
-  }
-
-  if (url.pathname === "/api/memories") {
-    return {
-      statusCode: 200,
-      payload: buildReadOnlyPayload({
-        ok: true,
-        data: queryMemories({ db, url }),
-      }),
-    }
-  }
-
-  if (url.pathname === "/api/memories/filters") {
-    return {
-      statusCode: 200,
-      payload: buildReadOnlyPayload({
-        ok: true,
-        data: queryMemoryFilters({ db }),
-      }),
-    }
-  }
-
-  if (url.pathname === "/api/maintenance") {
-    return {
-      statusCode: 200,
-      payload: buildReadOnlyPayload({
-        ok: true,
-        data: queryMaintenance({ db, repository: normalizedRepository }),
-      }),
-    }
-  }
-
-  if (url.pathname === "/api/episodes") {
-    return {
-      statusCode: 200,
-      payload: buildReadOnlyPayload({
-        ok: true,
-        data: queryEpisodes({ db, repository: normalizedRepository }),
-      }),
-    }
-  }
-
-  if (url.pathname === "/api/drilldown") {
-    return {
-      statusCode: 200,
-      payload: buildReadOnlyPayload({
-        ok: true,
-        data: queryDrilldown({ db, url }),
-      }),
-    }
-  }
-
-  return null
+    : null
 }
 
 function handleBrowserRequestError(res, error) {

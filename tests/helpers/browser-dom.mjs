@@ -125,25 +125,21 @@ export function createAppRunner() {
     runApp(document, window, fetch, history, () => 1, URLSearchParams);
 }
 
+function buildDefaultFetchResponses(overrides) {
+  return new Map([
+    ["/api/health", { repository: "owner/repo" }],
+    ["/api/overview", { data: {} }],
+    ["/api/maintenance", overrides.maintenanceData !== undefined ? { data: overrides.maintenanceData } : { data: {} }],
+    ["/api/episodes", { data: {} }],
+    ["/api/memories/filters", { data: {} }],
+  ]);
+}
+
 export function createDefaultFetch(overrides = {}) {
-// fallow-ignore-next-line complexity
+  const responses = buildDefaultFetchResponses(overrides);
   return async (requestPath) => {
-    if (requestPath === "/api/health") {
-      return createResponse({ repository: "owner/repo" });
-    }
-    if (requestPath === "/api/overview") {
-      return createResponse({ data: {} });
-    }
-    if (requestPath === "/api/maintenance") {
-      return createResponse(
-        overrides.maintenanceData !== undefined ? { data: overrides.maintenanceData } : { data: {} },
-      );
-    }
-    if (requestPath === "/api/episodes") {
-      return createResponse({ data: {} });
-    }
-    if (requestPath === "/api/memories/filters") {
-      return createResponse({ data: {} });
+    if (responses.has(requestPath)) {
+      return createResponse(responses.get(requestPath));
     }
     if (requestPath.startsWith("/api/memories?")) {
       return createResponse({ data: { rows: [] } });

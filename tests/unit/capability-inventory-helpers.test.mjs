@@ -7,6 +7,8 @@ describe("capability inventory helpers", () => {
   it("does not require capability matches for direct router assertions", () => {
     const { evaluateRouterAssertions } = loadCapabilityFunctions([
       "buildRouterAssertion",
+      "buildExpectedValueAssertion",
+      "buildCountAssertion",
       "buildBaseRouterAssertions",
       "buildCapabilityPresenceAssertion",
       "evaluateRouterAssertions",

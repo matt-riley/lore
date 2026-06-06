@@ -10,11 +10,13 @@ describe("capability inventory reporting", () => {
   it("buildCapabilityRecommendationReportSections preserves empty-match fallback and ranked sections", () => {
     const {
       takeLimited,
+      appendDelimitedValuesLine,
       buildRouteCandidateLines,
       buildCapabilityMatchLines,
       buildCapabilityRecommendationReportSections,
     } = loadCapabilityFunctions([
       "takeLimited",
+      "appendDelimitedValuesLine",
       "buildRouteCandidateLines",
       "buildCapabilityMatchLines",
       "buildCapabilityRecommendationReportSections",

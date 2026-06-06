@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.6.3](https://github.com/matt-riley/lore/compare/lore-v0.6.2...lore-v0.6.3) (2026-06-06)
+
+
+### Bug Fixes
+
+* enable fallow test root discovery ([#24](https://github.com/matt-riley/lore/issues/24)) ([b7ae248](https://github.com/matt-riley/lore/commit/b7ae24877dcad339133ff5f1ab25f830aaddc7d5))
+
 ## [0.6.2](https://github.com/matt-riley/lore/compare/lore-v0.6.1...lore-v0.6.2) (2026-06-05)
 
 

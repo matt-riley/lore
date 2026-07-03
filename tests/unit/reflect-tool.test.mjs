@@ -109,4 +109,52 @@ describe("lore_reflect tool", () => {
       cleanup();
     }
   });
+
+  test("persists a refreshable observation when rollout is enabled", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+          memoryDomains: true,
+          refreshableObservations: true,
+        },
+      },
+    });
+
+    try {
+      db.insertSemanticMemory({
+        id: "reflect-observation-seed",
+        type: "user_preference",
+        content: "Prefer helper-driven report formatting for hotspot refactors.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        tags: ["refactor"],
+      });
+
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config),
+      });
+      const output = await findTool(tools, "lore_reflect").handler({
+        prompt: "What patterns should we keep using for hotspot refactors?",
+        focus: "patterns",
+        persistObservation: true,
+        observationKey: "reflect-tool-test-observation",
+      }, {
+        sessionId: "reflect-persist-observation",
+      });
+
+      assert.match(output, /Saved observation reflect-tool-test-observation\./);
+
+      const observation = db.getObservation("reflect-tool-test-observation");
+      assert.ok(observation, "expected the observation row to be persisted");
+      assert.equal(observation.title, "Patterns reflection");
+      assert.equal(observation.focus, "patterns");
+      assert.ok(observation.summary.length > 0);
+    } finally {
+      cleanup();
+    }
+  });
 });

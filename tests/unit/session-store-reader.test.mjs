@@ -399,6 +399,133 @@ describe("SessionStoreReader.findSessionsByDate", () => {
   });
 });
 
+describe("SessionStoreReader.findSessionsSince", () => {
+  test("filters sessions at or after the provided ISO cutoff", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(tempHome, [
+        ["session-before", "repo-one", "main", "too old", "2026-03-28T08:00:00Z", "2026-03-28T09:00:00Z"],
+        ["session-at-cutoff", "repo-one", "main", "exactly at cutoff", "2026-03-29T08:00:00Z", "2026-03-29T12:00:00Z"],
+        ["session-after", "repo-two", "feature", "well within window", "2026-03-30T09:00:00Z", null],
+      ]);
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const rows = reader.findSessionsSince({
+        sinceIso: "2026-03-29T12:00:00Z",
+        includeOtherRepositories: true,
+        limit: 10,
+      });
+
+      assert.deepStrictEqual(
+        rows.map((row) => row.session_id),
+        ["session-after", "session-at-cutoff"],
+      );
+      assert.strictEqual(rows[0].repository, "repo-two");
+      assert.strictEqual(rows[1].summary, "exactly at cutoff");
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("honors cross-repo inclusion and local-only restrictions", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(tempHome, [
+        ["local-session", "repo-local", "main", "local", "2026-03-30T08:00:00Z", "2026-03-30T11:00:00Z"],
+        ["other-session", "repo-other", "main", "other", "2026-03-30T08:00:00Z", "2026-03-30T10:00:00Z"],
+      ]);
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+
+      const localOnly = reader.findSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        repository: "repo-local",
+        includeOtherRepositories: false,
+        limit: 5,
+      });
+      const crossRepo = reader.findSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        repository: "repo-local",
+        includeOtherRepositories: true,
+        limit: 5,
+      });
+
+      assert.deepStrictEqual(
+        localOnly.map((row) => row.session_id),
+        ["local-session"],
+      );
+      assert.deepStrictEqual(
+        crossRepo.map((row) => row.session_id),
+        ["local-session", "other-session"],
+      );
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("returns bounded rows using deterministic updated-at ordering", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(tempHome, [
+        ["session-a", "repo-one", "main", "a", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-c", "repo-one", "main", "c", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-b", "repo-one", "main", "b", "2026-03-30T06:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-new", "repo-one", "main", "new", "2026-03-30T07:00:00Z", "2026-03-30T11:00:00Z"],
+      ]);
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const rows = reader.findSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        includeOtherRepositories: true,
+        limit: 3,
+      });
+
+      assert.deepStrictEqual(
+        rows.map((row) => row.session_id),
+        ["session-new", "session-c", "session-b"],
+      );
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to the default limit when passed a non-numeric limit", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(
+        tempHome,
+        Array.from({ length: 22 }, (_, i) => [
+          `session-${i}`,
+          "repo-one",
+          "main",
+          `summary ${i}`,
+          `2026-03-30T${String(i).padStart(2, "0")}:00:00Z`,
+          `2026-03-30T${String(i).padStart(2, "0")}:30:00Z`,
+        ]),
+      );
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const rows = reader.findSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        includeOtherRepositories: true,
+        limit: "abc",
+      });
+
+      assert.strictEqual(rows.length, 20);
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("SessionStoreReader.collectRelevantSessionMatches", () => {
   test("keeps the strongest hydrated match per session and drops repository mismatches", () => {
     const reader = new SessionStoreReader({

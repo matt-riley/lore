@@ -9,7 +9,7 @@ const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
 
-function buildRuntime(db, config) {
+function buildRuntime(db, config, overrides = {}) {
   return {
     initialized: true,
     lastError: null,
@@ -17,6 +17,7 @@ function buildRuntime(db, config) {
     config,
     repository: "fixture-repo",
     sessionStore: null,
+    ...overrides,
   };
 }
 
@@ -153,6 +154,153 @@ describe("lore_reflect tool", () => {
       assert.equal(observation.title, "Patterns reflection");
       assert.equal(observation.focus, "patterns");
       assert.ok(observation.summary.length > 0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("surfaces recent session evidence and trace metadata when lookbackHours is set", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+          memoryDomains: true,
+          refreshableObservations: true,
+        },
+      },
+    });
+
+    try {
+      const findSessionsSinceCalls = [];
+      const sessionStore = {
+        findRelevantSessions() {
+          return [];
+        },
+        findSessionsSince(args) {
+          findSessionsSinceCalls.push(args);
+          return [
+            {
+              session_id: "session-recent-1",
+              repository: "fixture-repo",
+              branch: "main",
+              summary: "Fixed the reflect tool lookback bug end to end.",
+              created_at: "2026-07-03T08:00:00.000Z",
+              updated_at: "2026-07-03T11:00:00.000Z",
+              workspaceSummary: null,
+            },
+          ];
+        },
+      };
+
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, { sessionStore }),
+      });
+      const reflect = findTool(tools, "lore_reflect");
+
+      const output = await reflect.handler({
+        prompt: "Analyze the last day of activity across repos and summarize my patterns and preferences.",
+        focus: "patterns",
+        detailLevel: "full",
+        lookbackHours: 24,
+        persistObservation: true,
+        observationKey: "reflect-tool-lookback-observation",
+      }, {
+        sessionId: "reflect-lookback",
+      });
+
+      assert.equal(findSessionsSinceCalls.length, 1);
+      assert.equal(findSessionsSinceCalls[0].repository, "fixture-repo");
+      assert.match(findSessionsSinceCalls[0].sinceIso, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+      assert.match(output, /lookbackHours: 24 \(sessions found: 1\)/);
+      assert.match(output, /Fixed the reflect tool lookback bug end to end\./);
+
+      const observation = db.getObservation("reflect-tool-lookback-observation");
+      assert.ok(observation, "expected the observation row to be persisted");
+      assert.equal(observation.trace?.lookbackHours, 24);
+      assert.equal(observation.trace?.recentSessionCount, 1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("reports zero recent sessions gracefully when no sessionStore is available", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+        },
+      },
+    });
+
+    try {
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, { sessionStore: null }),
+      });
+      const reflect = findTool(tools, "lore_reflect");
+
+      const output = await reflect.handler({
+        prompt: "Analyze the last day of activity across repos and summarize my patterns and preferences.",
+        focus: "patterns",
+        lookbackHours: 24,
+      }, {
+        sessionId: "reflect-lookback-no-store",
+      });
+
+      assert.match(output, /lookbackHours: 24 \(sessions found: 0\)/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("clamps out-of-range lookbackHours and ignores non-positive values", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+        },
+      },
+    });
+
+    try {
+      const sinceIsoCalls = [];
+      const sessionStore = {
+        findRelevantSessions() {
+          return [];
+        },
+        findSessionsSince({ sinceIso }) {
+          sinceIsoCalls.push(sinceIso);
+          return [];
+        },
+      };
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, { sessionStore }),
+      });
+      const reflect = findTool(tools, "lore_reflect");
+
+      const overLimitOutput = await reflect.handler({
+        prompt: "Analyze the last month of activity across repos and summarize my patterns.",
+        focus: "patterns",
+        lookbackHours: 10000,
+      }, {
+        sessionId: "reflect-lookback-clamped",
+      });
+      assert.match(overLimitOutput, /lookbackHours: 720 \(sessions found: 0\)/);
+
+      const zeroOutput = await reflect.handler({
+        prompt: "Summarize current patterns.",
+        focus: "patterns",
+        lookbackHours: 0,
+      }, {
+        sessionId: "reflect-lookback-zero",
+      });
+      assert.doesNotMatch(zeroOutput, /lookbackHours:/);
+      assert.equal(sinceIsoCalls.length, 1, "findSessionsSince should only run for the valid lookbackHours request");
     } finally {
       cleanup();
     }

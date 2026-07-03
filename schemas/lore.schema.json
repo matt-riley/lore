@@ -61,6 +61,10 @@
           "type": "integer",
           "default": 180
         },
+        "workingProfile": {
+          "type": "integer",
+          "default": 240
+        },
         "total": {
           "type": "integer",
           "default": 1200
@@ -422,6 +426,10 @@
           "default": true
         },
         "hybridRetrieval": {
+          "type": "boolean",
+          "default": true
+        },
+        "ambientWorkingProfile": {
           "type": "boolean",
           "default": true
         }

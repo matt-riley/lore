@@ -46,6 +46,7 @@
     "overlayAutoHydration": true,
     "loreDoctor": true,
     "reviewGate": true,
-    "hybridRetrieval": true
+    "hybridRetrieval": true,
+    "ambientWorkingProfile": true
   }
 }

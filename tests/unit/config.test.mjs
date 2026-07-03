@@ -74,6 +74,7 @@ describe("loadConfig", () => {
         reviewGate: true,
         approvalSubstrate: true,
         hybridRetrieval: false,
+        ambientWorkingProfile: true,
       },
     );
   });

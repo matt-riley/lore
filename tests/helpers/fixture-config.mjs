@@ -53,6 +53,7 @@ function buildFixtureConfig(home, overrides = {}) {
       semantic: 420,
       episodes: 320,
       commitments: 180,
+      workingProfile: 240,
       total: 1200,
     },
     limits: {
@@ -124,6 +125,7 @@ function buildFixtureConfig(home, overrides = {}) {
       reviewGate: false,
       approvalSubstrate: false,
       hybridRetrieval: false,
+      ambientWorkingProfile: false,
     },
   };
 

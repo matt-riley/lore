@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.6.4](https://github.com/matt-riley/lore/compare/lore-v0.6.3...lore-v0.6.4) (2026-07-03)
+
+
+### Bug Fixes
+
+* stop persisting assistant_identity noise from generic interjections ([#43](https://github.com/matt-riley/lore/issues/43)) ([1794059](https://github.com/matt-riley/lore/commit/17940590142075852912d02003cf88c6abd3d538))
+
 ## [0.6.3](https://github.com/matt-riley/lore/compare/lore-v0.6.2...lore-v0.6.3) (2026-06-06)
 
 

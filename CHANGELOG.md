@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.7.1](https://github.com/matt-riley/lore/compare/lore-v0.7.0...lore-v0.7.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* **memory:** durable writes + accurate session counts ([#48](https://github.com/matt-riley/lore/issues/48)) ([5b3a7b9](https://github.com/matt-riley/lore/commit/5b3a7b9c9222ee9c51c41e7fe02584e891aedcd3))
+
 ## [0.7.0](https://github.com/matt-riley/lore/compare/lore-v0.6.4...lore-v0.7.0) (2026-07-03)
 
 

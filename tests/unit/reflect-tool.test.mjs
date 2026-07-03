@@ -192,6 +192,9 @@ describe("lore_reflect tool", () => {
             },
           ];
         },
+        countSessionsSince() {
+          return { count: 1, capped: false };
+        },
       };
 
       const tools = createMemoryTools({
@@ -220,6 +223,126 @@ describe("lore_reflect tool", () => {
       assert.ok(observation, "expected the observation row to be persisted");
       assert.equal(observation.trace?.lookbackHours, 24);
       assert.equal(observation.trace?.recentSessionCount, 1);
+      assert.equal(observation.trace?.recentSessionCountCapped, false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("reports the true session count even when it exceeds the evidence-fetch limit", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+          memoryDomains: true,
+          refreshableObservations: true,
+        },
+      },
+    });
+
+    try {
+      const sessionStore = {
+        findRelevantSessions() {
+          return [];
+        },
+        // Evidence-fetch path stays capped (only 2 rows), simulating the
+        // pre-existing Math.max(3, Math.min(limit*2, 20)) evidence limit.
+        findSessionsSince() {
+          return [
+            {
+              session_id: "session-recent-1",
+              repository: "fixture-repo",
+              branch: "main",
+              summary: "First evidence row.",
+              created_at: "2026-07-03T08:00:00.000Z",
+              updated_at: "2026-07-03T11:00:00.000Z",
+              workspaceSummary: null,
+            },
+            {
+              session_id: "session-recent-2",
+              repository: "fixture-repo",
+              branch: "main",
+              summary: "Second evidence row.",
+              created_at: "2026-07-02T08:00:00.000Z",
+              updated_at: "2026-07-02T11:00:00.000Z",
+              workspaceSummary: null,
+            },
+          ];
+        },
+        // True count is decoupled from the evidence limit above and should
+        // be what actually gets reported, not the 2-row evidence array length.
+        countSessionsSince() {
+          return { count: 47, capped: false };
+        },
+      };
+
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, { sessionStore }),
+      });
+      const reflect = findTool(tools, "lore_reflect");
+
+      const output = await reflect.handler({
+        prompt: "Analyze the last month of activity across repos and summarize my patterns and preferences.",
+        focus: "patterns",
+        lookbackHours: 720,
+        persistObservation: true,
+        observationKey: "reflect-tool-true-count-observation",
+      }, {
+        sessionId: "reflect-true-count",
+      });
+
+      assert.match(output, /lookbackHours: 720 \(sessions found: 47\)/);
+
+      const observation = db.getObservation("reflect-tool-true-count-observation");
+      assert.equal(observation.trace?.recentSessionCount, 47);
+      assert.equal(observation.trace?.recentSessionCountCapped, false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("annotates the reported session count when the repository-scoped count hits its ceiling", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+          memoryDomains: true,
+          refreshableObservations: true,
+        },
+      },
+    });
+
+    try {
+      const sessionStore = {
+        findRelevantSessions() {
+          return [];
+        },
+        findSessionsSince() {
+          return [];
+        },
+        countSessionsSince() {
+          return { count: 500, capped: true };
+        },
+      };
+
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, { sessionStore }),
+      });
+      const reflect = findTool(tools, "lore_reflect");
+
+      const output = await reflect.handler({
+        prompt: "Analyze the last month of activity across repos and summarize my patterns and preferences.",
+        focus: "patterns",
+        lookbackHours: 720,
+      }, {
+        sessionId: "reflect-capped-count",
+      });
+
+      assert.match(output, /lookbackHours: 720 \(sessions found: 500\+ \(capped\)\)/);
     } finally {
       cleanup();
     }
@@ -276,6 +399,9 @@ describe("lore_reflect tool", () => {
         findSessionsSince({ sinceIso }) {
           sinceIsoCalls.push(sinceIso);
           return [];
+        },
+        countSessionsSince() {
+          return { count: 0, capped: false };
         },
       };
       const tools = createMemoryTools({

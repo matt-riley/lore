@@ -526,6 +526,186 @@ describe("SessionStoreReader.findSessionsSince", () => {
   });
 });
 
+describe("SessionStoreReader.countSessionsSince", () => {
+  test("returns an exact cross-repo count that exceeds findSessionsSince's evidence-fetch limit", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(
+        tempHome,
+        Array.from({ length: 22 }, (_, i) => [
+          `session-${i}`,
+          "repo-one",
+          "main",
+          `summary ${i}`,
+          `2026-03-30T${String(i).padStart(2, "0")}:00:00Z`,
+          `2026-03-30T${String(i).padStart(2, "0")}:30:00Z`,
+        ]),
+      );
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+
+      // findSessionsSince caps its evidence array at 20 rows (see the
+      // sibling "falls back to the default limit" test above); the true
+      // count must not inherit that cap.
+      const evidenceRows = reader.findSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        includeOtherRepositories: true,
+        limit: "abc",
+      });
+      const { count, capped } = reader.countSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        includeOtherRepositories: true,
+      });
+
+      assert.strictEqual(evidenceRows.length, 20);
+      assert.strictEqual(count, 22);
+      assert.strictEqual(capped, false);
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("filters at or after the provided ISO cutoff", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(tempHome, [
+        ["session-before", "repo-one", "main", "too old", "2026-03-28T08:00:00Z", "2026-03-28T09:00:00Z"],
+        ["session-at-cutoff", "repo-one", "main", "exactly at cutoff", "2026-03-29T08:00:00Z", "2026-03-29T12:00:00Z"],
+        ["session-after", "repo-two", "feature", "well within window", "2026-03-30T09:00:00Z", null],
+      ]);
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const { count, capped } = reader.countSessionsSince({
+        sinceIso: "2026-03-29T12:00:00Z",
+        includeOtherRepositories: true,
+      });
+
+      assert.strictEqual(count, 2);
+      assert.strictEqual(capped, false);
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("scopes the count to the effective (hydrated) repository, not the raw column", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(tempHome, [
+        ["session-workspace", "raw-repo", "raw-branch", "raw summary", "2026-03-30T08:00:00Z", "2026-03-30T10:00:00Z"],
+        ["session-other", "repo-other", "main", "other", "2026-03-30T08:00:00Z", "2026-03-30T10:00:00Z"],
+      ]);
+
+      const workspaceDir = path.join(tempHome, "session-state", "session-workspace");
+      mkdirSync(workspaceDir, { recursive: true });
+      writeFileSync(
+        path.join(workspaceDir, "workspace.yaml"),
+        ["repository: hydrated-repo", "updated_at: 2026-03-31T07:00:00Z"].join("\n"),
+      );
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const { count, capped } = reader.countSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        repository: "hydrated-repo",
+        includeOtherRepositories: false,
+      });
+
+      assert.strictEqual(count, 1);
+      assert.strictEqual(capped, false);
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("honors cross-repo inclusion and local-only restrictions", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(tempHome, [
+        ["local-session", "repo-local", "main", "local", "2026-03-30T08:00:00Z", "2026-03-30T11:00:00Z"],
+        ["other-session", "repo-other", "main", "other", "2026-03-30T08:00:00Z", "2026-03-30T10:00:00Z"],
+      ]);
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+
+      const localOnly = reader.countSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        repository: "repo-local",
+        includeOtherRepositories: false,
+      });
+      const crossRepo = reader.countSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        repository: "repo-local",
+        includeOtherRepositories: true,
+      });
+
+      assert.strictEqual(localOnly.count, 1);
+      assert.strictEqual(crossRepo.count, 2);
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("flags capped:true when the repository-scoped fetch hits its ceiling", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(
+        tempHome,
+        Array.from({ length: 505 }, (_, i) => [
+          `session-${i}`,
+          "repo-one",
+          "main",
+          `summary ${i}`,
+          `2026-03-30T00:00:00Z`,
+          new Date(Date.parse("2026-03-30T00:00:00Z") + i * 1000).toISOString(),
+        ]),
+      );
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const { count, capped } = reader.countSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        repository: "repo-one",
+        includeOtherRepositories: false,
+      });
+
+      assert.strictEqual(count, 500);
+      assert.strictEqual(capped, true);
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("returns zero when no sessions match", () => {
+    const tempHome = makeTempDir();
+    try {
+      buildRawStore(tempHome, [
+        ["session-before", "repo-one", "main", "too old", "2026-03-28T08:00:00Z", "2026-03-28T09:00:00Z"],
+      ]);
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const { count, capped } = reader.countSessionsSince({
+        sinceIso: "2026-03-29T12:00:00Z",
+        includeOtherRepositories: true,
+      });
+
+      assert.strictEqual(count, 0);
+      assert.strictEqual(capped, false);
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("SessionStoreReader.collectRelevantSessionMatches", () => {
   test("keeps the strongest hydrated match per session and drops repository mismatches", () => {
     const reader = new SessionStoreReader({

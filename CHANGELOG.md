@@ -6,6 +6,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.7.0](https://github.com/matt-riley/lore/compare/lore-v0.6.4...lore-v0.7.0) (2026-07-03)
+
+
+### Features
+
+* add explicit lookbackHours param to lore_reflect ([#45](https://github.com/matt-riley/lore/issues/45)) ([1b2dc29](https://github.com/matt-riley/lore/commit/1b2dc2924abe540d8132c18854880acd1cbbd0e6))
+* surface ambient Working Profile section in session-start capsule ([#47](https://github.com/matt-riley/lore/issues/47)) ([ee2ba7b](https://github.com/matt-riley/lore/commit/ee2ba7b789008b6be4e857eb0f074fc62725429b))
+
 ## [0.6.4](https://github.com/matt-riley/lore/compare/lore-v0.6.3...lore-v0.6.4) (2026-07-03)
 
 

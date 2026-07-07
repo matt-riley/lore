@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.8.0](https://github.com/matt-riley/lore/compare/lore-v0.7.1...lore-v0.8.0) (2026-07-07)
+
+
+### Features
+
+* **memory:** add OKF markdown export format to memory_portable_bundle ([#52](https://github.com/matt-riley/lore/issues/52)) ([bf92978](https://github.com/matt-riley/lore/commit/bf929786254c9e3f1b6bc36eb31fc27fec5aa033))
+
 ## [0.7.1](https://github.com/matt-riley/lore/compare/lore-v0.7.0...lore-v0.7.1) (2026-07-03)
 
 

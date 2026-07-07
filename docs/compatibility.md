@@ -112,7 +112,7 @@ chmod 600 ~/.copilot/lore.db
 chmod 600 ~/.copilot/lore.json
 ```
 
-The `memory_portable_bundle` export tool (experimental) can generate a portable snapshot. Treat any exported bundle as sensitive — it contains raw memory data.
+The `memory_portable_bundle` export tool (experimental) can generate a portable snapshot as a signed JSON file or an Open Knowledge Format (OKF v0.1) markdown bundle. It exports your approved improvement artifacts (not the full raw memory corpus), but treat any exported bundle as sensitive — those artifacts can still contain excerpts of your code, decisions, and notes.
 
 ---
 
@@ -128,7 +128,7 @@ The `memory_portable_bundle` export tool (experimental) can generate a portable 
 ### What Lore does not promise
 
 1. **Experimental surfaces may change** — tool names, argument shapes, and output formats for experimental surfaces can change between releases without notice.
-2. **No cross-machine portability yet** — `lore.db` is not portable by default. The `memory_portable_bundle` export tool exists (experimental) but import is not yet implemented.
+2. **No cross-machine portability yet** — `lore.db` is not portable by default. The `memory_portable_bundle` export tool exists (experimental, json or OKF markdown format) but import is not yet implemented.
 3. **No multi-user or multi-machine sync** — Lore is local-first. There is no cloud sync, no shared team memory, and no remote API surface.
 4. **No performance guarantees under heavy load** — the bounded operation targets (< 300 ms session-start, < 200 ms prompt-time) are aspirational guidelines calibrated for a typical developer machine. Very large DBs or slow disks may exceed these.
 

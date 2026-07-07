@@ -164,6 +164,23 @@ describe("buildOkfGraph", () => {
     const { edges } = buildOkfGraph(concepts);
     assert.deepEqual(edges, []);
   });
+
+  it("resolves relative links that include a trailing anchor and/or query string", () => {
+    const concepts = [
+      concept(
+        "artifacts/a1.md",
+        "See [anchor](./a2.md#section), [query](./a2.md?x=1) and [both](./a2.md?x=1#section).",
+      ),
+      concept("artifacts/a2.md", "No links here."),
+    ];
+    const { edges, backlinksById } = buildOkfGraph(concepts);
+    assert.deepEqual(edges, [
+      { source: "artifacts/a1", target: "artifacts/a2" },
+      { source: "artifacts/a1", target: "artifacts/a2" },
+      { source: "artifacts/a1", target: "artifacts/a2" },
+    ]);
+    assert.deepEqual(backlinksById.get("artifacts/a2"), ["artifacts/a1", "artifacts/a1", "artifacts/a1"]);
+  });
 });
 
 describe("readOkfBundle (round-trip against writeOkfBundle)", () => {

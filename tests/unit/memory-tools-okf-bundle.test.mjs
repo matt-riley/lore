@@ -170,4 +170,20 @@ describe("formatOkfBundleResult", () => {
     assert.match(report, /repository: global/u);
     assert.match(report, /exportedImprovementCount: 0/u);
   });
+
+  it("reports bundlePath relative to the Lore package root, not an ancestor of it", () => {
+    // This module lives at <repo>/lib/memory-tools-okf-bundle.mjs, one level
+    // below the actual repo root. repoRootFromModule() previously resolved
+    // three levels up (landing outside the repo), which produced a
+    // bundlePath with a leading "../..".
+    const repoRoot = path.resolve(new URL("../../", import.meta.url).pathname);
+    const bundleDir = path.join(repoRoot, "tmp", "okf-bundle");
+    const report = formatOkfBundleResult({
+      bundleDir,
+      repository: "acme/widgets",
+      exportedArtifactCount: 1,
+    });
+    assert.match(report, /bundlePath: tmp\/okf-bundle/u);
+    assert.ok(!report.includes(".."), `expected no ".." in bundlePath, got: ${report}`);
+  });
 });

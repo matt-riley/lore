@@ -62,11 +62,18 @@ function extractFunction(source, name) {
 
 function loadClientHelpers(html) {
   const script = extractScriptBlock(html);
-  const fnSource = ["escapeHtml", "isSafeResourceUrl", "normalizePathSegments", "isInternalMarkdownHref", "resolveRelativeId"]
+  const fnSource = [
+    "escapeHtml",
+    "isSafeResourceUrl",
+    "normalizePathSegments",
+    "isInternalMarkdownHref",
+    "isAbsoluteHref",
+    "resolveRelativeId",
+  ]
     .map((name) => extractFunction(script, name))
     .join("\n");
   const factory = new Function(
-    `${fnSource}\nreturn { escapeHtml, isSafeResourceUrl, normalizePathSegments, isInternalMarkdownHref, resolveRelativeId };`,
+    `${fnSource}\nreturn { escapeHtml, isSafeResourceUrl, normalizePathSegments, isInternalMarkdownHref, isAbsoluteHref, resolveRelativeId };`,
   );
   return factory();
 }
@@ -200,6 +207,18 @@ describe("client-side detail-panel escaping", () => {
     assert.equal(isInternalMarkdownHref("https://example.com/x.md"), true);
     assert.equal(isInternalMarkdownHref("https://example.com/x"), false);
     assert.equal(isInternalMarkdownHref("docs/proposals/retry.md"), true);
+  });
+
+  it("isAbsoluteHref recognizes scheme-based and protocol-relative URLs, rejects relative paths", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { isAbsoluteHref } = loadClientHelpers(html);
+    assert.equal(isAbsoluteHref("https://example.com/x.md"), true);
+    assert.equal(isAbsoluteHref("http://example.com/x.md"), true);
+    assert.equal(isAbsoluteHref("mailto:a@example.com"), true);
+    assert.equal(isAbsoluteHref("//evil.example/x.md"), true);
+    assert.equal(isAbsoluteHref("./a2.md"), false);
+    assert.equal(isAbsoluteHref("../artifacts/a2.md"), false);
+    assert.equal(isAbsoluteHref("/artifacts/a2.md"), false);
   });
 });
 

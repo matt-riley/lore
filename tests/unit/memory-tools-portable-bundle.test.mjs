@@ -30,7 +30,10 @@ import path from "node:path";
 import { describe, test } from "node:test";
 
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
-import { mapImprovementArtifactRow } from "../../lib/memory-tools-portable-bundle.mjs";
+import {
+  buildPortableBundleRequest,
+  mapImprovementArtifactRow,
+} from "../../lib/memory-tools-portable-bundle.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 import { findTool } from "../helpers/tool-helpers.mjs";
 
@@ -177,5 +180,23 @@ describe("memory_portable_bundle tool handler", () => {
       rmSync(tmpDir, { recursive: true, force: true });
       cleanup();
     }
+  });
+});
+
+describe("resolveBundlePath (via buildPortableBundleRequest)", () => {
+  test("resolves a relative bundlePath against the Lore package root, not an ancestor of it", () => {
+    // The Lore extension is its own git repo, rooted at extensions/lore (one
+    // level above lib/, where this module lives). bundlePath is documented
+    // as "repository-relative", so a relative path must land inside that
+    // repo root -- not several levels above it.
+    const repoRoot = path.resolve(new URL("../../", import.meta.url).pathname);
+    const request = buildPortableBundleRequest({ bundlePath: "bundle.json" }, { repository: null });
+    assert.equal(request.bundlePath, path.join(repoRoot, "bundle.json"));
+  });
+
+  test("leaves an absolute bundlePath untouched", () => {
+    const absolute = path.join(os.tmpdir(), "somewhere", "bundle.json");
+    const request = buildPortableBundleRequest({ bundlePath: absolute }, { repository: null });
+    assert.equal(request.bundlePath, absolute);
   });
 });

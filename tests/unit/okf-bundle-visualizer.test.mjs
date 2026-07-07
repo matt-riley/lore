@@ -62,10 +62,12 @@ function extractFunction(source, name) {
 
 function loadClientHelpers(html) {
   const script = extractScriptBlock(html);
-  const fnSource = ["escapeHtml", "isSafeResourceUrl", "normalizePathSegments", "resolveRelativeId"]
+  const fnSource = ["escapeHtml", "isSafeResourceUrl", "normalizePathSegments", "isInternalMarkdownHref", "resolveRelativeId"]
     .map((name) => extractFunction(script, name))
     .join("\n");
-  const factory = new Function(`${fnSource}\nreturn { escapeHtml, isSafeResourceUrl, normalizePathSegments, resolveRelativeId };`);
+  const factory = new Function(
+    `${fnSource}\nreturn { escapeHtml, isSafeResourceUrl, normalizePathSegments, isInternalMarkdownHref, resolveRelativeId };`,
+  );
   return factory();
 }
 
@@ -178,6 +180,26 @@ describe("client-side detail-panel escaping", () => {
     assert.equal(resolveRelativeId("./a2.md", "artifacts/a1"), "artifacts/a2");
     assert.equal(resolveRelativeId("../artifacts/a2.md", "artifacts/sub/a1"), "artifacts/artifacts/a2");
     assert.equal(resolveRelativeId("/artifacts/a2.md", "artifacts/a1"), "artifacts/a2");
+  });
+
+  it("resolveRelativeId strips both anchors and query strings before matching the .md suffix", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { resolveRelativeId } = loadClientHelpers(html);
+    assert.equal(resolveRelativeId("./a2.md#section", "artifacts/a1"), "artifacts/a2");
+    assert.equal(resolveRelativeId("./a2.md?x=1", "artifacts/a1"), "artifacts/a2");
+    assert.equal(resolveRelativeId("./a2.md?x=1#section", "artifacts/a1"), "artifacts/a2");
+  });
+
+  it("isInternalMarkdownHref recognizes .md links even with anchors/query strings, rejects others", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { isInternalMarkdownHref } = loadClientHelpers(html);
+    assert.equal(isInternalMarkdownHref("./a2.md"), true);
+    assert.equal(isInternalMarkdownHref("./a2.md#section"), true);
+    assert.equal(isInternalMarkdownHref("./a2.md?x=1"), true);
+    assert.equal(isInternalMarkdownHref("./a2.md?x=1#section"), true);
+    assert.equal(isInternalMarkdownHref("https://example.com/x.md"), true);
+    assert.equal(isInternalMarkdownHref("https://example.com/x"), false);
+    assert.equal(isInternalMarkdownHref("docs/proposals/retry.md"), true);
   });
 });
 

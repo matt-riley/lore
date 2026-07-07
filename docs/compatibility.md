@@ -112,7 +112,7 @@ chmod 600 ~/.copilot/lore.db
 chmod 600 ~/.copilot/lore.json
 ```
 
-The `memory_portable_bundle` export tool (experimental) can generate a portable snapshot as a signed JSON file or an Open Knowledge Format (OKF v0.1) markdown bundle. Treat any exported bundle as sensitive — it contains raw memory data.
+The `memory_portable_bundle` export tool (experimental) can generate a portable snapshot as a signed JSON file or an Open Knowledge Format (OKF v0.1) markdown bundle. It exports your approved improvement artifacts (not the full raw memory corpus), but treat any exported bundle as sensitive — those artifacts can still contain excerpts of your code, decisions, and notes.
 
 ---
 

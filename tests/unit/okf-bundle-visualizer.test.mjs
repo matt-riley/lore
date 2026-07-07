@@ -146,6 +146,16 @@ describe("renderOkfVisualizerHtml", () => {
     assert.ok(html.includes("dompurify@3.1.6"));
     assert.ok(html.includes("DOMPurify.sanitize"));
   });
+
+  it("pins CDN scripts with Subresource Integrity hashes", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const scriptTags = [...html.matchAll(/<script src="https:\/\/[^"]+"[^>]*><\/script>/gu)].map((m) => m[0]);
+    assert.equal(scriptTags.length, 3, "expected exactly 3 CDN <script> tags");
+    for (const tag of scriptTags) {
+      assert.match(tag, /integrity="sha384-[A-Za-z0-9+/]+=*"/u, `missing SRI hash: ${tag}`);
+      assert.match(tag, /crossorigin="anonymous"/u, `missing crossorigin attr: ${tag}`);
+    }
+  });
 });
 
 describe("client-side detail-panel escaping", () => {
@@ -192,12 +202,36 @@ describe("client-side detail-panel escaping", () => {
     assert.equal(normalizePathSegments("artifacts/../artifacts/a2"), "artifacts/a2");
   });
 
+  it("normalizePathSegments retains unresolvable leading '..' segments instead of dropping them", () => {
+    // A no-op pop() on an empty result array used to silently discard
+    // leading ".." segments, letting a bundle-escaping link like
+    // "../../artifacts/a2.md" incorrectly normalize to a valid in-bundle id
+    // ("artifacts/a2"). The server-side reader (path.posix.normalize) keeps
+    // unresolvable ".." segments, so the client must too, to stay consistent
+    // and to make such links correctly fail to resolve to any concept.
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { normalizePathSegments } = loadClientHelpers(html);
+    assert.equal(normalizePathSegments("../../other/a2"), "../../other/a2");
+    assert.equal(normalizePathSegments("../a2"), "../a2");
+    assert.equal(normalizePathSegments("artifacts/../../a2"), "../a2");
+  });
+
   it("resolveRelativeId resolves './' and '../' links to normalized ids", () => {
     const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
     const { resolveRelativeId } = loadClientHelpers(html);
     assert.equal(resolveRelativeId("./a2.md", "artifacts/a1"), "artifacts/a2");
     assert.equal(resolveRelativeId("../artifacts/a2.md", "artifacts/sub/a1"), "artifacts/artifacts/a2");
     assert.equal(resolveRelativeId("/artifacts/a2.md", "artifacts/a1"), "artifacts/a2");
+  });
+
+  it("resolveRelativeId does not let a bundle-escaping link resolve to an unrelated valid concept id", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { resolveRelativeId } = loadClientHelpers(html);
+    // From "artifacts/a1", "../../artifacts/a2.md" escapes above the bundle
+    // root. It must NOT resolve to the real "artifacts/a2" concept id.
+    const target = resolveRelativeId("../../artifacts/a2.md", "artifacts/a1");
+    assert.notEqual(target, "artifacts/a2");
+    assert.match(target, /^\.\./);
   });
 
   it("resolveRelativeId strips both anchors and query strings before matching the .md suffix", () => {

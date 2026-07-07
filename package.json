@@ -30,7 +30,8 @@
     "lint": "oxlint lib/ extension.mjs browser/server.mjs scripts/",
     "dev-install": "node scripts/dev-install.mjs",
     "maintenance": "node scripts/run-maintenance.mjs",
-    "browser": "node scripts/run-browser.mjs"
+    "browser": "node scripts/run-browser.mjs",
+    "visualize-okf": "node scripts/visualize-okf-bundle.mjs"
   },
   "license": "MIT",
   "private": true,

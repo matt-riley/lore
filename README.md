@@ -205,6 +205,18 @@ The canonical breakdown lives in [`docs/support-matrix.md`](docs/support-matrix.
 
 For runtime and platform promises, see [`docs/compatibility.md`](docs/compatibility.md).
 
+### Portable exports and the OKF viewer
+
+`memory_portable_bundle` accepts a `format` argument: `json` (default, machine-readable) or `okf`. The `okf` format writes an [Open Knowledge Format v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundle -- one markdown file with YAML frontmatter per approved improvement artifact, plus a root `index.md` -- so approved Lore improvements can be reviewed, archived, or shared outside the CLI with any OKF-aware tool.
+
+To browse an OKF bundle visually, render it into a self-contained HTML viewer:
+
+```sh
+npm run visualize-okf -- --bundle path/to/bundle --out viz.html
+```
+
+This produces a force-directed graph of the bundle's concepts (colored by type, with search, a type filter, and a detail panel showing backlinks), loading Cytoscape.js and marked from CDN at view time -- no npm runtime dependency is added. It mirrors the `visualize` subcommand of the OKF reference agent.
+
 ---
 
 ## Privacy and security
@@ -240,6 +252,7 @@ Useful commands:
 | `npm run dev-install` | Copy a dev checkout into `~/.copilot/extensions/lore` |
 | `npm run maintenance` | Run the maintenance script |
 | `npm run browser` | Start the local browser dashboard |
+| `npm run visualize-okf -- --bundle <dir>` | Render an interactive `viz.html` for an OKF-format `memory_portable_bundle` export |
 
 High-level layout:
 

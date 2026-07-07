@@ -158,6 +158,7 @@ describe("client-side detail-panel escaping", () => {
     assert.equal(isSafeResourceUrl("relative/path.md"), true);
     assert.equal(isSafeResourceUrl("javascript:alert(1)"), false);
     assert.equal(isSafeResourceUrl("data:text/html,<script>alert(1)</script>"), false);
+    assert.equal(isSafeResourceUrl("//evil.example/x"), false);
     assert.equal(isSafeResourceUrl(""), false);
     assert.equal(isSafeResourceUrl(null), false);
   });

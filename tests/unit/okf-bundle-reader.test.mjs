@@ -74,6 +74,23 @@ describe("parseFrontmatterYaml", () => {
     const parsed = parseFrontmatterYaml("# a comment\n\ntype: Concept\n");
     assert.deepEqual(parsed, { type: "Concept" });
   });
+
+  it("round-trips JSON-escaped double-quoted scalars written by yamlScalar (backslashes, newlines, tabs, unicode)", () => {
+    // yamlFrontmatter()/yamlScalar() in memory-tools-okf-bundle.mjs always
+    // serializes double-quoted scalars via JSON.stringify, so the reader
+    // must reverse full JSON escaping, not just \" -> ".
+    const value = "C:\\Users\\test\tline1\nline2 \u2603";
+    const line = "title: " + JSON.stringify(value);
+    const parsed = parseFrontmatterYaml(line);
+    assert.equal(parsed.title, value);
+  });
+
+  it("falls back to a minimal unescape for non-JSON double-quoted scalars", () => {
+    // "\d" is not a valid JSON escape, so JSON.parse throws and the reader
+    // must fall back gracefully instead of losing the value.
+    const parsed = parseFrontmatterYaml('title: "50% \\d discount"');
+    assert.equal(parsed.title, "50% \\d discount");
+  });
 });
 
 describe("parseOkfDocument", () => {

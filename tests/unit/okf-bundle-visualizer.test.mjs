@@ -172,6 +172,17 @@ describe("client-side detail-panel escaping", () => {
     assert.equal(isSafeResourceUrl(null), false);
   });
 
+  it("isSafeResourceUrl rejects unsafe schemes even with leading/trailing whitespace", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { isSafeResourceUrl } = loadClientHelpers(html);
+    assert.equal(isSafeResourceUrl(" javascript:alert(1)"), false);
+    assert.equal(isSafeResourceUrl("\tjavascript:alert(1)"), false);
+    assert.equal(isSafeResourceUrl("javascript:alert(1) "), false);
+    assert.equal(isSafeResourceUrl("  //evil.example/x"), false);
+    assert.equal(isSafeResourceUrl("   "), false);
+    assert.equal(isSafeResourceUrl(" https://example.com/doc "), true);
+  });
+
   it("normalizePathSegments collapses '.' and '..' segments", () => {
     const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
     const { normalizePathSegments } = loadClientHelpers(html);
@@ -227,6 +238,19 @@ describe("writeOkfVisualizerHtml", () => {
     const tmpDir = makeTmpDir();
     try {
       const outPath = path.join(tmpDir, "viz.html");
+      const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+      await writeOkfVisualizerHtml(outPath, html);
+      const written = readFileSync(outPath, "utf8");
+      assert.equal(written, html);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("creates missing parent directories before writing", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const outPath = path.join(tmpDir, "nested", "sub", "viz.html");
       const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
       await writeOkfVisualizerHtml(outPath, html);
       const written = readFileSync(outPath, "utf8");

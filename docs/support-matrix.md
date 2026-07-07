@@ -82,7 +82,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | Tool | Status | Notes |
 |---|---|---|
 | `memory_replay` | 🟡 Experimental | Runs the replay corpus against current retrieval behavior and reports ranking hits/misses. |
-| `memory_portable_bundle` | 🟡 Experimental | Exports a portable bundle of memories and improvement artifacts. Import not yet implemented. |
+| `memory_portable_bundle` | 🟡 Experimental | Exports a portable bundle of approved improvement artifacts. format=json (default) writes a single signed JSON file; format=okf writes an OKF v0.1 markdown+frontmatter bundle directory for human/agent-readable, git-diffable exchange. Import not yet implemented for either format. |
 
 ### Improvement and evolution
 

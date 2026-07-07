@@ -11,7 +11,12 @@
  *     panel, search, type filter).
  *   - writeOkfVisualizerHtml: writes the rendered HTML to disk.
  *   - HTML/script injection safety: bundle content cannot break out of the
- *     embedded JSON <script type="application/json"> block.
+ *     embedded JSON <script type="application/json"> block, and the
+ *     client-side detail-panel renderer escapes/sanitizes concept fields
+ *     before writing them into innerHTML.
+ *   - Client-side relative-link resolution: resolveRelativeId normalizes
+ *     "./" and "../" path segments the same way the server-side bundle
+ *     reader does.
  *
  * Run:
  *   node --test tests/unit/okf-bundle-visualizer.test.mjs
@@ -27,6 +32,41 @@ import { renderOkfVisualizerHtml, writeOkfVisualizerHtml } from "../../lib/okf-b
 
 function makeTmpDir() {
   return mkdtempSync(path.join(os.tmpdir(), "lore-okf-viz-test-"));
+}
+
+function extractScriptBlock(html) {
+  const match = html.match(/<script>([\s\S]*)<\/script>\s*<\/body>/);
+  assert.ok(match, "expected an inline <script> block before </body>");
+  return match[1];
+}
+
+// Pulls a top-level `function name(...) { ... }` declaration out of the
+// generated client script by brace-matching, so the pure helper functions
+// (escapeHtml, isSafeResourceUrl, normalizePathSegments, resolveRelativeId)
+// can be exercised directly without a DOM/cytoscape/marked environment.
+function extractFunction(source, name) {
+  const startIdx = source.indexOf(`function ${name}(`);
+  assert.ok(startIdx !== -1, `expected to find function ${name} in generated script`);
+  const braceStart = source.indexOf("{", startIdx);
+  let depth = 0;
+  let i = braceStart;
+  for (; i < source.length; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}") {
+      depth--;
+      if (depth === 0) break;
+    }
+  }
+  return source.slice(startIdx, i + 1);
+}
+
+function loadClientHelpers(html) {
+  const script = extractScriptBlock(html);
+  const fnSource = ["escapeHtml", "isSafeResourceUrl", "normalizePathSegments", "resolveRelativeId"]
+    .map((name) => extractFunction(script, name))
+    .join("\n");
+  const factory = new Function(`${fnSource}\nreturn { escapeHtml, isSafeResourceUrl, normalizePathSegments, resolveRelativeId };`);
+  return factory();
 }
 
 function sampleBundle() {
@@ -90,6 +130,53 @@ describe("renderOkfVisualizerHtml", () => {
   it("falls back to the bundle directory name when no name is given", () => {
     const html = renderOkfVisualizerHtml({ bundle: sampleBundle() });
     assert.ok(html.includes("example-bundle"));
+  });
+
+  it("loads DOMPurify from a CDN to sanitize rendered markdown", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    assert.ok(html.includes("dompurify@3.1.6"));
+    assert.ok(html.includes("DOMPurify.sanitize"));
+  });
+});
+
+describe("client-side detail-panel escaping", () => {
+  it("escapeHtml neutralizes HTML metacharacters", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { escapeHtml } = loadClientHelpers(html);
+    assert.equal(
+      escapeHtml('<img src=x onerror=alert(1)>&"\''),
+      "&lt;img src=x onerror=alert(1)&gt;&amp;&quot;&#39;",
+    );
+  });
+
+  it("isSafeResourceUrl allows http(s) and relative URLs, rejects other schemes", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { isSafeResourceUrl } = loadClientHelpers(html);
+    assert.equal(isSafeResourceUrl("https://example.com/doc"), true);
+    assert.equal(isSafeResourceUrl("http://example.com/doc"), true);
+    assert.equal(isSafeResourceUrl("./relative/path.md"), true);
+    assert.equal(isSafeResourceUrl("relative/path.md"), true);
+    assert.equal(isSafeResourceUrl("javascript:alert(1)"), false);
+    assert.equal(isSafeResourceUrl("data:text/html,<script>alert(1)</script>"), false);
+    assert.equal(isSafeResourceUrl(""), false);
+    assert.equal(isSafeResourceUrl(null), false);
+  });
+
+  it("normalizePathSegments collapses '.' and '..' segments", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { normalizePathSegments } = loadClientHelpers(html);
+    assert.equal(normalizePathSegments("a2"), "a2");
+    assert.equal(normalizePathSegments("./a2"), "a2");
+    assert.equal(normalizePathSegments("artifacts/./a2"), "artifacts/a2");
+    assert.equal(normalizePathSegments("artifacts/../artifacts/a2"), "artifacts/a2");
+  });
+
+  it("resolveRelativeId resolves './' and '../' links to normalized ids", () => {
+    const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
+    const { resolveRelativeId } = loadClientHelpers(html);
+    assert.equal(resolveRelativeId("./a2.md", "artifacts/a1"), "artifacts/a2");
+    assert.equal(resolveRelativeId("../artifacts/a2.md", "artifacts/sub/a1"), "artifacts/artifacts/a2");
+    assert.equal(resolveRelativeId("/artifacts/a2.md", "artifacts/a1"), "artifacts/a2");
   });
 });
 

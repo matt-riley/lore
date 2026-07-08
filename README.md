@@ -217,6 +217,14 @@ npm run visualize-okf -- --bundle path/to/bundle --out viz.html
 
 This produces a force-directed graph of the bundle's concepts (colored by type, with search, a type filter, and a detail panel showing backlinks), loading Cytoscape.js and marked from CDN at view time -- no npm runtime dependency is added. It mirrors the `visualize` subcommand of the OKF reference agent.
 
+To import an OKF bundle back into Lore's own memory (making its concepts retrievable via `memory_search`), call `memory_portable_bundle` with `action: "import"` and `format: "okf"`:
+
+```
+memory_portable_bundle({ action: "import", bundlePath: "path/to/bundle", format: "okf" })
+```
+
+Each concept is retained as a `type: "okf_concept"` semantic memory row, tagged `okf_import`, at a lower default confidence (`0.7`) than self-authored memory (`memory_save`'s default is `0.9`) since it's externally sourced content. Import is always a manual, explicit tool call -- it is never wired into a hook or schedule. Re-importing the same bundle reinforces existing rows (matched by a stable `repository::conceptId` key) instead of duplicating them, but a later import does not overwrite already-stored content -- the first import wins. To revert an unwanted import: `memory_search(type: "okf_concept")` to find the rows, then `memory_forget(id: ..., supersededBy: "reverted okf import")` per row. `format: "json"` import is not yet implemented.
+
 ---
 
 ## Privacy and security

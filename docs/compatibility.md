@@ -128,7 +128,7 @@ The `memory_portable_bundle` export tool (experimental) can generate a portable 
 ### What Lore does not promise
 
 1. **Experimental surfaces may change** — tool names, argument shapes, and output formats for experimental surfaces can change between releases without notice.
-2. **No cross-machine portability yet** — `lore.db` is not portable by default. The `memory_portable_bundle` export tool exists (experimental, json or OKF markdown format) but import is not yet implemented.
+2. **No cross-machine portability yet** — `lore.db` is not portable by default. The `memory_portable_bundle` tool supports export (experimental, json or OKF markdown format) and, for the OKF format only, import — reading an OKF bundle directory back into semantic memory as `type=okf_concept` rows (manually invoked only; never automatic). json format import is not yet implemented.
 3. **No multi-user or multi-machine sync** — Lore is local-first. There is no cloud sync, no shared team memory, and no remote API surface.
 4. **No performance guarantees under heavy load** — the bounded operation targets (< 300 ms session-start, < 200 ms prompt-time) are aspirational guidelines calibrated for a typical developer machine. Very large DBs or slow disks may exceed these.
 

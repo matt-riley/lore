@@ -134,7 +134,7 @@ describe("formatOkfImportResult", () => {
     assert.match(output, /conceptsFound: 3/);
     assert.match(output, /importedCount: 2/);
     assert.match(output, /skippedCount: 1/);
-    assert.match(output, /memory_search\(type="okf_concept"\)/);
+    assert.match(output, /memory_search\(query="okf_import", type="okf_concept"\)/);
     assert.match(output, /memory_forget/);
   });
 

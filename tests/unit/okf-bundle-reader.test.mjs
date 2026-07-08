@@ -213,4 +213,64 @@ describe("readOkfBundle (round-trip against writeOkfBundle)", () => {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("bounds file reads/parses via maxConcepts while totalConceptFileCount reports the true total", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const artifacts = [1, 2, 3].map((n) => ({
+        id: `artifact-${n}`,
+        sourceCaseId: `case-${n}`,
+        sourceKind: "session_review",
+        title: `Artifact ${n}`,
+        summary: `Summary ${n}`,
+        status: "approved",
+        reviewState: "approved",
+        proposal: { type: "diff", path: `docs/proposals/${n}.md`, hash: `hash-${n}` },
+        evidence: { occurrences: n },
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      }));
+      const documents = buildOkfBundleDocuments({ improvementArtifacts: artifacts });
+      await writeOkfBundle(tmpDir, documents);
+
+      const bundle = await readOkfBundle(tmpDir, { maxConcepts: 2 });
+      assert.equal(bundle.concepts.length, 2, "only reads/parses up to maxConcepts files");
+      assert.equal(
+        bundle.totalConceptFileCount,
+        3,
+        "still reports the true concept-eligible file count from the cheap filename listing",
+      );
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips edge/backlink construction when includeGraph is false", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const artifacts = [
+        {
+          id: "artifact-1",
+          sourceCaseId: "case-1",
+          sourceKind: "session_review",
+          title: "Tighten retry backoff",
+          summary: "Reduce retry storms during transient network errors.",
+          status: "approved",
+          reviewState: "approved",
+          proposal: { type: "diff", path: "docs/proposals/retry.md", hash: "abc123" },
+          evidence: { occurrences: 3 },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-02T00:00:00.000Z",
+        },
+      ];
+      const documents = buildOkfBundleDocuments({ improvementArtifacts: artifacts });
+      await writeOkfBundle(tmpDir, documents);
+
+      const bundle = await readOkfBundle(tmpDir, { includeGraph: false });
+      assert.deepEqual(bundle.edges, []);
+      assert.equal(bundle.backlinksById.size, bundle.concepts.length);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

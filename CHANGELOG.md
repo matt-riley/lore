@@ -6,6 +6,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.8.1](https://github.com/matt-riley/lore/compare/lore-v0.8.0...lore-v0.8.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **memory:** address OKF import review comments (bounded reads, valid rollback query) ([f558403](https://github.com/matt-riley/lore/commit/f558403bbb9f6031c3dab0d4d75bc2f44a5b0b84))
+
 ## [0.8.0](https://github.com/matt-riley/lore/compare/lore-v0.7.1...lore-v0.8.0) (2026-07-07)
 
 

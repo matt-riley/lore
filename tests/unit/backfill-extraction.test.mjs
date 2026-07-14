@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   applySessionExtraction,
+  processDeferredExtractions,
 } from "../../lib/backfill.mjs";
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
@@ -36,6 +37,203 @@ function buildSessionArtifacts({
 }
 
 describe("backfill extraction and progress reporting", () => {
+  test("deferred extraction uses local inference only when explicitly enabled", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+        },
+        deferredExtraction: {
+          enabled: true,
+          useLocalInference: true,
+        },
+      },
+    });
+    try {
+      db.enqueueDeferredExtraction({
+        sessionId: "session-local-inference",
+        repository: "fixture-repo",
+        reason: "test",
+      });
+      let requestCount = 0;
+      const result = await processDeferredExtractions({
+        db,
+        repository: "fixture-repo",
+        sessionStore: {
+          getSessionArtifacts() {
+            return buildSessionArtifacts({
+              sessionSummary: "Implemented the deterministic extraction path.",
+              turns: [{
+                user_message: "Keep local model use opt-in and preserve fallback behavior.",
+              }],
+            });
+          },
+          getWorkspaceMetadata() {
+            return null;
+          },
+        },
+        fetchImpl: async () => {
+          requestCount += 1;
+          return new Response(JSON.stringify({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  summary: "Added opt-in local inference while preserving deterministic extraction.",
+                  actions: ["Added a loopback-only inference client."],
+                  decisions: ["Keep local inference disabled by default."],
+                  learnings: ["Optional model failures must preserve deterministic extraction."],
+                  openItems: ["Validate the live Docker endpoint."],
+                  themes: ["local-inference", "fallback"],
+                }),
+              },
+            }],
+          }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      });
+
+      assert.equal(requestCount, 1);
+      assert.equal(result.processed, 1);
+      assert.equal(result.inferenceUsed, 1);
+      assert.equal(result.inferenceFailed, 0);
+
+      const episode = db.db.prepare(`
+        SELECT summary, decisions_json, source
+        FROM episode_digest
+        WHERE session_id = ?
+      `).get("session-local-inference");
+      assert.equal(
+        episode.summary,
+        "Added opt-in local inference while preserving deterministic extraction.",
+      );
+      assert.deepStrictEqual(
+        JSON.parse(episode.decisions_json),
+        ["Keep local inference disabled by default."],
+      );
+      assert.equal(episode.source, "rule+local_inference");
+
+      const decision = db.db.prepare(`
+        SELECT type, content
+        FROM semantic_memory
+        WHERE source_session_id = ? AND type = 'decision'
+      `).get("session-local-inference");
+      assert.equal(decision.type, "decision");
+      assert.equal(decision.content, "Keep local inference disabled by default.");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("deferred extraction preserves deterministic output when local inference fails", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+        },
+        deferredExtraction: {
+          enabled: true,
+          useLocalInference: true,
+        },
+      },
+    });
+    try {
+      db.enqueueDeferredExtraction({
+        sessionId: "session-local-inference-fallback",
+        repository: "fixture-repo",
+        reason: "test",
+      });
+      const result = await processDeferredExtractions({
+        db,
+        repository: "fixture-repo",
+        sessionStore: {
+          getSessionArtifacts() {
+            return buildSessionArtifacts({
+              sessionSummary: "Deterministic fallback summary.",
+              turns: [],
+            });
+          },
+          getWorkspaceMetadata() {
+            return null;
+          },
+        },
+        fetchImpl: async () => {
+          throw new Error("model unavailable");
+        },
+      });
+
+      assert.equal(result.processed, 1);
+      assert.equal(result.inferenceUsed, 0);
+      assert.equal(result.inferenceFailed, 1);
+      assert.match(result.inferenceErrors[0].message, /model unavailable/);
+
+      const episode = db.db.prepare(`
+        SELECT summary, source
+        FROM episode_digest
+        WHERE session_id = ?
+      `).get("session-local-inference-fallback");
+      assert.equal(episode.summary, "Deterministic fallback summary.");
+      assert.equal(episode.source, "rule");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("deferred extraction makes no model request without the surface opt-in", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+        },
+        deferredExtraction: {
+          enabled: true,
+          useLocalInference: false,
+        },
+      },
+    });
+    try {
+      db.enqueueDeferredExtraction({
+        sessionId: "session-local-inference-disabled",
+        repository: "fixture-repo",
+        reason: "test",
+      });
+      let requestCount = 0;
+      const result = await processDeferredExtractions({
+        db,
+        repository: "fixture-repo",
+        sessionStore: {
+          getSessionArtifacts() {
+            return buildSessionArtifacts({
+              sessionSummary: "No model request expected.",
+              turns: [],
+            });
+          },
+          getWorkspaceMetadata() {
+            return null;
+          },
+        },
+        fetchImpl: async () => {
+          requestCount += 1;
+          throw new Error("unexpected request");
+        },
+      });
+
+      assert.equal(requestCount, 0);
+      assert.equal(result.processed, 1);
+      assert.equal(result.inferenceUsed, 0);
+      assert.equal(result.inferenceFailed, 0);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("applySessionExtraction stores assistant-goal improvement artifacts with stable content", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, cleanup } = await withFixtureDb({
       configOverrides: {

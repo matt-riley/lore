@@ -83,7 +83,37 @@ If you want a quieter setup, copy the file first and then dial features back in 
 
 ## Optional features
 
-The checked-in example config already turns these on. If you started from a smaller `~/.copilot/lore.json`, these are the main opt-in features worth knowing about.
+The checked-in example config turns on most experimental features, but deliberately leaves local inference disabled. These are the main opt-in features worth knowing about.
+
+### `localInference`
+
+`localInference` optionally connects Lore to an OpenAI-compatible model server running on the same machine. It is deliberately disabled in both runtime defaults and `lore.example.json`, accepts loopback URLs only, and adds no runtime dependency.
+
+```json
+{
+  "localInference": {
+    "enabled": true,
+    "baseUrl": "http://127.0.0.1:12434/v1",
+    "model": "local-chat-model",
+    "timeoutMs": 30000,
+    "embeddings": {
+      "enabled": true,
+      "model": "local-embedding-model"
+    }
+  },
+  "deferredExtraction": {
+    "useLocalInference": true
+  }
+}
+```
+
+The provider and each consuming surface have separate opt-ins:
+
+- Deferred extraction requires both `localInference.enabled: true` and `deferredExtraction.useLocalInference: true`.
+- `lore_reflect` requires provider configuration plus `useLocalInference: true` on that individual tool call.
+- Embedding-based evidence ranking is optional and only runs during an explicitly model-backed reflection.
+
+Model calls never run in `onSessionStart` or `onUserPromptSubmitted` context-assembly paths. Invalid output, timeouts, or an unavailable model server are reported while Lore preserves its deterministic extraction or reflection result.
 
 ### `traceRecorder`
 
@@ -231,7 +261,7 @@ Each concept is retained as a `type: "okf_concept"` semantic memory row, tagged 
 
 Lore is local-only by design.
 
-It stores derived memory in `~/.copilot/lore.db`, reads Copilot CLI's raw `session-store.db` as input, and keeps configuration in `~/.copilot/lore.json`. Lore does **not** send memory content to a hosted service, sync your data to the cloud, or expose a network API.
+It stores derived memory in `~/.copilot/lore.db`, reads Copilot CLI's raw `session-store.db` as input, and keeps configuration in `~/.copilot/lore.json`. Lore does **not** sync memory to the cloud or expose a network API. If you explicitly enable `localInference`, selected session or reflection evidence is sent only to the configured loopback model endpoint.
 
 If you enable the optional browser dashboard, keep in mind:
 

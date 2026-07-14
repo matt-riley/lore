@@ -937,7 +937,7 @@ async function maybeProcessDeferredExtractions(session, activeRuntime, repositor
   activeRuntime.processingDeferred = true;
   queueMicrotask(async () => {
     try {
-      const result = processDeferredExtractions({
+      const result = await processDeferredExtractions({
         db: activeRuntime.db,
         sessionStore: activeRuntime.sessionStore,
         repository: deferredConfig.processCurrentRepositoryOnly ? repository : null,
@@ -946,6 +946,12 @@ async function maybeProcessDeferredExtractions(session, activeRuntime, repositor
       });
       if (result.failed > 0) {
         await session.log(`lore deferred extraction failed for ${result.failed} job(s)`, {
+          ephemeral: true,
+          level: "warning",
+        });
+      }
+      if (result.inferenceFailed > 0) {
+        await session.log(`lore local inference fell back for ${result.inferenceFailed} deferred extraction job(s)`, {
           ephemeral: true,
           level: "warning",
         });

@@ -133,6 +133,66 @@
         }
       }
     },
+    "localInference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "baseUrl": {
+          "type": "string",
+          "format": "uri",
+          "default": "http://127.0.0.1:12434/v1"
+        },
+        "model": {
+          "type": "string",
+          "default": ""
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30000
+        },
+        "maxInputChars": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 24000
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1200
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 0
+        },
+        "embeddings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "model": {
+              "type": "string",
+              "default": ""
+            },
+            "maxInputs": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 50,
+              "default": 12
+            }
+          }
+        }
+      }
+    },
     "deferredExtraction": {
       "type": "object",
       "additionalProperties": false,
@@ -160,6 +220,10 @@
         "retryDelayMinutes": {
           "type": "integer",
           "default": 15
+        },
+        "useLocalInference": {
+          "type": "boolean",
+          "default": false
         }
       }
     },

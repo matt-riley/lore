@@ -359,7 +359,13 @@ describe("memory-tools hotspot behavior", () => {
         }).length > 0,
         true,
       );
-      assert.equal(deferredOutput, "Processed 0 deferred job(s), failed 0, inspected 0.");
+      assert.equal(
+        deferredOutput,
+        [
+          "Processed 0 deferred job(s), failed 0, inspected 0.",
+          "Local inference used 0, fell back 0.",
+        ].join("\n"),
+      );
     } finally {
       cleanup();
     }

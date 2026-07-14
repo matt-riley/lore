@@ -15,7 +15,10 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeRolloutConfig } from "../../lib/config.mjs";
+import {
+  normalizeRolloutConfig,
+  USER_CONFIG_DEFAULTS,
+} from "../../lib/config.mjs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const MALFORMED_FIXTURE = resolve(
@@ -46,6 +49,24 @@ async function freshConfig(envOverrides = {}) {
 }
 
 describe("loadConfig", () => {
+  test("local inference defaults keep every model-backed surface opt-in", () => {
+    assert.deepStrictEqual(USER_CONFIG_DEFAULTS.localInference, {
+      enabled: false,
+      baseUrl: "http://127.0.0.1:12434/v1",
+      model: "",
+      timeoutMs: 30000,
+      maxInputChars: 24000,
+      maxOutputTokens: 1200,
+      temperature: 0,
+      embeddings: {
+        enabled: false,
+        model: "",
+        maxInputs: 12,
+      },
+    });
+    assert.equal(USER_CONFIG_DEFAULTS.deferredExtraction.useLocalInference, false);
+  });
+
   test("normalizeRolloutConfig coerces string booleans against rollout defaults", async () => {
     const mod = await freshConfig();
 

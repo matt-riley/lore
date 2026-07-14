@@ -22,6 +22,177 @@ function buildRuntime(db, config, overrides = {}) {
 }
 
 describe("lore_reflect tool", () => {
+  test("uses local inference and embeddings only with explicit per-call opt-in", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+          embeddings: {
+            enabled: true,
+            model: "local-embedding-model",
+          },
+        },
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+          memoryDomains: true,
+          refreshableObservations: true,
+        },
+      },
+    });
+
+    try {
+      db.insertSemanticMemory({
+        id: "reflect-local-inference-seed",
+        type: "decision",
+        content: "Keep local inference disabled unless a surface opts in.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        tags: ["local-inference"],
+      });
+      db.upsertEpisodeDigest({
+        id: "reflect-local-inference-episode",
+        sessionId: "reflect-local-inference-source",
+        repository: "fixture-repo",
+        summary: "Designed the local inference opt-in contract.",
+        actions: ["Added explicit provider and tool gates."],
+        decisions: ["Keep local inference disabled unless a surface opts in."],
+        learnings: [],
+        filesChanged: [],
+        refs: [],
+        significance: 8,
+        themes: ["local-inference"],
+        openItems: [],
+        dateKey: "2026-07-14",
+        createdAt: "2026-07-14T12:00:00.000Z",
+      });
+      const requestUrls = [];
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, {
+          localInferenceFetch: async (url, init) => {
+            requestUrls.push(url);
+            const body = JSON.parse(init.body);
+            if (url.endsWith("/embeddings")) {
+              return new Response(JSON.stringify({
+                data: body.input.map((_, index) => ({
+                  index,
+                  embedding: index === 0 ? [1, 0] : [0.8, 0.2],
+                })),
+              }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            return new Response(JSON.stringify({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    summary: "Local inference confirms that model-backed behavior must stay explicitly opted in.",
+                    insights: [{
+                      text: "Require both provider configuration and a per-call reflection opt-in.",
+                      evidenceIndex: 0,
+                    }],
+                  }),
+                },
+              }],
+            }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          },
+        }),
+      });
+
+      const output = await findTool(tools, "lore_reflect").handler({
+        prompt: "What decision did we make about local inference?",
+        focus: "decisions",
+        useLocalInference: true,
+        persistObservation: true,
+        observationKey: "reflect-local-inference-observation",
+      }, {
+        sessionId: "reflect-local-inference",
+      });
+
+      assert.equal(requestUrls.filter((url) => url.endsWith("/embeddings")).length, 1);
+      assert.equal(requestUrls.filter((url) => url.endsWith("/chat/completions")).length, 1);
+      assert.match(output, /localInference: used \(embeddings: used\)/);
+      assert.match(output, /Local inference confirms that model-backed behavior must stay explicitly opted in\./);
+
+      const observation = db.getObservation("reflect-local-inference-observation");
+      assert.equal(
+        observation.summary,
+        "Local inference confirms that model-backed behavior must stay explicitly opted in.",
+      );
+      assert.equal(observation.trace?.localInferenceUsed, true);
+      assert.equal(observation.trace?.localEmbeddingsUsed, true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("does not call local inference without both provider and per-call opt-in", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+        },
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+        },
+      },
+    });
+
+    try {
+      db.insertSemanticMemory({
+        id: "reflect-local-inference-opt-in-seed",
+        type: "user_preference",
+        content: "Prefer explicit opt-in for model-backed reflection.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        tags: ["local-inference"],
+      });
+      let requestCount = 0;
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, {
+          localInferenceFetch: async () => {
+            requestCount += 1;
+            throw new Error("unexpected request");
+          },
+        }),
+      });
+      const reflect = findTool(tools, "lore_reflect");
+
+      const defaultOutput = await reflect.handler({
+        prompt: "What reflection approach should we prefer?",
+        focus: "patterns",
+      }, {
+        sessionId: "reflect-local-inference-default-off",
+      });
+      assert.equal(requestCount, 0);
+      assert.doesNotMatch(defaultOutput, /localInference:/);
+
+      config.localInference.enabled = false;
+      const disabledOutput = await reflect.handler({
+        prompt: "What reflection approach should we prefer?",
+        focus: "patterns",
+        useLocalInference: true,
+      }, {
+        sessionId: "reflect-local-inference-provider-disabled",
+      });
+      assert.equal(requestCount, 0);
+      assert.match(disabledOutput, /localInference: deterministic fallback \(provider disabled\)/);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("renders summary and full reflection detail levels with the expected sections", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

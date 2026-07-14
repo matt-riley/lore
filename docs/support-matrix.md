@@ -61,7 +61,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Optional persisted observations are supported and enabled by default via `refreshableObservations`. |
+| `lore_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Optional persisted observations are supported via `refreshableObservations`. Local model synthesis is default-off and requires both provider configuration and `useLocalInference: true` on the individual call; optional embeddings rerank that call's evidence only. |
 
 ### Scope control
 
@@ -75,7 +75,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | Tool | Status | Notes |
 |---|---|---|
 | `memory_backfill` | 🟡 Experimental | Backfills memories from the raw session store. The public tool is bounded to 20 items per run; manual controlled runs still create restorable snapshots, while session-start archive import uses the same engine without creating snapshots. |
-| `memory_deferred_process` | 🟡 Experimental | Triggers processing of extractions deferred during session-start. |
+| `memory_deferred_process` | 🟡 Experimental | Triggers processing of extractions deferred during session-start. Optional local model enrichment is default-off, requires provider plus deferred-extraction opt-in, and preserves deterministic extraction on failure. |
 
 ### Replay and portability
 
@@ -165,6 +165,7 @@ Temporal recall notes:
   - `medium` → episode fallback
   - `low` → verified raw session history
 - This slice does **not** add vector retrieval or an embedding pipeline; `hybridRetrieval` remains the existing lexical/re-ranking path.
+- Optional local embeddings are used only to rerank the bounded evidence already selected for an explicitly opted-in `lore_reflect` call. They are not persisted and do not change the general retrieval/indexing pipeline.
 
 ---
 

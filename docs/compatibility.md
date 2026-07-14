@@ -67,6 +67,17 @@ Lore reads this file to backfill memories and extract session context. It never 
 
 When `maintenanceScheduler.sessionStartBackfill` is enabled, Lore may also perform a session-start archive import from this same raw store. That import is still read-only against `session-store.db`, and progress is surfaced to the user via CLI log messages plus the existing backfill status surfaces.
 
+### Optional local inference server
+
+| Requirement | Value |
+|---|---|
+| **Protocol** | OpenAI-compatible HTTP endpoints for `/v1/chat/completions`; `/v1/embeddings` is optional |
+| **Host** | Loopback only: `127.0.0.1`, `localhost`, or `::1` |
+| **Authentication** | Not supported in the URL; Lore rejects embedded credentials |
+| **Failure behavior** | Deterministic extraction/reflection is preserved and the fallback is surfaced |
+
+Local inference is disabled by default. Deferred extraction requires a separate config opt-in, and `lore_reflect` requires an explicit per-call opt-in. No model call is made from Lore's latency-sensitive prompt-context hooks.
+
 ---
 
 ## Browser UI
@@ -96,12 +107,14 @@ Lore is local-only. This section is the canonical summary of what it stores, wha
 | `~/.copilot/lore.json` | Your configuration and preferences. |
 | `~/.copilot/session-store.db` | Raw Copilot CLI session data. **Lore reads this for backfill; it never writes to it.** |
 
-### What Lore does NOT do
+### What Lore does NOT do by default
 
-- Make outbound network calls.
+- Make non-loopback outbound network calls.
 - Send memory content to any third-party service.
 - Sync data to the cloud.
 - Share data between machines or users.
+
+When `localInference.enabled` is explicitly set, Lore sends bounded session or reflection evidence to the configured loopback model server. Lore rejects non-loopback provider URLs.
 
 ### Protecting your data
 

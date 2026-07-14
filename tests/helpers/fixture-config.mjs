@@ -73,6 +73,20 @@ function buildFixtureConfig(home, overrides = {}) {
       sessionStart: 20,
       userPromptSubmitted: 50,
     },
+    localInference: {
+      enabled: false,
+      baseUrl: "http://127.0.0.1:12434/v1",
+      model: "",
+      timeoutMs: 30000,
+      maxInputChars: 24000,
+      maxOutputTokens: 1200,
+      temperature: 0,
+      embeddings: {
+        enabled: false,
+        model: "",
+        maxInputs: 12,
+      },
+    },
     deferredExtraction: {
       enabled: false,
       autoEnqueueOnSessionEnd: false,
@@ -80,6 +94,7 @@ function buildFixtureConfig(home, overrides = {}) {
       processCurrentRepositoryOnly: true,
       maxJobsPerRun: 2,
       retryDelayMinutes: 15,
+      useLocalInference: false,
     },
     maintenanceScheduler: {
       enabled: false,

@@ -96,9 +96,47 @@ The checked-in example config turns on most experimental features, but deliberat
     "baseUrl": "http://127.0.0.1:12434/v1",
     "model": "local-chat-model",
     "timeoutMs": 30000,
+    "reflection": {
+      "enabledByDefault": false
+    },
+    "queryExpansion": {
+      "enabled": false,
+      "maxTerms": 8
+    },
+    "contextCompression": {
+      "enabled": false,
+      "minInputTokens": 900,
+      "targetTokens": 700,
+      "maxSections": 8
+    },
+    "analysis": {
+      "consolidation": {
+        "enabled": true,
+        "maxItems": 4
+      },
+      "contradictions": {
+        "enabled": true,
+        "maxItems": 4
+      },
+      "trends": {
+        "enabled": true,
+        "maxItems": 4,
+        "minOccurrences": 2
+      },
+      "qualityEvaluation": {
+        "enabled": false,
+        "minSupport": 0.8,
+        "minSpecificity": 0.6,
+        "minUsefulness": 0.6
+      }
+    },
     "embeddings": {
       "enabled": true,
-      "model": "local-embedding-model"
+      "model": "local-embedding-model",
+      "maxInputs": 24,
+      "topK": 6,
+      "minSimilarity": 0.2,
+      "groundingMinSimilarity": 0.35
     }
   },
   "deferredExtraction": {
@@ -110,10 +148,15 @@ The checked-in example config turns on most experimental features, but deliberat
 The provider and each consuming surface have separate opt-ins:
 
 - Deferred extraction requires both `localInference.enabled: true` and `deferredExtraction.useLocalInference: true`.
-- `lore_reflect` requires provider configuration plus `useLocalInference: true` on that individual tool call.
-- Embedding-based evidence ranking is optional and only runs during an explicitly model-backed reflection.
+- `lore_reflect` uses `localInference.reflection.enabledByDefault` when the call omits `useLocalInference`; an explicit `true` or `false` on the call always overrides the configured default.
+- Query expansion is independently default-off. It changes retrieval terms only, retries the deterministic query when expansion finds no evidence, and cannot change routing, temporal scope, or repository eligibility.
+- Model-backed reflection can return advisory consolidation proposals, possible contradictions or supersessions, and recurring trends. Every finding cites bounded evidence and never mutates trusted memory.
+- Quality evaluation is independently default-off. When enabled, it rejects generated candidates below the configured support, specificity, or usefulness thresholds and falls back to deterministic reflection if no acceptable insight remains.
+- Context compression is independently default-off. It preserves required identity, directive, and commitment sections, keeps source indexes, and falls back to the uncompressed deterministic capsule on any failure.
+- Embedding-based evidence ranking is optional. `maxInputs` bounds the candidate pool, `topK` bounds evidence sent to the chat model, and `minSimilarity` removes weakly related evidence.
+- When embeddings are enabled, Lore embeds generated claims in a second bounded pass and discards claims below `groundingMinSimilarity`. If no grounded insight remains, Lore returns the deterministic reflection.
 
-Model calls never run in `onSessionStart` or `onUserPromptSubmitted` context-assembly paths. Invalid output, timeouts, or an unavailable model server are reported while Lore preserves its deterministic extraction or reflection result.
+Prompt-context hooks make no model calls by default. Enabling query expansion or context compression permits bounded loopback-only inference during context assembly and can add latency. Invalid output, missing citations, ungrounded claims, timeouts, or an unavailable model server are reported while Lore preserves its deterministic retrieval, capsule, extraction, or reflection result. Embeddings are held in memory only and are never persisted.
 
 ### `traceRecorder`
 

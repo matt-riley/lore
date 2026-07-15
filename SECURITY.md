@@ -70,7 +70,7 @@ Your responsibilities:
 
 There is no remote surface. Lore makes no non-loopback outbound network calls.
 
-The optional `localInference` provider is default-off and accepts only `127.0.0.1`, `localhost`, or `::1`. When enabled, bounded session or reflection evidence is sent to that local model server. Deferred extraction requires a second config opt-in, while `lore_reflect` requires explicit `useLocalInference: true` on each call. Lore rejects provider URLs containing credentials or non-loopback hosts.
+The optional `localInference` provider is default-off and accepts only `127.0.0.1`, `localhost`, or `::1`. When enabled, bounded session, retrieval, reflection, or capsule evidence is sent to that local model server. Deferred extraction, query expansion, context compression, and quality evaluation each require their own config opt-in. Reflection can use a persistent config opt-in, while an explicit per-call `useLocalInference` value overrides it. Consolidation, contradiction, supersession, and trend findings are advisory and cannot mutate trusted memory. When embeddings are enabled, Lore filters weak evidence and semantically validates generated claims before rendering; embedding vectors remain in memory and are never persisted. Lore rejects provider URLs containing credentials or non-loopback hosts.
 
 ### Portable export
 

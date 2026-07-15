@@ -53,6 +53,15 @@ describe("lore_reflect tool", () => {
         confidence: 1,
         tags: ["local-inference"],
       });
+      db.insertSemanticMemory({
+        id: "reflect-local-inference-override",
+        type: "decision",
+        content: "Explicit per-call local inference overrides take precedence over persistent defaults.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        tags: ["local-inference"],
+      });
       db.upsertEpisodeDigest({
         id: "reflect-local-inference-episode",
         sessionId: "reflect-local-inference-source",
@@ -68,6 +77,22 @@ describe("lore_reflect tool", () => {
         openItems: [],
         dateKey: "2026-07-14",
         createdAt: "2026-07-14T12:00:00.000Z",
+      });
+      db.upsertEpisodeDigest({
+        id: "reflect-local-inference-override-episode",
+        sessionId: "reflect-local-inference-override-source",
+        repository: "fixture-repo",
+        summary: "Confirmed explicit reflection overrides take precedence.",
+        actions: [],
+        decisions: ["Explicit per-call local inference overrides take precedence over persistent defaults."],
+        learnings: [],
+        filesChanged: [],
+        refs: [],
+        significance: 8,
+        themes: ["local-inference"],
+        openItems: [],
+        dateKey: "2026-07-15",
+        createdAt: "2026-07-15T12:00:00.000Z",
       });
       const requestUrls = [];
       const tools = createMemoryTools({
@@ -95,6 +120,19 @@ describe("lore_reflect tool", () => {
                       text: "Require both provider configuration and a per-call reflection opt-in.",
                       evidenceIndex: 0,
                     }],
+                   consolidations: [{
+                     text: "The provider and tool gates form one local-inference safety policy.",
+                     evidenceIndexes: [0, 1],
+                   }],
+                   contradictions: [{
+                     text: "Persistent defaults remain subordinate to explicit per-call overrides.",
+                     evidenceIndexes: [0, 1],
+                   }],
+                   trends: [{
+                     text: "Local-inference work repeatedly preserved explicit safety gates.",
+                     evidenceIndexes: [0, 1],
+                     occurrences: 2,
+                   }],
                   }),
                 },
               }],
@@ -107,7 +145,7 @@ describe("lore_reflect tool", () => {
       });
 
       const output = await findTool(tools, "lore_reflect").handler({
-        prompt: "What decision did we make about local inference?",
+        prompt: "local inference",
         focus: "decisions",
         useLocalInference: true,
         persistObservation: true,
@@ -116,10 +154,21 @@ describe("lore_reflect tool", () => {
         sessionId: "reflect-local-inference",
       });
 
-      assert.equal(requestUrls.filter((url) => url.endsWith("/embeddings")).length, 1);
+      assert.equal(requestUrls.filter((url) => url.endsWith("/embeddings")).length, 3);
       assert.equal(requestUrls.filter((url) => url.endsWith("/chat/completions")).length, 1);
       assert.match(output, /localInference: used \(embeddings: used\)/);
+      assert.match(
+        output,
+        /localInferenceGrounding: candidates=\d+ selected=\d+ grounded=1 discarded=0 summary=grounded/,
+      );
       assert.match(output, /Local inference confirms that model-backed behavior must stay explicitly opted in\./);
+      assert.match(output, /## Memory Consolidation Proposals/);
+      assert.match(output, /## Contradictions And Possible Supersessions/);
+      assert.match(output, /## Recurring Trends/);
+      assert.match(
+        output,
+        /localInferenceAnalysis: consolidations=1 contradictions=1 trends=1 grounded=3 discarded=0/,
+      );
 
       const observation = db.getObservation("reflect-local-inference-observation");
       assert.equal(
@@ -128,6 +177,226 @@ describe("lore_reflect tool", () => {
       );
       assert.equal(observation.trace?.localInferenceUsed, true);
       assert.equal(observation.trace?.localEmbeddingsUsed, true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("reports quality diagnostics when configured evaluation accepts generated reflection", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+          analysis: {
+            qualityEvaluation: {
+              enabled: true,
+              minSupport: 0.8,
+              minSpecificity: 0.6,
+              minUsefulness: 0.6,
+            },
+          },
+        },
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+        },
+      },
+    });
+
+    try {
+      db.insertSemanticMemory({
+        id: "reflect-quality-success",
+        type: "decision",
+        content: "Keep reflection claims specific and evidence-backed.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        tags: ["quality"],
+      });
+      db.upsertEpisodeDigest({
+        id: "reflect-quality-success-episode",
+        sessionId: "reflect-quality-success-source",
+        repository: "fixture-repo",
+        summary: "Adopted an evidence-backed reflection quality rule.",
+        actions: [],
+        decisions: ["Keep reflection claims specific and evidence-backed."],
+        learnings: [],
+        filesChanged: [],
+        refs: [],
+        significance: 8,
+        themes: ["quality"],
+        openItems: [],
+        dateKey: "2026-07-15",
+        createdAt: "2026-07-15T12:00:00.000Z",
+      });
+      let requestCount = 0;
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, {
+          localInferenceFetch: async (_url, init) => {
+            requestCount += 1;
+            const body = JSON.parse(init.body);
+            if (body.messages[0].content.includes("evaluate Lore reflection output")) {
+              return new Response(JSON.stringify({
+                choices: [{
+                  message: {
+                    content: JSON.stringify({
+                      items: [
+                        { id: "summary", support: 0.95, specificity: 0.9, usefulness: 0.9 },
+                        { id: "insight:0", support: 0.95, specificity: 0.9, usefulness: 0.9 },
+                      ],
+                    }),
+                  },
+                }],
+              }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            return new Response(JSON.stringify({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    summary: "Reflection quality stayed evidence-backed.",
+                    insights: [{
+                      text: "Keep generated claims specific and evidence-backed.",
+                      evidenceIndex: 0,
+                    }],
+                  }),
+                },
+              }],
+            }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          },
+        }),
+      });
+
+      const output = await findTool(tools, "lore_reflect").handler({
+        prompt: "reflection claims specific evidence backed",
+        focus: "decisions",
+        useLocalInference: true,
+      }, {
+        sessionId: "reflect-quality-success",
+      });
+
+      assert.equal(requestCount, 2, output);
+      assert.match(output, /Reflection quality stayed evidence-backed\./);
+      assert.match(output, /localInferenceQuality: used accepted=2 rejected=0/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("falls back to deterministic reflection when quality evaluation rejects every insight", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+          analysis: {
+            qualityEvaluation: {
+              enabled: true,
+              minSupport: 0.8,
+              minSpecificity: 0.6,
+              minUsefulness: 0.6,
+            },
+          },
+        },
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+        },
+      },
+    });
+
+    try {
+      db.insertSemanticMemory({
+        id: "reflect-quality-fallback",
+        type: "decision",
+        content: "Preserve deterministic reflection when generated quality is too low.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        tags: ["quality"],
+      });
+      db.upsertEpisodeDigest({
+        id: "reflect-quality-fallback-episode",
+        sessionId: "reflect-quality-fallback-source",
+        repository: "fixture-repo",
+        summary: "Defined deterministic fallback for low-quality generated reflection.",
+        actions: [],
+        decisions: ["Preserve deterministic reflection when generated quality is too low."],
+        learnings: [],
+        filesChanged: [],
+        refs: [],
+        significance: 8,
+        themes: ["quality"],
+        openItems: [],
+        dateKey: "2026-07-15",
+        createdAt: "2026-07-15T12:00:00.000Z",
+      });
+      let requestCount = 0;
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, {
+          localInferenceFetch: async (_url, init) => {
+            requestCount += 1;
+            const body = JSON.parse(init.body);
+            if (body.messages[0].content.includes("evaluate Lore reflection output")) {
+              return new Response(JSON.stringify({
+                choices: [{
+                  message: {
+                    content: JSON.stringify({
+                      items: [
+                        { id: "summary", support: 0.2, specificity: 0.2, usefulness: 0.2 },
+                        { id: "insight:0", support: 0.2, specificity: 0.2, usefulness: 0.2 },
+                      ],
+                    }),
+                  },
+                }],
+              }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            return new Response(JSON.stringify({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    summary: "This generated summary must be rejected.",
+                    insights: [{
+                      text: "This generated insight must be rejected.",
+                      evidenceIndex: 0,
+                    }],
+                  }),
+                },
+              }],
+            }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          },
+        }),
+      });
+
+      const output = await findTool(tools, "lore_reflect").handler({
+        prompt: "deterministic reflection generated quality low",
+        focus: "decisions",
+        useLocalInference: true,
+      }, {
+        sessionId: "reflect-quality-fallback",
+      });
+
+      assert.equal(requestCount, 2, output);
+      assert.match(
+        output,
+        /localInference: deterministic fallback \(local inference reflection produced no quality-approved insights\)/,
+      );
+      assert.doesNotMatch(output, /This generated summary must be rejected/);
+      assert.match(output, /Defined deterministic fallback for low-quality generated reflection/);
     } finally {
       cleanup();
     }
@@ -188,6 +457,99 @@ describe("lore_reflect tool", () => {
       });
       assert.equal(requestCount, 0);
       assert.match(disabledOutput, /localInference: deterministic fallback \(provider disabled\)/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("uses the configured reflection default while preserving an explicit false override", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+          reflection: {
+            enabledByDefault: true,
+          },
+        },
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+        },
+      },
+    });
+
+    try {
+      db.insertSemanticMemory({
+        id: "reflect-local-inference-config-default",
+        type: "decision",
+        content: "Use configured local inference for routine reflections.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        tags: ["local-inference"],
+      });
+      db.upsertEpisodeDigest({
+        id: "reflect-local-inference-config-default-episode",
+        sessionId: "reflect-local-inference-config-default-source",
+        repository: "fixture-repo",
+        summary: "Configured local inference is the default for routine reflections.",
+        actions: [],
+        decisions: ["Use configured local inference for routine reflections."],
+        learnings: [],
+        filesChanged: [],
+        refs: [],
+        significance: 8,
+        themes: ["local-inference"],
+        openItems: [],
+        dateKey: "2026-07-14",
+        createdAt: "2026-07-14T12:00:00.000Z",
+      });
+      let requestCount = 0;
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, {
+          localInferenceFetch: async () => {
+            requestCount += 1;
+            return new Response(JSON.stringify({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    summary: "Configured local inference is active.",
+                    insights: [{
+                      text: "Routine reflections use the configured model default.",
+                      evidenceIndex: 0,
+                    }],
+                  }),
+                },
+              }],
+            }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          },
+        }),
+      });
+      const reflect = findTool(tools, "lore_reflect");
+
+      const defaultOutput = await reflect.handler({
+        prompt: "Should routine reflections use configured local inference?",
+        focus: "decisions",
+      }, {
+        sessionId: "reflect-config-default-on",
+      });
+      assert.equal(requestCount, 1);
+      assert.match(defaultOutput, /localInference: used/);
+
+      const disabledOutput = await reflect.handler({
+        prompt: "Should routine reflections use configured local inference?",
+        focus: "decisions",
+        useLocalInference: false,
+      }, {
+        sessionId: "reflect-config-default-explicit-off",
+      });
+      assert.equal(requestCount, 1);
+      assert.doesNotMatch(disabledOutput, /localInference:/);
     } finally {
       cleanup();
     }

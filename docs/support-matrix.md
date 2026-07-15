@@ -36,7 +36,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. |
+| `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. Optional local query expansion changes retrieval terms only and retries deterministic retrieval when expansion finds no evidence. |
 | `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope, category, and optional domain association. |
 | `lore_onboard` | 🟢 Supported | Captures the user name plus Lore's assistant/style profile in one step. |
 | `memory_search` | 🟢 Supported | Keyword + semantic search across the derived store. |
@@ -61,7 +61,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Optional persisted observations are supported via `refreshableObservations`. Local model synthesis is default-off and requires both provider configuration and `useLocalInference: true` on the individual call; optional embeddings rerank that call's evidence only. |
+| `lore_reflect` | 🟡 Experimental | Synthesised reflection over recent memory clusters. Optional persisted observations are supported via `refreshableObservations`. Local model synthesis is default-off but supports persistent config plus per-call overrides, advisory consolidation/contradiction/trend findings, optional quality evaluation, and embedding-grounded claims. |
 
 ### Scope control
 
@@ -164,8 +164,8 @@ Temporal recall notes:
   - `high` → day summary
   - `medium` → episode fallback
   - `low` → verified raw session history
-- This slice does **not** add vector retrieval or an embedding pipeline; `hybridRetrieval` remains the existing lexical/re-ranking path.
-- Optional local embeddings are used only to rerank the bounded evidence already selected for an explicitly opted-in `lore_reflect` call. They are not persisted and do not change the general retrieval/indexing pipeline.
+- Local embeddings rerank bounded evidence and validate generated reflection or compressed-context claims. They are not persisted and do not replace the general lexical retrieval/indexing pipeline.
+- Optional query expansion performs a separate bounded retrieval attempt and preserves deterministic routing, temporal scope, repository eligibility, and fallback behavior.
 
 ---
 

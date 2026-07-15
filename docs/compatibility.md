@@ -74,9 +74,9 @@ When `maintenanceScheduler.sessionStartBackfill` is enabled, Lore may also perfo
 | **Protocol** | OpenAI-compatible HTTP endpoints for `/v1/chat/completions`; `/v1/embeddings` is optional |
 | **Host** | Loopback only: `127.0.0.1`, `localhost`, or `::1` |
 | **Authentication** | Not supported in the URL; Lore rejects embedded credentials |
-| **Failure behavior** | Deterministic extraction/reflection is preserved and the fallback is surfaced |
+| **Failure behavior** | Deterministic retrieval, capsule, extraction, and reflection results are preserved for provider, embedding, malformed-output, citation, and grounding failures |
 
-Local inference is disabled by default. Deferred extraction requires a separate config opt-in, and `lore_reflect` requires an explicit per-call opt-in. No model call is made from Lore's latency-sensitive prompt-context hooks.
+Local inference is disabled by default. Deferred extraction, query expansion, context compression, and quality evaluation require separate config opt-ins. Reflection can be enabled persistently with `localInference.reflection.enabledByDefault`, while an explicit per-call `useLocalInference` value overrides that default. Optional embeddings filter bounded evidence and validate generated claims before rendering. Consolidation, contradiction, possible-supersession, and recurring-trend findings remain advisory. Prompt-context hooks make no model calls unless query expansion or context compression is explicitly enabled; those features can add local inference latency and preserve the deterministic capsule on failure.
 
 ---
 

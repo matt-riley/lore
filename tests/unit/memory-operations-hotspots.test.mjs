@@ -119,5 +119,105 @@ describe("memory-operations hotspot coverage", () => {
         "Pending recall split",
       ],
     );
+    assert.ok(
+      reflection.inferenceCandidates.length > reflection.insights.length,
+      "expected model-backed reflection to retain a wider bounded candidate pool",
+    );
+    assert.ok(
+      reflection.inferenceCandidates.some((entry) => entry.text === "Refactor the envelope helper"),
+      "expected lower-ranked relevant evidence to remain available for embedding reranking",
+    );
+  });
+
+  test("keeps recalled evidence in the inference pool when recent sessions fill the deterministic cap", () => {
+    const db = buildReflectDb();
+    db.explainPromptContext = () => ({
+      text: "Relevant CI evidence",
+      trace: {
+        lookups: {
+          crossRepoExamples: {
+            enabled: true,
+            reason: "included_match",
+            rows: [{ summary: "Fixed Configure Node.js steps in GitHub Actions workflows." }],
+            includedRows: [{ summary: "Fixed Configure Node.js steps in GitHub Actions workflows." }],
+            rankedRows: [{ summary: "Fixed Configure Node.js steps in GitHub Actions workflows." }],
+            filtered: [],
+          },
+        },
+        output: {
+          sectionTitles: ["Cross-Repo Examples"],
+          sectionDetails: [],
+        },
+      },
+    });
+    const recentSessions = Array.from({ length: 20 }, (_, index) => ({
+      session_id: `unrelated-${index}`,
+      repository: "other-repo",
+      summary: `Unrelated recent session ${index}`,
+      updated_at: "2026-07-14T12:00:00.000Z",
+    }));
+
+    const reflection = reflectMemory({
+      db,
+      prompt: "What GitHub Actions and CI work was completed?",
+      repository: "fixture-repo",
+      includeOtherRepositories: true,
+      limit: 12,
+      sessionStore: {
+        findRelevantSessions() {
+          return [];
+        },
+        findSessionsSince() {
+          return recentSessions;
+        },
+        countSessionsSince() {
+          return { count: recentSessions.length, capped: false };
+        },
+      },
+      focus: "summary",
+      lookbackHours: 168,
+    });
+
+    assert.ok(
+      reflection.inferenceCandidates.some(
+        (entry) => entry.evidence === "Fixed Configure Node.js steps in GitHub Actions workflows.",
+      ),
+      "expected recalled CI evidence to survive the recent-session candidate cap",
+    );
+  });
+
+  test("uses an expanded retrieval prompt without changing the original reflection prompt", () => {
+    const db = buildReflectDb();
+    const lookupPrompts = [];
+    db.explainPromptContext = ({ prompt }) => {
+      lookupPrompts.push(prompt);
+      return {
+        text: "",
+        trace: {
+          lookups: {},
+          output: {
+            sectionTitles: [],
+            sectionDetails: [],
+          },
+        },
+      };
+    };
+
+    const reflection = reflectMemory({
+      db,
+      prompt: "What deployment trouble kept recurring?",
+      retrievalPrompt: "deployment trouble recurring github actions ci workflow",
+      repository: "fixture-repo",
+      focus: "patterns",
+    });
+
+    assert.deepEqual(lookupPrompts, [
+      "deployment trouble recurring github actions ci workflow",
+    ]);
+    assert.equal(reflection.prompt, "What deployment trouble kept recurring?");
+    assert.equal(
+      reflection.retrievalPrompt,
+      "deployment trouble recurring github actions ci workflow",
+    );
   });
 });

@@ -171,6 +171,148 @@
           "maximum": 2,
           "default": 0
         },
+        "reflection": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabledByDefault": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        },
+        "queryExpansion": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "maxTerms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 8
+            }
+          }
+        },
+        "contextCompression": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "minInputTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000,
+              "default": 900
+            },
+            "targetTokens": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 4000,
+              "default": 700
+            },
+            "maxSections": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 8
+            }
+          }
+        },
+        "analysis": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "consolidation": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "maxItems": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8,
+                  "default": 4
+                }
+              }
+            },
+            "contradictions": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "maxItems": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8,
+                  "default": 4
+                }
+              }
+            },
+            "trends": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "maxItems": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8,
+                  "default": 4
+                },
+                "minOccurrences": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 20,
+                  "default": 2
+                }
+              }
+            },
+            "qualityEvaluation": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "minSupport": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.8
+                },
+                "minSpecificity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.6
+                },
+                "minUsefulness": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.6
+                }
+              }
+            }
+          }
+        },
         "embeddings": {
           "type": "object",
           "additionalProperties": false,
@@ -187,7 +329,25 @@
               "type": "integer",
               "minimum": 2,
               "maximum": 50,
-              "default": 12
+              "default": 24
+            },
+            "topK": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 6
+            },
+            "minSimilarity": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1,
+              "default": 0.2
+            },
+            "groundingMinSimilarity": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1,
+              "default": 0.35
             }
           }
         }

@@ -6,6 +6,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.9.0](https://github.com/matt-riley/lore/compare/lore-v0.8.1...lore-v0.9.0) (2026-07-15)
+
+
+### Features
+
+* add grounded local inference augmentations ([#60](https://github.com/matt-riley/lore/issues/60)) ([97bf141](https://github.com/matt-riley/lore/commit/97bf14133cb6cedc597360f578f106131fc049da))
+* **memory:** add opt-in local inference ([#58](https://github.com/matt-riley/lore/issues/58)) ([96d5d92](https://github.com/matt-riley/lore/commit/96d5d9201c5775a52c56c0713d522ebbc1e160ee))
+
 ## [0.8.1](https://github.com/matt-riley/lore/compare/lore-v0.8.0...lore-v0.8.1) (2026-07-08)
 
 

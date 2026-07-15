@@ -164,7 +164,7 @@ Temporal recall notes:
   - `high` → day summary
   - `medium` → episode fallback
   - `low` → verified raw session history
-- Local embeddings rerank bounded evidence and validate generated reflection or compressed-context claims. They are not persisted and do not replace the general lexical retrieval/indexing pipeline.
+- Local embeddings rerank bounded evidence and validate generated reflection or compressed-context claims. EmbeddingGemma and Nomic receive model-specific retrieval prefixes, and model-backed lookback reflection can use the latest bounded checkpoint overview when a session title is too generic. Embeddings are not persisted and do not replace the general lexical retrieval/indexing pipeline.
 - Optional query expansion performs a separate bounded retrieval attempt and preserves deterministic routing, temporal scope, repository eligibility, and fallback behavior.
 
 ---

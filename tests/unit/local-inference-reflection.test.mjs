@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { enhanceReflectionWithLocalInference } from "../../lib/local-inference-reflection.mjs";
+import {
+  enhanceReflectionWithLocalInference,
+  formatEmbeddingRetrievalInput,
+} from "../../lib/local-inference-reflection.mjs";
 
 function jsonResponse(body) {
   return new Response(JSON.stringify(body), {
@@ -87,22 +90,54 @@ function buildReflection() {
 }
 
 describe("local inference reflection grounding", () => {
+  test("formats retrieval inputs for EmbeddingGemma and Nomic models", () => {
+    assert.equal(
+      formatEmbeddingRetrievalInput("embeddinggemma", "CI maintenance", "query"),
+      "task: search result | query: CI maintenance",
+    );
+    assert.equal(
+      formatEmbeddingRetrievalInput("embeddinggemma", "Fixed workflow", "document"),
+      "title: Lore session evidence | text: Fixed workflow",
+    );
+    assert.equal(
+      formatEmbeddingRetrievalInput("nomic-embed-text-v2-moe", "CI maintenance", "query"),
+      "search_query: CI maintenance",
+    );
+    assert.equal(
+      formatEmbeddingRetrievalInput("nomic-embed-text-v2-moe", "Fixed workflow", "document"),
+      "search_document: Fixed workflow",
+    );
+    assert.equal(
+      formatEmbeddingRetrievalInput("custom-embedding-model", "CI maintenance", "query"),
+      "CI maintenance",
+    );
+  });
+
   test("ranks the full bounded candidate pool before selecting evidence for Gemma", async () => {
     const reflection = buildReflection();
+    reflection.retrievalPrompt = "version control continuous integration repository maintenance";
+    const config = buildConfig();
+    config.embeddings.model = "docker.io/ai/embeddinggemma:latest";
+    const embeddingQuery = `task: search result | query: ${reflection.retrievalPrompt}`;
+    const evidenceInputs = reflection.inferenceCandidates.map(
+      (candidate) => `title: Lore session evidence | text: ${candidate.evidence}`,
+    );
+    const groundedSummaryInput = "task: search result | query: Completed CI workflow maintenance and deployment verification.";
+    const groundedClaimInput = "task: search result | query: The CI workflow dependency update was completed.";
     const vectorsByText = new Map([
-      [reflection.prompt, [1, 0]],
-      ["Researched motion design trends.", [0, 1]],
-      ["Updated GitHub Actions workflow dependencies and fixed the Node.js setup step.", [1, 0]],
-      ["Integrated a local language model.", [-1, 0]],
-      ["Reviewed GitHub Actions deployment checks for two pull requests.", [0.9, 0.1]],
-      ["Completed CI workflow maintenance and deployment verification.", [1, 0]],
-      ["The CI workflow dependency update was completed.", [1, 0]],
+      [embeddingQuery, [1, 0]],
+      [evidenceInputs[0], [0, 1]],
+      [evidenceInputs[1], [1, 0]],
+      [evidenceInputs[2], [-1, 0]],
+      [evidenceInputs[3], [0.9, 0.1]],
+      [groundedSummaryInput, [1, 0]],
+      [groundedClaimInput, [1, 0]],
     ]);
     const embeddingInputs = [];
     let chatEvidence = [];
 
     const result = await enhanceReflectionWithLocalInference({
-      config: buildConfig(),
+      config,
       reflection,
       fetchImpl: async (url, init) => {
         const body = JSON.parse(init.body);
@@ -129,11 +164,12 @@ describe("local inference reflection grounding", () => {
 
     assert.equal(embeddingInputs.length, 2);
     assert.deepEqual(embeddingInputs[0], [
-      reflection.prompt,
-      "Researched motion design trends.",
-      "Updated GitHub Actions workflow dependencies and fixed the Node.js setup step.",
-      "Integrated a local language model.",
-      "Reviewed GitHub Actions deployment checks for two pull requests.",
+      embeddingQuery,
+      ...evidenceInputs,
+    ]);
+    assert.deepEqual(embeddingInputs[1], [
+      groundedSummaryInput,
+      groundedClaimInput,
     ]);
     assert.deepEqual(
       chatEvidence.map((entry) => entry.text),

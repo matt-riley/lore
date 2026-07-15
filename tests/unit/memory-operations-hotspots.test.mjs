@@ -186,6 +186,44 @@ describe("memory-operations hotspot coverage", () => {
     );
   });
 
+  test("prefers checkpoint evidence for model-backed recent-session candidates", () => {
+    const db = buildReflectDb();
+    const reflection = reflectMemory({
+      db,
+      prompt: "What recurring GitHub Actions and CI problems were resolved?",
+      repository: "fixture-repo",
+      includeOtherRepositories: true,
+      limit: 6,
+      sessionStore: {
+        findRelevantSessions() {
+          return [];
+        },
+        findSessionsSince() {
+          return [{
+            session_id: "ci-session",
+            repository: "other-repo",
+            summary: "Review deployment",
+            evidenceSummary: "Fixing migration CI - Resolved recurring GitHub Actions failures and reran deployment checks.",
+            updated_at: "2026-07-14T12:00:00.000Z",
+          }];
+        },
+        countSessionsSince() {
+          return { count: 1, capped: false };
+        },
+      },
+      focus: "patterns",
+      lookbackHours: 168,
+      recentSessionCandidateLimit: 40,
+    });
+
+    assert.ok(
+      reflection.inferenceCandidates.some(
+        (entry) => entry.evidence === "other-repo: Fixing migration CI - Resolved recurring GitHub Actions failures and reran deployment checks.",
+      ),
+      "expected checkpoint evidence to replace the generic recent-session title",
+    );
+  });
+
   test("uses an expanded retrieval prompt without changing the original reflection prompt", () => {
     const db = buildReflectDb();
     const lookupPrompts = [];

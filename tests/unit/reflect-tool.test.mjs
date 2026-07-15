@@ -748,6 +748,7 @@ describe("lore_reflect tool", () => {
 
       assert.equal(findSessionsSinceCalls.length, 1);
       assert.equal(findSessionsSinceCalls[0].repository, "fixture-repo");
+      assert.equal(findSessionsSinceCalls[0].limit, 12);
       assert.match(findSessionsSinceCalls[0].sinceIso, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
       assert.match(output, /lookbackHours: 24 \(sessions found: 1\)/);
       assert.match(output, /Fixed the reflect tool lookback bug end to end\./);
@@ -757,6 +758,75 @@ describe("lore_reflect tool", () => {
       assert.equal(observation.trace?.lookbackHours, 24);
       assert.equal(observation.trace?.recentSessionCount, 1);
       assert.equal(observation.trace?.recentSessionCountCapped, false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("widens the recent-session candidate pool for embedding-ranked reflection", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+          reflection: {
+            enabledByDefault: true,
+          },
+          embeddings: {
+            enabled: true,
+            model: "local-embedding-model",
+            maxInputs: 50,
+          },
+        },
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+        },
+      },
+    });
+
+    try {
+      const findSessionsSinceCalls = [];
+      const sessionStore = {
+        findRelevantSessions() {
+          return [];
+        },
+        findSessionsSince(args) {
+          findSessionsSinceCalls.push(args);
+          return [{
+            session_id: "candidate-pool-session",
+            repository: "fixture-repo",
+            branch: "main",
+            summary: "Completed GitHub Actions maintenance.",
+            created_at: "2026-07-15T08:00:00.000Z",
+            updated_at: "2026-07-15T09:00:00.000Z",
+          }];
+        },
+        countSessionsSince() {
+          return { count: 39, capped: false };
+        },
+      };
+      const tools = createMemoryTools({
+        getRuntime: async () => buildRuntime(db, config, {
+          sessionStore,
+          localInferenceFetch: async () => {
+            throw new Error("local provider unavailable");
+          },
+        }),
+      });
+
+      const output = await findTool(tools, "lore_reflect").handler({
+        prompt: "Review Git and CI maintenance from the past week.",
+        lookbackHours: 168,
+      }, {
+        sessionId: "reflect-candidate-pool",
+      });
+
+      assert.equal(findSessionsSinceCalls.length, 1);
+      assert.equal(findSessionsSinceCalls[0].limit, 40);
+      assert.equal(findSessionsSinceCalls[0].includeCheckpointEvidence, true);
+      assert.match(output, /localInference: deterministic fallback \(local provider unavailable\)/);
     } finally {
       cleanup();
     }

@@ -825,6 +825,7 @@ describe("lore_reflect tool", () => {
 
       assert.equal(findSessionsSinceCalls.length, 1);
       assert.equal(findSessionsSinceCalls[0].limit, 40);
+      assert.equal(findSessionsSinceCalls[0].includeCheckpointEvidence, true);
       assert.match(output, /localInference: deterministic fallback \(local provider unavailable\)/);
     } finally {
       cleanup();

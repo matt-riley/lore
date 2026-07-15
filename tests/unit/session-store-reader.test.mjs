@@ -25,6 +25,13 @@ function buildRawStore(tempHome, sessions) {
       created_at TEXT,
       updated_at TEXT
     );
+    CREATE TABLE checkpoints (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      checkpoint_number INTEGER NOT NULL,
+      title TEXT,
+      overview TEXT
+    );
   `);
   const insert = db.prepare(`
     INSERT INTO sessions (id, repository, branch, summary, created_at, updated_at)
@@ -423,6 +430,61 @@ describe("SessionStoreReader.findSessionsSince", () => {
       );
       assert.strictEqual(rows[0].repository, "repo-two");
       assert.strictEqual(rows[1].summary, "exactly at cutoff");
+      reader.db.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("optionally enriches recent sessions with the latest checkpoint evidence", () => {
+    const tempHome = makeTempDir();
+    try {
+      const rawStorePath = buildRawStore(tempHome, [[
+        "session-ci",
+        "repo-one",
+        "main",
+        "Review deployment",
+        "2026-03-30T08:00:00Z",
+        "2026-03-30T11:00:00Z",
+      ]]);
+      const db = new DatabaseSync(rawStorePath);
+      const insertCheckpoint = db.prepare(`
+        INSERT INTO checkpoints (session_id, checkpoint_number, title, overview)
+        VALUES (?, ?, ?, ?)
+      `);
+      insertCheckpoint.run(
+        "session-ci",
+        1,
+        "Planning migration",
+        "Prepared the initial Terraform migration plan.",
+      );
+      insertCheckpoint.run(
+        "session-ci",
+        2,
+        "Fixing migration CI",
+        "Resolved recurring GitHub Actions failures and reran the deployment checks.",
+      );
+      db.close();
+
+      const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
+      reader.initialize();
+      const defaultRows = reader.findSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        includeOtherRepositories: true,
+        limit: 5,
+      });
+      const enrichedRows = reader.findSessionsSince({
+        sinceIso: "2026-03-29T00:00:00Z",
+        includeOtherRepositories: true,
+        includeCheckpointEvidence: true,
+        limit: 5,
+      });
+
+      assert.equal(defaultRows[0].evidenceSummary, undefined);
+      assert.equal(
+        enrichedRows[0].evidenceSummary,
+        "Fixing migration CI - Resolved recurring GitHub Actions failures and reran the deployment checks.",
+      );
       reader.db.close();
     } finally {
       rmSync(tempHome, { recursive: true, force: true });

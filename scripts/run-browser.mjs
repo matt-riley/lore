@@ -8,7 +8,7 @@ import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } fr
 export { mergeDeep };
 import { LoreDb } from "../lib/db.mjs";
 import { startLoreBrowserServer } from "../browser/server.mjs";
-import { COMMON_PATH_ARG_HANDLERS, consumeValueArg, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
+import { COMMON_PATH_ARG_HANDLERS, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
 
 const ALLOWED_LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
@@ -20,15 +20,16 @@ function normalizeLoopbackHost(value) {
   return host;
 }
 
+function normalizePort(value, args) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? Math.max(1, Math.min(65535, Math.round(parsed)))
+    : args.port;
+}
+
 const BROWSER_ARG_HANDLERS = Object.freeze({
-  "--host": (args, value) => consumeValueArg(args, "host", value, normalizeLoopbackHost),
-  "--port": (args, value) => {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      args.port = Math.max(1, Math.min(65535, Math.round(parsed)));
-    }
-    return true;
-  },
+  "--host": { key: "host", transform: normalizeLoopbackHost },
+  "--port": { key: "port", transform: normalizePort },
   ...COMMON_PATH_ARG_HANDLERS,
 });
 

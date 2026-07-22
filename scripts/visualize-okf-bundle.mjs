@@ -6,20 +6,22 @@ import { existsSync, statSync } from "node:fs";
 import { readOkfBundle } from "../lib/okf-bundle-reader.mjs";
 import { renderOkfVisualizerHtml, writeOkfVisualizerHtml } from "../lib/okf-bundle-visualizer.mjs";
 
+const VALUE_ARGUMENTS = Object.freeze({
+  "--bundle": "bundle",
+  "--out": "out",
+  "--name": "name",
+});
+const HELP_ARGUMENTS = new Set(["--help", "-h"]);
+
 function parseArgs(argv) {
   const args = { bundle: null, out: null, name: null };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--bundle") {
-      args.bundle = argv[index + 1];
+    const key = VALUE_ARGUMENTS[arg];
+    if (key) {
+      args[key] = argv[index + 1];
       index += 1;
-    } else if (arg === "--out") {
-      args.out = argv[index + 1];
-      index += 1;
-    } else if (arg === "--name") {
-      args.name = argv[index + 1];
-      index += 1;
-    } else if (arg === "--help" || arg === "-h") {
+    } else if (HELP_ARGUMENTS.has(arg)) {
       args.help = true;
     }
   }

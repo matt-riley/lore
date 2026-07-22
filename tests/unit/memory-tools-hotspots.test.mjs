@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
 import { createMemoryTools } from "../../lib/memory-tools.mjs";
+import { buildMemoryStatusIdentityLines } from "../../lib/memory-tools-status-identity.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 import { findTool } from "../helpers/tool-helpers.mjs";
 
@@ -63,6 +64,14 @@ describe("memory-tools module split", () => {
     } finally {
       cleanup();
     }
+  });
+
+  test("memory_status reports the configured enabled state", async () => {
+    const lines = buildMemoryStatusIdentityLines({
+      config: { enabled: true },
+      repository: "fixture-repo",
+    }, {});
+    assert.equal(lines[0], "enabled: true");
   });
 });
 

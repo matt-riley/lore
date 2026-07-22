@@ -4,9 +4,8 @@ function resolveArgPath(value) {
   return path.resolve(process.cwd(), String(value ?? ""));
 }
 
-export function consumeValueArg(args, key, value, transform = (next) => next) {
-  args[key] = transform(value);
-  return true;
+function normalizeRepositoryArg(value) {
+  return String(value ?? "").trim() || null;
 }
 
 export function resolveDefaultLoreConfigPath() {
@@ -35,11 +34,11 @@ export function finalizeScriptConfig(merged, args, configPath) {
 }
 
 export const COMMON_PATH_ARG_HANDLERS = Object.freeze({
-  "--config": (args, value) => consumeValueArg(args, "configPath", value, resolveArgPath),
-  "--repository": (args, value) => consumeValueArg(args, "repository", value, (next) => String(next ?? "").trim() || null),
-  "--derived-store-path": (args, value) => consumeValueArg(args, "derivedStorePath", value, resolveArgPath),
-  "--backup-dir": (args, value) => consumeValueArg(args, "backupDir", value, resolveArgPath),
-  "--raw-store-path": (args, value) => consumeValueArg(args, "rawStorePath", value, resolveArgPath),
+  "--config": { key: "configPath", transform: resolveArgPath },
+  "--repository": { key: "repository", transform: normalizeRepositoryArg },
+  "--derived-store-path": { key: "derivedStorePath", transform: resolveArgPath },
+  "--backup-dir": { key: "backupDir", transform: resolveArgPath },
+  "--raw-store-path": { key: "rawStorePath", transform: resolveArgPath },
 });
 
 export function parseArgsWith(handlers, defaults, argv) {
@@ -49,7 +48,12 @@ export function parseArgsWith(handlers, defaults, argv) {
     if (!handler) {
       continue;
     }
-    if (handler(args, argv[index + 1]) === true) {
+    if (handler.assign) {
+      Object.assign(args, handler.assign);
+    }
+    if (handler.key) {
+      const value = argv[index + 1];
+      args[handler.key] = handler.transform ? handler.transform(value, args) : value;
       index += 1;
     }
   }

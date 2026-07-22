@@ -3,7 +3,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { COMMON_PATH_ARG_HANDLERS, consumeValueArg, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
+import { COMMON_PATH_ARG_HANDLERS, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
 import { LoreDb } from "../lib/db.mjs";
 import { SessionStoreReader } from "../lib/session-store-reader.mjs";
 import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/config.mjs";
@@ -16,38 +16,14 @@ function parseTaskList(value) {
     .map((item) => item.trim())
     .filter(Boolean);
 }
-
-function applyActionArg(args, action) {
-  args.action = action;
-  args.dryRun = true;
-}
-
 const ARG_HANDLERS = Object.freeze({
-  "--dry-run": (args) => {
-    args.dryRun = true;
-    return false;
-  },
-  "--force": (args) => {
-    args.force = true;
-    return false;
-  },
-  "--status": (args) => {
-    applyActionArg(args, "status");
-    return false;
-  },
-  "--recommended-schedule": (args) => {
-    applyActionArg(args, "recommended-schedule");
-    return false;
-  },
-  "--help": (args) => {
-    applyActionArg(args, "help");
-    return false;
-  },
-  "-h": (args) => {
-    applyActionArg(args, "help");
-    return false;
-  },
-  "--tasks": (args, value) => consumeValueArg(args, "tasks", value, parseTaskList),
+  "--dry-run": { assign: { dryRun: true } },
+  "--force": { assign: { force: true } },
+  "--status": { assign: { action: "status", dryRun: true } },
+  "--recommended-schedule": { assign: { action: "recommended-schedule", dryRun: true } },
+  "--help": { assign: { action: "help", dryRun: true } },
+  "-h": { assign: { action: "help", dryRun: true } },
+  "--tasks": { key: "tasks", transform: parseTaskList },
   ...COMMON_PATH_ARG_HANDLERS,
 });
 

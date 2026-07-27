@@ -1297,82 +1297,80 @@ async function recordUserPromptBypassObservation({
 
 import { buildLoreHooks } from "./lib/hook-registration.mjs";
 
-const handlers = {
-  onSessionStart: async (input, invocation) => {
-    lastKnownCwd = input.cwd || lastKnownCwd;
-    return handleSessionStartHook({ session, invocation, input, metrics });
-  },
+const session = await joinSession({
+  onPermissionRequest: approveAll,
+  hooks: buildLoreHooks({
+    onSessionStart: async (input, invocation) => {
+      lastKnownCwd = input.cwd || lastKnownCwd;
+      return handleSessionStartHook({ session, invocation, input, metrics });
+    },
 
-  onUserPromptSubmitted: async (input, invocation) => {
-    const startedAt = Date.now();
-    lastKnownCwd = input.cwd || lastKnownCwd;
+    onUserPromptSubmitted: async (input, invocation) => {
+      const startedAt = Date.now();
+      lastKnownCwd = input.cwd || lastKnownCwd;
 
-    const context = await getContext(session, invocation.sessionId, input.cwd);
-    const { runtime: activeRuntime, repository } = context;
+      const context = await getContext(session, invocation.sessionId, input.cwd);
+      const { runtime: activeRuntime, repository } = context;
 
-    if (isHookRuntimeUnavailable(activeRuntime) || !hooksEnabled(activeRuntime.config)) {
-      return;
-    }
+      if (isHookRuntimeUnavailable(activeRuntime) || !hooksEnabled(activeRuntime.config)) {
+        return;
+      }
 
-    const need = detectPromptContextNeed(input.prompt);
-    const hasAmbientInteractionStyle = readAmbientInteractionStylePresence(activeRuntime);
-    if (!need.requiresLookup && !hasAmbientInteractionStyle) {
-      await recordUserPromptBypassObservation({
+      const need = detectPromptContextNeed(input.prompt);
+      const hasAmbientInteractionStyle = readAmbientInteractionStylePresence(activeRuntime);
+      if (!need.requiresLookup && !hasAmbientInteractionStyle) {
+        await recordUserPromptBypassObservation({
+          session,
+          activeRuntime,
+          repository,
+          inputPrompt: input.prompt,
+          need,
+          durationMs: Date.now() - startedAt,
+        });
+        return;
+      }
+
+      const recall = recallMemory({
+        db: activeRuntime.db,
+        prompt: input.prompt,
+        repository,
+        includeOtherRepositories: need.allowCrossRepoFallback === true,
+        limit: activeRuntime.config.limits.promptContextLimit,
+        sessionStore: activeRuntime.sessionStore,
+        promptNeed: need,
+      });
+      const additionalContext = recall.text;
+
+      await finalizeHookObservation({
         session,
         activeRuntime,
         repository,
-        inputPrompt: input.prompt,
-        need,
+        hook: "onUserPromptSubmitted",
+        prompt: input.prompt,
+        promptNeed: need,
+        trace: recall.trace,
+        contextText: additionalContext,
         durationMs: Date.now() - startedAt,
+        metricWindow: metrics.userPromptSubmittedMs,
+        latencyMetric: "userPromptSubmitted",
+        hookLabel: "lore onUserPromptSubmitted",
+        targetMs: activeRuntime.config.latencyTargetsMs.userPromptSubmittedP95,
       });
-      return;
-    }
 
-    const recall = recallMemory({
-      db: activeRuntime.db,
-      prompt: input.prompt,
-      repository,
-      includeOtherRepositories: need.allowCrossRepoFallback === true,
-      limit: activeRuntime.config.limits.promptContextLimit,
-      sessionStore: activeRuntime.sessionStore,
-      promptNeed: need,
-    });
-    const additionalContext = recall.text;
+      if (!additionalContext) {
+        return;
+      }
 
-    await finalizeHookObservation({
-      session,
-      activeRuntime,
-      repository,
-      hook: "onUserPromptSubmitted",
-      prompt: input.prompt,
-      promptNeed: need,
-      trace: recall.trace,
-      contextText: additionalContext,
-      durationMs: Date.now() - startedAt,
-      metricWindow: metrics.userPromptSubmittedMs,
-      latencyMetric: "userPromptSubmitted",
-      hookLabel: "lore onUserPromptSubmitted",
-      targetMs: activeRuntime.config.latencyTargetsMs.userPromptSubmittedP95,
-    });
+      return {
+        additionalContext,
+      };
+    },
 
-    if (!additionalContext) {
-      return;
-    }
-
-    return {
-      additionalContext,
-    };
-  },
-
-  onSessionEnd: async (input, invocation) => {
-    lastKnownCwd = input.cwd || lastKnownCwd;
-    return handleSessionEndHook({ session, invocation, input });
-  },
-};
-
-const session = await joinSession({
-  onPermissionRequest: approveAll,
-  hooks: buildLoreHooks(handlers),
+    onSessionEnd: async (input, invocation) => {
+      lastKnownCwd = input.cwd || lastKnownCwd;
+      return handleSessionEndHook({ session, invocation, input });
+    },
+  }),
   tools: createMemoryTools({
     getRuntime: async (sessionId) => {
       const context = await getContext(session, sessionId, lastKnownCwd);

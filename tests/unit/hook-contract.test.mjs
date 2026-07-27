@@ -1,47 +1,43 @@
-import assert from "node:assert/strict";
-import { describe, test } from "node:test";
-import { buildLoreHooks } from "../../lib/hook-registration.mjs";
+import assert from "node:assert";
+import { buildLoreHooks, LORE_HOOK_NAMES } from "../../lib/hook-registration.mjs";
 
-// Verified SDK hook contract (seven-hook superset used for validation)
-const VERIFIED_HOOKS = [
-  "onPreToolUse",
-  "onPostToolUse",
-  "onUserPromptSubmitted",
-  "onSessionStart",
-  "onSessionEnd",
-  "onErrorOccurred",
-  "onEvent",
-];
+// Programmatic unit tests for the hook helper and canonical contract
+const run = async () => {
+  // canonical contract
+  assert(Array.isArray(LORE_HOOK_NAMES), "LORE_HOOK_NAMES should be an array");
+  assert.strictEqual(LORE_HOOK_NAMES.length, 7, "There must be seven canonical hooks");
+  assert(LORE_HOOK_NAMES.includes("onPreMcpToolCall"), "onPreMcpToolCall must be part of the canonical set");
+  assert(!LORE_HOOK_NAMES.includes("onEvent"), "onEvent must NOT be part of the canonical set");
 
-describe("hook-registration helper", () => {
-  test("returns only defined handlers and preserves function identity", () => {
-    const sentinelA = () => "a";
-    const sentinelB = function foo() { return "b"; };
-    const sentinelC = () => "c";
+  // prepare handlers with mixed values
+  const f1 = () => 1;
+  const f2 = function () { return 2; };
+  const handlers = {
+    onSessionStart: f1,
+    onPreToolUse: f2,
+    onPreMcpToolCall: () => "ok",
+    onEvent: () => "should be rejected",
+    onSessionEnd: undefined,
+    onUserPromptSubmitted: "not-a-function",
+    unknownHook: () => {},
+  };
 
-    const handlers = {
-      onSessionStart: sentinelA,
-      onUserPromptSubmitted: sentinelB,
-      onFooBar: sentinelC, // not a known/allowed hook
-      onEvent: undefined, // explicitly undefined should be omitted
-    };
+  const built = buildLoreHooks(handlers);
 
-    const built = buildLoreHooks(handlers);
+  // should only include canonical names with function values
+  assert.strictEqual(typeof built.onSessionStart, "function");
+  assert.strictEqual(built.onSessionStart, f1, "Function identity must be preserved");
+  assert.strictEqual(typeof built.onPreToolUse, "function");
+  assert.strictEqual(built.onPreToolUse, f2, "Function identity must be preserved");
+  assert.strictEqual(typeof built.onPreMcpToolCall, "function", "onPreMcpToolCall should be accepted as a named hook");
 
-    // keys should be a subset of VERIFIED_HOOKS
-    const keys = Object.keys(built);
-    for (const k of keys) {
-      assert.ok(VERIFIED_HOOKS.includes(k), `unexpected hook key: ${k}`);
-    }
+  // should NOT include non-function, undefined, or unknown keys
+  assert(!Object.prototype.hasOwnProperty.call(built, "onEvent"), "onEvent must be rejected by buildLoreHooks");
+  assert(!Object.prototype.hasOwnProperty.call(built, "unknownHook"), "unknownHook must be rejected");
+  assert(!Object.prototype.hasOwnProperty.call(built, "onSessionEnd"), "undefined-valued hooks must be omitted");
+  assert(!Object.prototype.hasOwnProperty.call(built, "onUserPromptSubmitted"), "non-function-valued hooks must be omitted");
 
-    // expected keys present
-    assert.strictEqual(built.onSessionStart, sentinelA);
-    assert.strictEqual(built.onUserPromptSubmitted, sentinelB);
+  console.log("hook-contract programmatic test: OK");
+};
 
-    // unexpected keys omitted
-    assert.equal(built.onFooBar, undefined);
-
-    // explicitly undefined omitted
-    assert.equal(built.onEvent, undefined);
-  });
-});
+await run();

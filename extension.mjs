@@ -55,7 +55,94 @@ const runtime = {
   processingMaintenance: false,
   processingBackfill: false,
   tracePersistenceWrites: 0,
+  pendingWork: new Set(),
+  shuttingDown: false,
 };
+
+/**
+ * Register a background promise in the runtime tracking set.
+ * The promise is removed automatically when it settles so the set only
+ * contains in-flight work.
+ *
+ * @param {Promise<unknown>} promise
+ */
+function trackBackgroundWork(promise) {
+  runtime.pendingWork.add(promise);
+  promise.finally(() => {
+    runtime.pendingWork.delete(promise);
+  });
+}
+
+/**
+ * Spawn a tracked microtask.  The async function is called via
+ * Promise.resolve() so it runs in the next microtask checkpoint, equivalent
+ * to queueMicrotask, but the resulting promise is registered in
+ * runtime.pendingWork so shutdownRuntime can drain it.
+ *
+ * Returns without spawning if shutdown has already been requested.
+ *
+ * @param {() => Promise<unknown>} fn
+ */
+function spawnTrackedMicrotask(fn) {
+  if (runtime.shuttingDown) {
+    return;
+  }
+  trackBackgroundWork(Promise.resolve().then(fn));
+}
+
+/**
+ * Spawn a tracked deferred task via setTimeout(0).  Equivalent to the
+ * existing setTimeout(async () => {...}, 0) pattern, but the resulting
+ * promise is registered in runtime.pendingWork so shutdownRuntime can drain
+ * it.
+ *
+ * Returns without spawning if shutdown has already been requested.
+ *
+ * @param {() => Promise<unknown>} fn
+ */
+function spawnTrackedDeferredTask(fn) {
+  if (runtime.shuttingDown) {
+    return;
+  }
+  const p = new Promise((resolve, reject) => {
+    setTimeout(() => {
+      Promise.resolve().then(fn).then(resolve, reject);
+    }, 0);
+  });
+  trackBackgroundWork(p);
+}
+
+/**
+ * Initiate a bounded shutdown of the extension runtime.
+ *
+ * Marks the runtime as shutting down (so no new background work is spawned),
+ * waits up to gracePeriodMs for any in-flight background jobs to settle, then
+ * closes the database exactly once.  Safe to call multiple times — the flag
+ * ensures only the first invocation does real work.
+ *
+ * @param {object} session - Copilot session (used for graceful drain logs)
+ * @param {number} [gracePeriodMs=4000]
+ */
+async function shutdownRuntime(session, gracePeriodMs = 4000) {
+  if (runtime.shuttingDown) {
+    return;
+  }
+  runtime.shuttingDown = true;
+
+  if (runtime.pendingWork.size > 0) {
+    await Promise.race([
+      Promise.allSettled([...runtime.pendingWork]),
+      delay(gracePeriodMs),
+    ]);
+  }
+
+  try {
+    runtime.db?.close();
+  } catch {
+    // best-effort close; never rethrow from shutdown path
+  }
+  runtime.db = null;
+}
 
 function recordMetric(values, value, windowSize) {
   values.push(value);
@@ -762,7 +849,7 @@ function resolveTraceSuccessRecord(traceResult) {
   };
 }
 
-function persistTraceSuccess({ activeRuntime, repository, traceResult, durationMs, hook }) {
+function persistTraceSuccess({ activeRuntime, repository, traceResult, durationMs, hook, session }) {
   if (!activeRuntime?.db || !traceResult || typeof traceResult !== "object") {
     return;
   }
@@ -771,7 +858,7 @@ function persistTraceSuccess({ activeRuntime, repository, traceResult, durationM
     return;
   }
 
-  queueMicrotask(() => {
+  spawnTrackedMicrotask(async () => {
     try {
       const { recordedAt, traceUpdates, contextInjectionUpdates } = buildTraceSuccessUpdates({
         traceRecord,
@@ -798,8 +885,13 @@ function persistTraceSuccess({ activeRuntime, repository, traceResult, durationM
         hook,
         recordedAt,
       });
-    } catch {
-      // best-effort visibility persistence; never block hook path
+    } catch (error) {
+      // best-effort visibility persistence; warn but never block hook path
+      const message = error instanceof Error ? error.message : String(error);
+      await session.log(`lore trace persistence warning: ${message}`, {
+        ephemeral: true,
+        level: "warning",
+      });
     }
   });
 }
@@ -923,6 +1015,8 @@ async function handleSessionEndHook({
       level: "warning",
     });
   }
+
+  await shutdownRuntime(session);
 }
 
 async function maybeProcessDeferredExtractions(session, activeRuntime, repository) {
@@ -935,7 +1029,7 @@ async function maybeProcessDeferredExtractions(session, activeRuntime, repositor
   }
 
   activeRuntime.processingDeferred = true;
-  queueMicrotask(async () => {
+  spawnTrackedMicrotask(async () => {
     try {
       const result = await processDeferredExtractions({
         db: activeRuntime.db,
@@ -982,7 +1076,7 @@ async function maybeRunMaintenanceScheduler(session, activeRuntime, repository) 
   }
 
   activeRuntime.processingMaintenance = true;
-  queueMicrotask(async () => {
+  spawnTrackedMicrotask(async () => {
     try {
       const result = await runMaintenanceSweep({
         runtime: {
@@ -1045,7 +1139,7 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
   }
 
   activeRuntime.processingBackfill = true;
-  setTimeout(async () => {
+  spawnTrackedDeferredTask(async () => {
     try {
       await runSessionStartBackfillWork({
         session,
@@ -1063,7 +1157,7 @@ async function maybeRunSessionStartBackfill(session, activeRuntime, repository) 
     } finally {
       activeRuntime.processingBackfill = false;
     }
-  }, 0);
+  });
 }
 
 function maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, sessionId) {
@@ -1073,7 +1167,7 @@ function maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, 
   if (!activeRuntime.db || !workspacePath) {
     return;
   }
-  queueMicrotask(async () => {
+  spawnTrackedMicrotask(async () => {
     try {
       await hydrateWorkstreamOverlay({
         db: activeRuntime.db,
@@ -1161,6 +1255,7 @@ function recordHookTraceAndMetric({
   durationMs,
   hook,
   metricWindow,
+  session,
 }) {
   persistTraceSuccess({
     activeRuntime,
@@ -1168,6 +1263,7 @@ function recordHookTraceAndMetric({
     traceResult,
     durationMs,
     hook,
+    session,
   });
   recordMetric(
     metricWindow,
@@ -1226,6 +1322,7 @@ async function finalizeHookObservation({
     durationMs,
     hook,
     metricWindow,
+    session,
   });
   if (!includeLatencyWarning) {
     return;

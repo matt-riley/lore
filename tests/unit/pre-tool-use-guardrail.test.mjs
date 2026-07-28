@@ -11,6 +11,8 @@
  *   - Explicit allowlist contents: lore_retain, lore_reflect, memory_save
  *   - isToolInAllowlist: returns correct boolean for known/unknown/edge cases
  *   - Timeout: fails open (returns undefined) when check exceeds GUARDRAIL_TIMEOUT_MS
+ *   - Timer cleanup: clearTimeout called with hoisted handle after race settles
+ *   - Timer cleanup on check error: try/finally clears timer even when check throws
  *   - Error inside check: fails open
  *   - Malformed payload (null, string, missing toolName): returns undefined
  *   - No raw args persisted or surfaced
@@ -353,5 +355,69 @@ describe("GUARDRAIL_TIMEOUT_MS", () => {
     assert.ok(typeof GUARDRAIL_TIMEOUT_MS === "number");
     assert.ok(GUARDRAIL_TIMEOUT_MS > 0);
     assert.ok(GUARDRAIL_TIMEOUT_MS <= 100, "timeout must be short (≤100ms)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Timer lifecycle — clearTimeout called with hoisted handle, try/finally
+// ---------------------------------------------------------------------------
+
+describe("runPreToolUseGuardrail — timer lifecycle", () => {
+  test("clearTimeout is called with the timer handle after check resolves", async () => {
+    const setTimeoutSpy = mock.method(globalThis, "setTimeout");
+    const clearTimeoutSpy = mock.method(globalThis, "clearTimeout");
+    try {
+      const result = await runPreToolUseGuardrail(
+        makeInput("lore_retain"),
+        { config: cfg(true), scopeTracker: makeScopeTracker("planner") },
+      );
+      assert.ok(result?.additionalContext, "check must resolve with context");
+
+      // Locate the guardrail timer by its registered delay
+      const guardCall = setTimeoutSpy.mock.calls.find(
+        (c) => c.arguments[1] === GUARDRAIL_TIMEOUT_MS,
+      );
+      assert.ok(guardCall, "guardrail must register a timer with GUARDRAIL_TIMEOUT_MS delay");
+      const timerId = guardCall.result;
+
+      // clearTimeout must have been called with that handle (not inside the timer callback)
+      const clearCall = clearTimeoutSpy.mock.calls.find(
+        (c) => c.arguments[0] === timerId,
+      );
+      assert.ok(clearCall, "clearTimeout must be called with the timer handle after race settles");
+    } finally {
+      setTimeoutSpy.mock.restore();
+      clearTimeoutSpy.mock.restore();
+    }
+  });
+
+  test("timer is cleared even when check throws (try/finally guarantees cleanup)", async () => {
+    const setTimeoutSpy = mock.method(globalThis, "setTimeout");
+    const clearTimeoutSpy = mock.method(globalThis, "clearTimeout");
+    try {
+      const throwingTracker = {
+        getActiveScopeMetadata: () => { throw new Error("checker exploded"); },
+      };
+      const result = await runPreToolUseGuardrail(
+        makeInput("lore_retain"),
+        { config: cfg(true), scopeTracker: throwingTracker },
+      );
+      assert.strictEqual(result, undefined, "must fail open on check error");
+
+      // Timer must have been registered and then cleared via finally
+      const guardCall = setTimeoutSpy.mock.calls.find(
+        (c) => c.arguments[1] === GUARDRAIL_TIMEOUT_MS,
+      );
+      assert.ok(guardCall, "timer must have been registered before the check threw");
+      const timerId = guardCall.result;
+
+      const clearCall = clearTimeoutSpy.mock.calls.find(
+        (c) => c.arguments[0] === timerId,
+      );
+      assert.ok(clearCall, "clearTimeout must be called even when the check throws");
+    } finally {
+      setTimeoutSpy.mock.restore();
+      clearTimeoutSpy.mock.restore();
+    }
   });
 });

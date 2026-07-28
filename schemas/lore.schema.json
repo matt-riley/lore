@@ -419,6 +419,25 @@
           "type": "integer",
           "default": 72
         },
+        "memoryHygiene": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["off", "shadow", "apply"],
+              "default": "off"
+            },
+            "maxItems": {
+              "type": "integer",
+              "default": 50
+            },
+            "includeGlobal": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
         "sessionStartBackfill": {
           "type": "object",
           "additionalProperties": false,
@@ -457,6 +476,10 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "memoryHygiene": {
+              "type": "boolean",
+              "default": true
+            },
             "deferredExtraction": {
               "type": "boolean",
               "default": true
@@ -491,6 +514,10 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "memoryHygiene": {
+              "type": "integer",
+              "default": 0
+            },
             "deferredExtraction": {
               "type": "integer",
               "default": 0

@@ -136,6 +136,31 @@ function buildFixtureConfig(home, overrides = {}) {
     maintenanceScheduler: {
       enabled: false,
       autoRunOnSessionStart: false,
+      memoryHygiene: {
+        mode: "off",
+        maxItems: 50,
+        includeGlobal: true,
+      },
+      tasks: {
+        memoryHygiene: true,
+        deferredExtraction: true,
+        validationCorpus: true,
+        replayCorpus: true,
+        backlogReview: true,
+        traceCompaction: false,
+        indexUpkeep: false,
+        doctorSnapshot: false,
+      },
+      taskCadenceMinutes: {
+        memoryHygiene: 0,
+        deferredExtraction: 0,
+        validationCorpus: 12 * 60,
+        replayCorpus: 24 * 60,
+        backlogReview: 6 * 60,
+        traceCompaction: 60,
+        indexUpkeep: 12 * 60,
+        doctorSnapshot: 24 * 60,
+      },
       sessionStartBackfill: {
         enabled: false,
         includeOtherRepositories: true,

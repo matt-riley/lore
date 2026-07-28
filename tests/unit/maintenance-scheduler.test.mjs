@@ -157,4 +157,65 @@ describe("maintenance scheduler task execution", () => {
       cleanup();
     }
   });
+
+  test("session-start memory hygiene runs in shadow mode and reports candidates without mutation", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        maintenanceScheduler: {
+          enabled: true,
+          autoRunOnSessionStart: true,
+          memoryHygiene: {
+            mode: "shadow",
+            maxItems: 10,
+            includeGlobal: true,
+          },
+          tasks: {
+            deferredExtraction: false,
+            memoryHygiene: true,
+          },
+        },
+      },
+    });
+    try {
+      const memoryId = db.insertSemanticMemory({
+        id: "maintenance-hygiene-memory",
+        type: "open_loop",
+        content: "Promote commit abc1234 into main.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 0.9,
+        tags: ["open-loop"],
+      });
+      const runtime = buildRuntime(db, config);
+      runtime.memoryHygieneIsCommitAncestor = async () => true;
+
+      const result = await runMaintenanceSweep({
+        runtime,
+        repository: "fixture-repo",
+        trigger: "session_start",
+      });
+
+      assert.equal(result.status, "completed");
+      assert.equal(result.taskCount, 1);
+      assert.equal(result.tasks[0].taskName, "memoryHygiene");
+      assert.equal(result.tasks[0].summary.candidateCount, 1);
+      assert.equal(result.tasks[0].summary.resolvedCount, 0);
+      const row = db.db.prepare(`
+        SELECT superseded_by
+        FROM semantic_memory
+        WHERE id = ?
+      `).get(memoryId);
+      assert.equal(row.superseded_by, null);
+      const summaryArtifacts = db.listTrajectoryArtifacts({
+        kind: "memory_hygiene_run",
+        repository: "fixture-repo",
+        limit: 5,
+      });
+      assert.equal(summaryArtifacts.length, 1);
+      assert.equal(summaryArtifacts[0].context.candidateCount, 1);
+    } finally {
+      cleanup();
+    }
+  });
 });

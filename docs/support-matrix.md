@@ -100,7 +100,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `maintenance_schedule_run` | 🟡 Experimental | Triggers a maintenance sweep (dry-run or live). Designed for scripted/scheduled use. |
+| `maintenance_schedule_run` | 🟡 Experimental | Triggers a maintenance sweep (dry-run or live), reports automated memory hygiene, or rolls back one exact `auto-hygiene:*` marker with an audit artifact. |
 
 ### Self-diagnostics and proposals
 
@@ -132,7 +132,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | Script | Status | Notes |
 |---|---|---|
 | `scripts/validate-config-schema.mjs` | 🟢 Supported | Validates `lore.json` against the schema. Safe to run at any time. |
-| `scripts/run-maintenance.mjs` | 🟡 Experimental | The supported out-of-session entry point for maintenance tasks (`validationCorpus`, `replayCorpus`, `backlogReview`, `traceCompaction`, `indexUpkeep`, `doctorSnapshot`). Designed for cron, launchd, or any external scheduler. Exits 0 on success, 1 on unknown task names or DB error. Operates only on the configured Lore database — never on test fixtures or other users' databases. See [`docs/maintenance-scheduling.md`](maintenance-scheduling.md) for the full guide. Use `maintenance_schedule_run` tool for in-session triggering. |
+| `scripts/run-maintenance.mjs` | 🟡 Experimental | The supported out-of-session entry point for maintenance tasks (`memoryHygiene`, `validationCorpus`, `replayCorpus`, `backlogReview`, `traceCompaction`, `indexUpkeep`, `doctorSnapshot`). Designed for cron, launchd, or any external scheduler. Exits 0 on success, 1 on unknown task names or DB error. Operates only on the configured Lore database — never on test fixtures or other users' databases. See [`docs/maintenance-scheduling.md`](maintenance-scheduling.md) for the full guide. Use `maintenance_schedule_run` tool for in-session triggering. |
 | `scripts/run-browser.mjs` | 🟡 Experimental | Starts the local browser dashboard. Loopback hosts only (`127.0.0.1`, `localhost`, or `::1`). |
 
 ---
@@ -200,7 +200,7 @@ Lore's maintenance loop is intentionally bounded. It is about **runtime/data hea
 
 | Mode | Trigger | Tasks |
 |---|---|---|
-| Automatic | `onSessionStart` hook | `deferredExtraction` only |
+| Automatic | `onSessionStart` hook | Bounded deferred `memoryHygiene` and `deferredExtraction` |
 | Manual / in-session | `maintenance_schedule_run` tool; `--dry-run`; `--status` | Any enabled task |
 | External / scheduled | `scripts/run-maintenance.mjs` | Any enabled task |
 
@@ -219,7 +219,8 @@ It auto-runs on session start only when all of these are true:
 
 Additional task gates:
 
-- On session start, Lore only auto-selects the `deferredExtraction` maintenance task; the broader maintenance set is for manual or scripted sweeps.
+- On session start, Lore only auto-selects `memoryHygiene` and `deferredExtraction`; the broader maintenance set is for manual or scripted sweeps.
+- `memoryHygiene` requires `maintenanceScheduler.memoryHygiene.mode` to be `shadow` or `apply`. `shadow` records candidates without superseding rows. `apply` uses deterministic completion evidence, writes an `auto-hygiene:<run-id>` marker, and never blocks write tools.
 - Optional archive import is separate from the maintenance task list and is configured under `maintenanceScheduler.sessionStartBackfill.*`. When enabled, Lore announces start/progress/completion in the CLI while reusing the existing controlled backfill run state, `maxCandidates` bounds how many pending sessions it queues per startup sweep, `maxInspected` bounds how much raw history it scans before deferring the rest to later starts, and startup runs do not create restore snapshots.
 - `deferredExtraction` also requires `deferredExtraction.enabled: true`, and on session start it additionally requires `deferredExtraction.autoProcessOnSessionStart: true`.
 - `doctorSnapshot` requires `rollout.loreDoctor: true`.

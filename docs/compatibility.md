@@ -61,6 +61,8 @@ Node 22 is the current LTS line. If you're on Node 20 or earlier, upgrade before
 | Existing config from prior versions | ✅ New keys are additive, including rollout flags like `memoryDomains` and `refreshableObservations`. Unknown keys are rejected by schema validation, so `memory_validate` will surface any stale keys from old configs. |
 | Config validated against schema | ✅ `scripts/validate-config-schema.mjs` validates `lore.json` against `schemas/lore.schema.json`. Run it after any manual config edits. |
 
+`maintenanceScheduler.memoryHygiene` is additive and defaults to `mode: "off"`. `shadow` mode is report-only. `apply` mode can supersede `open_loop` and `assistant_goal` rows only when deterministic later evidence satisfies the documented scope rules. Each mutation is soft, marked with `auto-hygiene:<run-id>`, and reversible through `maintenance_schedule_run` using `action: "rollback_hygiene"`.
+
 ### `session-store.db` (raw Copilot CLI store — read-only for Lore)
 
 Lore reads this file to backfill memories and extract session context. It never writes to it. Minimum supported schema: the session store as written by Copilot CLI with the `sessions` and `turns` tables present.

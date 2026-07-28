@@ -12,13 +12,13 @@ Lore maintenance runs in three modes. Understanding which tasks belong to each m
 
 | Mode | Trigger | Tasks |
 |---|---|---|
-| **Automatic** | `onSessionStart` hook | `deferredExtraction` only |
+| **Automatic** | `onSessionStart` hook | Bounded deferred `memoryHygiene` and `deferredExtraction` |
 | **Manual / in-session** | `maintenance_schedule_run` tool; `--status`; `--dry-run` | Any enabled task |
 | **External / scheduled** | `scripts/run-maintenance.mjs` via cron or launchd | Any enabled task |
 
 ### Automatic maintenance (session start)
 
-When `maintenanceScheduler.enabled: true` and `maintenanceScheduler.autoRunOnSessionStart: true`, Lore evaluates the maintenance plan on `onSessionStart` and **only** runs the `deferredExtraction` task when it is enabled and due. All other tasks are intentionally excluded from the session-start path to keep that hook cheap and bounded.
+When `maintenanceScheduler.enabled: true` and `maintenanceScheduler.autoRunOnSessionStart: true`, Lore evaluates the maintenance plan on `onSessionStart` and only selects `memoryHygiene` and `deferredExtraction` when they are enabled and due. Both run as bounded deferred work so the hook can return without waiting for them.
 
 ### Manual / in-session maintenance
 
@@ -27,6 +27,7 @@ Within an active session, use the `maintenance_schedule_run` tool to trigger a s
 ```
 maintenance_schedule_run({ dryRun: true })   # plan without mutation
 maintenance_schedule_run({ tasks: ["validationCorpus"] })
+maintenance_schedule_run({ action: "rollback_hygiene", marker: "auto-hygiene:<run-id>", actor: "operator", reason: "false positive" })
 ```
 
 You can also run `--status` or `--dry-run` from a terminal at any time — these do not require an active CLI session:
@@ -56,6 +57,7 @@ For tasks that require reliable periodic execution regardless of session frequen
 
 | Task | Default enabled | Suggested cadence | Notes |
 |---|---|---|---|
+| `memoryHygiene` | `true` (mode defaults to `off`) | Automatic at session start | `shadow` records candidates without mutation; `apply` supersedes only deterministic matches and writes reversible `auto-hygiene:<run-id>` markers. Never blocks write tools. |
 | `deferredExtraction` | `true` | Automatic at session start | Also runnable externally. Requires `deferredExtraction.enabled: true` and `deferredExtraction.autoProcessOnSessionStart: true` for session-start auto-run. |
 | `validationCorpus` | `true` | Every 12 h | Runs the validation case corpus against current retrieval behavior. |
 | `replayCorpus` | `true` | Every 24 h | Runs the replay corpus and reports ranking hits/misses. |

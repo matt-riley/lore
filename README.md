@@ -181,7 +181,7 @@ Use `memory_status` for recorder health and recent samples. `includeRecentTraces
 
 ### `maintenanceScheduler`
 
-`maintenanceScheduler` is the opt-in maintenance loop for deferred extraction processing, validation and replay corpus runs, backlog review, and index upkeep. On session start, Lore evaluates the maintenance plan and auto-runs the startup-safe deferred-extraction pass when it is enabled and due. The same scheduler also powers manual or scripted sweeps through `maintenance_schedule_run` and `node scripts/run-maintenance.mjs`.
+`maintenanceScheduler` is the opt-in maintenance loop for automated memory hygiene, deferred extraction processing, validation and replay corpus runs, backlog review, and index upkeep. On session start, Lore evaluates the maintenance plan and runs the bounded `memoryHygiene` and `deferredExtraction` tasks when they are enabled and due. The work is deferred so the session-start hook remains responsive. The same scheduler also powers manual or scripted sweeps through `maintenance_schedule_run` and `node scripts/run-maintenance.mjs`.
 
 > **Session hooks do not guarantee wall-clock cadence.** For reliable periodic upkeep independent of session frequency, wire `scripts/run-maintenance.mjs` into cron or launchd. See [`docs/maintenance-scheduling.md`](docs/maintenance-scheduling.md) for the full guide including cron and launchd examples, failure detection, and the isolated-database rule.
 
@@ -191,7 +191,13 @@ Use `memory_status` for recorder health and recent samples. `includeRecentTraces
     "enabled": true,
     "autoRunOnSessionStart": true,
     "maxTasksPerRun": 4,
+    "memoryHygiene": {
+      "mode": "shadow",
+      "maxItems": 50,
+      "includeGlobal": true
+    },
     "tasks": {
+      "memoryHygiene": true,
       "deferredExtraction": true,
       "validationCorpus": true,
       "replayCorpus": true,
@@ -201,6 +207,10 @@ Use `memory_status` for recorder health and recent samples. `includeRecentTraces
   }
 }
 ```
+
+Memory hygiene is non-blocking and defaults to `off`. Use `shadow` first: Lore records candidates and unresolved evidence without changing memories. After reviewing a forced run, switch to `apply` to supersede only memories with deterministic completion evidence. Repo-scoped commit-promotion items may use local Git ancestry; global items always require an exact normalized target plus explicit later completion evidence. Later episode open items prevent automatic resolution.
+
+Every applied run uses an `auto-hygiene:<run-id>` marker and writes trajectory artifacts. To reverse one run, call `maintenance_schedule_run` with `action: "rollback_hygiene"` and the exact marker; Lore restores only rows carrying that marker and records a rollback audit artifact. The latest completed hygiene summary is added to the next Lore prompt or session context. It never denies write tools.
 
 #### `sessionStartBackfill`
 

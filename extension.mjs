@@ -40,6 +40,7 @@ import {
 } from "./lib/passive-hooks.mjs";
 import { createSubagentScopeTracker } from "./lib/subagent-scope-tracker.mjs";
 import { runPreToolUseGuardrail } from "./lib/pre-tool-use-guardrail.mjs";
+import { consumeLatestMemoryHygieneSummary } from "./lib/memory-hygiene.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 
 let lastKnownCwd = process.cwd();
@@ -54,8 +55,28 @@ const metrics = {
 
 const capsuleCache = new Map();
 const ambientStylePresenceCache = new Map();
+const surfacedHygieneSummaryBySession = new Map();
 
 const logOnceKeys = new Set();
+
+function combineContextSections(...sections) {
+  return sections
+    .map((section) => String(section ?? "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function consumeSessionHygieneSummary(db, repository, sessionId) {
+  const result = consumeLatestMemoryHygieneSummary({
+    db,
+    repository,
+    lastSurfacedArtifactId: surfacedHygieneSummaryBySession.get(sessionId) ?? null,
+  });
+  if (result) {
+    surfacedHygieneSummaryBySession.set(sessionId, result.artifactId);
+  }
+  return result?.text ?? "";
+}
 
 const runtime = {
   initialized: false,
@@ -951,7 +972,7 @@ async function handleSessionStartHook({
   }
 
   await maybeSeedSessionStartOnboarding(session, activeRuntime, invocation.sessionId);
-  await maybeRunMaintenanceScheduler(session, activeRuntime, repository);
+  await maybeRunMaintenanceScheduler(session, activeRuntime, repository, workspacePath);
   await maybeRunSessionStartBackfill(session, activeRuntime, repository);
   maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, invocation.sessionId);
 
@@ -961,6 +982,10 @@ async function handleSessionStartHook({
     repository,
     activeRuntime,
   });
+  const additionalContext = combineContextSections(
+    assembled.text,
+    consumeSessionHygieneSummary(activeRuntime.db, repository, invocation.sessionId),
+  );
 
   await finalizeHookObservation({
     session,
@@ -970,7 +995,7 @@ async function handleSessionStartHook({
     prompt,
     promptNeed: assembled.trace?.promptNeed ?? detectPromptContextNeed(prompt),
     trace: assembled.trace,
-    contextText: assembled.text,
+    contextText: additionalContext,
     durationMs: Date.now() - startedAt,
     metricWindow: metrics.sessionStartMs,
     latencyMetric: "sessionStart",
@@ -978,8 +1003,8 @@ async function handleSessionStartHook({
     targetMs: activeRuntime.config.latencyTargetsMs.sessionStartP95,
   });
 
-  return assembled.text
-    ? { additionalContext: assembled.text }
+  return additionalContext
+    ? { additionalContext }
     : undefined;
 }
 
@@ -1090,7 +1115,7 @@ async function maybeProcessDeferredExtractions(session, activeRuntime, repositor
   });
 }
 
-async function maybeRunMaintenanceScheduler(session, activeRuntime, repository) {
+async function maybeRunMaintenanceScheduler(session, activeRuntime, repository, workspacePath) {
   const maintenanceConfig = activeRuntime.config?.maintenanceScheduler;
   if (maintenanceConfig?.enabled === false) {
     await maybeProcessDeferredExtractions(session, activeRuntime, repository);
@@ -1110,6 +1135,7 @@ async function maybeRunMaintenanceScheduler(session, activeRuntime, repository) 
         runtime: {
           ...activeRuntime,
           repository,
+          workspacePath,
           metrics: buildLatencyMetrics(activeRuntime.config),
         },
         repository,
@@ -1442,6 +1468,7 @@ const session = await joinSession({
     onSessionStart: async (input, invocation) => {
       lastKnownCwd = input.cwd || lastKnownCwd;
       subagentScopeTracker.reset(); // clear any stale state from previous session
+      surfacedHygieneSummaryBySession.delete(invocation.sessionId);
       return handleSessionStartHook({ session, invocation, input, metrics });
     },
 
@@ -1458,7 +1485,12 @@ const session = await joinSession({
 
       const need = detectPromptContextNeed(input.prompt);
       const hasAmbientInteractionStyle = readAmbientInteractionStylePresence(activeRuntime);
-      if (!need.requiresLookup && !hasAmbientInteractionStyle) {
+      const hygieneSummary = consumeSessionHygieneSummary(
+        activeRuntime.db,
+        repository,
+        invocation.sessionId,
+      );
+      if (!need.requiresLookup && !hasAmbientInteractionStyle && !hygieneSummary) {
         await recordUserPromptBypassObservation({
           session,
           activeRuntime,
@@ -1470,16 +1502,26 @@ const session = await joinSession({
         return;
       }
 
-      const recall = recallMemory({
-        db: activeRuntime.db,
-        prompt: input.prompt,
-        repository,
-        includeOtherRepositories: need.allowCrossRepoFallback === true,
-        limit: activeRuntime.config.limits.promptContextLimit,
-        sessionStore: activeRuntime.sessionStore,
-        promptNeed: need,
-      });
-      const additionalContext = recall.text;
+      const recall = need.requiresLookup || hasAmbientInteractionStyle
+        ? recallMemory({
+            db: activeRuntime.db,
+            prompt: input.prompt,
+            repository,
+            includeOtherRepositories: need.allowCrossRepoFallback === true,
+            limit: activeRuntime.config.limits.promptContextLimit,
+            sessionStore: activeRuntime.sessionStore,
+            promptNeed: need,
+          })
+        : {
+            text: "",
+            trace: {
+              route: "prompt_context",
+              promptNeed: need,
+              lookups: {},
+              output: { estimatedTokens: 0 },
+            },
+          };
+      const additionalContext = combineContextSections(recall.text, hygieneSummary);
 
       await finalizeHookObservation({
         session,
@@ -1509,6 +1551,7 @@ const session = await joinSession({
     onSessionEnd: async (input, invocation) => {
       lastKnownCwd = input.cwd || lastKnownCwd;
       subagentScopeTracker.reset(); // ensure no scope state leaks past session end
+      surfacedHygieneSummaryBySession.delete(invocation.sessionId);
       return handleSessionEndHook({ session, invocation, input });
     },
 
@@ -1636,6 +1679,7 @@ const session = await joinSession({
         ...context.runtime,
         repository: context.repository,
         workspace: context.workspace,
+        workspacePath: context.workspacePath,
         metrics: buildLatencyMetrics(context.runtime.config),
       };
     },

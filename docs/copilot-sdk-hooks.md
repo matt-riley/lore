@@ -79,6 +79,58 @@ These steps reproduce the same evidence used for this snapshot without assuming 
 
 If a local extension defines `onSubagentStart`, note that sub-agent lifecycle events are also available via the session event stream; they are present in the generated event schema but not advertised as an additional named hook in the bundled `SessionHooks` surface.[^dispatch]
 
+## Phase 2 passive hooks in Lore
+
+Lore Phase 2 adds two **passive, privacy-preserving** hooks. Both are **default-off** and must be explicitly opted-in via rollout flags.
+
+### `onErrorOccurred` — error telemetry
+
+| Property | Value |
+|---|---|
+| Rollout flag | `rollout.errorTelemetry` |
+| Default | `false` |
+| Phase 2 behavior | Passive observation only; **no** `errorHandling` override returned |
+| Persisted table | `error_telemetry` |
+
+**What is persisted:** `session_id`, `context_category` (e.g. `tool_use`, `network`, `permission`, `timeout`, `parse`, `unknown`), `recoverability` (`recoverable`, `unrecoverable`, `unknown`), `fingerprint` (non-reversible 16-char SHA-256 prefix), `created_at`.
+
+**What is never persisted:** `error.message`, `error.stack`, tool arguments, tool results, file contents, command output, raw payload blobs.
+
+The category and recoverability are derived from structural payload fields only (`error.name`, `error.code`, the categorical `context` descriptor, and `retryable`). The fingerprint is a SHA-256 hash of the derived categorical fields — it does not encode any free-text from the error.
+
+Retention: the table is pruned by age (`maxAgeMs = 30 days`) and by global row count (`maxRowsGlobal = 500`) every 20 writes.
+
+### `onPostToolUse` — post-tool-use observations
+
+| Property | Value |
+|---|---|
+| Rollout flag | `rollout.postToolUse` |
+| Default | `false` |
+| Phase 2 behavior | Passive observation only; no tool result modification |
+| Persisted table | `trajectory_artifact` (kind = `passive_hook_observation`) |
+
+**What is derived:** `toolCategory` (one of `bash`, `file`, `search`, `network`, `memory`, `other`) — from the tool name only. `success` — from structural payload fields (`success`, `outcome`, `status`). `argsShape` — structural metadata (is the args value parseable? is it an object? is it empty?) from JSON-string-normalised `toolArgs`.
+
+**What is never persisted:** raw `toolArgs` contents, `toolResult` contents, file contents, command output.
+
+JSON-string `toolArgs` are parsed defensively but only to extract structural shape metadata. The raw args value is never written to the DB.
+
+DB work is always enqueued via `spawnTrackedDeferredTask` (never synchronous in the hook body). Hook failures fail open and log only safe categorical metadata.
+
+### Enabling passive hooks
+
+```json
+{
+  "enabled": true,
+  "rollout": {
+    "errorTelemetry": true,
+    "postToolUse": true
+  }
+}
+```
+
+Both flags default to `false` and have no parent-flag dependencies.
+
 ## Confidence Assessment
 
 - **High confidence** on the seven named hooks, because the installed type definitions, docs, and runtime dispatch table all agree.[^hooks-type][^dispatch][^examples-hooks]

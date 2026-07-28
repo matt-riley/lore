@@ -28,7 +28,15 @@ import {
 import { assembleMemoryCapsule, detectPromptContextNeed } from "./lib/capsule-assembler.mjs";
 import { hydrateWorkstreamOverlay } from "./lib/overlay-hydrator.mjs";
 import { seedOnboardingMemories } from "./lib/onboarding.mjs";
-import { readOverlayAutoHydrationEnabled } from "./lib/rollout-flags.mjs";
+import {
+  readOverlayAutoHydrationEnabled,
+  readErrorTelemetryEnabled,
+  readPostToolUseEnabled,
+} from "./lib/rollout-flags.mjs";
+import {
+  buildErrorTelemetryRecord,
+  buildPostToolUseObservation,
+} from "./lib/passive-hooks.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 
 let lastKnownCwd = process.cwd();
@@ -36,6 +44,8 @@ let lastKnownCwd = process.cwd();
 const metrics = {
   sessionStartMs: [],
   userPromptSubmittedMs: [],
+  errorTelemetryMs: [],
+  postToolUseMs: [],
 };
 
 const capsuleCache = new Map();
@@ -55,6 +65,7 @@ const runtime = {
   processingMaintenance: false,
   processingBackfill: false,
   tracePersistenceWrites: 0,
+  errorTelemetryWrites: 0,
   pendingWork: new Set(),
   shuttingDown: false,
 };
@@ -270,6 +281,17 @@ function buildLatencyMetric(values, minSamples, targetMs) {
   };
 }
 
+function buildSimpleLatencyMetric(values) {
+  const samples = values.length;
+  return {
+    samples,
+    averageMs: Math.round(average(values)),
+    p95Ms: Math.round(percentile(values, 0.95)),
+    maxMs: Math.round(samples > 0 ? Math.max(...values) : 0),
+    latestMs: Math.round(values.at(-1) ?? 0),
+  };
+}
+
 function buildLatencyMetrics(config) {
   const minSamples = {
     sessionStart: Math.max(1, Number(config?.latencyReadinessMinSamples?.sessionStart ?? 20)),
@@ -302,6 +324,10 @@ function buildLatencyMetrics(config) {
     sampleSize: {
       sessionStart: sessionStartWithTarget.samples,
       userPromptSubmitted: userPromptSubmitted.samples,
+    },
+    passiveHooks: {
+      errorTelemetry: buildSimpleLatencyMetric(metrics.errorTelemetryMs),
+      postToolUse: buildSimpleLatencyMetric(metrics.postToolUseMs),
     },
   };
 }
@@ -1390,6 +1416,17 @@ async function recordUserPromptBypassObservation({
   });
 }
 
+function maybeCompactErrorTelemetry(activeRuntime) {
+  activeRuntime.errorTelemetryWrites = (activeRuntime.errorTelemetryWrites ?? 0) + 1;
+  if (activeRuntime.errorTelemetryWrites % 20 !== 0) {
+    return;
+  }
+  activeRuntime.db.pruneErrorTelemetry({
+    maxRowsGlobal: 500,
+    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+  });
+}
+
 import { buildLoreHooks } from "./lib/hook-registration.mjs";
 
 const session = await joinSession({
@@ -1464,6 +1501,92 @@ const session = await joinSession({
     onSessionEnd: async (input, invocation) => {
       lastKnownCwd = input.cwd || lastKnownCwd;
       return handleSessionEndHook({ session, invocation, input });
+    },
+
+    onErrorOccurred: async (input, invocation) => {
+      const startedAt = Date.now();
+      try {
+        const activeRuntime = runtime;
+        if (!readErrorTelemetryEnabled(activeRuntime.config)) {
+          return;
+        }
+        if (!activeRuntime.initialized || !activeRuntime.db || !hooksEnabled(activeRuntime.config)) {
+          return;
+        }
+        const record = buildErrorTelemetryRecord(input, invocation?.sessionId);
+        if (!record) {
+          return;
+        }
+        spawnTrackedDeferredTask(async () => {
+          try {
+            activeRuntime.db.insertErrorTelemetry(record);
+            maybeCompactErrorTelemetry(activeRuntime);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            await session.log(`lore error telemetry persistence warning: ${message}`, {
+              ephemeral: true,
+              level: "warning",
+            });
+          }
+        });
+      } catch {
+        // fail open — passive hook must never throw to the SDK
+      } finally {
+        recordMetric(
+          metrics.errorTelemetryMs,
+          Date.now() - startedAt,
+          runtime.config?.limits?.metricWindowSize ?? 200,
+        );
+      }
+      // Phase 2: no errorHandling override returned
+    },
+
+    onPostToolUse: async (input, invocation) => {
+      const startedAt = Date.now();
+      try {
+        const activeRuntime = runtime;
+        if (!readPostToolUseEnabled(activeRuntime.config)) {
+          return;
+        }
+        if (!activeRuntime.initialized || !activeRuntime.db || !hooksEnabled(activeRuntime.config)) {
+          return;
+        }
+        const observation = buildPostToolUseObservation(input);
+        if (!observation) {
+          return;
+        }
+        spawnTrackedDeferredTask(async () => {
+          try {
+            activeRuntime.db.insertTrajectoryArtifact({
+              kind: "passive_hook_observation",
+              repository: null,
+              summary: `${observation.toolCategory}/${observation.success ? "success" : "failure"}`,
+              severity: observation.success ? "info" : "warning",
+              outcome: "captured",
+              context: {
+                hookKind: "onPostToolUse",
+                toolCategory: observation.toolCategory,
+                success: observation.success,
+                argsShape: observation.argsShape,
+              },
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            await session.log(`lore post-tool observation warning: ${message}`, {
+              ephemeral: true,
+              level: "warning",
+            });
+          }
+        });
+      } catch {
+        // fail open — passive hook must never throw to the SDK
+      } finally {
+        recordMetric(
+          metrics.postToolUseMs,
+          Date.now() - startedAt,
+          runtime.config?.limits?.metricWindowSize ?? 200,
+        );
+      }
     },
   }),
   tools: createMemoryTools({

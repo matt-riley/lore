@@ -258,4 +258,61 @@ describe("LoreDb legacy schema version compatibility", () => {
     assert.ok(plan.includes("deferred-extraction-lease"), `plan ${JSON.stringify(plan)} should include deferred-extraction-lease`);
     assert.ok(plan.includes("schema-statements"), "plan should include schema-statements");
   });
+
+  test("v16 migration plan includes schema-statements (creates error_telemetry)", () => {
+    const loreDb = new LoreDb({
+      paths: { derivedStorePath: "ignored.db", backupDir: "ignored-backups" },
+    });
+
+    const plan = loreDb.buildMigrationPlan(16).map((step) => step.label);
+    assert.ok(plan.includes("schema-statements"), "plan for v16 must include schema-statements to create error_telemetry");
+    // No dedicated pre-schema step for error_telemetry; the table is added via schema-statements
+    assert.ok(!plan.includes("error-telemetry"), "no separate error-telemetry migration step needed");
+  });
+
+  test("upgrading a v16 DB creates error_telemetry table", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "lore.db");
+    const backupDir = path.join(tempHome, "backups");
+
+    try {
+      const raw = new DatabaseSync(dbPath);
+      raw.exec(`
+        CREATE TABLE lore_schema_version (version INTEGER NOT NULL);
+        INSERT INTO lore_schema_version (version) VALUES (16);
+        CREATE TABLE deferred_extraction (
+          session_id TEXT PRIMARY KEY,
+          repository TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          priority INTEGER NOT NULL DEFAULT 0,
+          reason TEXT NOT NULL DEFAULT 'manual',
+          queued_at TEXT NOT NULL,
+          available_at TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          owner_token TEXT,
+          lease_expires_at TEXT,
+          heartbeat_at TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+      `);
+      raw.close();
+
+      const loreDb = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      loreDb.initialize();
+
+      assert.equal(loreDb.getCurrentVersion(), SCHEMA_VERSION);
+
+      const table = loreDb.db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='error_telemetry'`)
+        .get();
+      assert.ok(table, "error_telemetry table must exist after v16 upgrade");
+
+      loreDb.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
 });

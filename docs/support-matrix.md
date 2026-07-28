@@ -27,6 +27,8 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | `onSessionStart` | 🟢 Supported | Initialises DB, loads config, runs cheap pre-warm. Bounded latency target: < 300 ms. |
 | `onUserPromptSubmitted` | 🟢 Supported | Injects memory capsule into prompt context when relevant. Bounded latency target: < 200 ms. Temporal prompts use date normalisation plus `day_summary` / episode lookup first, then bounded raw session-store verification only when primary temporal evidence is missing. |
 | `onSessionEnd` | 🟢 Supported | Persists session extraction to the derived store. Non-blocking best-effort. |
+| `onErrorOccurred` | 🟡 Experimental | Passive error telemetry. Requires `rollout.errorTelemetry: true` (default-off). Persists only categorical metadata to `error_telemetry` table. Never persists error messages, stack traces, or raw payloads. No `errorHandling` override in Phase 2. |
+| `onPostToolUse` | 🟡 Experimental | Passive post-tool-use observations. Requires `rollout.postToolUse: true` (default-off). Derives categorical tool kind and success/failure only. Never persists raw args or results. Enqueues observations via deferred background path. |
 
 ---
 
@@ -155,6 +157,8 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | `loreDoctor` | 🟢 Supported | `true` (requires `evolutionLedger`) | `memory_doctor_report` |
 | `reviewGate` | 🟢 Supported | `true` (requires `evolutionLedger`) | `memory_review_gate` |
 | `approvalSubstrate` | 🟢 Supported | `true` (requires `evolutionLedger`) | Approval-workflow substrate for ledger-backed proposal review state |
+| `errorTelemetry` | 🟡 Experimental | `false` | Passive `onErrorOccurred` hook. Persists only categorical metadata (category, recoverability, fingerprint) to `error_telemetry`. Never persists raw messages or stack traces. No `errorHandling` overrides. |
+| `postToolUse` | 🟡 Experimental | `false` | Passive `onPostToolUse` hook. Derives categorical tool kind and success/failure. Enqueues observations via deferred background path. Never persists raw args or results. |
 
 Temporal recall notes:
 

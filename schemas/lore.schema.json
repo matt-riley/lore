@@ -656,6 +656,16 @@
         "ambientWorkingProfile": {
           "type": "boolean",
           "default": true
+        },
+        "errorTelemetry": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable passive error telemetry hook (onErrorOccurred). Persists only privacy-minimised categorical metadata — no raw messages or stacks. Default-off."
+        },
+        "postToolUse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable passive post-tool-use observation hook (onPostToolUse). Records only categorical tool kind and success/failure — no raw args or results. Default-off."
         }
       }
     }

@@ -35,6 +35,8 @@ import {
   readHybridRetrievalEnabled,
   readReviewGateEnabled,
   readApprovalSubstrateEnabled,
+  readErrorTelemetryEnabled,
+  readPostToolUseEnabled,
 } from "../../lib/rollout-flags.mjs";
 
 // ---------------------------------------------------------------------------
@@ -64,6 +66,8 @@ const ALL_ON = cfg({
   hybridRetrieval: true,
   reviewGate: true,
   approvalSubstrate: true,
+  errorTelemetry: true,
+  postToolUse: true,
 });
 
 /** All flags off */
@@ -84,6 +88,8 @@ const ALL_OFF = cfg({
   hybridRetrieval: false,
   reviewGate: false,
   approvalSubstrate: false,
+  errorTelemetry: false,
+  postToolUse: false,
 });
 
 // ---------------------------------------------------------------------------
@@ -484,5 +490,82 @@ describe("readApprovalSubstrateEnabled — cascading", () => {
   test("returns true for null/undefined config (evolutionLedger defaults true, approvalSubstrate defaults true)", () => {
     assert.strictEqual(readApprovalSubstrateEnabled(null), true);
     assert.strictEqual(readApprovalSubstrateEnabled(undefined), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readErrorTelemetryEnabled — standalone, default-off
+// ---------------------------------------------------------------------------
+
+describe("readErrorTelemetryEnabled — standalone, default-off", () => {
+  test("returns true when errorTelemetry is true", () => {
+    assert.strictEqual(readErrorTelemetryEnabled(ALL_ON), true);
+  });
+
+  test("returns false when errorTelemetry is false", () => {
+    assert.strictEqual(readErrorTelemetryEnabled(ALL_OFF), false);
+  });
+
+  test("falls back to false when errorTelemetry is absent (default-off)", () => {
+    assert.strictEqual(readErrorTelemetryEnabled(cfg({})), false);
+  });
+
+  test("is independent of memoryOperations (no parent dependency)", () => {
+    const c = cfg({ memoryOperations: false, errorTelemetry: true });
+    assert.strictEqual(readErrorTelemetryEnabled(c), true);
+  });
+
+  test("is independent of evolutionLedger (no parent dependency)", () => {
+    const c = cfg({ evolutionLedger: false, errorTelemetry: true });
+    assert.strictEqual(readErrorTelemetryEnabled(c), true);
+  });
+
+  test("returns false for null/undefined config (default-off)", () => {
+    assert.strictEqual(readErrorTelemetryEnabled(null), false);
+    assert.strictEqual(readErrorTelemetryEnabled(undefined), false);
+  });
+
+  test('"true" string coerces to true', () => {
+    assert.strictEqual(readErrorTelemetryEnabled(cfg({ errorTelemetry: "true" })), true);
+  });
+
+  test('"false" string coerces to false', () => {
+    assert.strictEqual(readErrorTelemetryEnabled(cfg({ errorTelemetry: "false" })), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readPostToolUseEnabled — standalone, default-off
+// ---------------------------------------------------------------------------
+
+describe("readPostToolUseEnabled — standalone, default-off", () => {
+  test("returns true when postToolUse is true", () => {
+    assert.strictEqual(readPostToolUseEnabled(ALL_ON), true);
+  });
+
+  test("returns false when postToolUse is false", () => {
+    assert.strictEqual(readPostToolUseEnabled(ALL_OFF), false);
+  });
+
+  test("falls back to false when postToolUse is absent (default-off)", () => {
+    assert.strictEqual(readPostToolUseEnabled(cfg({})), false);
+  });
+
+  test("is independent of memoryOperations (no parent dependency)", () => {
+    const c = cfg({ memoryOperations: false, postToolUse: true });
+    assert.strictEqual(readPostToolUseEnabled(c), true);
+  });
+
+  test("returns false for null/undefined config (default-off)", () => {
+    assert.strictEqual(readPostToolUseEnabled(null), false);
+    assert.strictEqual(readPostToolUseEnabled(undefined), false);
+  });
+
+  test('"1" string coerces to true', () => {
+    assert.strictEqual(readPostToolUseEnabled(cfg({ postToolUse: "1" })), true);
+  });
+
+  test('"0" string coerces to false', () => {
+    assert.strictEqual(readPostToolUseEnabled(cfg({ postToolUse: "0" })), false);
   });
 });

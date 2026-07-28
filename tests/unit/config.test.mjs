@@ -133,6 +133,10 @@ describe("loadConfig", () => {
         approvalSubstrate: true,
         hybridRetrieval: false,
         ambientWorkingProfile: true,
+        errorTelemetry: false,
+        postToolUse: false,
+        subagentScopeTracking: false,
+        preToolUseGuardrail: false,
       },
     );
   });

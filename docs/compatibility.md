@@ -67,6 +67,12 @@ Lore reads this file to backfill memories and extract session context. It never 
 
 When `maintenanceScheduler.sessionStartBackfill` is enabled, Lore may also perform a session-start archive import from this same raw store. That import is still read-only against `session-store.db`, and progress is surfaced to the user via CLI log messages plus the existing backfill status surfaces.
 
+### External maintenance — isolated database rule
+
+`scripts/run-maintenance.mjs` and the `maintenance_schedule_run` tool operate only on the configured Lore database. The `--derived-store-path` and `--raw-store-path` flags exist for legitimate path overrides (e.g., non-standard install locations), not for pointing an external scheduler at test fixtures or other users' databases.
+
+Failed migrations and tasks use **forward recovery**: if a migration or maintenance job fails, the database is left intact, the failure is recorded, and the next run retries the forward path. Destructive downgrade of the schema is never applied silently. If you need to recover from a migration failure, see [Scenario 3 in the releasing guide](releasing.md#scenario-3----db-schema-migration-causes-data-issues).
+
 ### Optional local inference server
 
 | Requirement | Value |

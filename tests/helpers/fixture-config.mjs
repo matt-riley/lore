@@ -178,6 +178,8 @@ function buildFixtureConfig(home, overrides = {}) {
       approvalSubstrate: false,
       hybridRetrieval: false,
       ambientWorkingProfile: false,
+      errorTelemetry: false,
+      postToolUse: false,
     },
   };
 

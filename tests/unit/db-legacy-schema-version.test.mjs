@@ -164,4 +164,155 @@ describe("LoreDb legacy schema version compatibility", () => {
       rmSync(tempHome, { recursive: true, force: true });
     }
   });
+
+  test("v15→v16 migration adds lease columns to deferred_extraction", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "lore.db");
+    const backupDir = path.join(tempHome, "backups");
+
+    try {
+      // Create a minimal v15 database that has deferred_extraction without the
+      // new lease columns. The migration runner must add them on upgrade.
+      const rawDb = new DatabaseSync(dbPath);
+      rawDb.exec(`
+        CREATE TABLE lore_schema_version (version INTEGER NOT NULL);
+        INSERT INTO lore_schema_version (version) VALUES (15);
+        CREATE TABLE deferred_extraction (
+          session_id TEXT PRIMARY KEY,
+          repository TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          priority INTEGER NOT NULL DEFAULT 0,
+          reason TEXT NOT NULL DEFAULT 'manual',
+          queued_at TEXT NOT NULL,
+          available_at TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+        INSERT INTO deferred_extraction (session_id, queued_at, available_at)
+          VALUES ('test-sess', datetime('now'), datetime('now'));
+      `);
+      rawDb.close();
+
+      const loreDb = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      loreDb.initialize();
+
+      assert.equal(loreDb.getCurrentVersion(), SCHEMA_VERSION);
+
+      // Verify the new columns exist and are accessible
+      const row = loreDb.db.prepare(`
+        SELECT session_id, owner_token, lease_expires_at, heartbeat_at
+        FROM deferred_extraction WHERE session_id = 'test-sess'
+      `).get();
+      assert.ok(row, "deferred_extraction row should be readable after migration");
+      assert.equal(row.owner_token, null, "owner_token should default to null");
+      assert.equal(row.lease_expires_at, null, "lease_expires_at should default to null");
+      assert.equal(row.heartbeat_at, null, "heartbeat_at should default to null");
+
+      loreDb.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("fresh install has lease columns in deferred_extraction", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "lore.db");
+    const backupDir = path.join(tempHome, "backups");
+
+    try {
+      const loreDb = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      loreDb.initialize();
+
+      assert.equal(loreDb.getCurrentVersion(), SCHEMA_VERSION);
+
+      // Verify that a fresh schema has all three lease columns.
+      // We insert a row and read back the new nullable columns.
+      loreDb.db.prepare(`
+        INSERT INTO deferred_extraction (session_id, queued_at, available_at)
+        VALUES ('fresh-sess', datetime('now'), datetime('now'))
+      `).run();
+      const row = loreDb.db.prepare(`
+        SELECT session_id, owner_token, lease_expires_at, heartbeat_at
+        FROM deferred_extraction WHERE session_id = 'fresh-sess'
+      `).get();
+      assert.ok(row, "deferred_extraction row should be readable");
+      assert.equal(row.owner_token, null);
+      assert.equal(row.lease_expires_at, null);
+      assert.equal(row.heartbeat_at, null);
+
+      loreDb.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("v15 migration plan includes deferred-extraction-lease step", () => {
+    const loreDb = new LoreDb({
+      paths: { derivedStorePath: "ignored.db", backupDir: "ignored-backups" },
+    });
+
+    const plan = loreDb.buildMigrationPlan(15).map((step) => step.label);
+    assert.ok(plan.includes("deferred-extraction-lease"), `plan ${JSON.stringify(plan)} should include deferred-extraction-lease`);
+    assert.ok(plan.includes("schema-statements"), "plan should include schema-statements");
+  });
+
+  test("v16 migration plan includes schema-statements (creates error_telemetry)", () => {
+    const loreDb = new LoreDb({
+      paths: { derivedStorePath: "ignored.db", backupDir: "ignored-backups" },
+    });
+
+    const plan = loreDb.buildMigrationPlan(16).map((step) => step.label);
+    assert.ok(plan.includes("schema-statements"), "plan for v16 must include schema-statements to create error_telemetry");
+    // No dedicated pre-schema step for error_telemetry; the table is added via schema-statements
+    assert.ok(!plan.includes("error-telemetry"), "no separate error-telemetry migration step needed");
+  });
+
+  test("upgrading a v16 DB creates error_telemetry table", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "lore.db");
+    const backupDir = path.join(tempHome, "backups");
+
+    try {
+      const raw = new DatabaseSync(dbPath);
+      raw.exec(`
+        CREATE TABLE lore_schema_version (version INTEGER NOT NULL);
+        INSERT INTO lore_schema_version (version) VALUES (16);
+        CREATE TABLE deferred_extraction (
+          session_id TEXT PRIMARY KEY,
+          repository TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          priority INTEGER NOT NULL DEFAULT 0,
+          reason TEXT NOT NULL DEFAULT 'manual',
+          queued_at TEXT NOT NULL,
+          available_at TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          owner_token TEXT,
+          lease_expires_at TEXT,
+          heartbeat_at TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+      `);
+      raw.close();
+
+      const loreDb = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      loreDb.initialize();
+
+      assert.equal(loreDb.getCurrentVersion(), SCHEMA_VERSION);
+
+      const table = loreDb.db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='error_telemetry'`)
+        .get();
+      assert.ok(table, "error_telemetry table must exist after v16 upgrade");
+
+      loreDb.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
 });

@@ -286,6 +286,46 @@ describe("run-maintenance --recommended-schedule", () => {
       rmSync(tempHome, { recursive: true, force: true });
     }
   });
+
+  test("includes launchd plist example", () => {
+    const tempHome = makeTempDir();
+    try {
+      const result = run("run-maintenance.mjs", ["--recommended-schedule"], {
+        env: { LORE_COPILOT_HOME: tempHome },
+      });
+      assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+      assert.ok(
+        result.stdout.includes("launchd"),
+        `Expected 'launchd' in stdout.\nActual: ${result.stdout}`,
+      );
+      assert.ok(
+        result.stdout.includes("com.lore.maintenance"),
+        `Expected launchd label in stdout.\nActual: ${result.stdout}`,
+      );
+      assert.ok(
+        result.stdout.includes("StartInterval"),
+        `Expected StartInterval in stdout.\nActual: ${result.stdout}`,
+      );
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("includes hook cadence disclaimer", () => {
+    const tempHome = makeTempDir();
+    try {
+      const result = run("run-maintenance.mjs", ["--recommended-schedule"], {
+        env: { LORE_COPILOT_HOME: tempHome },
+      });
+      assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+      assert.ok(
+        result.stdout.includes("do NOT guarantee wall-clock cadence"),
+        `Expected cadence disclaimer in stdout.\nActual: ${result.stdout}`,
+      );
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -346,6 +386,77 @@ describe("run-maintenance --status", () => {
       assert.ok(
         result.stdout.includes("dryRun: true"),
         `Expected 'dryRun: true' in stdout.\nActual: ${result.stdout}`,
+      );
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run-maintenance.mjs — task name validation
+// ---------------------------------------------------------------------------
+
+describe("run-maintenance --tasks validation", () => {
+  test("exits 1 and prints error when all task names are unknown", () => {
+    const result = run("run-maintenance.mjs", ["--tasks", "notATask,alsoNotATask"]);
+    assert.strictEqual(
+      result.status,
+      1,
+      `Expected exit 1.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
+    );
+    assert.ok(
+      result.stderr.includes("Unknown task names:"),
+      `Expected unknown-task error in stderr.\nActual: ${result.stderr}`,
+    );
+    assert.ok(
+      result.stderr.includes("Valid tasks:"),
+      `Expected valid-task list in stderr.\nActual: ${result.stderr}`,
+    );
+  });
+
+  test("exits 1 and lists all known valid tasks in the error message", () => {
+    const result = run("run-maintenance.mjs", ["--tasks", "typo"]);
+    assert.strictEqual(result.status, 1, `stderr: ${result.stderr}`);
+    // Every valid task name should appear in the error guidance
+    for (const task of ["validationCorpus", "replayCorpus", "backlogReview", "traceCompaction", "indexUpkeep", "doctorSnapshot"]) {
+      assert.ok(
+        result.stderr.includes(task),
+        `Expected '${task}' in stderr valid-task list.\nActual: ${result.stderr}`,
+      );
+    }
+  });
+
+  test("exits 1 and prints error when task list mixes unknown and valid names", () => {
+    // Fail-closed: any unknown name — even alongside valid names — must exit 1 without running tasks.
+    const tempHome = makeTempDir();
+    try {
+      const result = run(
+        "run-maintenance.mjs",
+        ["--tasks", "validationCorpus,typo", "--dry-run"],
+        { env: { LORE_COPILOT_HOME: tempHome } },
+      );
+      assert.strictEqual(
+        result.status,
+        1,
+        `Expected exit 1 for mixed valid+unknown task list.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
+      );
+      assert.ok(
+        result.stderr.includes("Unknown task names:"),
+        `Expected error in stderr listing unknown tasks.\nActual: ${result.stderr}`,
+      );
+      assert.ok(
+        result.stderr.includes("typo"),
+        `Expected 'typo' named in the error.\nActual: ${result.stderr}`,
+      );
+      assert.ok(
+        result.stderr.includes("Valid tasks:"),
+        `Expected valid-task list in error guidance.\nActual: ${result.stderr}`,
+      );
+      // No maintenance DB should be created — the script must exit before opening the DB.
+      assert.ok(
+        !existsSync(path.join(tempHome, "lore.db")),
+        `Expected no lore.db created when exiting early on invalid tasks.\nfound: ${path.join(tempHome, "lore.db")}`,
       );
     } finally {
       rmSync(tempHome, { recursive: true, force: true });

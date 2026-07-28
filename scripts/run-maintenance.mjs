@@ -1,15 +1,14 @@
 #!/usr/bin/env node
-
-import { existsSync } from "node:fs";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/config.mjs";
-import { LoreDb } from "../lib/db.mjs";
-import { runMaintenanceSweep } from "../lib/maintenance-scheduler.mjs";
-import { SessionStoreReader } from "../lib/session-store-reader.mjs";
-import { createTraceRecorder } from "../lib/trace-recorder.mjs";
 import { COMMON_PATH_ARG_HANDLERS, consumeValueArg, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
+import { LoreDb } from "../lib/db.mjs";
+import { SessionStoreReader } from "../lib/session-store-reader.mjs";
+import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/config.mjs";
+import { createTraceRecorder } from "../lib/trace-recorder.mjs";
+import { runMaintenanceSweep, TASK_ORDER } from "../lib/maintenance-scheduler.mjs";
 
 function parseTaskList(value) {
   return String(value ?? "")
@@ -61,11 +60,15 @@ function renderHelp() {
     "Usage:",
     "  node scripts/run-maintenance.mjs [options]",
     "",
+    "The supported out-of-session entry point for Lore maintenance tasks.",
+    "Designed for use with cron, launchd, or any external scheduler.",
+    "Operates only on the configured Lore database; never touches test fixtures.",
+    "",
     "Options:",
     "  --status                   Show current scheduler/task status (dry-run).",
     "  --dry-run                  Plan a maintenance sweep without state mutation.",
     "  --force                    Ignore cadence and force selected tasks due.",
-    "  --tasks <csv>              Task subset: deferredExtraction,validationCorpus,replayCorpus,backlogReview,traceCompaction,indexUpkeep,doctorSnapshot.",
+    `  --tasks <csv>              Task subset: ${TASK_ORDER.join(",")}.`,
     "  --repository <name>        Optional repository scope override.",
     "  --config <path>            Optional lore.json path.",
     "  --derived-store-path <p>   Override derived lore DB path.",
@@ -73,6 +76,10 @@ function renderHelp() {
     "  --backup-dir <path>        Override backup directory.",
     "  --recommended-schedule     Show recommended external schedule guidance.",
     "  --help, -h                 Show this help text.",
+    "",
+    "Exit codes:",
+    "  0  Sweep completed (or dry-run/status planned) successfully.",
+    "  1  Error: any unknown task name in --tasks (fail-closed, DB never opened), DB failure, or unhandled exception.",
     "",
     "Environment variables:",
     "  LORE_COPILOT_HOME     Override ~/.copilot home directory (all path defaults derived from it).",
@@ -88,27 +95,83 @@ function renderRecommendedSchedule(config) {
   };
   return [
     "Recommended maintenance schedule (external runner):",
-    "- Keep session-start cheap/bounded: only deferredExtraction auto-runs at session start.",
-    "- Use this script for periodic upkeep from cron/launchd/system scheduler.",
+    "",
+    "Cadence model:",
+    "- Session hooks (onSessionStart, onSessionEnd) do NOT guarantee wall-clock cadence.",
+    "  They fire only when Copilot CLI sessions are active, so infrequent users may go",
+    "  hours or days between hook invocations. Use an external scheduler for reliable upkeep.",
+    "- On session start, Lore only auto-selects the deferredExtraction task.",
+    "- All other tasks are for external or manual sweeps via this script.",
+    "",
+    "Maintenance modes:",
+    "  automatic       deferredExtraction runs at session start when enabled and due.",
+    "  manual          maintenance_schedule_run tool (in-session); --dry-run / --status flags.",
+    "  external        This script, driven by cron, launchd, or another scheduler.",
     "",
     "Suggested cadences:",
-    `- validationCorpus: every ${cadenceFor("validationCorpus", 12 * 60)} minutes`,
-    `- replayCorpus: every ${cadenceFor("replayCorpus", 24 * 60)} minutes`,
-    `- backlogReview: every ${cadenceFor("backlogReview", 6 * 60)} minutes`,
-    `- traceCompaction: every ${cadenceFor("traceCompaction", 60)} minutes`,
-    `- indexUpkeep: every ${cadenceFor("indexUpkeep", 12 * 60)} minutes`,
-    `- doctorSnapshot: every ${cadenceFor("doctorSnapshot", 24 * 60)} minutes (optional; requires rollout.loreDoctor=true and maintenanceScheduler.tasks.doctorSnapshot=true)`,
+    `- validationCorpus: every ${cadenceFor("validationCorpus", 12 * 60)} minutes (12 h)`,
+    `- replayCorpus: every ${cadenceFor("replayCorpus", 24 * 60)} minutes (24 h)`,
+    `- backlogReview: every ${cadenceFor("backlogReview", 6 * 60)} minutes (6 h)`,
+    `- traceCompaction: every ${cadenceFor("traceCompaction", 60)} minutes (1 h)`,
+    `- indexUpkeep: every ${cadenceFor("indexUpkeep", 12 * 60)} minutes (12 h)`,
+    `- doctorSnapshot: every ${cadenceFor("doctorSnapshot", 24 * 60)} minutes (24 h, optional; requires rollout.loreDoctor=true and maintenanceScheduler.tasks.doctorSnapshot=true)`,
     "",
-    "Example cron entries (default ~/.copilot install):",
-    "0 */6 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview",
-    "15 2 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks replayCorpus,indexUpkeep,traceCompaction",
-    "30 3 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks doctorSnapshot",
+    "── cron examples (default ~/.copilot install) ─────────────────────────────",
+    "# redirect stderr to a log file so failures are not silently discarded",
+    "0 */6 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview >> ~/.copilot/lore-maintenance.log 2>&1",
+    "15 2 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks replayCorpus,indexUpkeep,traceCompaction >> ~/.copilot/lore-maintenance.log 2>&1",
+    "30 3 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks doctorSnapshot >> ~/.copilot/lore-maintenance.log 2>&1",
     "",
-    "Non-standard install (set LORE_COPILOT_HOME to override ~/.copilot):",
-    "0 */6 * * * LORE_COPILOT_HOME=/path/to/copilot-home node /path/to/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview",
+    "# non-standard install (LORE_COPILOT_HOME overrides ~/.copilot)",
+    "0 */6 * * * LORE_COPILOT_HOME=/path/to/copilot-home node /path/to/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview >> /path/to/lore-maintenance.log 2>&1",
+    "",
+    "── launchd example (macOS, default ~/.copilot install) ─────────────────────",
+    "# Save as ~/Library/LaunchAgents/com.lore.maintenance.plist, then:",
+    "#   launchctl load ~/Library/LaunchAgents/com.lore.maintenance.plist",
+    "#   launchctl start com.lore.maintenance",
+    "#",
+    "# <?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+    "# <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\"",
+    "#   \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
+    "# <plist version=\"1.0\">",
+    "# <dict>",
+    "#   <key>Label</key>",
+    "#   <string>com.lore.maintenance</string>",
+    "#   <key>ProgramArguments</key>",
+    "#   <array>",
+    "#     <string>/usr/local/bin/node</string>",
+    "#     <string>/Users/YOU/.copilot/extensions/lore/scripts/run-maintenance.mjs</string>",
+    "#     <string>--tasks</string>",
+    "#     <string>validationCorpus,backlogReview,traceCompaction</string>",
+    "#   </array>",
+    "#   <key>StartInterval</key>",
+    "#   <integer>21600</integer>",
+    "#   <key>StandardOutPath</key>",
+    "#   <string>/Users/YOU/.copilot/lore-maintenance.log</string>",
+    "#   <key>StandardErrorPath</key>",
+    "#   <string>/Users/YOU/.copilot/lore-maintenance.log</string>",
+    "#   <key>EnvironmentVariables</key>",
+    "#   <dict>",
+    "#     <key>LORE_COPILOT_HOME</key>",
+    "#     <string>/Users/YOU/.copilot</string>",
+    "#   </dict>",
+    "# </dict>",
+    "# </plist>",
+    "",
+    "Inspect status at any time:",
+    "  node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --status",
+    "  node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --dry-run",
+    "",
+    "See docs/maintenance-scheduling.md for the full guide.",
   ].join("\n");
 }
 
+function validateTaskNames(tasks) {
+  if (tasks.length === 0) return null;
+  const unknown = tasks.filter((t) => !TASK_ORDER.includes(t));
+  if (unknown.length === 0) return null;
+  return unknown;
+}
 function buildConfig(args) {
   // LORE_CONFIG env var provides a portable default config path that does
   // not depend on the working directory, useful for cron/CI/fixture environments.
@@ -215,6 +278,17 @@ async function main() {
     console.log(renderHelp());
     return;
   }
+
+  // Validate task names before touching the DB so cron typos fail loudly.
+  // Fail closed: any unknown name — even mixed with valid names — exits 1 without running tasks.
+  if (args.tasks.length > 0) {
+    const unknownTasks = validateTaskNames(args.tasks);
+    if (unknownTasks !== null) {
+      console.error(`Unknown task names: ${unknownTasks.join(", ")}. Valid tasks: ${TASK_ORDER.join(", ")}`);
+      process.exit(1);
+    }
+  }
+
   const config = buildConfig(args);
   if (args.action === "recommended-schedule") {
     console.log(renderRecommendedSchedule(config));

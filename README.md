@@ -183,6 +183,8 @@ Use `memory_status` for recorder health and recent samples. `includeRecentTraces
 
 `maintenanceScheduler` is the opt-in maintenance loop for deferred extraction processing, validation and replay corpus runs, backlog review, and index upkeep. On session start, Lore evaluates the maintenance plan and auto-runs the startup-safe deferred-extraction pass when it is enabled and due. The same scheduler also powers manual or scripted sweeps through `maintenance_schedule_run` and `node scripts/run-maintenance.mjs`.
 
+> **Session hooks do not guarantee wall-clock cadence.** For reliable periodic upkeep independent of session frequency, wire `scripts/run-maintenance.mjs` into cron or launchd. See [`docs/maintenance-scheduling.md`](docs/maintenance-scheduling.md) for the full guide including cron and launchd examples, failure detection, and the isolated-database rule.
+
 ```json
 {
   "maintenanceScheduler": {

@@ -27,6 +27,10 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | `onSessionStart` | 🟢 Supported | Initialises DB, loads config, runs cheap pre-warm. Bounded latency target: < 300 ms. |
 | `onUserPromptSubmitted` | 🟢 Supported | Injects memory capsule into prompt context when relevant. Bounded latency target: < 200 ms. Temporal prompts use date normalisation plus `day_summary` / episode lookup first, then bounded raw session-store verification only when primary temporal evidence is missing. |
 | `onSessionEnd` | 🟢 Supported | Persists session extraction to the derived store. Non-blocking best-effort. |
+| `onErrorOccurred` | 🟡 Experimental | Passive error telemetry. Requires `rollout.errorTelemetry: true` (default-off). Persists only categorical metadata to `error_telemetry` table. Never persists error messages, stack traces, or raw payloads. No `errorHandling` override in Phase 2. |
+| `onPostToolUse` | 🟡 Experimental | Passive post-tool-use observations. Requires `rollout.postToolUse: true` (default-off). Derives categorical tool kind and success/failure only. Never persists raw args or results. Enqueues observations via deferred background path. When `subagentScopeTracking` is also enabled, annotates observations with the active sub-agent name. |
+| `onPreToolUse` | 🟡 Experimental | Narrow default-off guardrail (Phase 3). Requires `rollout.preToolUseGuardrail: true`. Only observes tools in the explicit allowlist (`lore_retain`, `lore_reflect`, `memory_save`). Never blocks; never persists raw args. Returns advisory `additionalContext` with active sub-agent scope when both flags are on. Fails open on timeout (50 ms), error, or malformed payload. |
+| `onPreMcpToolCall` | ⏸ Deferred | SDK capability verified (≥ 1.0.75). Intentionally not registered in Phase 3 — no concrete Lore MCP metadata use case verified. See `docs/copilot-sdk-hooks.md`. |
 
 ---
 
@@ -128,7 +132,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | Script | Status | Notes |
 |---|---|---|
 | `scripts/validate-config-schema.mjs` | 🟢 Supported | Validates `lore.json` against the schema. Safe to run at any time. |
-| `scripts/run-maintenance.mjs` | 🟡 Experimental | Runs maintenance sweeps outside of session context. Use `maintenance_schedule_run` tool for in-session triggering. |
+| `scripts/run-maintenance.mjs` | 🟡 Experimental | The supported out-of-session entry point for maintenance tasks (`validationCorpus`, `replayCorpus`, `backlogReview`, `traceCompaction`, `indexUpkeep`, `doctorSnapshot`). Designed for cron, launchd, or any external scheduler. Exits 0 on success, 1 on unknown task names or DB error. Operates only on the configured Lore database — never on test fixtures or other users' databases. See [`docs/maintenance-scheduling.md`](maintenance-scheduling.md) for the full guide. Use `maintenance_schedule_run` tool for in-session triggering. |
 | `scripts/run-browser.mjs` | 🟡 Experimental | Starts the local browser dashboard. Loopback hosts only (`127.0.0.1`, `localhost`, or `::1`). |
 
 ---
@@ -155,6 +159,10 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | `loreDoctor` | 🟢 Supported | `true` (requires `evolutionLedger`) | `memory_doctor_report` |
 | `reviewGate` | 🟢 Supported | `true` (requires `evolutionLedger`) | `memory_review_gate` |
 | `approvalSubstrate` | 🟢 Supported | `true` (requires `evolutionLedger`) | Approval-workflow substrate for ledger-backed proposal review state |
+| `errorTelemetry` | 🟡 Experimental | `false` | Passive `onErrorOccurred` hook. Persists only categorical metadata (category, recoverability, fingerprint) to `error_telemetry`. Never persists raw messages or stack traces. No `errorHandling` overrides. |
+| `postToolUse` | 🟡 Experimental | `false` | Passive `onPostToolUse` hook. Derives categorical tool kind and success/failure. Enqueues observations via deferred background path. Never persists raw args or results. |
+| `subagentScopeTracking` | 🟡 Experimental | `false` | Phase 3. Tracks active custom agent identity via `subagent.*` session events. In-memory only; never persisted. Resets on deselection, completion, failure, and session end. Attaches additive scope metadata to `onPostToolUse` and `onPreToolUse` outputs when active. |
+| `preToolUseGuardrail` | 🟡 Experimental | `false` | Phase 3. Wires `onPreToolUse` for tools in the explicit Lore allowlist (`lore_retain`, `lore_reflect`, `memory_save`). Observe-only; never blocks; fails open on timeout (50 ms), error, or malformed payload. No raw args persisted. |
 
 Temporal recall notes:
 
@@ -184,6 +192,24 @@ These are persisted rows, so new values should be treated as contract changes an
 
 Lore's maintenance loop is intentionally bounded. It is about **runtime/data health and improvement artifacts**, not static source-code repair.
 
+### Hook cadence
+
+**Session hooks do not guarantee wall-clock cadence.** `onSessionStart` fires only when a Copilot CLI session starts. If sessions are infrequent, maintenance that depends on session start may not run for hours or days. Use `scripts/run-maintenance.mjs` with an external scheduler (cron, launchd) for wall-clock-driven upkeep.
+
+### Maintenance modes
+
+| Mode | Trigger | Tasks |
+|---|---|---|
+| Automatic | `onSessionStart` hook | `deferredExtraction` only |
+| Manual / in-session | `maintenance_schedule_run` tool; `--dry-run`; `--status` | Any enabled task |
+| External / scheduled | `scripts/run-maintenance.mjs` | Any enabled task |
+
+### Isolated database rule
+
+Scheduled maintenance operates only on the configured Lore database (default `~/.copilot/lore.db`). It must never be pointed at test fixtures, shared databases, or other users' databases. Failed migrations and jobs use forward recovery — if a task fails, the database is left intact and the failure is recorded for the next run to retry.
+
+### Auto-run conditions
+
 It auto-runs on session start only when all of these are true:
 
 - `maintenanceScheduler.enabled: true`
@@ -199,6 +225,6 @@ Additional task gates:
 - `doctorSnapshot` requires `rollout.loreDoctor: true`.
 - Proposal/integrity/review surfaces stay bounded by the `evolutionLedger`, `proposalGeneration`, `generatedArtifactIntegrity`, `reviewGate`, and `approvalSubstrate` rollout flags.
 
-You can always inspect or force the loop manually with `maintenance_schedule_run` or `node scripts/run-maintenance.mjs`.
+You can always inspect or force the loop manually with `maintenance_schedule_run` or `node scripts/run-maintenance.mjs`. See [`docs/maintenance-scheduling.md`](maintenance-scheduling.md) for the full external scheduling guide.
 
 What it **does not** currently do: statically inspect Lore's own source tree for logic mistakes like duplicated migration calls. Those still need tests, review, or future invariant checks.

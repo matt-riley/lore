@@ -427,9 +427,8 @@ describe("run-maintenance --tasks validation", () => {
     }
   });
 
-  test("warns on stderr about unknown tasks when some tasks are unknown and some are valid", () => {
-    // When the task list contains a mix of unknown + valid names, the script warns on stderr.
-    // The warning must appear before any DB work begins.
+  test("exits 1 and prints error when task list mixes unknown and valid names", () => {
+    // Fail-closed: any unknown name — even alongside valid names — must exit 1 without running tasks.
     const tempHome = makeTempDir();
     try {
       const result = run(
@@ -437,13 +436,27 @@ describe("run-maintenance --tasks validation", () => {
         ["--tasks", "validationCorpus,typo", "--dry-run"],
         { env: { LORE_COPILOT_HOME: tempHome } },
       );
+      assert.strictEqual(
+        result.status,
+        1,
+        `Expected exit 1 for mixed valid+unknown task list.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
+      );
       assert.ok(
-        result.stderr.includes("Warning: ignoring unknown task names:"),
-        `Expected warning in stderr about unknown tasks.\nActual: ${result.stderr}`,
+        result.stderr.includes("Unknown task names:"),
+        `Expected error in stderr listing unknown tasks.\nActual: ${result.stderr}`,
       );
       assert.ok(
         result.stderr.includes("typo"),
-        `Expected 'typo' named in the warning.\nActual: ${result.stderr}`,
+        `Expected 'typo' named in the error.\nActual: ${result.stderr}`,
+      );
+      assert.ok(
+        result.stderr.includes("Valid tasks:"),
+        `Expected valid-task list in error guidance.\nActual: ${result.stderr}`,
+      );
+      // No maintenance DB should be created — the script must exit before opening the DB.
+      assert.ok(
+        !existsSync(path.join(tempHome, "lore.db")),
+        `Expected no lore.db created when exiting early on invalid tasks.\nfound: ${path.join(tempHome, "lore.db")}`,
       );
     } finally {
       rmSync(tempHome, { recursive: true, force: true });

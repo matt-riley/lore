@@ -113,7 +113,7 @@ For a non-standard install location, set `LORE_COPILOT_HOME`:
 
 - `cron` starts jobs with a minimal `PATH`. Use the full path to `node` (find it with `which node` or `$(command -v node)` from an interactive shell).
 - Volta or nvm-managed Node installs may not be on the `PATH` in cron's environment. Either use the full absolute path (e.g., `/Users/you/.volta/bin/node`) or set `PATH` in the crontab header.
-- The script exits 0 on success and 1 on error. Check the log for non-zero exits or `Unknown task names:` messages, which indicate a typo in `--tasks`.
+- The script exits 0 on success and 1 on error. Check the log for non-zero exits or `Unknown task names:` messages, which indicate an unrecognised name in `--tasks`. Any unknown name — even mixed with valid names — causes an immediate exit 1 before running anything.
 
 ---
 
@@ -191,7 +191,7 @@ launchctl unload ~/Library/LaunchAgents/com.lore.maintenance.plist
 
 The script exits **0** on success and **1** on any of:
 
-- Unknown task names in `--tasks` (typo protection; all-unknown exits immediately without touching the DB)
+- Any unknown task name in `--tasks` — including a mix of valid and unknown names (fail-closed: the script exits immediately before opening the DB, so no partial task set runs)
 - DB initialization or migration failure
 - Unhandled exception during sweep execution
 

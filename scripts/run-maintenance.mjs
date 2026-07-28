@@ -79,7 +79,7 @@ function renderHelp() {
     "",
     "Exit codes:",
     "  0  Sweep completed (or dry-run/status planned) successfully.",
-    "  1  Error: unknown task names, DB failure, or unhandled exception.",
+    "  1  Error: any unknown task name in --tasks (fail-closed, DB never opened), DB failure, or unhandled exception.",
     "",
     "Environment variables:",
     "  LORE_COPILOT_HOME     Override ~/.copilot home directory (all path defaults derived from it).",
@@ -280,15 +280,12 @@ async function main() {
   }
 
   // Validate task names before touching the DB so cron typos fail loudly.
+  // Fail closed: any unknown name — even mixed with valid names — exits 1 without running tasks.
   if (args.tasks.length > 0) {
     const unknownTasks = validateTaskNames(args.tasks);
     if (unknownTasks !== null) {
-      const valid = args.tasks.filter((t) => TASK_ORDER.includes(t));
-      if (valid.length === 0) {
-        console.error(`Unknown task names: ${unknownTasks.join(", ")}. Valid tasks: ${TASK_ORDER.join(", ")}`);
-        process.exit(1);
-      }
-      console.error(`Warning: ignoring unknown task names: ${unknownTasks.join(", ")}. Valid tasks: ${TASK_ORDER.join(", ")}`);
+      console.error(`Unknown task names: ${unknownTasks.join(", ")}. Valid tasks: ${TASK_ORDER.join(", ")}`);
+      process.exit(1);
     }
   }
 

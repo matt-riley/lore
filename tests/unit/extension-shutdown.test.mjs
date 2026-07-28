@@ -294,6 +294,59 @@ describe("shutdownRuntime", () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleSessionEndHook — shutdown runs even for empty/no-artifact sessions
+// ---------------------------------------------------------------------------
+
+describe("handleSessionEndHook empty-session shutdown", () => {
+  test("drains pending background work and closes the DB once when no session artifacts exist", async () => {
+    const closeCalls = [];
+    const runtime = {
+      pendingWork: new Set(),
+      shuttingDown: false,
+      initialized: true,
+      lastError: null,
+      config: {},
+      db: {
+        close() { closeCalls.push("close"); },
+      },
+    };
+
+    // Register a fast background job before session end to confirm drain
+    let workSettled = false;
+    const work = new Promise((res) => setTimeout(() => { workSettled = true; res(); }, 5));
+    runtime.pendingWork.add(work);
+    work.then(() => runtime.pendingWork.delete(work));
+
+    const { handleSessionEndHook, shutdownRuntime, trackBackgroundWork } = loadFunctions(
+      ["handleSessionEndHook", "shutdownRuntime", "trackBackgroundWork"],
+      {
+        runtime,
+        delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        Promise,
+        getContext: async () => ({ runtime, workspace: "/fake/ws", repository: "owner/repo" }),
+        hooksEnabled: () => true,
+        readSessionEndExtraction: () => null,
+        applySessionExtraction: () => { throw new Error("must not be called for empty session"); },
+        maybeEnqueueDeferredSessionExtraction: () => { throw new Error("must not be called for empty session"); },
+      },
+    );
+
+    const session = { async log() {} };
+    await handleSessionEndHook({
+      session,
+      invocation: { sessionId: "session-empty-regression" },
+      input: { cwd: "/fake/cwd", reason: "normal" },
+    });
+
+    assert.equal(closeCalls.length, 1, "db.close() must be called exactly once even when no artifacts exist");
+    assert.equal(runtime.db, null, "runtime.db must be nulled after shutdown");
+    assert.equal(runtime.shuttingDown, true, "runtime.shuttingDown must be true after shutdown");
+    assert.equal(workSettled, true, "pending background work must have settled before shutdown closed the DB");
+    assert.equal(runtime.pendingWork.size, 0, "pendingWork must be empty after drain");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // persistTraceSuccess catch → warning log
 // ---------------------------------------------------------------------------
 

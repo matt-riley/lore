@@ -989,34 +989,32 @@ async function handleSessionEndHook({
 
   try {
     const extraction = readSessionEndExtraction(activeRuntime, invocation.sessionId);
-    if (!extraction) {
-      return;
+    if (extraction) {
+      applySessionExtraction({
+        db: activeRuntime.db,
+        sessionId: invocation.sessionId,
+        repository,
+        sessionArtifacts: extraction,
+        workspace,
+      });
+      maybeEnqueueDeferredSessionExtraction(activeRuntime, invocation.sessionId, repository);
     }
 
-    applySessionExtraction({
-      db: activeRuntime.db,
-      sessionId: invocation.sessionId,
-      repository,
-      sessionArtifacts: extraction,
-      workspace,
-    });
-    maybeEnqueueDeferredSessionExtraction(activeRuntime, invocation.sessionId, repository);
+    if (input.reason === "error") {
+      await session.log("lore observed session end with error", {
+        ephemeral: true,
+        level: "warning",
+      });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await session.log(`lore session-end extraction skipped: ${message}`, {
       ephemeral: true,
       level: "warning",
     });
+  } finally {
+    await shutdownRuntime(session);
   }
-
-  if (input.reason === "error") {
-    await session.log("lore observed session end with error", {
-      ephemeral: true,
-      level: "warning",
-    });
-  }
-
-  await shutdownRuntime(session);
 }
 
 async function maybeProcessDeferredExtractions(session, activeRuntime, repository) {

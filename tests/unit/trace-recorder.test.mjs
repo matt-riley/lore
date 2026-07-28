@@ -38,6 +38,19 @@ function buildRecorder() {
 }
 
 describe("createTraceRecorder", () => {
+  test("uses restart-safe IDs across recorder instances", () => {
+    const first = buildRecorder().record({
+      hook: "onSessionStart",
+      trace: {},
+    });
+    const second = buildRecorder().record({
+      hook: "onSessionStart",
+      trace: {},
+    });
+
+    assert.notEqual(first.id, second.id);
+  });
+
   test("records fallback router decisions and compact lookup payloads", () => {
     const recorder = buildRecorder();
     const result = recorder.record({

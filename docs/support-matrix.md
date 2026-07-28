@@ -28,7 +28,9 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | `onUserPromptSubmitted` | 🟢 Supported | Injects memory capsule into prompt context when relevant. Bounded latency target: < 200 ms. Temporal prompts use date normalisation plus `day_summary` / episode lookup first, then bounded raw session-store verification only when primary temporal evidence is missing. |
 | `onSessionEnd` | 🟢 Supported | Persists session extraction to the derived store. Non-blocking best-effort. |
 | `onErrorOccurred` | 🟡 Experimental | Passive error telemetry. Requires `rollout.errorTelemetry: true` (default-off). Persists only categorical metadata to `error_telemetry` table. Never persists error messages, stack traces, or raw payloads. No `errorHandling` override in Phase 2. |
-| `onPostToolUse` | 🟡 Experimental | Passive post-tool-use observations. Requires `rollout.postToolUse: true` (default-off). Derives categorical tool kind and success/failure only. Never persists raw args or results. Enqueues observations via deferred background path. |
+| `onPostToolUse` | 🟡 Experimental | Passive post-tool-use observations. Requires `rollout.postToolUse: true` (default-off). Derives categorical tool kind and success/failure only. Never persists raw args or results. Enqueues observations via deferred background path. When `subagentScopeTracking` is also enabled, annotates observations with the active sub-agent name. |
+| `onPreToolUse` | 🟡 Experimental | Narrow default-off guardrail (Phase 3). Requires `rollout.preToolUseGuardrail: true`. Only observes tools in the explicit allowlist (`lore_retain`, `lore_reflect`, `memory_save`). Never blocks; never persists raw args. Returns advisory `additionalContext` with active sub-agent scope when both flags are on. Fails open on timeout (50 ms), error, or malformed payload. |
+| `onPreMcpToolCall` | ⏸ Deferred | SDK capability verified (≥ 1.0.75). Intentionally not registered in Phase 3 — no concrete Lore MCP metadata use case verified. See `docs/copilot-sdk-hooks.md`. |
 
 ---
 
@@ -159,6 +161,8 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | `approvalSubstrate` | 🟢 Supported | `true` (requires `evolutionLedger`) | Approval-workflow substrate for ledger-backed proposal review state |
 | `errorTelemetry` | 🟡 Experimental | `false` | Passive `onErrorOccurred` hook. Persists only categorical metadata (category, recoverability, fingerprint) to `error_telemetry`. Never persists raw messages or stack traces. No `errorHandling` overrides. |
 | `postToolUse` | 🟡 Experimental | `false` | Passive `onPostToolUse` hook. Derives categorical tool kind and success/failure. Enqueues observations via deferred background path. Never persists raw args or results. |
+| `subagentScopeTracking` | 🟡 Experimental | `false` | Phase 3. Tracks active custom agent identity via `subagent.*` session events. In-memory only; never persisted. Resets on deselection, completion, failure, and session end. Attaches additive scope metadata to `onPostToolUse` and `onPreToolUse` outputs when active. |
+| `preToolUseGuardrail` | 🟡 Experimental | `false` | Phase 3. Wires `onPreToolUse` for tools in the explicit Lore allowlist (`lore_retain`, `lore_reflect`, `memory_save`). Observe-only; never blocks; fails open on timeout (50 ms), error, or malformed payload. No raw args persisted. |
 
 Temporal recall notes:
 

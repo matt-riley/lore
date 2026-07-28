@@ -131,11 +131,87 @@ DB work is always enqueued via `spawnTrackedDeferredTask` (never synchronous in 
 
 Both flags default to `false` and have no parent-flag dependencies.
 
+## Phase 3: sub-agent scoping and pre-tool guardrail
+
+Lore Phase 3 adds **sub-agent scope tracking** via the generic session event stream and a **narrow, default-off pre-tool guardrail**. Both are strictly opt-in.
+
+### Sub-agent scope tracking
+
+**Verified SDK event surface (SDK ≥ 1.0.75, `generated/session-events.d.ts`):**
+
+| Event type | Fires when | Payload fields used |
+|---|---|---|
+| `subagent.selected` | custom agent selected by user | `data.agentName`, `data.agentDisplayName` |
+| `subagent.deselected` | custom agent deselected | _(empty data)_ |
+| `subagent.started` | sub-agent execution started | `data.agentName`, `data.agentDisplayName` |
+| `subagent.completed` | sub-agent execution completed successfully | _(triggers reset)_ |
+| `subagent.failed` | sub-agent execution failed | _(triggers reset; `data.error` is never read)_ |
+
+Lore subscribes via `session.on("subagent.selected", ...)` etc. (not named hooks). Subscriptions are registered unconditionally after `joinSession`; the rollout flag is checked inside each handler at event time.
+
+| Property | Value |
+|---|---|
+| Rollout flag | `rollout.subagentScopeTracking` |
+| Default | `false` |
+| State storage | **In-memory only; never persisted** |
+| Reset events | `deselected`, `completed`, `failed`, `onSessionStart`, `onSessionEnd` |
+| Scope metadata | Additive: `{ activeSubagent: { name, displayName } }` — advisory, never blocks |
+
+**Scope attachment:** When enabled and an agent is active, the active sub-agent name is included as additive context in `onPostToolUse` trajectory artifacts and as `additionalContext` in `onPreToolUse` guardrail output. It does not alter recall results, retention logic, or any core behavior.
+
+**No-op guarantees:**
+- Unknown event shapes or malformed payloads → safe no-op.
+- `subagent.failed` `data.error` field is never read or retained.
+- The tracker holds only `agentName` (max 128 chars) and `agentDisplayName` (max 256 chars).
+
+### `onPreToolUse` guardrail
+
+| Property | Value |
+|---|---|
+| Rollout flag | `rollout.preToolUseGuardrail` |
+| Default | `false` |
+| Phase 3 behavior | Observe-only; no `permissionDecision` returned |
+| Allowlist | `lore_retain`, `lore_reflect`, `memory_save` |
+| Timeout | 50 ms (hard internal timeout; fails open) |
+
+Only tools in the explicit allowlist are observed. All others are unconditional no-ops.
+
+When the guardrail is enabled and an allowlisted tool is called while a sub-agent is active (scope tracking also enabled), it returns `{ additionalContext: "[lore scope] active sub-agent: <name>" }`. In all other cases it returns `void`.
+
+**Fail-open semantics:**
+- Timeout (>50 ms) → returns `void`.
+- Any thrown error → returns `void`.
+- Malformed/absent payload → returns `void`.
+- Disabled flag → returns `void`.
+- `permissionDecision: "deny"` is **never** returned in Phase 3.
+- Raw `toolArgs` are **never** read, logged, or persisted.
+
+### `onPreMcpToolCall` — intentionally not registered
+
+**Capability status:** Verified present in SDK ≥ 1.0.75 (`types.d.ts`). `PreMcpToolCallHookInput` has `{ serverName, toolName, arguments, _meta?, sessionId, timestamp, workingDirectory }`. Output can set `metaToUse: Record<string, unknown> | null` to inject or suppress request `_meta`.
+
+**Phase 3 decision:** No concrete Lore MCP metadata use case is verified at this time. Lore exposes its tools via the SDK tool surface, not via MCP. Injecting Lore-specific `_meta` into outgoing MCP calls has no confirmed downstream consumer. This hook is **intentionally not registered** in Phase 3. A future phase may register it if a verified use case emerges.
+
+### Enabling Phase 3 features
+
+```json
+{
+  "enabled": true,
+  "rollout": {
+    "subagentScopeTracking": true,
+    "preToolUseGuardrail": true
+  }
+}
+```
+
+Both flags default to `false`, are independent of other rollout flags, and have no effect when disabled.
+
 ## Confidence Assessment
 
 - **High confidence** on the seven named hooks, because the installed type definitions, docs, and runtime dispatch table all agree.[^hooks-type][^dispatch][^examples-hooks]
 - **High confidence** that sub-agent lifecycle is available as events, because the installed generated event schema enumerates those event names explicitly.[^subagent-events]
 - **High confidence** that `onEvent` is part of the join/resume configuration surface for extensions, because `JoinSessionConfig` is derived from `ResumeSessionConfig`, which includes `onEvent`.[^join-config]
+- **High confidence** on `onPreMcpToolCall` capability (SDK ≥ 1.0.75 types verify the interface and output shape), but **deferred** in Phase 3 due to no verified Lore-specific MCP metadata use case.
 - **Medium confidence** on any undocumented hook names beyond these, because this report intentionally treats the bundled type surface and bundled dispatcher as the source of truth rather than inferring support from ad hoc local extension code.[^dispatch]
 
 ## Footnotes

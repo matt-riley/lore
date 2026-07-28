@@ -666,6 +666,16 @@
           "type": "boolean",
           "default": false,
           "description": "Enable passive post-tool-use observation hook (onPostToolUse). Records only categorical tool kind and success/failure — no raw args or results. Default-off."
+        },
+        "subagentScopeTracking": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable sub-agent scope tracking via session events (subagent.selected/deselected/started/completed/failed). Tracks the active custom agent name as session-local in-memory state and attaches additive scope metadata to Lore operations where supported. State is never persisted and resets at session end. Default-off."
+        },
+        "preToolUseGuardrail": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the narrow onPreToolUse guardrail. Only observes tools in the explicit Lore-relevant allowlist (lore_retain, lore_reflect, memory_save). Adds advisory sub-agent scope context when active. Never blocks, never persists raw args. Fails open on timeout, error, or ambiguous payload. Default-off."
         }
       }
     }

@@ -135,6 +135,8 @@ describe("loadConfig", () => {
         ambientWorkingProfile: true,
         errorTelemetry: false,
         postToolUse: false,
+        subagentScopeTracking: false,
+        preToolUseGuardrail: false,
       },
     );
   });

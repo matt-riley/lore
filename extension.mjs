@@ -32,11 +32,14 @@ import {
   readOverlayAutoHydrationEnabled,
   readErrorTelemetryEnabled,
   readPostToolUseEnabled,
+  readSubagentScopeTrackingEnabled,
 } from "./lib/rollout-flags.mjs";
 import {
   buildErrorTelemetryRecord,
   buildPostToolUseObservation,
 } from "./lib/passive-hooks.mjs";
+import { createSubagentScopeTracker } from "./lib/subagent-scope-tracker.mjs";
+import { runPreToolUseGuardrail } from "./lib/pre-tool-use-guardrail.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 
 let lastKnownCwd = process.cwd();
@@ -46,6 +49,7 @@ const metrics = {
   userPromptSubmittedMs: [],
   errorTelemetryMs: [],
   postToolUseMs: [],
+  preToolUseMs: [],
 };
 
 const capsuleCache = new Map();
@@ -1429,11 +1433,15 @@ function maybeCompactErrorTelemetry(activeRuntime) {
 
 import { buildLoreHooks } from "./lib/hook-registration.mjs";
 
+// Session-local sub-agent scope tracker. Reset on session end.
+const subagentScopeTracker = createSubagentScopeTracker();
+
 const session = await joinSession({
   onPermissionRequest: approveAll,
   hooks: buildLoreHooks({
     onSessionStart: async (input, invocation) => {
       lastKnownCwd = input.cwd || lastKnownCwd;
+      subagentScopeTracker.reset(); // clear any stale state from previous session
       return handleSessionStartHook({ session, invocation, input, metrics });
     },
 
@@ -1500,6 +1508,7 @@ const session = await joinSession({
 
     onSessionEnd: async (input, invocation) => {
       lastKnownCwd = input.cwd || lastKnownCwd;
+      subagentScopeTracker.reset(); // ensure no scope state leaks past session end
       return handleSessionEndHook({ session, invocation, input });
     },
 
@@ -1541,7 +1550,7 @@ const session = await joinSession({
       // Phase 2: no errorHandling override returned
     },
 
-    onPostToolUse: async (input, invocation) => {
+    onPostToolUse: async (input, _invocation) => {
       const startedAt = Date.now();
       try {
         const activeRuntime = runtime;
@@ -1555,6 +1564,9 @@ const session = await joinSession({
         if (!observation) {
           return;
         }
+        const scopeMeta = readSubagentScopeTrackingEnabled(activeRuntime.config)
+          ? subagentScopeTracker.getActiveScopeMetadata()
+          : null;
         spawnTrackedDeferredTask(async () => {
           try {
             activeRuntime.db.insertTrajectoryArtifact({
@@ -1568,6 +1580,7 @@ const session = await joinSession({
                 toolCategory: observation.toolCategory,
                 success: observation.success,
                 argsShape: observation.argsShape,
+                ...(scopeMeta ? { activeSubagent: scopeMeta.activeSubagent.name } : {}),
               },
             });
           } catch (error) {
@@ -1588,6 +1601,33 @@ const session = await joinSession({
         );
       }
     },
+
+    // onPreToolUse — narrow default-off guardrail (Phase 3).
+    // Only active when rollout.preToolUseGuardrail is true.
+    // Observes only the explicit Lore-relevant tool allowlist.
+    // Never blocks; fails open on any error, timeout, or malformed payload.
+    // onPreMcpToolCall is intentionally not registered: the SDK capability is
+    // verified (PreMcpToolCallHookInput + metaToUse output, SDK ≥ 1.0.75) but
+    // no concrete Lore MCP metadata use case is verified at this time.
+    // See docs/copilot-sdk-hooks.md for rationale.
+    onPreToolUse: async (input, _invocation) => {
+      const startedAt = Date.now();
+      try {
+        return await runPreToolUseGuardrail(input, {
+          config: runtime.config,
+          scopeTracker: subagentScopeTracker,
+        });
+      } catch {
+        // fail open — pre-tool hook must never throw to the SDK
+        return undefined;
+      } finally {
+        recordMetric(
+          metrics.preToolUseMs,
+          Date.now() - startedAt,
+          runtime.config?.limits?.metricWindowSize ?? 200,
+        );
+      }
+    },
   }),
   tools: createMemoryTools({
     getRuntime: async (sessionId) => {
@@ -1600,6 +1640,65 @@ const session = await joinSession({
       };
     },
   }),
+});
+
+// Subscribe to verified sub-agent events for scope tracking (Phase 3).
+// Handlers check runtime.config at event time so the config is always loaded.
+// These event subscriptions are safe to wire unconditionally; the guard inside
+// each handler enforces the rollout flag before touching any state.
+session.on("subagent.selected", (event) => {
+  try {
+    if (!runtime.config || !readSubagentScopeTrackingEnabled(runtime.config)) {
+      return;
+    }
+    subagentScopeTracker.handleSelected(event);
+  } catch {
+    // safe no-op — event handler must never throw
+  }
+});
+
+session.on("subagent.deselected", (event) => {
+  try {
+    if (!runtime.config || !readSubagentScopeTrackingEnabled(runtime.config)) {
+      return;
+    }
+    subagentScopeTracker.handleDeselected(event);
+  } catch {
+    // safe no-op
+  }
+});
+
+session.on("subagent.started", (event) => {
+  try {
+    if (!runtime.config || !readSubagentScopeTrackingEnabled(runtime.config)) {
+      return;
+    }
+    subagentScopeTracker.handleStarted(event);
+  } catch {
+    // safe no-op
+  }
+});
+
+session.on("subagent.completed", (event) => {
+  try {
+    if (!runtime.config || !readSubagentScopeTrackingEnabled(runtime.config)) {
+      return;
+    }
+    subagentScopeTracker.handleCompleted(event);
+  } catch {
+    // safe no-op
+  }
+});
+
+session.on("subagent.failed", (event) => {
+  try {
+    if (!runtime.config || !readSubagentScopeTrackingEnabled(runtime.config)) {
+      return;
+    }
+    subagentScopeTracker.handleFailed(event);
+  } catch {
+    // safe no-op
+  }
 });
 
 await ensureRuntime(session);

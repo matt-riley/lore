@@ -37,6 +37,8 @@ import {
   readApprovalSubstrateEnabled,
   readErrorTelemetryEnabled,
   readPostToolUseEnabled,
+  readSubagentScopeTrackingEnabled,
+  readPreToolUseGuardrailEnabled,
 } from "../../lib/rollout-flags.mjs";
 
 // ---------------------------------------------------------------------------
@@ -567,5 +569,77 @@ describe("readPostToolUseEnabled — standalone, default-off", () => {
 
   test('"0" string coerces to false', () => {
     assert.strictEqual(readPostToolUseEnabled(cfg({ postToolUse: "0" })), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readSubagentScopeTrackingEnabled — standalone, default-off (Phase 3)
+// ---------------------------------------------------------------------------
+
+describe("readSubagentScopeTrackingEnabled — standalone, default-off", () => {
+  test("returns true when subagentScopeTracking is true", () => {
+    assert.strictEqual(readSubagentScopeTrackingEnabled(cfg({ subagentScopeTracking: true })), true);
+  });
+
+  test("returns false when subagentScopeTracking is false", () => {
+    assert.strictEqual(readSubagentScopeTrackingEnabled(cfg({ subagentScopeTracking: false })), false);
+  });
+
+  test("falls back to false when subagentScopeTracking is absent (default-off)", () => {
+    assert.strictEqual(readSubagentScopeTrackingEnabled(cfg({})), false);
+  });
+
+  test("is independent of memoryOperations (no parent dependency)", () => {
+    const c = cfg({ memoryOperations: false, subagentScopeTracking: true });
+    assert.strictEqual(readSubagentScopeTrackingEnabled(c), true);
+  });
+
+  test("returns false for null/undefined config (default-off)", () => {
+    assert.strictEqual(readSubagentScopeTrackingEnabled(null), false);
+    assert.strictEqual(readSubagentScopeTrackingEnabled(undefined), false);
+  });
+
+  test('"true" string coerces to true', () => {
+    assert.strictEqual(readSubagentScopeTrackingEnabled(cfg({ subagentScopeTracking: "true" })), true);
+  });
+
+  test('"false" string coerces to false', () => {
+    assert.strictEqual(readSubagentScopeTrackingEnabled(cfg({ subagentScopeTracking: "false" })), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readPreToolUseGuardrailEnabled — standalone, default-off (Phase 3)
+// ---------------------------------------------------------------------------
+
+describe("readPreToolUseGuardrailEnabled — standalone, default-off", () => {
+  test("returns true when preToolUseGuardrail is true", () => {
+    assert.strictEqual(readPreToolUseGuardrailEnabled(cfg({ preToolUseGuardrail: true })), true);
+  });
+
+  test("returns false when preToolUseGuardrail is false", () => {
+    assert.strictEqual(readPreToolUseGuardrailEnabled(cfg({ preToolUseGuardrail: false })), false);
+  });
+
+  test("falls back to false when preToolUseGuardrail is absent (default-off)", () => {
+    assert.strictEqual(readPreToolUseGuardrailEnabled(cfg({})), false);
+  });
+
+  test("is independent of memoryOperations (no parent dependency)", () => {
+    const c = cfg({ memoryOperations: false, preToolUseGuardrail: true });
+    assert.strictEqual(readPreToolUseGuardrailEnabled(c), true);
+  });
+
+  test("returns false for null/undefined config (default-off)", () => {
+    assert.strictEqual(readPreToolUseGuardrailEnabled(null), false);
+    assert.strictEqual(readPreToolUseGuardrailEnabled(undefined), false);
+  });
+
+  test('"1" string coerces to true', () => {
+    assert.strictEqual(readPreToolUseGuardrailEnabled(cfg({ preToolUseGuardrail: "1" })), true);
+  });
+
+  test('"0" string coerces to false', () => {
+    assert.strictEqual(readPreToolUseGuardrailEnabled(cfg({ preToolUseGuardrail: "0" })), false);
   });
 });

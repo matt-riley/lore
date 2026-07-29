@@ -1648,6 +1648,7 @@ const session = await joinSession({
   onPermissionRequest: approveAll,
 
   hooks: buildLoreHooks({
+    ...handlers,
     onSessionStart: async (input, invocation) => {
       lastKnownCwd = input.cwd || lastKnownCwd;
       subagentScopeTracker.reset(); // clear any stale state from previous session

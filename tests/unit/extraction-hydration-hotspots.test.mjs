@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -26,15 +27,7 @@ async function loadRuleExtractorHotspots() {
 }
 
 function createWorkspaceDir(name) {
-  const root = path.join(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "..",
-    ".scratch",
-    "extraction-hydration-hotspots",
-  );
-  mkdirSync(root, { recursive: true });
-  const workspacePath = path.join(root, `${name}-${process.pid}-${Date.now()}`);
-  mkdirSync(workspacePath, { recursive: true });
+  const workspacePath = mkdtempSync(path.join(os.tmpdir(), `lore-${name}-`));
   return {
     workspacePath,
     cleanup() {

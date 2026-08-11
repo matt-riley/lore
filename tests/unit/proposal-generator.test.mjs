@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
 import {
@@ -14,11 +13,6 @@ const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
 
-const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
-const COPILOT_ROOT = path.resolve(TEST_DIR, "../../../..");
-const PROPOSALS_ROOT = path.join(COPILOT_ROOT, "extensions", "lore", "docs", "proposals");
-const INDEX_PATH = path.join(PROPOSALS_ROOT, "PROPOSAL_INDEX.md");
-
 function buildRuntime(db, config) {
   return {
     db,
@@ -26,8 +20,12 @@ function buildRuntime(db, config) {
   };
 }
 
-function toRepoRelative(absolutePath) {
-  return path.relative(COPILOT_ROOT, absolutePath).replaceAll(path.sep, "/");
+function proposalDocsRoot(config) {
+  return path.join(config.paths.copilotHome, "extensions", "lore", "docs", "proposals");
+}
+
+function toRepoRelative(config, absolutePath) {
+  return path.relative(config.paths.copilotHome, absolutePath).replaceAll(path.sep, "/");
 }
 
 async function pathExists(targetPath) {
@@ -66,12 +64,14 @@ describe("proposal generator integrity checks", () => {
         },
       },
     });
-    const fixturePath = path.join(PROPOSALS_ROOT, "test-fixtures", "missing-proposal.md");
-    const fixtureRelativePath = toRepoRelative(fixturePath);
-    const originalIndex = await readIfExists(INDEX_PATH);
+    const proposalsRoot = proposalDocsRoot(config);
+    const indexPath = path.join(proposalsRoot, "PROPOSAL_INDEX.md");
+    const fixturePath = path.join(proposalsRoot, "test-fixtures", "missing-proposal.md");
+    const fixtureRelativePath = toRepoRelative(config, fixturePath);
+    const originalIndex = await readIfExists(indexPath);
     try {
       await rm(fixturePath, { force: true });
-      await rm(INDEX_PATH, { force: true });
+      await rm(indexPath, { force: true });
 
       const artifactId = db.upsertImprovementArtifact({
         sourceCaseId: "proposal-missing-file",
@@ -98,7 +98,7 @@ describe("proposal generator integrity checks", () => {
       assert.equal(result.issues.filter((issue) => issue.type === "missing_file").length, 1);
       assert.equal(result.repairedCount, 0);
     } finally {
-      await restoreFile(INDEX_PATH, originalIndex);
+      await restoreFile(indexPath, originalIndex);
       await rm(fixturePath, { force: true });
       await rm(path.dirname(fixturePath), { recursive: true, force: true });
       cleanup();
@@ -116,7 +116,8 @@ describe("proposal generator integrity checks", () => {
         },
       },
     });
-    const originalIndex = await readIfExists(INDEX_PATH);
+    const indexPath = path.join(proposalDocsRoot(config), "PROPOSAL_INDEX.md");
+    const originalIndex = await readIfExists(indexPath);
     let generatedPath = null;
     try {
       const runtime = buildRuntime(db, config);
@@ -135,7 +136,7 @@ describe("proposal generator integrity checks", () => {
       assert.equal(generated.generatedCount, 1);
 
       const artifact = db.getImprovementArtifact(artifactId);
-      generatedPath = path.join(COPILOT_ROOT, artifact.proposal_path);
+      generatedPath = path.join(config.paths.copilotHome, artifact.proposal_path);
       db.db.prepare(`
         UPDATE improvement_backlog
         SET proposal_hash = ?
@@ -152,7 +153,7 @@ describe("proposal generator integrity checks", () => {
       assert.equal(result.repairedCount, 0);
       assert.equal(await pathExists(generatedPath), true);
     } finally {
-      await restoreFile(INDEX_PATH, originalIndex);
+      await restoreFile(indexPath, originalIndex);
       if (generatedPath) {
         await rm(generatedPath, { force: true });
         await rm(path.dirname(generatedPath), { recursive: true, force: true });
@@ -171,12 +172,14 @@ describe("proposal generator integrity checks", () => {
         },
       },
     });
-    const fixturePath = path.join(PROPOSALS_ROOT, "test-fixtures", "dry-run-proposal.md");
-    const fixtureRelativePath = toRepoRelative(fixturePath);
-    const originalIndex = await readIfExists(INDEX_PATH);
+    const proposalsRoot = proposalDocsRoot(config);
+    const indexPath = path.join(proposalsRoot, "PROPOSAL_INDEX.md");
+    const fixturePath = path.join(proposalsRoot, "test-fixtures", "dry-run-proposal.md");
+    const fixtureRelativePath = toRepoRelative(config, fixturePath);
+    const originalIndex = await readIfExists(indexPath);
     try {
       await rm(fixturePath, { force: true });
-      await rm(INDEX_PATH, { force: true });
+      await rm(indexPath, { force: true });
 
       const artifactId = db.upsertImprovementArtifact({
         sourceCaseId: "proposal-dry-run",
@@ -201,9 +204,9 @@ describe("proposal generator integrity checks", () => {
       assert.equal(result.repairedCount, 0);
       assert.deepStrictEqual(result.repaired, []);
       assert.equal(await pathExists(fixturePath), false);
-      assert.equal(await pathExists(INDEX_PATH), false);
+      assert.equal(await pathExists(indexPath), false);
     } finally {
-      await restoreFile(INDEX_PATH, originalIndex);
+      await restoreFile(indexPath, originalIndex);
       await rm(fixturePath, { force: true });
       await rm(path.dirname(fixturePath), { recursive: true, force: true });
       cleanup();

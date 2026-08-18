@@ -193,98 +193,6 @@ function readFirstLine(filePath) {
   }
 }
 
-function cosineSimilarity(a, b) {
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || a.length === 0) {
-    return 0;
-  }
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  const denom = Math.sqrt(na) * Math.sqrt(nb);
-  return denom === 0 ? 0 : dot / denom;
-}
-
-// True semantic search over stored memories via the local embeddings model.
-// Vectors are computed lazily and cached in a side table the adapter owns
-// (lore's own retrieval is lexical-only despite the searchSemantic name).
-// Fails open: any error throws and the caller falls back to lexical recall.
-async function semanticSearch({ query, repository = null, limit = 6 }) {
-  const li = db.config?.localInference;
-  if (li?.enabled !== true || li?.embeddings?.enabled !== true || !li.embeddings?.model?.trim()) {
-    return { enabled: false };
-  }
-  const { requestLocalInferenceEmbeddings } = await import("./lib/local-inference.mjs");
-  const embedConfig = { ...li, model: li.embeddings.model };
-
-  db.db.exec(`CREATE TABLE IF NOT EXISTS memory_embedding (
-    memory_id TEXT PRIMARY KEY,
-    vector TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )`);
-
-  const [queryVec] = await requestLocalInferenceEmbeddings({ config: embedConfig, input: [String(query)] });
-  if (!Array.isArray(queryVec)) {
-    throw new Error("local embeddings returned no query vector");
-  }
-
-  const types = RECALL_TYPES.map(() => "?").join(",");
-  const rows = db.db.prepare(`
-    SELECT id, type, content, repository, updated_at
-    FROM semantic_memory
-    WHERE superseded_by IS NULL
-      AND type IN (${types})
-      AND (repository IS NULL OR repository = ?)
-  `).all(...RECALL_TYPES, repository);
-
-  // Lazily embed memories that have no cached vector yet.
-  const getStored = (memoryId) => db.db
-    .prepare("SELECT vector FROM memory_embedding WHERE memory_id = ?")
-    .get(memoryId)?.vector ?? null;
-  const missing = rows.filter((r) => !getStored(r.id));
-  const batchSize = Math.max(1, Math.min(Number(li.embeddings?.maxInputs ?? 24), 24));
-  for (let i = 0; i < missing.length; i += batchSize) {
-    const chunk = missing.slice(i, i + batchSize);
-    const vectors = await requestLocalInferenceEmbeddings({
-      config: embedConfig,
-      input: chunk.map((r) => r.content),
-    });
-    for (let j = 0; j < chunk.length; j++) {
-      if (!Array.isArray(vectors[j])) {
-        continue;
-      }
-      db.db.prepare(`
-        INSERT OR REPLACE INTO memory_embedding (memory_id, vector, updated_at)
-        VALUES (?, ?, ?)
-      `).run(chunk[j].id, JSON.stringify(vectors[j]), new Date().toISOString());
-    }
-  }
-
-  const scored = [];
-  for (const r of rows) {
-    const stored = getStored(r.id);
-    if (!stored) {
-      continue;
-    }
-    try {
-      const score = cosineSimilarity(queryVec, JSON.parse(stored));
-      scored.push({ id: r.id, type: r.type, content: r.content, score });
-    } catch {
-      // unreadable cached vector — skip
-    }
-  }
-  scored.sort((a, b) => b.score - a.score);
-  return {
-    enabled: true,
-    rows: scored.slice(0, Math.max(1, Math.min(Number(limit) || 6, 20)))
-      .map((r) => ({ ...r, score: Math.round(r.score * 1000) / 1000 })),
-  };
-}
-
 async function dispatch(method, params) {
   switch (method) {
     case "recall": {
@@ -390,9 +298,12 @@ async function dispatch(method, params) {
       return { scanned: candidates.length, queued: batch.length, processed: [] };
     }
     case "semantic_search": {
+      const { semanticSearch } = await import("./lib/semantic-search.mjs");
       return await semanticSearch({
+        db,
         query: String(params.query ?? ""),
         repository: params.repository ?? null,
+        types: RECALL_TYPES,
         limit: params.limit ?? 6,
       });
     }

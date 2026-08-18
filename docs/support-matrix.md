@@ -40,10 +40,10 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. Optional local query expansion changes retrieval terms only and retries deterministic retrieval when expansion finds no evidence. |
+| `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. Optional local query expansion changes retrieval terms only and retries deterministic retrieval when expansion finds no evidence. When `localInference.embeddings` is configured, appends embedding-ranked `Semantic Matches` (cosine similarity) cached in `memory_embedding`; fails open to lexical-only on endpoint errors. |
 | `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope, category, and optional domain association. |
 | `lore_onboard` | 🟢 Supported | Captures the user name plus Lore's assistant/style profile in one step. |
-| `memory_search` | 🟢 Supported | Keyword + semantic search across the derived store. |
+| `memory_search` | 🟢 Supported | Keyword search over the derived semantic-memory store. Meaning-based (vector) search is available via `lore_recall` when embeddings are configured. |
 | `memory_save` | 🟢 Supported | Explicit save for freeform notes and decisions. |
 | `memory_forget` | 🟢 Supported | Soft-deletes a memory by ID. |
 
@@ -149,7 +149,7 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | `workstreamOverlays` | 🟢 Supported | `true` (requires `memoryOperations`) | Workstream overlay injection at prompt time |
 | `temporalQueryNormalization` | 🟢 Supported | `true` (requires `memoryOperations`) | Temporal phrase normalisation in queries |
 | `retentionSanitization` | 🟢 Supported | `true` (requires `memoryOperations`) | Anti-feedback-loop guards on transcript-based retention |
-| `hybridRetrieval` | 🟢 Supported | `true` (requires `memoryOperations`) | Hybrid keyword + semantic retrieval path |
+| `hybridRetrieval` | 🟢 Supported | `true` (requires `memoryOperations`) | Hybrid keyword + entity/recency retrieval path for episode scoring (distinct from embedding-based memory search) |
 | `directives` | 🟢 Supported | `true` (requires `memoryOperations`) | Directive injection into memory capsules |
 | `overlayAutoHydration` | 🟢 Supported | `true` (requires `workstreamOverlays`) | Auto-hydrates workstream overlay on session start |
 | `traceRecorder` | 🟡 Experimental | `false` | Trace recorder for prompt-need classification and retrieval audits |
@@ -172,7 +172,7 @@ Temporal recall notes:
   - `high` → day summary
   - `medium` → episode fallback
   - `low` → verified raw session history
-- Local embeddings rerank bounded evidence and validate generated reflection or compressed-context claims. EmbeddingGemma and Nomic receive model-specific retrieval prefixes, and model-backed lookback reflection can use the latest bounded checkpoint overview when a session title is too generic. Embeddings are not persisted and do not replace the general lexical retrieval/indexing pipeline.
+- Local embeddings rerank bounded evidence, validate generated reflection or compressed-context claims, and — when `embeddings.enabled` — power meaning-based memory search for `lore_recall` (query and memory embeddings ranked by cosine similarity). Embedding vectors are cached in the local `memory_embedding` table; they augment, not replace, the general lexical retrieval/indexing pipeline. EmbeddingGemma and Nomic receive model-specific retrieval prefixes, and model-backed lookback reflection can use the latest bounded checkpoint overview when a session title is too generic.
 - Optional query expansion performs a separate bounded retrieval attempt and preserves deterministic routing, temporal scope, repository eligibility, and fallback behavior.
 
 ---

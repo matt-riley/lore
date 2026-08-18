@@ -16,6 +16,7 @@ Lore quietly captures what matters from your sessions and surfaces it again when
 At a glance, Lore can:
 
 - recall prior work, decisions, and recent session context
+- search memories by meaning, not just keywords, when a local embeddings endpoint is configured
 - retain explicit notes and memories with scope controls
 - explain why a given memory result was selected
 - run bounded maintenance and backfill flows over the local session store
@@ -155,8 +156,9 @@ The provider and each consuming surface have separate opt-ins:
 - Context compression is independently default-off. It preserves required identity, directive, and commitment sections, keeps source indexes, and falls back to the uncompressed deterministic capsule on any failure.
 - Embedding-based evidence ranking is optional. `maxInputs` bounds the candidate pool, `topK` bounds evidence sent to the chat model, and `minSimilarity` removes weakly related evidence.
 - When embeddings are enabled, Lore embeds generated claims in a second bounded pass and discards claims below `groundingMinSimilarity`. If no grounded insight remains, Lore returns the deterministic reflection.
+- Embedding-based semantic memory search is opt-in via `embeddings.enabled` + `model`. When enabled, `lore_recall` appends meaning-ranked matches (cosine similarity) to its lexical results. Memory vectors are cached in the local `memory_embedding` table and reused across searches, so only the query and any new memories are re-embedded. Search fails open to lexical-only when the endpoint is unavailable.
 
-Prompt-context hooks make no model calls by default. Enabling query expansion or context compression permits bounded loopback-only inference during context assembly and can add latency. Invalid output, missing citations, ungrounded claims, timeouts, or an unavailable model server are reported while Lore preserves its deterministic retrieval, capsule, extraction, or reflection result. Embeddings are held in memory only and are never persisted.
+Prompt-context hooks make no model calls by default. Enabling query expansion or context compression permits bounded loopback-only inference during context assembly and can add latency. Invalid output, missing citations, ungrounded claims, timeouts, or an unavailable model server are reported while Lore preserves its deterministic retrieval, capsule, extraction, or reflection result. Embedding vectors are cached locally in the `memory_embedding` table only — memory content and the query string are sent solely to the configured loopback endpoint, never anywhere else.
 
 ### `traceRecorder`
 

@@ -245,24 +245,30 @@ async function dispatch(method, params) {
       return { id: retained?.id ?? null };
     }
     case "onboard": {
-      const content = params.style
-        ? `User preferred name: ${params.name}; interaction style: ${params.style}`
-        : `User preferred name: ${params.name}`;
-      const retained = retainMemory({
-        db,
-        kind: "semantic",
-        memory: {
-          type: "user_identity",
-          content,
-          confidence: 0.9,
-          repository: null,
-          scope: "global",
-          sourceSessionId: params.sourceSessionId ?? null,
-          tags: ["user_identity", "manual"],
-          metadata: { source: "pi" },
+      // Delegate to lore's own onboarding pipeline so personality updates use
+      // the same canonical-key upserts as the Copilot lore_onboard tool.
+      const { readOnboardingState, resolveOnboardingInput } = await import("./lib/onboarding.mjs");
+      const { persistOnboardingMemories } = await import("./lib/memory-tools-admin.mjs");
+      const built = resolveOnboardingInput({
+        existingState: readOnboardingState({ db }),
+        userName: params.userName,
+        assistantName: params.assistantName,
+        profile: {
+          ...(params.voice !== undefined ? { voice: params.voice } : {}),
+          ...(params.warmth !== undefined ? { warmth: params.warmth } : {}),
+          ...(params.humor !== undefined ? { humor: params.humor } : {}),
+          ...(params.humorFrequency !== undefined ? { humorFrequency: params.humorFrequency } : {}),
+          ...(params.collaborative !== undefined ? { collaborative: params.collaborative } : {}),
+          ...(params.useNameNaturally !== undefined ? { useNameNaturally: params.useNameNaturally } : {}),
         },
+        sessionId: params.sourceSessionId ?? null,
       });
-      return { id: retained?.id ?? null };
+      persistOnboardingMemories(db, built.memories);
+      return {
+        assistantName: built.assistantName,
+        userName: built.userName,
+        profile: built.profile,
+      };
     }
     case "extract": {
       const filePath = String(params.path ?? "");

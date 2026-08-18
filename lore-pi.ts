@@ -578,23 +578,48 @@ export default function (pi: ExtensionAPI) {
     name: "lore_onboard",
     label: "Lore Onboard",
     description:
-      "Record the user's preferred name and optional interaction-style tweaks so lore addresses them by name and matches their vibe.",
+      "Record or update lore's personality: the user's preferred name, the assistant's name, and interaction-style profile fields. " +
+      "All fields are optional; omitted fields keep their current values.",
     parameters: Type.Object({
-      name: Type.String({ description: "What the user wants to be called" }),
-      style: Type.Optional(Type.String({ description: "Optional interaction-style tweaks (e.g. 'no humor, be direct')" })),
+      userName: Type.Optional(Type.String({ description: "The user's preferred name (required until lore knows it)" })),
+      assistantName: Type.Optional(Type.String({ description: "Optional assistant self-name; omitted means lore keeps or chooses one" })),
+      voice: Type.Optional(Type.Union([Type.Literal("colleague"), Type.Literal("collaborative"), Type.Literal("friendly")], { description: "Preferred assistant voice" })),
+      warmth: Type.Optional(Type.Union([Type.Literal("warm"), Type.Literal("balanced")], { description: "Preferred assistant warmth" })),
+      humor: Type.Optional(Type.Union([Type.Literal("light"), Type.Literal("none")], { description: "Whether lore uses humor by default" })),
+      humorFrequency: Type.Optional(Type.Union([Type.Literal("frequent"), Type.Literal("occasional"), Type.Literal("never")], { description: "How often humor is welcome" })),
+      collaborative: Type.Optional(Type.Boolean({ description: "Default to a collaborative teammate posture" })),
+      useNameNaturally: Type.Optional(Type.Boolean({ description: "Use the user's preferred name naturally when helpful" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const rt = await ensureRuntime(ctx as never);
       if (!rt) {
         return { content: [{ type: "text", text: "lore unavailable" }], details: {} };
       }
-      const result = await request<{ id: string | null }>("onboard", {
-        name: params.name,
-        style: params.style,
+      const result = await request<{
+        assistantName: string;
+        userName: string | null;
+        profile: { voice: string; warmth: string; humor: string; humorFrequency: string; useNameNaturally: boolean };
+      }>("onboard", {
+        userName: params.userName,
+        assistantName: params.assistantName,
+        voice: params.voice,
+        warmth: params.warmth,
+        humor: params.humor,
+        humorFrequency: params.humorFrequency,
+        collaborative: params.collaborative,
+        useNameNaturally: params.useNameNaturally,
         sourceSessionId: ctx.sessionManager.getSessionId() ?? null,
       });
-      const text = result?.id
-        ? `Onboarded as ${params.name} (memory ${result.id})`
+      const text = result?.assistantName
+        ? [
+            `Onboarding saved. You can call lore ${result.assistantName}.`,
+            `userName=${result.userName ?? "(unset)"}`,
+            `voice=${result.profile?.voice}`,
+            `warmth=${result.profile?.warmth}`,
+            `humor=${result.profile?.humor}`,
+            `humorFrequency=${result.profile?.humorFrequency}`,
+            `useNameNaturally=${result.profile?.useNameNaturally === true ? "true" : "false"}`,
+          ].join(" ")
         : "Onboarding skipped.";
       return { content: [{ type: "text", text }], details: {} };
     },

@@ -390,4 +390,56 @@ describe("lore_onboard tool", () => {
       cleanup();
     }
   });
+
+  test("re-onboarding supersedes prior active rows of the same onboarding types", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: AMBIENT_ROLLOUT,
+      },
+    });
+
+    try {
+      seedOnboardingMemories({
+        db,
+        sessionId: "session-seed",
+      });
+
+      const loreOnboard = buildLoreOnboardTool(db, config);
+
+      await loreOnboard.handler({
+        userName: "Matt",
+        warmth: "warm",
+        humor: "light",
+      }, {
+        sessionId: "session-onboard-1",
+      });
+
+      // Re-onboard with a different profile: the prior profile must be
+      // superseded, not accumulated alongside the new one.
+      await loreOnboard.handler({
+        userName: "Matt",
+        warmth: "balanced",
+        humor: "none",
+        humorFrequency: "never",
+      }, {
+        sessionId: "session-onboard-2",
+      });
+
+      const activeStyles = db.searchSemantic({
+        query: "",
+        repository: null,
+        includeOtherRepositories: false,
+        types: ["interaction_style"],
+        scopes: ["global"],
+        limit: 20,
+      });
+
+      assert.strictEqual(activeStyles.length, 1, "only one active interaction_style row should remain");
+      assert.strictEqual(activeStyles[0].metadata.profile.warmth, "balanced");
+      assert.strictEqual(activeStyles[0].metadata.profile.humor, "none");
+    } finally {
+      cleanup();
+    }
+  });
 });

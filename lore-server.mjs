@@ -1,0 +1,524 @@
+// lore-server.mjs — DB worker for the pi adapter.
+//
+// pi's extension runtime (bun 1.3.x) does not implement node:sqlite, which
+// lore's lib/ requires. System node (>=22.5) does, so this server owns the
+// lore database and serves the adapter over a JSON-lines protocol on stdin/
+// stdout. lore's lib/ is used untouched.
+//
+// Protocol: one JSON object per line. Requests are processed strictly in
+// order (a promise queue) so shutdown-time extraction and close never race.
+//   -> { id, method, params }
+//   <- { id, ok: true, result } | { id, ok: false, error }
+//
+// Methods:
+//   status           - store statistics
+//   recall           - recallMemory (prompt context + onboarding/directives)
+//   search           - searchSemantic (typed fallback supported)
+//   save / onboard   - retainMemory
+//   extract          - extract memories from one pi session file
+//   backfill         - bounded scan + extraction of unprocessed pi sessions
+//   post_tool        - passive post-tool-use observation (rollout-gated)
+//   error            - error telemetry (rollout-gated)
+//   guardrail        - pre-tool-use guardrail (rollout-gated)
+//   close            - close db and exit
+
+import os from "node:os";
+import path from "node:path";
+import { openSync, readSync, closeSync, readdirSync, statSync } from "node:fs";
+import { loadConfig } from "./lib/config.mjs";
+import { LoreDb } from "./lib/db.mjs";
+import { seedOnboardingMemories } from "./lib/onboarding.mjs";
+import { recallMemory, retainMemory } from "./lib/memory-operations.mjs";
+import { applySessionExtraction } from "./lib/backfill.mjs";
+import { buildErrorTelemetryRecord, buildPostToolUseObservation } from "./lib/passive-hooks.mjs";
+import {
+  readErrorTelemetryEnabled,
+  readPostToolUseEnabled,
+  readPreToolUseGuardrailEnabled,
+} from "./lib/rollout-flags.mjs";
+import { runPreToolUseGuardrail } from "./lib/pre-tool-use-guardrail.mjs";
+import { readPiSessionFile } from "./pi-session-reader.mjs";
+
+const RECALL_TYPES = [
+  "commitment",
+  "open_loop",
+  "rejected_approach",
+  "blocker",
+  "user_preference",
+  "assistant_identity",
+  "user_identity",
+  "assistant_goal",
+  "recurring_mistake",
+  "interaction_style",
+];
+
+// Bounded pi-session backfill knobs. Override with env vars.
+const BACKFILL_MAX = Number(process.env.LORE_PI_BACKFILL_MAX ?? 5);
+const BACKFILL_MIN_AGE_MS = Number(process.env.LORE_PI_BACKFILL_MIN_AGE_MS ?? 30_000);
+const BACKFILL_MAX_FILE_BYTES = Number(process.env.LORE_PI_BACKFILL_MAX_FILE_BYTES ?? 10 * 1024 * 1024);
+const BACKFILL_SCAN_CAP = Number(process.env.LORE_PI_BACKFILL_SCAN_CAP ?? 5000);
+
+let db = null;
+let errorTelemetryWrites = 0;
+
+function expandHome(p) {
+  if (typeof p !== "string" || !p) {
+    return p;
+  }
+  return p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p;
+}
+
+function piSessionDir() {
+  const configured = db?.config?.paths?.piSessionDir;
+  return expandHome(configured) || path.join(os.homedir(), ".pi", "agent", "sessions");
+}
+
+async function init() {
+  const config = await loadConfig();
+  if (config?.enabled !== true) {
+    throw new Error('lore is disabled — set "enabled": true in ~/.copilot/lore.json');
+  }
+  db = new LoreDb(config);
+  db.initialize();
+  seedOnboardingMemories({ db, sessionId: "lore-server" });
+  return { schemaVersion: db.getStats().schemaVersion };
+}
+
+function maybeCompactErrorTelemetry() {
+  errorTelemetryWrites += 1;
+  if (errorTelemetryWrites % 20 !== 0) {
+    return;
+  }
+  db.pruneErrorTelemetry({
+    maxRowsGlobal: 500,
+    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+  });
+}
+
+function alreadyExtracted(sessionId) {
+  if (!sessionId) {
+    return false;
+  }
+  // LoreDb wraps the raw node:sqlite handle as `db.db`; there is no public
+  // episode-existence query, so reach into it for a cheap existence check.
+  return !!db.db.prepare("SELECT session_id FROM episode_digest WHERE session_id = ?").get(sessionId);
+}
+
+function extractPiSession(filePath, repository) {
+  const parsed = readPiSessionFile(filePath, { repository });
+  if (parsed.sessionArtifacts.turns.length === 0) {
+    return { extracted: false, reason: "no_turns", sessionId: parsed.sessionId };
+  }
+  const workspace = {
+    workspace: {
+      repository: parsed.repository,
+      branch: null,
+      updated_at: parsed.sessionArtifacts.session.updated_at,
+    },
+  };
+  const extraction = applySessionExtraction({
+    db,
+    sessionId: parsed.sessionId,
+    repository: parsed.repository,
+    sessionArtifacts: parsed.sessionArtifacts,
+    workspace,
+  });
+  return {
+    extracted: true,
+    sessionId: parsed.sessionId,
+    episodeId: extraction.episodeDigest.id,
+    memoryCount: extraction.semanticMemories.length,
+    turns: parsed.sessionArtifacts.turns.length,
+    files: parsed.sessionArtifacts.files.length,
+  };
+}
+
+function listPiSessionCandidates({ currentSessionId = null } = {}) {
+  const dir = piSessionDir();
+  if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
+    return [];
+  }
+  const now = Date.now();
+  const candidates = [];
+  const walk = (dirPath) => {
+    let entries;
+    try {
+      entries = readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+        try {
+          const st = statSync(full);
+          if (now - st.mtimeMs < BACKFILL_MIN_AGE_MS || st.size > BACKFILL_MAX_FILE_BYTES) {
+            continue;
+          }
+          const firstLine = readFirstLine(full);
+          const header = firstLine ? JSON.parse(firstLine) : null;
+          const sessionId = header?.id ?? null;
+          if (sessionId && sessionId === currentSessionId) {
+            continue;
+          }
+          if (sessionId && alreadyExtracted(sessionId)) {
+            continue;
+          }
+          candidates.push({
+            path: full,
+            sessionId,
+            timestamp: header?.timestamp ?? st.mtime.toISOString(),
+          });
+        } catch {
+          // unreadable or malformed session file — skip
+        }
+      }
+    }
+  };
+  walk(dir);
+  return candidates.sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1)).slice(0, BACKFILL_SCAN_CAP);
+}
+
+function readFirstLine(filePath) {
+  const fd = openSync(filePath, "r");
+  try {
+    const buf = Buffer.alloc(64 * 1024);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    const idx = buf.indexOf(0x0a, 0, n);
+    return buf.toString("utf8", 0, idx >= 0 ? idx : n);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || a.length === 0) {
+    return 0;
+  }
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+// True semantic search over stored memories via the local embeddings model.
+// Vectors are computed lazily and cached in a side table the adapter owns
+// (lore's own retrieval is lexical-only despite the searchSemantic name).
+// Fails open: any error throws and the caller falls back to lexical recall.
+async function semanticSearch({ query, repository = null, limit = 6 }) {
+  const li = db.config?.localInference;
+  if (li?.enabled !== true || li?.embeddings?.enabled !== true || !li.embeddings?.model?.trim()) {
+    return { enabled: false };
+  }
+  const { requestLocalInferenceEmbeddings } = await import("./lib/local-inference.mjs");
+  const embedConfig = { ...li, model: li.embeddings.model };
+
+  db.db.exec(`CREATE TABLE IF NOT EXISTS memory_embedding (
+    memory_id TEXT PRIMARY KEY,
+    vector TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+
+  const [queryVec] = await requestLocalInferenceEmbeddings({ config: embedConfig, input: [String(query)] });
+  if (!Array.isArray(queryVec)) {
+    throw new Error("local embeddings returned no query vector");
+  }
+
+  const types = RECALL_TYPES.map(() => "?").join(",");
+  const rows = db.db.prepare(`
+    SELECT id, type, content, repository, updated_at
+    FROM semantic_memory
+    WHERE superseded_by IS NULL
+      AND type IN (${types})
+      AND (repository IS NULL OR repository = ?)
+  `).all(...RECALL_TYPES, repository);
+
+  // Lazily embed memories that have no cached vector yet.
+  const getStored = (memoryId) => db.db
+    .prepare("SELECT vector FROM memory_embedding WHERE memory_id = ?")
+    .get(memoryId)?.vector ?? null;
+  const missing = rows.filter((r) => !getStored(r.id));
+  const batchSize = Math.max(1, Math.min(Number(li.embeddings?.maxInputs ?? 24), 24));
+  for (let i = 0; i < missing.length; i += batchSize) {
+    const chunk = missing.slice(i, i + batchSize);
+    const vectors = await requestLocalInferenceEmbeddings({
+      config: embedConfig,
+      input: chunk.map((r) => r.content),
+    });
+    for (let j = 0; j < chunk.length; j++) {
+      if (!Array.isArray(vectors[j])) {
+        continue;
+      }
+      db.db.prepare(`
+        INSERT OR REPLACE INTO memory_embedding (memory_id, vector, updated_at)
+        VALUES (?, ?, ?)
+      `).run(chunk[j].id, JSON.stringify(vectors[j]), new Date().toISOString());
+    }
+  }
+
+  const scored = [];
+  for (const r of rows) {
+    const stored = getStored(r.id);
+    if (!stored) {
+      continue;
+    }
+    try {
+      const score = cosineSimilarity(queryVec, JSON.parse(stored));
+      scored.push({ id: r.id, type: r.type, content: r.content, score });
+    } catch {
+      // unreadable cached vector — skip
+    }
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return {
+    enabled: true,
+    rows: scored.slice(0, Math.max(1, Math.min(Number(limit) || 6, 20)))
+      .map((r) => ({ ...r, score: Math.round(r.score * 1000) / 1000 })),
+  };
+}
+
+async function dispatch(method, params) {
+  switch (method) {
+    case "recall": {
+      const recall = recallMemory({
+        db,
+        prompt: params.prompt,
+        retrievalPrompt: params.retrievalPrompt ?? null,
+        repository: params.repository ?? null,
+        includeOtherRepositories: true,
+        limit: params.limit ?? 6,
+        sessionStore: null,
+      });
+      const hits = recall?.trace?.lookups?.localMemories?.includedRows;
+      return {
+        text: recall?.text?.trim() ?? "",
+        includedRows: Array.isArray(hits) ? hits.length : 0,
+        // Cheap gate for query expansion: only expand when the store has real
+        // content worth finding (seeded onboarding alone doesn't count).
+        memoryCount: db.db
+          .prepare("SELECT count(*) AS c FROM semantic_memory WHERE superseded_by IS NULL")
+          .get().c ?? 0,
+      };
+    }
+    case "search": {
+      const rows = db.searchSemantic({
+        query: params.query,
+        repository: params.repository ?? null,
+        includeOtherRepositories: true,
+        types: params.types ?? RECALL_TYPES,
+        includeTypedFallback: params.includeTypedFallback ?? false,
+        limit: params.limit ?? 6,
+      });
+      return rows.map((r) => ({ id: r.id, type: r.type, content: r.content }));
+    }
+    case "save": {
+      const retained = retainMemory({
+        db,
+        kind: "semantic",
+        memory: {
+          type: params.type ?? "user_preference",
+          content: params.content,
+          confidence: params.confidence ?? 0.9,
+          repository: params.repository ?? null,
+          scope: params.scope,
+          sourceSessionId: params.sourceSessionId ?? null,
+          tags: params.tags ?? [(params.type ?? "user_preference"), "manual"],
+          metadata: params.metadata ?? { source: "pi" },
+        },
+      });
+      return { id: retained?.id ?? null };
+    }
+    case "onboard": {
+      const content = params.style
+        ? `User preferred name: ${params.name}; interaction style: ${params.style}`
+        : `User preferred name: ${params.name}`;
+      const retained = retainMemory({
+        db,
+        kind: "semantic",
+        memory: {
+          type: "user_identity",
+          content,
+          confidence: 0.9,
+          repository: null,
+          scope: "global",
+          sourceSessionId: params.sourceSessionId ?? null,
+          tags: ["user_identity", "manual"],
+          metadata: { source: "pi" },
+        },
+      });
+      return { id: retained?.id ?? null };
+    }
+    case "extract": {
+      const filePath = String(params.path ?? "");
+      if (!filePath) {
+        throw new Error("extract requires a session file path");
+      }
+      return extractPiSession(filePath, params.repository ?? null);
+    }
+    case "backfill": {
+      const candidates = listPiSessionCandidates({
+        currentSessionId: params.currentSessionId ?? null,
+      });
+      const batch = candidates.slice(0, Math.max(1, Number(params.max ?? BACKFILL_MAX)));
+      if (batch.length === 0) {
+        return { scanned: candidates.length, processed: [] };
+      }
+      // Extraction is queued in the background so it never blocks the next
+      // request (the first prompt's recall must not wait for archive import).
+      queue = queue.then(async () => {
+        for (const candidate of batch) {
+          try {
+            const result = extractPiSession(candidate.path, null);
+            if (result.extracted) {
+              console.error(
+                `[lore-server] imported ${candidate.sessionId?.slice(0, 8)}: ${result.memoryCount} memories, ${result.turns} turns`,
+              );
+            }
+          } catch (error) {
+            console.error(`[lore-server] backfill failed for ${candidate.path}: ${error?.message ?? String(error)}`);
+          }
+        }
+      });
+      return { scanned: candidates.length, queued: batch.length, processed: [] };
+    }
+    case "semantic_search": {
+      return await semanticSearch({
+        query: String(params.query ?? ""),
+        repository: params.repository ?? null,
+        limit: params.limit ?? 6,
+      });
+    }
+    case "expand": {
+      // Query expansion via the local chat model (Gemma3). Opt-in via
+      // localInference.queryExpansion.enabled; fails open to the deterministic
+      // query on any error so recall never breaks.
+      const { expandRetrievalQueryWithLocalInference } = await import("./lib/local-inference-augmentation.mjs");
+      const fallback = params.query ?? params.prompt ?? "";
+      try {
+        const result = await expandRetrievalQueryWithLocalInference({
+          config: db.config?.localInference,
+          prompt: params.prompt ?? "",
+          deterministicQuery: String(fallback),
+        });
+        return result;
+      } catch (error) {
+        return {
+          query: fallback,
+          deterministicQuery: fallback,
+          addedTerms: [],
+          used: false,
+          error: error?.message ?? String(error),
+        };
+      }
+    }
+    case "post_tool": {
+      if (!readPostToolUseEnabled(db.config)) {
+        return { enabled: false };
+      }
+      const observation = buildPostToolUseObservation(params.payload);
+      if (!observation) {
+        return { captured: false };
+      }
+      db.insertTrajectoryArtifact({
+        kind: "passive_hook_observation",
+        repository: null,
+        summary: `${observation.toolCategory}/${observation.success ? "success" : "failure"}`,
+        severity: observation.success ? "info" : "warning",
+        outcome: "captured",
+        context: {
+          hookKind: "onPostToolUse",
+          toolCategory: observation.toolCategory,
+          success: observation.success,
+          argsShape: observation.argsShape,
+        },
+      });
+      return { captured: true };
+    }
+    case "error": {
+      if (!readErrorTelemetryEnabled(db.config)) {
+        return { enabled: false };
+      }
+      const record = buildErrorTelemetryRecord(params.payload, params.sessionId ?? null);
+      if (!record) {
+        return { captured: false };
+      }
+      db.insertErrorTelemetry(record);
+      maybeCompactErrorTelemetry();
+      return { captured: true };
+    }
+    case "guardrail": {
+      if (!readPreToolUseGuardrailEnabled(db.config)) {
+        return { enabled: false };
+      }
+      const result = await runPreToolUseGuardrail(
+        { toolName: params.toolName ?? "", toolArgs: {} },
+        { config: db.config },
+      );
+      return { additionalContext: result?.additionalContext ?? null };
+    }
+    case "status": {
+      const s = db.getStats();
+      return {
+        semanticCount: s.semanticCount ?? 0,
+        episodeCount: s.episodeCount ?? 0,
+        domainCount: s.domainCount ?? 0,
+        observationCount: s.observationCount ?? 0,
+        schemaVersion: s.schemaVersion ?? "?",
+        dbPath: s.dbPath ?? null,
+      };
+    }
+    case "close":
+      return { closing: true };
+    default:
+      throw new Error(`unknown method: ${method}`);
+  }
+}
+
+const started = await init().catch((error) => error);
+if (started instanceof Error) {
+  console.error(`[lore-server] init failed: ${started.message}`);
+  process.exit(1);
+}
+
+const readline = await import("node:readline");
+const rl = readline.createInterface({ input: process.stdin });
+
+// Serial queue: requests run strictly in order so extraction + close never race.
+let queue = Promise.resolve();
+rl.on("line", (line) => {
+  let req;
+  try {
+    req = JSON.parse(line);
+  } catch {
+    return;
+  }
+  queue = queue
+    .then(() => dispatch(req.method ?? "", req.params ?? {}))
+    .then((result) => {
+      process.stdout.write(JSON.stringify({ id: req.id, ok: true, result }) + "\n");
+    })
+    .catch((error) => {
+      process.stdout.write(
+        JSON.stringify({ id: req.id, ok: false, error: error?.message ?? String(error) }) + "\n",
+      );
+    });
+});
+
+rl.on("close", () => {
+  queue.finally(() => {
+    try {
+      db?.close();
+    } catch {
+      // best-effort
+    }
+    process.exit(0);
+  });
+});

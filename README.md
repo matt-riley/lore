@@ -1,6 +1,6 @@
 # Lore 🧠✨
 
-**Lore** is a local-first memory and continuity extension for the GitHub Copilot CLI.
+**Lore** is a local-first memory and continuity extension for the GitHub Copilot CLI and the Pi terminal agent.
 It helps Copilot remember useful context across sessions so you do not have to keep re-explaining your project, your recent decisions, or the thing that broke yesterday.
 
 Lore runs entirely on your machine, plugs into Copilot CLI's extension hooks, and stores its derived memory in a local SQLite database. No cloud sync, no hosted service, no runtime dependency pile.
@@ -65,6 +65,35 @@ cd ~/dev/lore
 node scripts/dev-install.mjs --dry-run
 node scripts/dev-install.mjs
 ```
+
+### Pi (coding agent)
+
+Lore also ships an adapter for [Pi](https://pi.dev), the terminal coding agent. [`lore-pi.ts`](lore-pi.ts) maps Lore's hooks onto Pi events and exposes the same memory store as the `lore_save`, `lore_recall`, and `lore_status` tools plus a `/lore` command. It shares the same config (`~/.copilot/lore.json`) and the same database (`~/.copilot/lore.db`) as the Copilot CLI install, so both agents on one machine use a single memory bank — no migration needed.
+
+Install by cloning the repository into Pi's global extensions directory:
+
+```sh
+git clone https://github.com/matt-riley/lore.git ~/.pi/agent/extensions/lore
+```
+
+The repository's `package.json` declares the adapter under `"pi": { "extensions": ["./lore-pi.ts"] }`, so Pi auto-discovers it from `~/.pi/agent/extensions/` — no `settings.json` entry is required. Then reload Pi (`/reload`) or restart it.
+
+To update later:
+
+```sh
+git -C ~/.pi/agent/extensions/lore pull
+```
+
+then `/reload` again.
+
+Verify it loaded: you should see a `lore: memory ready` notification on startup, and `/lore status` should print the same counts as the Copilot CLI install. The `lore_save`, `lore_recall`, and `lore_status` tools are then available to the agent.
+
+Requirements and notes:
+
+- **Node.js 22.5+ on PATH.** Pi's extension runtime is bun, which does not implement `node:sqlite`; the adapter spawns your system `node` to run [`lore-server.mjs`](lore-server.mjs), which owns the database. If `node` is not on PATH (for example, a mise or fnm shim), set `LORE_NODE` to the absolute path.
+- **`"enabled": true` in `~/.copilot/lore.json`.** The Pi and Copilot CLI adapters share one config file and one store.
+- The `paths.piSessionDir` and `paths.piHome` config keys are optional for Pi — the server defaults to `~/.pi/agent/sessions` when they are unset.
+- Ambient recall is injected into the model context each prompt but hidden from the Pi TUI, cached per session, and pruned to the most recent injection so the memory cost stays bounded.
 
 ---
 
@@ -357,6 +386,8 @@ High-level layout:
 
 ```text
 extension.mjs          # Copilot CLI entrypoint
+lore-pi.ts             # Pi (coding agent) entrypoint
+lore-server.mjs        # JSON-lines server backing the Pi adapter
 lib/                   # Core runtime and memory logic
 browser/               # Local read-only dashboard
 scripts/               # Dev and maintenance scripts

@@ -131,11 +131,13 @@ function buildFixtureConfig(home, overrides = {}) {
       processCurrentRepositoryOnly: true,
       maxJobsPerRun: 2,
       retryDelayMinutes: 15,
+      staleJobAfterMinutes: 30,
       useLocalInference: false,
     },
     maintenanceScheduler: {
       enabled: false,
       autoRunOnSessionStart: false,
+      staleRunAfterMinutes: 30,
       memoryHygiene: {
         mode: "off",
         maxItems: 50,

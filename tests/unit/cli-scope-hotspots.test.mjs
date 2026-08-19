@@ -1,11 +1,31 @@
 import assert from "node:assert/strict";
+import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
 
 import { MEMORY_SCOPE, classifySemanticMemory } from "../../lib/memory-scope.mjs";
 import { parseArgs } from "../../scripts/run-maintenance.mjs";
+import { resolveDefaultLoreConfigPath } from "../../scripts/shared-args.mjs";
 
 describe("run-maintenance parseArgs", () => {
+  test("uses the real Copilot home config when no script path override is supplied", () => {
+    const savedConfig = process.env.LORE_CONFIG;
+    const savedHome = process.env.LORE_COPILOT_HOME;
+    delete process.env.LORE_CONFIG;
+    delete process.env.LORE_COPILOT_HOME;
+    try {
+      assert.equal(
+        resolveDefaultLoreConfigPath(),
+        path.join(os.homedir(), ".copilot", "lore.json"),
+      );
+    } finally {
+      if (savedConfig === undefined) delete process.env.LORE_CONFIG;
+      else process.env.LORE_CONFIG = savedConfig;
+      if (savedHome === undefined) delete process.env.LORE_COPILOT_HOME;
+      else process.env.LORE_COPILOT_HOME = savedHome;
+    }
+  });
+
   test("keeps status dry-run behavior while parsing task and path overrides", () => {
     const args = parseArgs([
       "--status",

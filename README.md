@@ -141,6 +141,7 @@ The checked-in example config turns on most experimental features, but deliberat
     }
   },
   "deferredExtraction": {
+    "staleJobAfterMinutes": 30,
     "useLocalInference": true
   }
 }
@@ -192,6 +193,7 @@ Use `memory_status` for recorder health and recent samples. `includeRecentTraces
   "maintenanceScheduler": {
     "enabled": true,
     "autoRunOnSessionStart": true,
+    "staleRunAfterMinutes": 30,
     "maxTasksPerRun": 4,
     "memoryHygiene": {
       "mode": "shadow",
@@ -211,6 +213,8 @@ Use `memory_status` for recorder health and recent samples. `includeRecentTraces
 ```
 
 Memory hygiene is non-blocking and defaults to `off`. Use `shadow` first: Lore records candidates and unresolved evidence without changing memories. After reviewing a forced run, switch to `apply` to supersede only memories with deterministic completion evidence. Repo-scoped commit-promotion items may use local Git ancestry; global items always require an exact normalized target plus explicit later completion evidence. Later episode open items prevent automatic resolution.
+
+Maintenance also self-recovers interrupted work. Deferred extraction jobs without lease metadata are reclaimed after `deferredExtraction.staleJobAfterMinutes` (default 30 minutes), while abandoned maintenance runs are marked failed after `maintenanceScheduler.staleRunAfterMinutes` (default 30 minutes). Reclaimed deferred jobs are immediately retryable, and stale workers cannot resurrect recovered maintenance runs or task state.
 
 Every applied run uses an `auto-hygiene:<run-id>` marker and writes trajectory artifacts. To reverse one run, call `maintenance_schedule_run` with `action: "rollback_hygiene"` and the exact marker; Lore restores only rows carrying that marker and records a rollback audit artifact. The latest completed hygiene summary is added to the next Lore prompt or session context. It never denies write tools.
 

@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 
 function resolveArgPath(value) {
@@ -17,7 +18,7 @@ export function resolveDefaultLoreConfigPath() {
   if (homeFromEnv.length > 0) {
     return path.join(homeFromEnv, "lore.json");
   }
-  return path.resolve(process.cwd(), "lore.json");
+  return path.join(os.homedir(), ".copilot", "lore.json");
 }
 
 export function finalizeScriptConfig(merged, args, configPath) {

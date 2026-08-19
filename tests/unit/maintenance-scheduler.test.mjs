@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { runMaintenanceSweep } from "../../lib/maintenance-scheduler.mjs";
+import {
+  buildMaintenancePlan,
+  runMaintenanceSweep,
+} from "../../lib/maintenance-scheduler.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
@@ -153,6 +156,95 @@ describe("maintenance scheduler task execution", () => {
       ]);
       assert.equal(result.tasks[0].summary.proposalGeneration.generatedCount, 0);
       assert.equal(result.tasks[0].summary.integrity.issueCount, 0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("reclaims stale maintenance runs and task state before planning", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        maintenanceScheduler: {
+          enabled: true,
+          staleRunAfterMinutes: 30,
+        },
+      },
+    });
+    try {
+      const runId = db.createMaintenanceRun({
+        trigger: "session_start",
+        repository: "fixture-repo",
+        plannedTasks: ["deferredExtraction"],
+      });
+      db.recordMaintenanceTaskStart({
+        taskName: "deferredExtraction",
+        trigger: "session_start",
+        repository: "fixture-repo",
+        startedAt: "2024-01-01T00:00:00.000Z",
+      });
+      db.db.prepare(`
+        UPDATE maintenance_run
+        SET started_at = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        "2024-01-01T00:00:00.000Z",
+        "2024-01-01T00:00:00.000Z",
+        runId,
+      );
+
+      buildMaintenancePlan({
+        runtime: buildRuntime(db, config),
+        repository: "fixture-repo",
+        trigger: "status",
+        recoverStaleWork: true,
+      });
+
+      const run = db.db.prepare(`
+        SELECT status, failed_count, completed_at, summary_json
+        FROM maintenance_run
+        WHERE id = ?
+      `).get(runId);
+      assert.equal(run.status, "failed");
+      assert.equal(run.failed_count, 1);
+      assert.ok(run.completed_at);
+      assert.match(run.summary_json, /stale maintenance run reclaimed/);
+
+      const taskState = db.db.prepare(`
+        SELECT last_status, total_failures, last_summary_json
+        FROM maintenance_task_state
+        WHERE task_name = 'deferredExtraction'
+      `).get();
+      assert.equal(taskState.last_status, "failed");
+      assert.equal(taskState.total_failures, 1);
+      assert.match(taskState.last_summary_json, /stale maintenance run reclaimed/);
+
+      // A worker that outlives the recovery must not resurrect its run/task.
+      db.completeMaintenanceRun({
+        runId,
+        status: "completed",
+        completedAt: "2024-01-01T00:01:00.000Z",
+      });
+      db.recordMaintenanceTaskResult({
+        taskName: "deferredExtraction",
+        status: "completed",
+        trigger: "session_start",
+        repository: "fixture-repo",
+        startedAt: "2024-01-01T00:00:00.000Z",
+        completedAt: "2024-01-01T00:01:00.000Z",
+      });
+      const recoveredRun = db.db.prepare(`
+        SELECT status
+        FROM maintenance_run
+        WHERE id = ?
+      `).get(runId);
+      const recoveredTaskState = db.db.prepare(`
+        SELECT last_status
+        FROM maintenance_task_state
+        WHERE task_name = 'deferredExtraction'
+      `).get();
+      assert.equal(recoveredRun.status, "failed");
+      assert.equal(recoveredTaskState.last_status, "failed");
     } finally {
       cleanup();
     }

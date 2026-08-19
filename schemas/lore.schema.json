@@ -381,6 +381,12 @@
           "type": "integer",
           "default": 15
         },
+        "staleJobAfterMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30,
+          "description": "Reclaim running deferred-extraction jobs older than this threshold when no active lease is available."
+        },
         "useLocalInference": {
           "type": "boolean",
           "default": false
@@ -398,6 +404,12 @@
         "autoRunOnSessionStart": {
           "type": "boolean",
           "default": true
+        },
+        "staleRunAfterMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30,
+          "description": "Reclaim maintenance runs left running beyond this threshold after a worker exits unexpectedly."
         },
         "maxTasksPerRun": {
           "type": "integer",

@@ -251,19 +251,44 @@ describe("reclaimStaleDeferredExtractions", { skip: SKIP_NO_FTS5 }, () => {
     assert.equal(row.owner_token, "active-worker");
   });
 
-  test("does not touch running jobs without a lease_expires_at (legacy rows)", () => {
+  test("reclaims stale legacy running jobs without lease metadata", () => {
     const { db } = fixture;
-    // Legacy row: running with no lease columns
+    const staleAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     db.db.prepare(`
       INSERT INTO deferred_extraction (
-        session_id, repository, status, priority, reason, queued_at, available_at, metadata_json
-      ) VALUES ('sess-legacy', 'repo', 'running', 0, 'manual', datetime('now'), datetime('now'), '{}')
-    `).run();
+        session_id, repository, status, priority, reason, queued_at, available_at,
+        started_at, metadata_json
+      ) VALUES ('sess-legacy-stale', 'repo', 'running', 0, 'manual', ?, ?, ?, '{}')
+    `).run(staleAt, staleAt, staleAt);
 
-    const reclaimed = db.reclaimStaleDeferredExtractions();
+    const reclaimed = db.reclaimStaleDeferredExtractions({
+      staleAfterMs: 30 * 60 * 1000,
+    });
+    assert.equal(reclaimed, 1);
+
+    const row = readJob(db, "sess-legacy-stale");
+    assert.equal(row.status, "failed");
+    assert.equal(row.last_error, "stale running job reclaimed");
+    assert.equal(row.owner_token, null);
+    assert.equal(row.lease_expires_at, null);
+  });
+
+  test("does not touch fresh legacy running jobs without lease metadata", () => {
+    const { db } = fixture;
+    const startedAt = new Date(Date.now() - 1000).toISOString();
+    db.db.prepare(`
+      INSERT INTO deferred_extraction (
+        session_id, repository, status, priority, reason, queued_at, available_at,
+        started_at, metadata_json
+      ) VALUES ('sess-legacy-fresh', 'repo', 'running', 0, 'manual', ?, ?, ?, '{}')
+    `).run(startedAt, startedAt, startedAt);
+
+    const reclaimed = db.reclaimStaleDeferredExtractions({
+      staleAfterMs: 30 * 60 * 1000,
+    });
     assert.equal(reclaimed, 0);
 
-    const row = readJob(db, "sess-legacy");
+    const row = readJob(db, "sess-legacy-fresh");
     assert.equal(row.status, "running");
   });
 

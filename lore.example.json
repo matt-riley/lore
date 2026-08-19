@@ -57,11 +57,13 @@
     "autoEnqueueOnSessionEnd": true,
     "autoProcessOnSessionStart": true,
     "processCurrentRepositoryOnly": true,
+    "staleJobAfterMinutes": 30,
     "useLocalInference": false
   },
   "maintenanceScheduler": {
     "enabled": true,
     "autoRunOnSessionStart": true,
+    "staleRunAfterMinutes": 30,
     "sessionStartBackfill": {
       "enabled": true,
       "includeOtherRepositories": true,

@@ -171,13 +171,13 @@ async function ensureRuntime(ctx: {
     const { loadConfig } = await import("./lib/config.mjs");
     const config = (await loadConfig()) as LoreConfig;
     if (config?.enabled !== true) {
-      ctx.ui?.notify("lore", 'disabled — set "enabled": true in ~/.copilot/lore.json', "warning");
+      ctx.ui?.notify('lore: disabled — set "enabled": true in ~/.copilot/lore.json', "warning");
       return null;
     }
 
     const node = resolveNode();
     if (!node) {
-      ctx.ui?.notify("lore", "node (>=22.5) not found on PATH; cannot start lore server", "error");
+      ctx.ui?.notify("lore: node (>=22.5) not found on PATH; cannot start lore server", "error");
       return null;
     }
 
@@ -226,20 +226,22 @@ async function ensureRuntime(ctx: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[lore-pi] init failed:", error);
-    ctx.ui?.notify("lore", `unavailable: ${message}`, "error");
+    ctx.ui?.notify(`lore: unavailable: ${message}`, "error");
     await stopServer();
     return null;
   }
 }
 
 function notify(
-  ctx: { hasUI?: boolean; ui?: { notify: (t: string, m?: string, l?: string) => void } },
+  ctx: { hasUI?: boolean; ui?: { notify: (t: string, l?: string) => void } },
   title: string,
   message: string,
   level = "info",
 ) {
   if (ctx.hasUI) {
-    ctx.ui?.notify(title, message, level);
+    // pi's ctx.ui.notify takes (title, level) — there is no separate message
+    // argument, so flatten the title/message pair into the title.
+    ctx.ui?.notify(message ? `${title}: ${message}` : title, level);
   }
 }
 

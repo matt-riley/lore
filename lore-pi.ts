@@ -54,6 +54,15 @@ let server: ServerHandle | null = null;
 let nodeBin: string | null = null;
 const repoCache = new Map<string, string | null>();
 
+// Ambient-recall state, reset per session (see session_shutdown).
+// recallCache: per-session+repo recall results, keyed by the content terms of
+// the prompt that produced them, so identical follow-up prompts skip the server
+// roundtrip instead of re-injecting the same memories every turn.
+// memoryVersion: bumped when a memory is saved mid-session, forcing a re-recall
+// so fresh memories surface on the next prompt.
+let recallCache: Map<string, { termKey: string; memoryVersion: number }> | null = null;
+let memoryVersion = 0;
+
 // Types recall surfaces in prompt context (see buildPromptSemanticContext).
 const RECALL_TYPES = [
   "commitment",
@@ -445,17 +454,59 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     try {
-      const text = await recallWithFallback(rt, event.prompt, deriveRepository(ctx.cwd), 6, {
-        semantic: true,
-      });
+      const sessionId = ctx.sessionManager.getSessionId() ?? "anon";
+      const repo = deriveRepository(ctx.cwd);
+      const terms = contentTerms(event.prompt);
+      // Trivial prompts with no content-bearing terms skip ambient recall.
+      if (terms.length === 0) {
+        return;
+      }
+      const cacheKey = `${sessionId}|${repo}`;
+      const termKey = [...terms].sort().join(" ");
+      const cached = recallCache?.get(cacheKey);
+      if (cached && cached.termKey === termKey && cached.memoryVersion === memoryVersion) {
+        return; // already injected for this query this session; the context prune keeps it visible
+      }
+      const text = await recallWithFallback(rt, event.prompt, repo, 6, { semantic: true });
       if (text) {
+        if (!recallCache) {
+          recallCache = new Map();
+        }
+        recallCache.set(cacheKey, { termKey, memoryVersion });
         return {
-          message: { customType: "lore", content: text, display: true },
+          message: { customType: "lore", content: text, display: false },
         };
       }
     } catch (error) {
       console.error("[lore-pi] recall failed:", error);
     }
+  });
+
+  // Keep only the most recent ambient recall message in context: lore messages
+  // accumulate one per turn in the session, but only the latest is needed.
+  pi.on("context", async (event) => {
+    let lastLore = -1;
+    for (let i = 0; i < event.messages.length; i++) {
+      if ((event.messages[i] as { customType?: string }).customType === "lore") {
+        lastLore = i;
+      }
+    }
+    if (lastLore === -1) {
+      return;
+    }
+    const filtered = event.messages.filter(
+      (m, i) => i === lastLore || (m as { customType?: string }).customType !== "lore",
+    );
+    return { messages: filtered };
+  });
+
+  // Compaction and tree navigation can drop or summarise the injected recall,
+  // so re-recall on the next prompt instead of trusting the stale cache.
+  pi.on("session_compact", async () => {
+    recallCache?.clear();
+  });
+  pi.on("session_tree", async () => {
+    recallCache?.clear();
   });
 
   // onPreToolUse -> tool_call: lore's guardrail is default-off, observe-only,
@@ -536,6 +587,8 @@ export default function (pi: ExtensionAPI) {
     await stopServer();
     runtime = null;
     initAttempted = false;
+    recallCache = null;
+    memoryVersion = 0;
   });
 
   pi.registerTool({
@@ -567,6 +620,9 @@ export default function (pi: ExtensionAPI) {
         tags: [type, "manual"],
         metadata: { source: "pi" },
       });
+      if (result?.id) {
+        memoryVersion++; // force ambient recall to refresh on the next prompt
+      }
       const text = result?.id
         ? `Saved memory ${result.id} (${type})`
         : "Save skipped: empty after sanitization.";
@@ -610,6 +666,9 @@ export default function (pi: ExtensionAPI) {
         useNameNaturally: params.useNameNaturally,
         sourceSessionId: ctx.sessionManager.getSessionId() ?? null,
       });
+      if (result?.assistantName) {
+        memoryVersion++;
+      }
       const text = result?.assistantName
         ? [
             `Onboarding saved. You can call lore ${result.assistantName}.`,
@@ -705,6 +764,9 @@ export default function (pi: ExtensionAPI) {
           tags: ["user_preference", "manual"],
           metadata: { source: "pi:command" },
         });
+        if (result?.id) {
+          memoryVersion++;
+        }
         notify(ctx as never, "lore save", result?.id ? `Saved memory ${result.id}` : "Save skipped.");
         return;
       }

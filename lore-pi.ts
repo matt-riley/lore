@@ -14,7 +14,7 @@
 // later reuses the same store.
 //
 // Why a server process: pi's extension runtime is bun 1.3.x, which does not
-// implement node:sqlite — lore's lib requires it. System node (>=22.5) does,
+// implement node:sqlite — lore's lib requires it. System node (>=24.0.0) does,
 // so lore-server.mjs owns the DB and this adapter is a thin JSON-lines client.
 //
 // Retrieval notes (default config, no local inference):
@@ -160,7 +160,7 @@ async function ensureRuntime(ctx: {
 
       const node = resolveNode();
       if (!node) {
-        ctx.ui?.notify("lore: node (>=22.5) not found on PATH; cannot start lore server", "error");
+        ctx.ui?.notify("lore: node (>=24.0.0) not found on PATH; cannot start lore server", "error");
         return null;
       }
 

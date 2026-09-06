@@ -1,7 +1,7 @@
 // lore-server.mjs — DB worker for the pi adapter.
 //
 // pi's extension runtime (bun 1.3.x) does not implement node:sqlite, which
-// lore's lib/ requires. System node (>=22.5) does, so this server owns the
+// lore's lib/ requires. System node (>=24.0.0) does, so this server owns the
 // lore database and serves the adapter over a JSON-lines protocol on stdin/
 // stdout. lore's lib/ is used untouched.
 //

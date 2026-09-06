@@ -120,7 +120,7 @@ events map to shared behavior through the adapters above.
 | Tool | Status | Notes |
 |---|---|---|
 | `memory_replay` | 🟡 Experimental | Runs the replay corpus against current retrieval behavior and reports ranking hits/misses. |
-| `memory_portable_bundle` | 🟡 Experimental | Exports approved improvement artifacts, not a raw database dump. format=json (default) writes a single signed JSON file; format=okf writes an OKF v0.1 markdown+frontmatter bundle directory for human/agent-readable, git-diffable exchange. action=import (format=okf only) is manual and never automatic. |
+| `memory_portable_bundle` | 🟡 Experimental | Exports a portable bundle of approved improvement artifacts, not a raw database dump. format=json (default) writes a single signed JSON file; format=okf writes an OKF v0.1 markdown+frontmatter bundle directory for human/agent-readable, git-diffable exchange. action=import (format=okf only) reads an OKF bundle directory from disk and retains each concept as a `type=okf_concept` semantic memory row, retrievable via `memory_search(query="okf_import", type="okf_concept")` — imported content defaults to a lower confidence (0.7) than self-authored memory and is always manually invoked, never automatic. Re-importing the same bundle reinforces existing rows (by a stable `repository::conceptId` canonical key) instead of duplicating them, but stored content is not overwritten by a later import — the first import's content wins. json format import is not yet implemented. |
 
 ### Improvement and evolution
 

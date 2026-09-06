@@ -90,6 +90,12 @@ describe("released Lore schema fixtures", () => {
           assert.equal(loreDb.lastBackupPath, null, `v${fixture.version} current-schema reopen needs no backup`);
         }
         loreDb.close();
+
+        const reopened = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+        reopened.initialize();
+        assert.equal(reopened.getCurrentVersion(), SCHEMA_VERSION);
+        assert.equal(reopened.lastBackupPath, null, `v${fixture.version} retry should be idempotent after upgrade`);
+        reopened.close();
       }
     } finally {
       rmSync(root, { recursive: true, force: true });

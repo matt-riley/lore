@@ -15,23 +15,29 @@ Also use Codex CLI, Claude Code, or Antigravity CLI? Their [native lifecycle int
 
 You need Node.js 22.5.0 or later on `PATH`. Pi runs extensions with bun, while Lore's SQLite server uses Node's built-in `node:sqlite` module.
 
-Clone Lore into Pi's global extensions directory:
+Use the [guided installer](/guides/setup/) and select Pi:
 
 ```sh
-git clone https://github.com/matt-riley/lore.git ~/.pi/agent/extensions/lore
+git clone https://github.com/matt-riley/lore.git ~/dev/lore
+cd ~/dev/lore
+npm run setup
 ```
 
-Pi discovers `lore-pi.ts` through the repository's `package.json`. No `settings.json` entry is required.
+Setup copies Lore into Pi's global extensions directory and enables the shared config. Pi discovers `lore-pi.ts` through the installed `package.json`. No `settings.json` entry is required.
 
 Update it later with:
 
 ```sh
-git -C ~/.pi/agent/extensions/lore pull
+git -C ~/dev/lore pull
+cd ~/dev/lore
+npm run setup
 ```
 
 Reload Pi again after an update.
 
 ## Enable Lore without replacing your config
+
+The guided installer already handles this. These instructions are for manual configuration or later customization.
 
 For a fresh install, create or edit the shared config without replacing any settings you already use. If you already have Lore data under `~/.copilot`, [migrate it first](/guides/configuration/#migrating-an-existing-installation); creating an empty new Lore home selects it and disables the legacy fallback. If you set `XDG_CONFIG_HOME`, it must be an absolute path:
 

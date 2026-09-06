@@ -44,7 +44,35 @@ For the full compatibility contract, including browser and database notes, see [
 
 ## Install
 
-Choose your agent; you do not need Copilot installed to use the others:
+Use the same guided installer for every supported agent. With Node.js 22.5+ and your CLI installed:
+
+```sh
+git clone https://github.com/matt-riley/lore.git ~/dev/lore
+cd ~/dev/lore
+npm run setup
+```
+
+Already have a checkout? Run `npm run setup` there. No dependency installation is needed for setup.
+
+Setup detects Copilot, Pi, Codex, Claude Code, and Antigravity executables on `PATH`, asks which you want, shows the global installation paths, and asks for confirmation. It installs the selected integrations and enables the shared Lore config without replacing your other settings. Existing installs/configs are backed up outside extension discovery directories. Existing legacy memory stays in place; setup does not migrate or delete memory.
+
+Restart the selected clients afterwards (or `/reload` Pi). Codex still requires reviewing and trusting hooks in `/hooks`; other hosts may also require approval. Antigravity must be launched with `agy --add-dir /absolute/project`. The installer reports these host-controlled steps and cannot bypass them.
+
+For unattended setup, explicitly select targets:
+
+```sh
+npm run setup -- --clients codex,claude --yes
+npm run setup -- --clients all --dry-run
+```
+
+`all` means all detected supported clients, not every client on the machine. Detection checks executable availability, not version compatibility or authentication. See the [setup guide](website/src/content/docs/setup.md) for custom paths, safeguards, and troubleshooting.
+
+To update, pull this checkout and run `npm run setup` again. Keep the checkout and Node installation in place: native hooks reference their absolute paths. Copilot and Pi receive runtime copies. Use only one installation scope per client to avoid duplicate hooks.
+
+<details>
+<summary>Advanced: client-specific installation and development workflows</summary>
+
+These lower-level methods remain available for project-only hooks and development. The guided installer above is the recommended entry point; you do not need Copilot installed to use the others.
 
 | Agent | Integration | Setup |
 | --- | --- | --- |
@@ -166,9 +194,13 @@ Requirements and notes:
 - Pi vector search refreshes cached embeddings when memory content, provider, model, or vector dimensions change. Each search indexes at most `min(localInference.embeddings.maxInputs, 24)` memories, plus the query, and has a 10-second default deadline. Cold stores fill incrementally across searches; errors fall back to lexical retrieval, and results must meet `minSimilarity`.
 - Archive import scans a bounded number of entries in the background and resumes across batches. Its restart cursor lives beside the Lore database (`lore.db.pi-archive-cursor.json`); the source Pi session files remain read-only. Foreground requests can run between imported sessions.
 
+</details>
+
 ---
 
 ## Configure
+
+The guided installer enables Lore for you. Use this section only to configure manually or customize an existing setup.
 
 For a fresh install, create or edit the config in the Lore home. If you already have Lore data under `~/.copilot`, migrate it first; creating an empty new Lore home selects it and disables the legacy fallback. See [configuration and migration](docs/compatibility.md#lorejson-config) for the steps. If you set `XDG_CONFIG_HOME`, it must be an absolute path.
 
@@ -465,6 +497,7 @@ Useful commands:
 | Command | What it does |
 | --- | --- |
 | `npm test` | Run the full unit + smoke test suite |
+| `npm run setup` | Detect installed CLIs, select targets, and install/enable Lore |
 | `npm run test:smoke` | Run smoke tests only |
 | `npm run validate-schema` | Validate config/schema parity |
 | `npm run lint` | Lint runtime, adapters, browser, and scripts |

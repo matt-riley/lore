@@ -13,13 +13,17 @@ macOS is the primary supported platform. Linux is expected to work; Windows is u
 
 ## 1. Add Lore to Copilot
 
-Clone Lore into Copilot’s extensions directory:
+Use the [guided installer](/guides/setup/) and select Copilot CLI:
 
 ```sh
-git clone https://github.com/matt-riley/lore.git ~/.copilot/extensions/lore
+git clone https://github.com/matt-riley/lore.git ~/dev/lore
+cd ~/dev/lore
+npm run setup
 ```
 
 ## 2. Turn memory on
+
+Setup enables memory for you while preserving existing settings. Continue to step 3. The instructions below are only needed for manual configuration.
 
 For a fresh install, create the Lore config directory, then create or edit `~/.config/lore/lore.json`. If you already have Lore data under `~/.copilot`, [migrate it first](/guides/configuration/#migrating-an-existing-installation); creating an empty new Lore home selects it and disables the legacy fallback. If that file already exists, keep it and add the Lore settings you want; do not replace it wholesale. If you set `XDG_CONFIG_HOME`, it must be an absolute path:
 
@@ -59,7 +63,9 @@ Lore can ask for your preferred name naturally. You can also ask Copilot to call
 Pull the latest changes, then restart Copilot CLI:
 
 ```sh
-git -C ~/.copilot/extensions/lore pull
+git -C ~/dev/lore pull
+cd ~/dev/lore
+npm run setup
 ```
 
 ## If nothing appears

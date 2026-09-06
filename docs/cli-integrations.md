@@ -7,6 +7,13 @@ use `lore-cli.mjs tool`; there is no MCP server or background daemon.
 
 ## Install
 
+The recommended entry point for every supported client is `npm run setup` from
+the Lore checkout. It detects installed CLIs, asks which to install globally,
+merges their settings, and enables shared memory. See the
+[guided setup documentation](../website/src/content/docs/setup.md).
+The commands below are advanced alternatives for project-scoped or manual setup,
+not extra steps required after the guided installer.
+
 Keep this checkout in a stable location. Enable Lore using the README's
 [configuration instructions](../README.md#configure). These adapters honor
 `LORE_HOME`, `LORE_CONFIG`, `LORE_ENABLED`, the XDG default home, and the existing

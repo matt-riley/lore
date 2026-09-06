@@ -9,6 +9,20 @@ Lore can bring the same local memory to **Codex CLI, Claude Code, and Google Ant
 
 These integrations are **experimental**. They target Claude Code, not Claude Desktop, and Antigravity CLI, not its separate IDE integration. Pi and Copilot keep their existing native extensions; see [Start with Pi](/guides/pi/) or [Use with Copilot CLI](/guides/getting-started/).
 
+## Recommended: guided setup
+
+Use the same [guided installer](/guides/setup/) as Pi and Copilot:
+
+```sh
+git clone https://github.com/matt-riley/lore.git ~/dev/lore
+cd ~/dev/lore
+npm run setup
+```
+
+Choose the detected clients you want and confirm. Setup installs global hooks, enables shared memory, and preserves existing settings. Restart your clients and follow the reported trust steps; Antigravity still needs an explicitly mounted workspace. Then [verify a memory](#4-verify-a-memory).
+
+The numbered instructions below are advanced alternatives for project-only hooks or manual setup; they are not additional steps after guided setup.
+
 ## 1. Keep Lore in a stable location
 
 You need Node.js 22.5 or later with built-in SQLite/FTS5. macOS is the primary platform; Linux is expected to work and Windows is unsupported. No build or runtime dependency installation is needed for Lore itself.

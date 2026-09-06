@@ -28,7 +28,7 @@
     "test": "node --test 'tests/**/*.test.mjs'",
     "test:smoke": "node --test 'tests/smoke/**/*.test.mjs'",
     "validate-schema": "node scripts/validate-config-schema.mjs",
-    "lint": "oxlint lib/ extension.mjs lore-pi.ts lore-server.mjs lore-cli.mjs pi-session-reader.mjs browser/ scripts/",
+    "lint": "oxlint lib/ extension.mjs lore-pi.ts lore-server.mjs lore-server-runtime.mjs lore-cli.mjs pi-session-reader.mjs browser/ scripts/",
     "install-hooks": "node scripts/install-hooks.mjs",
     "dev-install": "node scripts/dev-install.mjs",
     "maintenance": "node scripts/run-maintenance.mjs",

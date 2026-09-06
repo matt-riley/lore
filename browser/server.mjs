@@ -1179,6 +1179,11 @@ export function startLoreBrowserServer({
     throw new Error("db is required")
   }
 
+  host = String(host ?? "").trim().toLowerCase();
+  if (!["127.0.0.1", "localhost", "::1"].includes(host)) {
+    throw new Error("host must be loopback-only: 127.0.0.1, localhost, or ::1");
+  }
+
   const normalizedRepository = normalizeRepository(repository)
 
   const server = createServer(async (req, res) => {

@@ -54,3 +54,20 @@ test("malformed request URLs return 400 without terminating the dashboard", () =
   `);
   assert.deepEqual(JSON.parse(output), { status: 400, healthy: 200 });
 });
+
+
+test("dashboard server API rejects non-loopback hosts before creating a listener", () => {
+  const output = runServerCheck(`
+    import assert from "node:assert/strict";
+    import http from "node:http";
+    import { syncBuiltinESMExports } from "node:module";
+    http.createServer = () => { throw new Error("listener created before host validation"); };
+    syncBuiltinESMExports();
+    const { startLoreBrowserServer } = await import(${JSON.stringify(serverUrl)});
+    for (const host of ["0.0.0.0", "::", "192.0.2.1", "example.com", ""]) {
+      assert.throws(() => startLoreBrowserServer({ db: {}, host }), /host must be loopback-only/);
+    }
+    console.log("ok");
+  `);
+  assert.equal(output, "ok");
+});

@@ -6,6 +6,33 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 
 ---
 
+## [0.10.0](https://github.com/matt-riley/lore/compare/lore-v0.9.0...lore-v0.10.0) (2026-09-06)
+
+
+### Features
+
+* add pi coding agent adapter with recall, extraction, and semantic search ([d3433ee](https://github.com/matt-riley/lore/commit/d3433ee38cbc2c97105d215c21ebc61e438b70f5))
+* add semantic (vector) search over stored memories ([b7dedab](https://github.com/matt-riley/lore/commit/b7dedabf78be0180117e3f502beffbec24473634))
+* automate Lore memory hygiene ([#70](https://github.com/matt-riley/lore/issues/70)) ([3e2dd9d](https://github.com/matt-riley/lore/commit/3e2dd9df63d4853517677d04b0e9dd4a31ca6a60))
+* full lore_onboard profile in pi + replace-semantics for re-onboarding ([23e0e02](https://github.com/matt-riley/lore/commit/23e0e021be238fb44aaff8c59c890c3707a49a99))
+* improve Lore hook reliability and observability ([#69](https://github.com/matt-riley/lore/issues/69)) ([2e75493](https://github.com/matt-riley/lore/commit/2e75493c6046652cfbdb3fc8a908eb900b9e4fe2))
+
+
+### Bug Fixes
+
+* improve local reflection relevance ([#61](https://github.com/matt-riley/lore/issues/61)) ([eaa715c](https://github.com/matt-riley/lore/commit/eaa715c7a11b8a5ff938cd87bf63d694c6101ad6))
+* let release-please finish before processing new pushes ([0a77213](https://github.com/matt-riley/lore/commit/0a772138c931c6e577ff09c6ee66fffcfa542f54))
+* make Lore tests path-independent ([#81](https://github.com/matt-riley/lore/issues/81)) ([9b6c392](https://github.com/matt-riley/lore/commit/9b6c392c071bfa5b9ff916188e1a65dbc2385e39))
+* pass pi notify(title, level) instead of (title, message, level) ([78c7815](https://github.com/matt-riley/lore/commit/78c78159a4054b990c40541dd0f7494d9dc548ca))
+* preserve merged hook handlers ([a2a1ad1](https://github.com/matt-riley/lore/commit/a2a1ad19cc6c52fa4cbd751005d0f8c12eda8c54))
+* prevent durable trace ID collisions ([#71](https://github.com/matt-riley/lore/issues/71)) ([e65141b](https://github.com/matt-riley/lore/commit/e65141bf2d6ffd76aaf956b78c2ee7ed15664cae))
+* recover stale Lore maintenance work ([4614e7a](https://github.com/matt-riley/lore/commit/4614e7a6127bd4a5892e164d1aee0e8c2747b0ca))
+
+
+### Performance Improvements
+
+* cache pi ambient recall per session and hide it from the TUI ([e5df524](https://github.com/matt-riley/lore/commit/e5df5248dd31daee26824ce591ef26d2b08df926))
+
 ## [0.9.0](https://github.com/matt-riley/lore/compare/lore-v0.8.1...lore-v0.9.0) (2026-07-15)
 
 

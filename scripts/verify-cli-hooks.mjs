@@ -166,7 +166,7 @@ async function main({ client, options }) {
     cleanupProbe = async () => {
       let current = {};
       try { current = JSON.parse(await readFile(shared, "utf8")); } catch (error) { if (error.code === "ENOENT") return; throw error; }
-      if (current[key] !== fragment.lore) return;
+      if (JSON.stringify(current[key]) !== JSON.stringify(fragment.lore)) return;
       delete current[key];
       if (original === null && Object.keys(current).length === 0) await unlink(shared).catch(() => {});
       else await writeFile(shared, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
@@ -186,8 +186,8 @@ async function main({ client, options }) {
     await writeFile(path.join(directory, "stdout.txt"), error.stdout ?? "", { mode: 0o600 });
     await writeFile(path.join(directory, "stderr.txt"), error.stderr ?? error.message, { mode: 0o600 });
     const detail = privateError(error);
-    const diagnostic = `${detail} ${String(error.stderr ?? "")}`;
-    report.checks.nativeRecall = /401|auth|login|credential|sign.?in|unauthenticated/iu.test(diagnostic) ? status("pending", "installed client needs an authenticated dedicated profile") : /ENOENT|spawn/iu.test(diagnostic) ? status("pending", "client executable is unavailable") : status("fail", detail);
+    const diagnostic = `${detail} ${String(error.stdout ?? "")} ${String(error.stderr ?? "")}`;
+    report.checks.nativeRecall = /401|auth|logged\s+in|not\s+logged\s+in|login|\/login|credential|sign.?in|unauthenticated/iu.test(diagnostic) ? status("pending", "installed client needs an authenticated dedicated profile") : /ENOENT|spawn/iu.test(diagnostic) ? status("pending", "client executable is unavailable") : status("fail", detail);
   } finally { await cleanupProbe(); }
   const checks = Object.values(report.checks);
   report.status = checks.some((check) => check.status === "fail") ? "fail" : checks.some((check) => check.status === "pending") ? "partial" : "pass";

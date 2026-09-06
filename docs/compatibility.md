@@ -43,6 +43,15 @@ The CI matrix tests the latest release of each listed major; it does not certify
 
 ---
 
+## Native Codex, Claude, and Antigravity CLIs
+
+Experimental command-hook adapters provide automatic recall and capture without
+MCP. Development verification targets are Codex 0.153.4, Claude Code 2.1.263,
+and Antigravity CLI 1.1.19. Exact minimum versions are not established.
+Antigravity currently needs shared hook configuration and `--add-dir` workspace
+mounting. See [native CLI integrations](cli-integrations.md) for complete event
+mappings, transcript limits, setup, and reproducible verification commands.
+
 ## Database and config
 
 ### `lore.db` (derived store)

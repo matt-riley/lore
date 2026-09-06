@@ -20,7 +20,25 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 ---
 
+## Client adapters
+
+| Client | Status | Interface |
+|---|---|---|
+| Codex CLI | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, and `PostToolUse` command hooks. |
+| Claude Code | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, `PostToolUse`, and `PostToolUseFailure` command hooks. |
+| Google Antigravity CLI | 🟡 Experimental | Native `PreInvocation`, `PostInvocation`, `Stop`, and `PostToolUse` hooks; shared configuration and explicit workspace mounting are required on 1.1.19. |
+
+These clients use `lore-cli.mjs`, not MCP. Native hooks provide automatic recall
+and transcript capture. The direct shell commands are `lore_recall`,
+`lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`,
+and `memory_status`. The canonical lists are `LORE_CLIENT_HOOKS` and
+`LORE_CLI_TOOL_NAMES` in `lib/capability-manifest.mjs`.
+See [installation, verification, and boundaries](cli-integrations.md).
+
 ## Session hooks
+
+The hook names below describe the existing Copilot SDK adapter. Other CLI
+events map to shared behavior through the adapters above.
 
 | Hook | Status | Notes |
 |---|---|---|

@@ -1,9 +1,9 @@
 # Lore 🧠✨
 
-**Lore** is a local-first memory and continuity extension for the GitHub Copilot CLI and the Pi terminal agent.
-It helps Copilot remember useful context across sessions so you do not have to keep re-explaining your project, your recent decisions, or the thing that broke yesterday.
+**Lore** is local-first memory and continuity for GitHub Copilot CLI, Pi, Codex CLI, Claude Code, and Google Antigravity CLI.
+It helps your coding agent remember useful context across sessions so you do not have to keep re-explaining your project, your recent decisions, or the thing that broke yesterday.
 
-Lore runs entirely on your machine, plugs into Copilot CLI's extension hooks, and stores its derived memory in a local SQLite database. No cloud sync, no hosted service, no runtime dependency pile.
+Lore runs on your machine, plugs into native agent lifecycle hooks, and stores its derived memory in a local SQLite database. No cloud sync, no hosted service, no runtime dependency pile.
 
 ---
 
@@ -33,7 +33,7 @@ Lore has a stable core and an experimental ring. The support boundary for each s
 Lore keeps things simple, but it does expect a modern runtime:
 
 - **Node.js:** 22.5.0 or later
-- **GitHub Copilot CLI:** a version that supports the `extensions/` directory and the `onSessionStart`, `onUserPromptSubmitted`, and `onSessionEnd` hooks
+- **Agent:** Copilot CLI with extension hooks, Pi, or a hook-capable Codex CLI, Claude Code, or Antigravity CLI release (see [native CLI compatibility](docs/cli-integrations.md))
 - **Operating system:** macOS is the primary supported platform; Linux is expected to work; Windows is not supported
 
 For the full compatibility contract, including browser and database notes, see [`docs/compatibility.md`](docs/compatibility.md).
@@ -65,6 +65,29 @@ cd ~/dev/lore
 node scripts/dev-install.mjs --dry-run
 node scripts/dev-install.mjs
 ```
+
+### Codex CLI, Claude Code, and Antigravity CLI
+
+These integrations use native command hooks for automatic recall and session
+capture. All clients share Lore's existing config and database; MCP is not
+required. First [configure and enable Lore](#configure), then preview and install
+the relevant hooks from your stable Lore checkout:
+
+```sh
+node scripts/install-hooks.mjs codex --project /path/to/project
+node scripts/install-hooks.mjs codex --project /path/to/project --write
+node scripts/install-hooks.mjs claude --project /path/to/project --write
+node scripts/install-hooks.mjs antigravity --global --write
+```
+
+Codex requires reviewing the installed hooks with `/hooks`. Restart the client
+after installing. For Antigravity, launch `agy --add-dir /path/to/project` so its
+hooks receive the workspace. Existing hooks/settings are preserved, and modified
+files get backups. Use `--remove --write` with the same client and scope to
+uninstall Lore's entries.
+
+See [native CLI integrations](docs/cli-integrations.md) for event mappings, global
+installation, direct memory commands, verification, and limitations.
 
 ### Pi (coding agent)
 
@@ -383,6 +406,7 @@ Useful commands:
 | `npm run test:smoke` | Run smoke tests only |
 | `npm run validate-schema` | Validate config/schema parity |
 | `npm run dev-install` | Copy a dev checkout into `~/.copilot/extensions/lore` |
+| `npm run install-hooks -- <client> [--global] [--write]` | Preview or install native Codex, Claude Code, or Antigravity lifecycle hooks |
 | `npm run migrate-home -- --from <old> --to <new>` | Explicitly copy a Lore home without overwriting the destination |
 | `npm run maintenance` | Run the maintenance script |
 | `npm run browser` | Start the local browser dashboard |
@@ -394,6 +418,7 @@ High-level layout:
 extension.mjs          # Copilot CLI entrypoint
 lore-pi.ts             # Pi (coding agent) entrypoint
 lore-server.mjs        # JSON-lines server backing the Pi adapter
+lore-cli.mjs           # Native Codex, Claude, and Antigravity hooks/direct commands
 lib/                   # Core runtime and memory logic
 browser/               # Local read-only dashboard
 scripts/               # Dev and maintenance scripts

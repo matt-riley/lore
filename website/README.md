@@ -23,30 +23,31 @@ pnpm preview
 
 The production files are written to `dist/`. The Three.js engine and GLB load only when a reader opens the 3D view or steps through the memory illustration. The static artwork stays visible if WebGL is unavailable. Reduced-motion preferences disable ambient motion; the guides and search work independently of WebGL. Fonts are bundled locally.
 
-## Cloudflare Pages
+## Cloudflare Workers
 
-Connect the repository to a Cloudflare Pages project using these settings:
+Connect the repository to a Cloudflare Workers project using these settings:
 
 | Setting | Value |
 | --- | --- |
 | Root directory | `website` |
 | Build command | `pnpm build` |
-| Build output directory | `dist` |
+| Deploy command | `pnpm exec wrangler deploy` |
 | `NODE_VERSION` | `22.16.0` or a newer supported release |
 | `PNPM_VERSION` | `11.24.0` |
 | `SITE_URL` | Your final public origin, including `https://` |
 
-`SITE_URL` is optional during local development. Set it to the production domain when deploying so canonical metadata uses the correct origin. There is no server adapter, database binding, API key, or runtime function to configure. `public/_headers` applies caching and standard response headers. `404.html` provides a real not-found page.
+`SITE_URL` is optional during local development. Set it to the production domain when deploying so canonical metadata uses the correct origin. This is a static Astro site, so it does not need the `@astrojs/cloudflare` adapter. `public/_headers` applies caching and standard response headers. The `assets.not_found_handling` setting in `wrangler.jsonc` serves the generated `404.html` page.
 
-For an existing Pages project, a manual deployment from this directory is also possible after building:
+For a manual deployment from this directory:
 
 ```sh
-pnpm dlx wrangler pages deploy dist --project-name lore-docs
+pnpm build
+pnpm exec wrangler deploy
 ```
 
-Use your actual project name if it differs. Deployment is a separate publishing action; building or previewing never deploys the site.
+Cloudflare Workers Builds runs the build and deploy commands separately. Do not use `npx wrangler deploy` from the repository root: set the project root to `website` so Wrangler reads `website/wrangler.jsonc` and uploads `dist/`.
 
-See the official [Astro on Cloudflare Pages guide](https://developers.cloudflare.com/pages/framework-guides/deploy-an-astro-site/) for account and Git integration setup.
+See the official [Astro Cloudflare deployment guide](https://docs.astro.build/en/guides/deploy/cloudflare/) for the Workers Builds setup.
 
 ## Edit the guides
 

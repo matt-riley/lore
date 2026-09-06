@@ -13,11 +13,11 @@ Status: **implementation in progress; not a release certification**.
 
 | Task | Dependency | Status |
 |---|---|---|
-| A runtime floor and diagnostics | none | in progress |
-| B database upgrades and safety | none | in progress |
+| A runtime floor and diagnostics | none | implemented; exact-minimum suite found installer fixture issue under review |
+| B database upgrades and safety | none | implemented; independent review pending |
 | C quality and performance gates | none | in progress |
-| D client-independent recovery | B | pending |
-| E install/update/removal | A | pending |
+| D client-independent recovery | B | in progress |
+| E install/update/removal | A | in progress |
 | F Copilot/Pi certification | A | pending |
 | G Codex/Claude certification | A | pending |
 | H Antigravity certification | A | pending |
@@ -41,3 +41,10 @@ All certifications are pending. Installed executable detection alone is not cert
 Not started. No candidate tag has been created. Do not count development sessions as candidate soak evidence.
 
 Each daily entry must record date, candidate commit, host versions, clients exercised, save/capture/restart/recall outcome, regressions and redacted evidence references. The final release needs 14 elapsed days and at least 10 distinct successful days per client.
+
+## Development verification (not candidate certification)
+
+- 2026-09-06: installed executables report Copilot 1.0.80, Pi 0.84.3, Codex 0.153.4, Claude Code 2.1.263, Antigravity 1.1.27. These are available targets, not certified minimums.
+- Website initial check: 0 errors/warnings; 11 tests pass; 16 pages build; 515 local links/assets pass. Used `npm run` for the existing package scripts because pnpm rejected a dependency-directory symlink in the isolated worktree. Dependencies were not changed.
+- Initial rendered Chrome checks at 1440x1000 and 390x844: dashboard and website load with no page errors or document overflow. Synthetic long memory content, demo save/new-session/recall and documentation search exercised. Added accessible names to dashboard filters. Expanded QA pending.
+- Dashboard exported server now validates loopback before creating a listener; regression passes for wildcard, remote and empty hosts.

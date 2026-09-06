@@ -24,7 +24,7 @@ function artifacts(marker, repository) {
   };
 }
 
-test("Copilot capture survives session end and a fresh-session recall", { skip: SKIP_NO_FTS5 }, async () => {
+test("Core capture survives session end and a fresh-session recall", { skip: SKIP_NO_FTS5 }, async () => {
   const { db, config, cleanup } = await withFixtureDb({ configOverrides: { enabled: true } });
   const marker = `copilot-capture-${randomUUID().slice(0, 8)}`;
   try {
@@ -56,7 +56,7 @@ test("Copilot capture survives session end and a fresh-session recall", { skip: 
   }
 });
 
-test("Copilot retrieval keeps repo and global memories isolated", { skip: SKIP_NO_FTS5 }, async () => {
+test("Core retrieval keeps repo and global memories isolated", { skip: SKIP_NO_FTS5 }, async () => {
   const { db, cleanup } = await withFixtureDb({ configOverrides: { enabled: true } });
   const globalMarker = `global-${randomUUID().slice(0, 8)}`;
   const otherMarker = `other-repo-${randomUUID().slice(0, 8)}`;

@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const script = path.join(root, "scripts", "verify-extension-clients.mjs");
 
 function run(...args) {
-  return execFileSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8" });
+  return execFileSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8", env: args.includes("--all") ? { ...process.env, PATH: "/nonexistent-lore-test-bin" } : process.env });
 }
 
 test("extension verifier mock mode emits labelled lifecycle evidence", () => {

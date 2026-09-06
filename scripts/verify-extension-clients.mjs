@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,6 +121,7 @@ function workerRequest(home, requests) {
 
 function runWorkerSaveRestartRecall() {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-worker-cert-"));
+  let succeeded = false;
   try {
     writeFileSync(path.join(home, "lore.json"), JSON.stringify({ enabled: true, paths: { piSessionDir: path.join(home, "pi-sessions") } }));
     const marker = `worker-${Date.now()}`;
@@ -132,10 +133,10 @@ function runWorkerSaveRestartRecall() {
     ]);
     const saved = first.find((response) => response.id === 1)?.ok === true;
     const recalled = second.find((response) => response.id === 2)?.result?.text;
-    const ok = saved && typeof recalled === "string" && recalled.includes(marker);
-    return { ok, detail: ok ? "real lore-server JSON-lines save, process restart, and recall succeeded" : "real lore-server JSON-lines save/restart/recall did not return the marker" };
+    succeeded = saved && typeof recalled === "string" && recalled.includes(marker);
+    return { ok: succeeded, detail: succeeded ? "real lore-server JSON-lines save, process restart, and recall succeeded" : `real lore-server JSON-lines save/restart/recall did not return the marker; artifacts: ${home}` };
   } finally {
-    // The worker owns only this synthetic home; leave it available as evidence for failures.
+    if (succeeded) rmSync(home, { recursive: true, force: true });
   }
 }
 

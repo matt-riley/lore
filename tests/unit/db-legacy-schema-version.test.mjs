@@ -112,6 +112,26 @@ describe("LoreDb legacy schema version compatibility", () => {
     }
   });
 
+  test("rejects future or malformed versions in either shared schema table", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "mixed.db");
+    try {
+      const rawDb = new DatabaseSync(dbPath);
+      rawDb.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (0); CREATE TABLE coherence_schema_version (version INTEGER NOT NULL); INSERT INTO coherence_schema_version VALUES (${SCHEMA_VERSION + 1});`);
+      rawDb.close();
+      const loreDb = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir: path.join(tempHome, "backups") } });
+      assert.throws(() => loreDb.initialize(), /unsupported future Lore schema version/iu);
+      assert.equal(loreDb.db, null);
+
+      const malformedDb = new DatabaseSync(dbPath);
+      malformedDb.exec("DELETE FROM coherence_schema_version; INSERT INTO coherence_schema_version VALUES ('bad');");
+      malformedDb.close();
+      assert.throws(() => loreDb.initialize(), /malformed Lore schema version/iu);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
   test("preserves memory identity, content, scope, and provenance across an older-schema upgrade", { skip: SKIP_NO_FTS5 }, () => {
     const tempHome = makeTempDir();
     const dbPath = path.join(tempHome, "lore.db");

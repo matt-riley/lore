@@ -20,7 +20,7 @@ function fixture() {
   const backupDir = path.join(root, "backups");
   mkdirSync(backupDir);
   const db = new DatabaseSync(dbPath);
-  db.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (${SCHEMA_VERSION}); CREATE TABLE semantic_memory (id TEXT PRIMARY KEY); CREATE TABLE episode_digest (id TEXT PRIMARY KEY); CREATE TABLE data (value TEXT); INSERT INTO data VALUES ('original');`);
+  db.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (${SCHEMA_VERSION}); CREATE TABLE semantic_memory (id TEXT PRIMARY KEY, type TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE episode_digest (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, summary TEXT NOT NULL, date_key TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE data (value TEXT); INSERT INTO data VALUES ('original');`);
   db.close();
   return { root, dbPath, backupDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -84,6 +84,42 @@ test("future schema snapshots are rejected before replacement", () => {
     db.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (${SCHEMA_VERSION + 1});`); db.close();
     assert.throws(() => restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: future, write: true, clientsStopped: true, detectActiveUsers: () => [] }), /future Lore schema/iu);
     assert.equal(new DatabaseSync(f.dbPath).prepare("SELECT value FROM data").get().value, "original");
+  } finally { f.cleanup(); }
+});
+
+test("recovery rejects a structurally incomplete Lore snapshot", () => {
+  const f = fixture();
+  try {
+    const incomplete = path.join(f.root, "incomplete.db");
+    const db = new DatabaseSync(incomplete);
+    db.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (${SCHEMA_VERSION}); CREATE TABLE semantic_memory (id TEXT PRIMARY KEY); CREATE TABLE episode_digest (id TEXT PRIMARY KEY);`);
+    db.close();
+    assert.throws(() => restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: incomplete, write: true, clientsStopped: true, detectActiveUsers: () => [] }), /not a recognized Lore database/iu);
+  } finally { f.cleanup(); }
+});
+
+test("recovery checks both schema version tables and rejects malformed versions", () => {
+  const f = fixture();
+  try {
+    const mixed = path.join(f.root, "mixed.db");
+    const db = new DatabaseSync(mixed);
+    db.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (${SCHEMA_VERSION}); CREATE TABLE coherence_schema_version (version TEXT NOT NULL); INSERT INTO coherence_schema_version VALUES ('future'); CREATE TABLE semantic_memory (id TEXT, type TEXT, content TEXT, created_at TEXT, updated_at TEXT); CREATE TABLE episode_digest (id TEXT, session_id TEXT, summary TEXT, date_key TEXT, created_at TEXT, updated_at TEXT);`);
+    db.close();
+    assert.throws(() => restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: mixed, write: true, clientsStopped: true, detectActiveUsers: () => [] }), /malformed Lore schema version/iu);
+  } finally { f.cleanup(); }
+});
+
+test("recovery accepts the released v13 schema fixture", () => {
+  const f = fixture();
+  try {
+    const released = path.join(f.root, "released-v13.db");
+    const db = new DatabaseSync(released);
+    db.exec(readFileSync(path.resolve("tests/fixtures/released-upgrades/v13-lore-v0.2.0.sql"), "utf8"));
+    db.close();
+    const preview = restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: released });
+    assert.equal(preview.validation.schemaVersion, 13);
+    assert.equal(preview.validation.schemaTable, "coherence_schema_version");
+    assert.equal(preview.validation.requiredTables, true);
   } finally { f.cleanup(); }
 });
 

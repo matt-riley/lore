@@ -63,12 +63,13 @@ process.exit(1);
     });
     let output = "";
     child.stdout.on("data", chunk => { output += chunk; });
-    child.stderr.resume();
+    let errors = "";
+    child.stderr.on("data", chunk => { errors += chunk; });
     const closed = once(child, "close");
     let artifacts;
     try {
       const [code] = await closed;
-      assert.equal(code, 0, output);
+      assert.equal(code, 0, `${output}\n${errors}`);
       const report = JSON.parse(output);
       artifacts = report.artifacts;
       assert.equal(report.checks.nativeRecall.status, "pending");

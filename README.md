@@ -67,7 +67,7 @@ npm run setup -- --remove --clients codex,claude --dry-run
 npm run setup -- --remove --clients codex,claude --yes
 ```
 
-`all` means all detected supported clients, not every client on the machine. Detection checks executable availability, not version compatibility or authentication. Removal previews by default; `--yes` writes only with an explicit `--clients` selection. Removal preserves memories, configuration, unrelated hooks, and modified installs. See the [setup guide](website/src/content/docs/setup.md) for custom paths, safeguards, and troubleshooting.
+`all` means all detected supported clients, not every client on the machine. Detection checks executable availability, not version compatibility or authentication. Removal shows the selected targets and asks for confirmation before writing. Use `--dry-run` for a preview without writes; `--yes` skips confirmation only with an explicit `--clients` selection. Removal preserves memories, configuration, unrelated hooks, and modified installs. See the [setup guide](website/src/content/docs/setup.md) for custom paths, safeguards, and troubleshooting.
 
 To update, pull this checkout and run `npm run setup` again. Keep the checkout and Node installation in place: native hooks reference their absolute paths. Copilot and Pi receive runtime copies. Use only one installation scope per client to avoid duplicate hooks.
 

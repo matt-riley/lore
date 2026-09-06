@@ -29,9 +29,9 @@ Implementation used isolated worktrees with focused Luna workers and coordinator
 
 ## Development verification (2026-09-06)
 
-These checks are development evidence, not candidate certification. Hosted CI has not run on this unpublished branch.
+These checks are development evidence, not candidate certification. Hosted CI passed on PR #94 at `476bb82`, including the six Node/macOS/Linux combinations, lint, schema parity, website and workflow validation ([run](https://github.com/matt-riley/lore/actions/runs/34056153840)). Subsequent commits must pass their own checks.
 
-Final tested code commit: `e880133` (the following evidence-only commit adds this record and synthetic artifacts).
+Initial integrated test baseline: `e880133` (followed by the evidence-only commit). The review follow-ups through `476bb82` passed 892 local tests with no failures/skips; they fixed verifier stdin handling, installation-manifest cleanup, successful-probe cleanup and existing dedicated-home permissions.
 
 - Full unit/smoke suite: **878 passed, zero failures/skips** independently on Node **24.0.0**, **24.18.0**, and **26.8.1**.
 - Separate smoke suite: **65 passed**, zero failures/skips. Runtime capability, lint, schema parity and whitespace checks pass.

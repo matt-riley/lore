@@ -155,3 +155,28 @@ test("removal refuses runtime edits made after its preview", () => {
     assert.equal(readFileSync(target, "utf8"), "// concurrent user edit");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+for (const client of ["codex", "claude", "antigravity"]) {
+  test(`removing ${client} with a deleted hook file clears only its ownership record`, () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "lore-remove-missing-"));
+    try {
+      const env = { HOME: home };
+      applySetup(planSetup([client, "pi"], { home, env }));
+      const manifestPath = path.join(home, ".config/lore/install-manifest.json");
+      const before = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const target = before.installs[client].target;
+      rmSync(target);
+      applyRemove(planRemove([client], { home, env }));
+      const after = JSON.parse(readFileSync(manifestPath, "utf8"));
+      assert.equal(after.installs[client], undefined);
+      assert.deepEqual(after.installs.pi, before.installs.pi);
+      assert.equal(existsSync(target), false);
+      applyRemove(planRemove([client], { home, env }));
+      assert.deepEqual(JSON.parse(readFileSync(manifestPath, "utf8")), after);
+      applySetup(planSetup([client], { home, env }));
+      assert.equal(existsSync(target), true);
+      applyRemove(planRemove([client], { home, env }));
+      assert.equal(JSON.parse(readFileSync(manifestPath, "utf8")).installs[client], undefined);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+}

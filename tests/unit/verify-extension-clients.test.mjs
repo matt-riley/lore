@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import path from "node:path";
+import os from "node:os";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -39,3 +41,27 @@ test("extension verifier rejects missing option values", () => {
   assert.throws(() => run("--timeout-ms"), /status|failed/i);
   assert.throws(() => run("--output"), /status|failed/i);
 });
+
+for (const failWorker of [false, true]) {
+  test(`worker verification retains temporary homes only on failure (${failWorker})`, () => {
+    const temp = mkdtempSync(path.join(os.tmpdir(), "lore-worker-cleanup-test-"));
+    try {
+      const env = { ...process.env, TMPDIR: temp, TMP: temp, TEMP: temp };
+      if (failWorker) env.NODE_OPTIONS = `--experimental-loader=${path.join(root, "tests/fixtures/block-sqlite-loader.mjs")}`;
+      let output;
+      try {
+        output = execFileSync(process.execPath, [script, "--mock"], { cwd: root, env, encoding: "utf8" });
+        assert.equal(failWorker, false, "the blocked worker must fail verification");
+      } catch (error) {
+        if (!failWorker) throw error;
+        assert.equal(error.status, 1);
+        output = error.stdout;
+      }
+      const evidence = JSON.parse(output);
+      const worker = evidence.outcomes.find(item => item.id === "worker.save-restart-recall");
+      assert.equal(worker.outcome, failWorker ? "failed" : "passed");
+      const homes = readdirSync(temp).filter(name => name.startsWith("lore-worker-cert-"));
+      assert.equal(homes.length, failWorker ? 1 : 0);
+    } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+}

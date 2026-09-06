@@ -1,0 +1,1 @@
+{"passed":true,"from":"lore-v0.12.0","to":"cd2c97b5eebe2dca3d01555fc5fb0f66b354a2b2","node":"v24.0.0","scenarios":["all-client isolated install","copied runtime and hooks update","explicit memory preservation","backup and restore","all-client removal preserves database"],"hostExecutables":"stubs; real-host certification separate"}

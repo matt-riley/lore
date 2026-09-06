@@ -30,6 +30,12 @@ test("extension verifier help documents opt-in live mode", () => {
 test("--all includes both fixture and live evidence sets", () => {
   const evidence = JSON.parse(run("--all", "--timeout-ms", "1000"));
   assert.equal(evidence.mode, "all");
+  assert.equal(evidence.synthetic, false);
   assert.ok(evidence.outcomes.some((item) => item.evidence === "mocked"));
   assert.ok(evidence.outcomes.some((item) => item.evidence === "live"));
+});
+
+test("extension verifier rejects missing option values", () => {
+  assert.throws(() => run("--timeout-ms"), /status|failed/i);
+  assert.throws(() => run("--output"), /status|failed/i);
 });

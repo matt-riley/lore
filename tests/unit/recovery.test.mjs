@@ -13,15 +13,17 @@ import {
   resolveRecoveryConfig,
 } from "../../lib/recovery.mjs";
 import { SCHEMA_VERSION } from "../../lib/schema.mjs";
+import { LoreDb } from "../../lib/db.mjs";
 
 function fixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "lore-recovery-test-"));
   const dbPath = path.join(root, "lore.db");
   const backupDir = path.join(root, "backups");
   mkdirSync(backupDir);
-  const db = new DatabaseSync(dbPath);
-  db.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (${SCHEMA_VERSION}); CREATE TABLE semantic_memory (id TEXT PRIMARY KEY, type TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE episode_digest (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, summary TEXT NOT NULL, date_key TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE data (value TEXT); INSERT INTO data VALUES ('original');`);
-  db.close();
+  const loreDb = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+  loreDb.initialize();
+  loreDb.db.exec("CREATE TABLE data (value TEXT); INSERT INTO data VALUES ('original');");
+  loreDb.close();
   return { root, dbPath, backupDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 

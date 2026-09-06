@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-09-06T19:04:11.476Z",
+  "environment": {
+    "node": "v26.8.1",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "cpu": "Apple M5"
+  },
+  "totalCases": 0,
+  "passedCases": 0,
+  "failedCases": 0,
+  "positiveRecall": null,
+  "safetyFailures": [],
+  "performance": [
+    {
+      "size": 1000,
+      "warmups": 10,
+      "measured": 100,
+      "startupP95Ms": 1.5349580000000174,
+      "promptP95Ms": 0.4787910000000011,
+      "startupDefinition": "reopen seeded DB and build session-start capsule; OS disk cache not flushed",
+      "informational": true,
+      "passed": true
+    },
+    {
+      "size": 10000,
+      "warmups": 10,
+      "measured": 100,
+      "startupP95Ms": 2.980583000000024,
+      "promptP95Ms": 1.269125000000031,
+      "startupDefinition": "reopen seeded DB and build session-start capsule; OS disk cache not flushed",
+      "informational": false,
+      "passed": true
+    },
+    {
+      "size": 100000,
+      "warmups": 10,
+      "measured": 100,
+      "startupP95Ms": 20.42512500000157,
+      "promptP95Ms": 10.593292000001384,
+      "startupDefinition": "reopen seeded DB and build session-start capsule; OS disk cache not flushed",
+      "informational": true,
+      "passed": true
+    }
+  ],
+  "cases": [],
+  "passed": true
+}

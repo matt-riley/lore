@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { spawnSync } from "node:child_process";
 
 import {
   inspectRecoveryTarget,
@@ -19,7 +20,7 @@ function fixture() {
   const backupDir = path.join(root, "backups");
   mkdirSync(backupDir);
   const db = new DatabaseSync(dbPath);
-  db.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (${SCHEMA_VERSION}); CREATE TABLE data (value TEXT); INSERT INTO data VALUES ('original');`);
+  db.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (${SCHEMA_VERSION}); CREATE TABLE semantic_memory (id TEXT PRIMARY KEY); CREATE TABLE episode_digest (id TEXT PRIMARY KEY); CREATE TABLE data (value TEXT); INSERT INTO data VALUES ('original');`);
   db.close();
   return { root, dbPath, backupDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -42,6 +43,19 @@ test("snapshot is consistent and can be reopened", () => {
     const result = createRecoverySnapshot({ derivedStorePath: f.dbPath, backupDir: f.backupDir });
     assert.ok(existsSync(result.snapshotPath));
     assert.equal(inspectRecoveryTarget({ derivedStorePath: result.snapshotPath }).integrity, "ok");
+  } finally { f.cleanup(); }
+});
+
+test("snapshot includes committed WAL data", () => {
+  const f = fixture();
+  try {
+    const writer = new DatabaseSync(f.dbPath);
+    writer.exec("PRAGMA journal_mode=WAL; INSERT INTO data VALUES ('wal-committed');");
+    const snapshot = createRecoverySnapshot({ derivedStorePath: f.dbPath, backupDir: f.backupDir }).snapshotPath;
+    writer.close();
+    const db = new DatabaseSync(snapshot, { readOnly: true });
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM data WHERE value='wal-committed'").get().count, 1);
+    db.close();
   } finally { f.cleanup(); }
 });
 
@@ -81,6 +95,40 @@ test("corrupt snapshots are rejected before replacement", () => {
     assert.throws(() => restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: corrupt, write: true, clientsStopped: true, detectActiveUsers: () => [] }), /not a database|file is not a database/iu);
     assert.equal(new DatabaseSync(f.dbPath).prepare("SELECT value FROM data").get().value, "original");
   } finally { f.cleanup(); }
+});
+
+test("corrupt targets can be restored and retain rescue sidecars", () => {
+  const f = fixture();
+  try {
+    const snapshot = createRecoverySnapshot({ derivedStorePath: f.dbPath, backupDir: f.backupDir }).snapshotPath;
+    writeFileSync(f.dbPath, "corrupt target");
+    writeFileSync(`${f.dbPath}-wal`, "raw wal");
+    const result = restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: snapshot, write: true, clientsStopped: true, detectActiveUsers: () => null });
+    assert.ok(result.rescuePath);
+    assert.equal(readFileSync(`${result.rescuePath}-wal`, "utf8"), "raw wal");
+    assert.equal(inspectRecoveryTarget({ derivedStorePath: f.dbPath }).integrity, "ok");
+  } finally { f.cleanup(); }
+});
+
+test("valid SQLite files without Lore tables are rejected as snapshots", () => {
+  const f = fixture();
+  try {
+    const foreign = path.join(f.root, "foreign.db");
+    const db = new DatabaseSync(foreign);
+    db.exec("CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (0); CREATE TABLE unrelated (value TEXT);");
+    db.close();
+    assert.throws(() => restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: foreign, write: true, clientsStopped: true, detectActiveUsers: () => [] }), /not a recognized Lore database/iu);
+  } finally { f.cleanup(); }
+});
+
+test("CLI rejects missing values and multiple commands", () => {
+  const script = path.resolve("scripts/recover.mjs");
+  const missing = spawnSync(process.execPath, [script, "status", "--derived-store-path"], { encoding: "utf8" });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /requires a value/iu);
+  const multiple = spawnSync(process.execPath, [script, "status", "backup"], { encoding: "utf8" });
+  assert.notEqual(multiple.status, 0);
+  assert.match(multiple.stderr, /only one recovery command/iu);
 });
 
 test("an active sqlite writer blocks replacement", () => {

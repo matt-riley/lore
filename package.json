@@ -34,7 +34,12 @@
     "maintenance": "node scripts/run-maintenance.mjs",
     "migrate-home": "node scripts/migrate-home.mjs",
     "browser": "node scripts/run-browser.mjs",
-    "visualize-okf": "node scripts/visualize-okf-bundle.mjs"
+    "visualize-okf": "node scripts/visualize-okf-bundle.mjs",
+    "check:runtime": "node scripts/check-runtime.mjs",
+    "recover": "node scripts/recover.mjs",
+    "test:quality": "node scripts/diagnostics-quality.mjs",
+    "benchmark": "node scripts/diagnostics-quality.mjs --benchmark",
+    "verify:extensions": "node scripts/verify-extension-clients.mjs"
   },
   "license": "MIT",
   "private": true,

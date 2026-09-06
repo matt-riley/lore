@@ -266,7 +266,7 @@ function renderMemoriesTable(data) {
   const rows = data?.rows ?? []
   return `
     <div class="small">total=${data?.total ?? 0} · page=${data?.page ?? 1} · pageSize=${data?.pageSize ?? 25}</div>
-    <div class="table-wrap">
+    <div class="table-wrap" role="region" aria-label="Memory results" tabindex="0">
       <table class="table">
         <thead>
           <tr>
@@ -310,7 +310,7 @@ function renderMemoryTableRows(rows) {
       <td>${escapeHtml(row.repository ?? "")}</td>
       <td>${escapeHtml(row.canonicalKey ?? "")}</td>
       <td>${renderMemoryStateTag(row)}</td>
-      <td>${escapeHtml(row.content)}</td>
+      <td><div class="memory-preview">${escapeHtml(row.content)}</div></td>
       <td>${renderDrilldownAction(resolveMemoryDrilldownEntity(row), row.id, "Open")}</td>
     </tr>
   `).join("")

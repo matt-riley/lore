@@ -418,3 +418,14 @@ main {
     grid-template-columns: 1fr;
   }
 }
+
+/* Keep long memories browsable; the drill-down contains the full text. */
+.memory-preview {
+  min-width: 18rem;
+  max-width: 30rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}

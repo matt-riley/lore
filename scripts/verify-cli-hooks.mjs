@@ -1,24 +1,13 @@
 // Bounded native-hook certification. Data and hook files stay in temporary
 // directories; statuses distinguish pass, fail, and unauthenticated pending.
 import { mkdtemp, writeFile, mkdir, readFile, unlink, realpath, lstat } from "node:fs/promises";
-import { execFile } from "node:child_process";
+import { runVerificationProcess as exec } from "./verification-process.mjs";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildCliHookConfig } from "../lib/cli-hook-config.mjs";
-
-let activeChild;
-const exec = (command, args, options = {}) => new Promise((resolve, reject) => {
-  const child = execFile(command, args, options, (error, stdout, stderr) => {
-    if (activeChild === child) activeChild = null;
-    if (error) reject(Object.assign(error, { stdout, stderr }));
-    else resolve({ stdout, stderr });
-  });
-  activeChild = child;
-  child.stdin.end(options.input ?? "");
-});
 
 function parseArgs(argv) {
   const [client, ...rest] = argv;
@@ -95,10 +84,9 @@ async function main({ client, options }) {
   const report = { schemaVersion: 1, client, version: "unavailable", node: process.version, commit: "unknown", captureMode: "simulated", artifacts: directory, checks: {}, limitations: ["Captured transcripts are simulated; uninstall and every host UI path remain outside this certificate."] };
   try { report.commit = (await exec("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim(); } catch { /* evidence remains explicit */ }
   try { const command = { codex: "codex", claude: "claude", antigravity: "agy" }[client]; report.version = (await exec(command, ["--version"], { timeout: 5000 })).stdout.trim().split("\n")[0].slice(0, 120); } catch { /* pending is reported by native recall */ }
-  const seed = (name, args) => new Promise((resolve, reject) => {
-    const child = execFile(process.execPath, [entry, "tool", name], { env, cwd: directory }, (error, stdout, stderr) => error ? reject(Object.assign(error, { stdout, stderr })) : resolve(stdout));
-    child.stdin.end(JSON.stringify(args));
-  });
+  const seed = (name, args) => exec(process.execPath, [entry, "tool", name], {
+    env, cwd: directory, input: JSON.stringify(args),
+  }).then(({ stdout }) => stdout);
   const hook = (event, payload) => exec(process.execPath, [entry, "hook", client, event], { env, cwd: directory, input: JSON.stringify(payload), maxBuffer: 2 * 1024 * 1024 });
   await seed("lore_onboard", { userName: "Verifier" });
   const word = `quartz-${randomUUID().slice(0, 8)}`;
@@ -144,7 +132,8 @@ async function main({ client, options }) {
     : status("fail", "cross-repository retrieval did not match the requested scope");
   db.close();
   for (const [label, input] of [["malformedHook", "{"], ["oversizedHook", "x".repeat(1024 * 1024 + 1)], ["failedHook", JSON.stringify({ session_id: sessions[0], cwd: directory, transcript_path: "/missing" })]]) {
-    const result = await new Promise((resolve) => { const child = execFile(process.execPath, [entry, "hook", client, "Stop"], { env, cwd: directory }, (error, stdout, stderr) => resolve({ error, stdout, stderr })); child.stdin.end(input); });
+    const result = await exec(process.execPath, [entry, "hook", client, "Stop"], { env, cwd: directory, input })
+      .catch((error) => ({ error, stdout: error.stdout ?? "", stderr: error.stderr ?? "" }));
     let parsed;
     try { parsed = JSON.parse(result.stdout.trim()); } catch { parsed = null; }
     const expectedNeutral = client === "antigravity" && label === "failedHook" ? { decision: "stop" } : client === "antigravity" ? { decision: "stop" } : {};

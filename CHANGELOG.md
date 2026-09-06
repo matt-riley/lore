@@ -20,6 +20,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.10.2](https://github.com/matt-riley/lore/compare/lore-v0.10.1...lore-v0.10.2) (2026-09-06)
+
+
+### Bug Fixes
+
+* configure Astro site for Cloudflare Workers ([e7f5bf2](https://github.com/matt-riley/lore/commit/e7f5bf28a2295f58cffe48b120d05325a0de7222))
+* match Cloudflare Worker name ([0cc890d](https://github.com/matt-riley/lore/commit/0cc890d2af9e52f5a546ae7a9bf73c6c980d07e3))
+
 ## [0.10.1](https://github.com/matt-riley/lore/compare/lore-v0.10.0...lore-v0.10.1) (2026-09-06)
 
 

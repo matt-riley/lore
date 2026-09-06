@@ -231,27 +231,27 @@ function renderMemoriesFilters(filterData) {
 
   return `
     <div class="controls">
-      <select id="mem-filter-type">
+      <select id="mem-filter-type" aria-label="Memory type">
         <option value="">type: any</option>
         ${types.map((row) => `<option value="${escapeHtml(row.type)}">${escapeHtml(row.type)} (${row.count})</option>`).join("")}
       </select>
 
-      <select id="mem-filter-scope">
+      <select id="mem-filter-scope" aria-label="Memory scope">
         <option value="">scope: any</option>
         ${scopes.map((row) => `<option value="${escapeHtml(row.scope)}">${escapeHtml(row.scope)} (${row.count})</option>`).join("")}
       </select>
 
-      <select id="mem-filter-repo">
+      <select id="mem-filter-repo" aria-label="Repository">
         <option value="">repo: any</option>
         ${repos.map((row) => `<option value="${escapeHtml(row.repository)}">${escapeHtml(row.repository)} (${row.count})</option>`).join("")}
       </select>
 
-      <select id="mem-filter-canonical">
+      <select id="mem-filter-canonical" aria-label="Canonical key">
         <option value="">canonical: any</option>
         ${canonicalKeys.map((row) => `<option value="${escapeHtml(row.canonicalKey)}">${escapeHtml(row.canonicalKey)} (${row.count})</option>`).join("")}
       </select>
 
-      <select id="mem-filter-state">
+      <select id="mem-filter-state" aria-label="Memory state">
         <option value="active">active only</option>
         <option value="superseded">superseded only</option>
         <option value="all">all</option>

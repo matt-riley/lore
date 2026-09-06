@@ -181,3 +181,17 @@ test("custom and legacy path resolution stays explicit", () => {
     assert.equal(resolved.legacy, true);
   } finally { rmSync(legacy, { recursive: true, force: true }); }
 });
+
+test("restore preserves orphan WAL and SHM even when the target DB is missing", () => {
+  const f = fixture();
+  try {
+    const snapshot = createRecoverySnapshot({ derivedStorePath: f.dbPath, backupDir: f.backupDir }).snapshotPath;
+    rmSync(f.dbPath);
+    writeFileSync(`${f.dbPath}-wal`, "orphan WAL evidence");
+    writeFileSync(`${f.dbPath}-shm`, "orphan SHM evidence");
+    const result = restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: snapshot, write: true, clientsStopped: true, detectActiveUsers: () => [] });
+    assert.ok(result.rescuePath);
+    assert.equal(readFileSync(`${result.rescuePath}-wal`, "utf8"), "orphan WAL evidence");
+    assert.equal(readFileSync(`${result.rescuePath}-shm`, "utf8"), "orphan SHM evidence");
+  } finally { f.cleanup(); }
+});

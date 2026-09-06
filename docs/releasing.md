@@ -147,7 +147,7 @@ Users primarily install Lore by cloning the repository directly into `~/.copilot
 
    If the user cloned Lore directly into `~/.copilot/extensions/lore`, checking out the old tag is sufficient. If they use a separate development checkout plus `dev-install.mjs`, they should check out the old tag in that source checkout and rerun the helper so the copied install is refreshed.
 
-3. **Force-push a fixed main** — avoid unless the release was brand new and no one has yet pinned to the bad tag. Communicate clearly if you do this.
+Use a corrective patch release rather than rewriting published history. Checking out older code does not downgrade the database; older Lore versions may lack the newer-schema guard. Stop clients and restore a compatible snapshot when needed.
 
 ### Scenario 3 — DB schema migration causes data issues
 
@@ -156,9 +156,7 @@ This is the highest-risk scenario. The DB is at `~/.config/lore/lore.db` by defa
 1. **Run validation first** before taking any action:
 
    ```sh
-   # In the Copilot CLI session
-   memory_validate
-   memory_doctor_report
+   node scripts/recover.mjs status
    ```
 
 2. **Inspect and restore a snapshot** if you have one. Lore's recovery CLI separates explicit recovery snapshots from routine backup policy:
@@ -185,7 +183,7 @@ This is the highest-risk scenario. The DB is at `~/.config/lore/lore.db` by defa
 1. **Check the error** — `memory_validate` will surface any config validation failures.
 2. **Consult the CHANGELOG** — the entry for the release will list any config key changes.
 3. **Update `lore.json`** per the migration notes in the CHANGELOG.
-4. **Re-validate** — run `npm run validate-schema` (or `memory_validate` in-session) to confirm the updated config is valid.
+4. **Re-validate** using an editor with `schemas/lore.schema.json`. `npm run validate-schema` checks committed defaults/schema parity, not your personal configuration.
 
 ---
 
@@ -212,3 +210,17 @@ Lore has no fixed release cadence at the `0.x` stage. Releases happen when:
 - A bug fix is urgent enough to warrant a patch release.
 
 There is no time-boxed release train until the project matures to `1.x`.
+
+
+## v1 candidate gate
+
+The current work targets Node 24.0.0+ and all five adapters on macOS. Before promoting adapters or preparing the release-please 1.0.0 PR:
+
+1. Run `npm run check:runtime`, `npm test`, `npm run test:smoke`, `npm run lint`, `npm run validate-schema`, and `npm run test:quality` on the integrated commit. Hosted CI must pass the exact Node 24.0.0 minimum, latest 24, and latest 26 on macOS/Linux.
+2. Run `npm run benchmark` on the reference Mac. The 10,000-memory gate is p95 <300 ms for database reopen plus startup context and <200 ms for prompt recall, with 10 warmups and 100 measured samples. The 1,000/100,000-store results are informational. This measures Lore core work with warm OS caches, not host launch or model inference.
+3. Run all website checks and desktop/mobile dashboard and site QA. Record screenshot evidence using synthetic data.
+4. Certify each actual client: tagged installation, explicit save/recall, automatic capture and fresh-session recall, scope isolation, reload, failure handling, update, removal, and recovery. Simulated hook events and mocked SDK tests are supporting evidence; they cannot satisfy real-host certification.
+5. Complete a 14-calendar-day candidate soak with successful daily checks on at least 10 distinct days per client. Data-loss, isolation, installation, lifecycle, or core-retrieval fixes restart the window. Documentation-only fixes require targeted checks.
+6. Review the final evidence and let release-please prepare the 1.0.0 PR. Merge/publish only after maintainer review; verify the published tag and repeat a clean-install smoke check.
+
+See [v1 release evidence](v1-release-evidence.md) for actual progress and pending gates. No candidate or soak is implied by a passing local test suite.

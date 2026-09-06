@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Lore provides local memory for Copilot CLI, Pi, Codex CLI, Claude Code, and Antigravity CLI. The Node 22.5+ runtime has no build step or runtime dependencies. Entrypoints are `extension.mjs` (Copilot), `lore-pi.ts`/`lore-server.mjs` (Pi), and `lore-cli.mjs` (native CLI hooks/commands). Core logic lives in `lib/`, the local dashboard in `browser/`, scripts in `scripts/`, schemas in `schemas/`, and reference docs in `docs/`. Tests live in `tests/unit/` and `tests/smoke/`, with shared helpers and fixtures. The separate Astro site lives in `website/`; guides are in `website/src/content/docs/` and assets in `website/public/`.
+Lore provides local memory for Copilot CLI, Pi, Codex CLI, Claude Code, and Antigravity CLI. The Node 24.0.0+ runtime has no build step or runtime dependencies. Entrypoints are `extension.mjs` (Copilot), `lore-pi.ts`/`lore-server.mjs` (Pi), and `lore-cli.mjs` (native CLI hooks/commands). Core logic lives in `lib/`, the local dashboard in `browser/`, scripts in `scripts/`, schemas in `schemas/`, and reference docs in `docs/`. Tests live in `tests/unit/` and `tests/smoke/`, with shared helpers and fixtures. The separate Astro site lives in `website/`; guides are in `website/src/content/docs/` and assets in `website/public/`.
 
 ## Build, Test, and Development Commands
 

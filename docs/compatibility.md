@@ -169,6 +169,6 @@ The `memory_portable_bundle` export tool (experimental) can generate a portable 
 
 ## Versioning
 
-Lore follows [Semantic Versioning](https://semver.org/). Until the standalone repository ships its first tagged release, the version is considered `0.x` and no SemVer stability guarantees apply to experimental surfaces.
+Lore follows [Semantic Versioning](https://semver.org/). Tagged `0.x` releases are available. The supported core receives its formal v1 stability promise only after the release gates pass. Experimental surfaces retain their explicitly documented experimental status across v1.
 
 > The first `1.0.0` release is the target for graduating the supported core surfaces to a formal stability promise.

@@ -42,6 +42,7 @@ import { createSubagentScopeTracker } from "./lib/subagent-scope-tracker.mjs";
 import { runPreToolUseGuardrail } from "./lib/pre-tool-use-guardrail.mjs";
 import { consumeLatestMemoryHygieneSummary } from "./lib/memory-hygiene.mjs";
 import { setTimeout as delay } from "node:timers/promises";
+import { checkRuntime, formatRuntimeDiagnostics } from "./lib/runtime.mjs";
 
 let lastKnownCwd = process.cwd();
 
@@ -715,6 +716,10 @@ async function ensureRuntime(session) {
   }
 
   try {
+    const runtimeCheck = await checkRuntime();
+    if (!runtimeCheck.ok) {
+      throw new Error(formatRuntimeDiagnostics(runtimeCheck));
+    }
     runtime.config = await loadConfig();
     runtime.db = new LoreDb(runtime.config);
     const initResult = runtime.db.initialize();

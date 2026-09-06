@@ -191,6 +191,7 @@ test("malformed ownership manifests fail with an actionable error before setup o
     const configPath = path.join(home, ".config/lore/lore.json");
     const hooks = readFileSync(hooksPath, "utf8");
     const config = readFileSync(configPath, "utf8");
+    const expectedMessage = new RegExp(`^Invalid Lore installation manifest at ${manifestPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:.*restore.*backup`, "is");
     for (const value of [
       "{", "null", "[]", "{}",
       ...[null, [], "broken", 42].map(installs => JSON.stringify({ version: 1, installs })),
@@ -200,13 +201,7 @@ test("malformed ownership manifests fail with an actionable error before setup o
     ]) {
       writeFileSync(manifestPath, value);
       for (const plan of [planSetup, planRemove]) {
-        assert.throws(() => plan(["codex"], options), error => {
-          assert.equal(error instanceof TypeError, false);
-          assert.match(error.message, /Invalid Lore installation manifest/);
-          assert.ok(error.message.includes(manifestPath));
-          assert.match(error.message, /restore.*backup/i);
-          return true;
-        });
+        assert.throws(() => plan(["codex"], options), { message: expectedMessage });
         assert.equal(readFileSync(manifestPath, "utf8"), value);
         assert.equal(readFileSync(hooksPath, "utf8"), hooks);
         assert.equal(readFileSync(configPath, "utf8"), config);

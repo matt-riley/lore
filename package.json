@@ -21,7 +21,7 @@
     "url": "https://github.com/matt-riley/lore/issues"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",

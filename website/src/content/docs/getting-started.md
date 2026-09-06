@@ -9,7 +9,7 @@ order: 2
 
 You’ll need **Node.js 22.5 or later** and a Copilot CLI that supports extensions and session hooks. Lore runs on your machine and keeps its memory in a local SQLite database. No build step or runtime dependency installation needed.
 
-macOS is the primary supported platform. Linux is expected to work; Windows is unsupported. Using Pi? Start with [Start with Pi](/guides/pi/) instead.
+macOS is the primary supported platform. Linux is expected to work; Windows is unsupported. Using Pi? Start with [Start with Pi](/guides/pi/) instead. For Codex CLI, Claude Code, or Antigravity CLI, use the [native hooks guide](/guides/cli-integrations/).
 
 ## 1. Add Lore to Copilot
 

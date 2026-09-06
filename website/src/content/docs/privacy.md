@@ -1,6 +1,6 @@
 ---
 title: "Privacy"
-description: "Understand what Lore stores, what it reads, and when data can reach a local model."
+description: "Understand what Lore stores, what it reads, and when context reaches a model."
 section: "Reference"
 order: 9
 ---
@@ -16,6 +16,14 @@ Lore is local-first. By default it makes no non-loopback outbound network calls,
 | `~/.copilot/session-store.db` | Raw Copilot session input; Lore reads it and never writes it |
 
 These stores can contain code excerpts, file paths, decisions, and session notes. Treat them as sensitive local data.
+
+Pi also reads its session files, normally under `~/.pi/agent/sessions`. The [native CLI adapters](/guides/cli-integrations/) read only the active transcript supplied by Codex, Claude Code, or Antigravity; they do not scan archives. They exclude thinking, reasoning, tool output, injected Lore context, and Antigravity prompt metadata from extraction. Optional post-tool/error observations are default-off and retain categories and success/failure only, not raw arguments, outputs, error messages, or stacks.
+
+## Context sent to your coding agent
+
+Local storage does not mean recalled context stays off the network. When Lore injects memories into a session, those memories become part of the context sent to your coding agent's configured model, which may be cloud-hosted. The same applies when you ask the agent to read a Lore command's output. Choose your host and model settings accordingly.
+
+The native CLI integrations use local command hooks and open no listening socket or MCP server. Host permissions still govern explicit shell commands; Lore does not override permission decisions.
 
 ## Local inference is explicit
 

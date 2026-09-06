@@ -8,7 +8,7 @@ import "../styles/demos.css";
 import Icon from "../components/Icon.astro";
 import Search from "../components/Search.astro";
 interface Props { title?: string; description?: string; home?: boolean; }
-const { title, description = "Give Pi a memory between sessions. Friendly guides and interactive examples for Lore, with Copilot CLI integration too.", home = false } = Astro.props;
+const { title, description = "Give your coding agent a memory between sessions. Lore guides for Pi, Copilot CLI, Codex CLI, Claude Code, and Antigravity CLI.", home = false } = Astro.props;
 const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site) : undefined;
 const path = Astro.url.pathname;
 ---

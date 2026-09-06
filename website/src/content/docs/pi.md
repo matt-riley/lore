@@ -9,6 +9,8 @@ Lore is a local memory companion for [Pi](https://pi.dev), your terminal coding 
 
 Try the [memory playground](/playground/) after setup for small recall and save demos.
 
+Also use Codex CLI, Claude Code, or Antigravity CLI? Their [native lifecycle integrations](/guides/cli-integrations/) can connect to the same local memory store without MCP.
+
 ## Install the adapter
 
 You need Node.js 22.5.0 or later on `PATH`. Pi runs extensions with bun, while Lore's SQLite server uses Node's built-in `node:sqlite` module.

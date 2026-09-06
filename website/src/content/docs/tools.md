@@ -60,7 +60,19 @@ These are the supported Copilot CLI tools to build everyday workflows around. Pi
 
 Some experimental tools require rollout flags such as `evolutionLedger`, `loreDoctor`, or `refreshableObservations`. They do not receive the same stability promise as the core.
 
-## Hooks
+## Native CLI commands
+
+[Codex CLI, Claude Code, and Antigravity CLI](/guides/cli-integrations/) use experimental native lifecycle hooks for automatic recall and capture. Explicit memory operations run through the shell, not MCP or registered model tools:
+
+```sh
+printf '%s\n' '{"prompt":"What did we decide about storage?"}' | node /absolute/path/to/lore/lore-cli.mjs tool lore_recall
+```
+
+The available commands are `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, and `memory_status`. They accept JSON arguments on stdin and signal failures with a nonzero exit status. Run from your project or supply an explicit `repository` argument. Injected context explains these commands to the agent, but normal host shell permissions still apply.
+
+These adapters do not expose the full Copilot tool set: `memory_explain`, `memory_validate`, and the experimental Copilot tools above are not CLI commands. See the [native lifecycle table](/guides/cli-integrations/#what-happens-during-a-session) for each client's events and limits.
+
+## Copilot CLI hooks
 
 The supported hooks are `onSessionStart`, `onUserPromptSubmitted`, and `onSessionEnd`. Passive telemetry and pre-tool observation hooks are experimental and default-off. `onPreMcpToolCall` is deferred and is not registered.
 

@@ -141,6 +141,14 @@ describe("inferDateFromPrompt — month+day expressions", () => {
   test("january 5 (before NOW) resolves to current year", () => {
     assert.strictEqual(inferDateFromPrompt("january 5th standup", { now: NOW }), isoDate(2024, 1, 5));
   });
+
+  test("an explicit year is preserved even when it is after NOW", () => {
+    assert.strictEqual(inferDateFromPrompt("august 21, 2027 planning", { now: new Date("2026-09-06T12:00:00Z") }), "2027-08-21");
+  });
+
+  test("rejects a calendar date that rolls into the next month", () => {
+    assert.strictEqual(inferDateFromPrompt("february 31, 2024 planning", { now: NOW }), null);
+  });
 });
 
 // ---------------------------------------------------------------------------

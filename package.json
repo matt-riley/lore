@@ -1,6 +1,6 @@
 {
   "name": "lore",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Local-first memory and continuity for Copilot, Pi, Codex, Claude Code, and Antigravity CLI.",
   "type": "module",
   "main": "extension.mjs",

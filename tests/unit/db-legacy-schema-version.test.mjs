@@ -124,7 +124,7 @@ describe("LoreDb legacy schema version compatibility", () => {
       assert.equal(loreDb.db, null);
 
       const malformedDb = new DatabaseSync(dbPath);
-      malformedDb.exec("DELETE FROM coherence_schema_version; INSERT INTO coherence_schema_version VALUES ('bad');");
+      malformedDb.exec("DELETE FROM coherence_schema_version; INSERT INTO coherence_schema_version VALUES (1); INSERT INTO coherence_schema_version VALUES ('bad');");
       malformedDb.close();
       assert.throws(() => loreDb.initialize(), /malformed Lore schema version/iu);
     } finally {

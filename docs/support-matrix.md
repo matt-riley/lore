@@ -16,7 +16,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 **Graduation path**: an experimental surface graduates to supported only after a 14-day release-candidate soak with successful checks on at least 10 distinct days for each client, clear documented semantics, and automated smoke coverage. No client is promoted without that evidence.
 
-**Deprecation path**: a supported surface moves to deprecated with a notice in the changelog and a migration guide. Removal happens no sooner than the next minor release after deprecation.
+**Deprecation path**: a supported surface moves to deprecated with a notice in the changelog and a migration guide. Removal of a supported surface requires a major release, after a deprecation notice and a documented migration path.
 
 ---
 
@@ -25,17 +25,19 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | Client | Status | Interface |
 |---|---|---|
 | GitHub Copilot CLI | 🟢 Supported | Native extension hooks and Copilot tool surface. Observed target 1.0.80; the minimum version floor is pending certification. |
-| Pi | 🟢 Supported | Native TypeScript extension, shared Lore server, `lore_*` tools, and `/lore` commands. Observed target 0.84.3; the minimum version floor is pending certification. |
+| Pi | 🟡 Experimental | Native TypeScript extension, shared Lore server, `lore_*` tools, and `/lore` commands. Observed target 0.84.3; the minimum version floor is pending certification. |
 | Codex CLI | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, and `PostToolUse` command hooks. |
 | Claude Code | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, `PostToolUse`, and `PostToolUseFailure` command hooks. |
 | Google Antigravity CLI | 🟡 Experimental | Native `PreInvocation`, `PostInvocation`, `Stop`, and `PostToolUse` hooks; shared configuration and explicit workspace mounting are required on the observed 1.1.27 target. |
 
-These clients use `lore-cli.mjs`, not MCP. Native hooks provide automatic recall
+Codex, Claude Code, and Antigravity use `lore-cli.mjs`, not MCP. Native hooks provide automatic recall
 and transcript capture. The direct shell commands are `lore_recall`,
 `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`,
 and `memory_status`. The canonical lists are `LORE_CLIENT_HOOKS` and
 `LORE_CLI_TOOL_NAMES` in `lib/capability-manifest.mjs`.
 See [installation, verification, and boundaries](cli-integrations.md).
+
+All five adapters target stable macOS support for v1. The entries above describe current support; the v1 host certification and soak are still pending. Pi has not been promoted by adding it to this table.
 
 ### Adapter capability differences
 

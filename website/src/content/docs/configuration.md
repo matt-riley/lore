@@ -33,7 +33,7 @@ Lore keeps using legacy files under `~/.copilot` only when no Lore home is confi
 
 `enabled` must be `true` for Lore to initialise. `budgets` limits the amount of procedural, semantic, episode, commitment, and working-profile context assembled for a prompt. `limits` bounds searches, prompt context, cross-repository results, and metric windows.
 
-The runtime defaults are intentionally conservative: local inference, maintenance, embeddings, and trace recording are off. Some rollout-gated surfaces are enabled by default but remain experimental. The checked-in `lore.example.json` is an all-features-on starting point and is more adventurous than runtime defaults.
+The runtime defaults are intentionally conservative: local inference, maintenance, embeddings, and trace recording are off. Some rollout-gated surfaces are enabled by default but remain experimental. The checked-in `lore.example.json` enables archive import, maintenance, and several experimental features, but leaves local inference disabled. Merge only the features you intend to enable.
 
 ## Deferred extraction
 

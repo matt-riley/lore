@@ -68,5 +68,11 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
+      - name: Verify required runtime capabilities
+        run: npm run check:runtime
+
       - name: Unit and smoke tests
         run: npm test
+
+      - name: Memory quality and isolation gate
+        run: npm run test:quality

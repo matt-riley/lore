@@ -1,0 +1,36 @@
+name: Documentation website
+
+on:
+  push:
+    branches: [main]
+    paths: ["website/**", ".github/workflows/website.yml"]
+  pull_request:
+    paths: ["website/**", ".github/workflows/website.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+      - name: Install website dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: Check types and search
+        run: |
+          pnpm check
+          pnpm test
+      - name: Build and verify local links
+        run: |
+          pnpm build
+          pnpm check:links

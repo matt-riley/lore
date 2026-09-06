@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "lore-docs",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-09-06"
+}

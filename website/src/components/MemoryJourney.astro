@@ -1,0 +1,38 @@
+---
+import Archive from "./Archive.astro";
+const steps = [
+  { title: "Capture", heading: "A useful detail, worth keeping.", body: "In Pi, ask lore_save to keep an explicit note. Lore can also derive context from session activity. The paper layers represent those sessions; the amber pieces represent useful memories.", example: "“Use pnpm for package scripts.”", label: "An example preference" },
+  { title: "Store", heading: "A home for what you learned.", body: "The bronze frame represents your local SQLite store. Pi and Copilot CLI can share it. This sculpture is a metaphor for the product, not a database diagram.", example: "~/.copilot/lore.db", label: "The default memory store" },
+  { title: "Recall", heading: "The right context, back in reach.", body: "Pi can receive relevant memory before a prompt reaches the agent. You can also use lore_recall or /lore search for an explicit lookup.", example: "/lore search pnpm", label: "Try it in a later Pi session" },
+];
+---
+<section class="memory-journey" id="follow-a-memory" aria-labelledby="journey-heading">
+  <div class="journey-top"><h2 id="journey-heading">Follow a memory</h2><span>An illustrated example</span></div>
+  <div class="journey-tabs" role="tablist" aria-label="Memory lifecycle">{steps.map((step, index) => <button type="button" role="tab" id={`step-${index}`} aria-label={`${index + 1}. ${step.title}`} aria-controls={`panel-${index}`} aria-selected={index === 0 ? "true" : "false"} tabindex={index === 0 ? 0 : -1} data-step={index}><span aria-hidden="true">0{index + 1}</span>{step.title}</button>)}</div>
+  <div class="journey-body"><Archive interactive /><div class="journey-panels">{steps.map((step, index) => <div role="tabpanel" id={`panel-${index}`} aria-labelledby={`step-${index}`} hidden={index !== 0} tabindex="0"><h3>{step.heading}</h3><p>{step.body}</p><div class="journey-example"><span>{step.label}</span><p>{step.example}</p></div></div>)}</div></div>
+  <noscript><p>Capture a useful detail, store it locally, and recall it when a later prompt needs it. The full lifecycle is explained below.</p></noscript>
+  <p class="journey-demo-link"><a class="text-link" href="/playground/">Try saving and recalling a memory yourself</a></p>
+</section>
+<script>
+  const journey = document.querySelector<HTMLElement>(".memory-journey");
+  if (journey) {
+    const tabs = [...journey.querySelectorAll<HTMLButtonElement>("[role=tab]")];
+    const panels = [...journey.querySelectorAll<HTMLElement>("[role=tabpanel]")];
+    const activate = (index: number, focus = false) => {
+      tabs.forEach((tab, position) => {
+        tab.setAttribute("aria-selected", String(position === index));
+        tab.tabIndex = position === index ? 0 : -1;
+        panels[position].hidden = position !== index;
+      });
+      if (focus) tabs[index].focus();
+      journey.dispatchEvent(new CustomEvent("memory-step", { bubbles: true, detail: index }));
+    };
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => activate(index));
+      tab.addEventListener("keydown", (event) => {
+        const positions: Record<string, number> = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1 };
+        if (event.key in positions) { event.preventDefault(); activate(positions[event.key], true); }
+      });
+    });
+  }
+</script>

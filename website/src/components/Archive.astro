@@ -1,0 +1,26 @@
+---
+import { Image } from "astro:assets";
+import hero from "../assets/hero-archive.png";
+interface Props { interactive?: boolean; }
+const { interactive = false } = Astro.props;
+---
+<div class:list={["archive", { "archive-guide": interactive }]} data-archive data-guide={String(interactive)}>
+  {interactive
+    ? <img class="archive-poster" src="/images/archive.png" alt="An archive of floating paper memories held in a circular bronze frame." width="1000" height="1000" />
+    : <Image class="archive-poster" src={hero} alt="An archive of floating paper memories held in a circular bronze frame." widths={[600, 1100]} sizes="(max-width: 680px) 95vw, 50vw" format="webp" quality={85} loading="eager" fetchpriority="high" />}
+  <div class="archive-canvas" aria-hidden="true"></div>
+  <button class="archive-control" type="button" aria-pressed="false">Explore in 3D <span aria-hidden="true">↗</span></button>
+  <span class="archive-status visually-hidden" role="status"></span>
+  {!interactive && <div class="archive-explanation">
+    <p class="archive-metaphor">An illustration of Lore: sessions become useful memories, kept on your machine.</p>
+    <div class="archive-parts" aria-label="Explore what the archive represents">
+      <button type="button" data-archive-part="pages" aria-pressed="false">The sessions</button>
+      <button type="button" data-archive-part="memories" aria-pressed="false">The memories</button>
+      <button type="button" data-archive-part="store" aria-pressed="false">The local store</button>
+    </div>
+    <p class="archive-part-description" aria-live="polite">Choose a part to see what it represents.</p>
+  </div>}
+</div>
+<script>
+  import "../scripts/archive";
+</script>

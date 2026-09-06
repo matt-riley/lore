@@ -1,0 +1,47 @@
+---
+import { getCollection, render, type CollectionEntry } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import Icon from "../../components/Icon.astro";
+import MemoryJourney from "../../components/MemoryJourney.astro";
+export async function getStaticPaths() {
+  return (await getCollection("docs")).map((doc) => ({ params: { id: doc.id }, props: { doc } }));
+}
+interface Props { doc: CollectionEntry<"docs">; }
+const { doc } = Astro.props;
+const { Content, headings } = await render(doc);
+const docs = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+const sections = ["Start here", "Understand Lore", "Reference"];
+const currentIndex = docs.findIndex((entry) => entry.id === doc.id);
+const previous = docs[currentIndex - 1];
+const next = docs[currentIndex + 1];
+---
+<Base title={doc.data.title} description={doc.data.description}>
+  <div class="docs-shell">
+    <aside class="docs-sidebar" aria-label="Guide navigation">
+      <details class="docs-nav" open>
+        <summary>Browse the guides <Icon name="chevron" size={16} /></summary>
+        <nav aria-label="All guides">
+          {sections.map((section) => <div class="sidebar-group"><h2>{section}</h2><ul>{docs.filter((entry) => entry.data.section === section).map((entry) => <li><a href={`/guides/${entry.id}/`} aria-current={entry.id === doc.id ? "page" : undefined}>{entry.data.title}</a></li>)}</ul></div>)}
+        </nav>
+      </details>
+    </aside>
+    <main id="main" class="doc-main">
+      <header class="doc-heading"><h1>{doc.data.title}</h1><p>{doc.data.description}</p></header>
+      {doc.id === "how-memory-works" && <MemoryJourney />}
+      <article class="prose"><Content /></article>
+      <div class="doc-meta"><a href={`https://github.com/matt-riley/lore/edit/main/website/src/content/docs/${doc.id}.md`}>Improve this guide <Icon name="arrow" size={16} /></a></div>
+      <nav class="doc-pagination" aria-label="Previous and next guide">
+        {previous ? <a class="prev" href={`/guides/${previous.id}/`}><span>Previous guide</span><strong>{previous.data.title}</strong></a> : <div />}
+        {next && <a class="next" href={`/guides/${next.id}/`}><span>Next guide</span><strong>{next.data.title}<Icon name="arrow" /></strong></a>}
+      </nav>
+    </main>
+    <aside class="toc" aria-label="On this page"><h2>On this page</h2><ul>{doc.id === "how-memory-works" && <li><a href="#follow-a-memory">Follow a memory</a></li>}{headings.filter((heading) => heading.depth === 2).map((heading) => <li><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ul><div class="toc-illustration"><img src="/images/archive.png" alt="" width="240" height="240" loading="lazy" /></div></aside>
+  </div>
+  <script>
+    const detail = document.querySelector<HTMLDetailsElement>(".docs-nav");
+    const mobile = window.matchMedia("(max-width: 900px)");
+    const update = () => { if (detail) detail.open = !mobile.matches; };
+    update();
+    mobile.addEventListener("change", update);
+  </script>
+</Base>

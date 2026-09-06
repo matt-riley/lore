@@ -1,0 +1,28 @@
+---
+import Base from "../layouts/Base.astro";
+import SessionDemo from "../components/SessionDemo.astro";
+---
+<Base title="Try Lore" description="Try interactive examples of Pi memory across sessions, repository scope, and optional local semantic search.">
+  <main id="main" class="playground">
+    <header class="playground-intro"><h1>A little practice.<br />A longer memory.</h1><p>Get a feel for Lore before you install it. These hands-on examples use fictional memories to make the everyday Pi workflow tangible.</p><nav aria-label="Choose a demonstration"><a href="#across-sessions">Across sessions</a><a href="#repository-scope">Repository scope</a><a href="#semantic-search">Semantic search</a></nav></header>
+    <section class="play-section" id="across-sessions" aria-labelledby="sessions-heading"><div class="demo-section-intro"><div><span class="demo-number">01 / A memory that stays</span><h2 id="sessions-heading">Pick up where you left off.</h2><p>Save a preference with <code>lore_save</code>, leave the conversation, and retrieve it with <code>lore_recall</code>. The conversation changes; your saved memory doesn’t.</p></div><a class="text-link" href="/guides/pi/">Use this in Pi</a></div><SessionDemo /></section>
+    <section class="play-section" id="repository-scope" aria-labelledby="scope-heading" data-scope-demo>
+      <div class="demo-section-intro"><div><span class="demo-number">02 / The right place</span><h2 id="scope-heading">Some notes belong to a project.</h2><p>Switch the active repository. In this example, project notes stay with their project, while a global preference can travel with you.</p></div><a class="text-link" href="/guides/how-memory-works/#retrieval-and-scope">Read about scope</a></div>
+      <div class="example-disclosure"><span>Interactive example · sample data</span><span>A simplified scope illustration, not the full ranking algorithm.</span></div>
+      <div class="scope-controls"><label for="demo-repository">You’re working in</label><select id="demo-repository"><option value="demo/orchard">demo/orchard</option><option value="demo/atlas">demo/atlas</option></select><span role="status" data-scope-count></span></div>
+      <div class="scope-layout"><div><h3>The example memory store</h3><ul class="scope-memory-list" data-scope-list></ul></div><aside class="scope-explanation"><h3>Why the selection changes</h3><p data-scope-summary></p><p>Repository scope is one part of retrieval. Lore also considers the query, memory type, limits, and configured cross-repository behavior. Transferable memories and explicit overrides aren’t modeled here.</p><pre><code data-scope-call></code></pre></aside></div>
+    </section>
+    <section class="play-section" id="semantic-search" aria-labelledby="semantic-heading" data-retrieval-demo>
+      <div class="demo-section-intro"><div><span class="demo-number">03 / Words and meaning</span><h2 id="semantic-heading">A match without the same words.</h2><p>Local embeddings can find relevant memories beyond keywords. Compare the example candidates, then see what remains if the local model becomes unavailable.</p></div><a class="text-link" href="/guides/local-inference/">Set up local inference</a></div>
+      <div class="example-disclosure"><span>Interactive example · prewritten results</span><span>No model runs here. These illustrate candidate sources.</span></div>
+      <fieldset class="retrieval-controls"><legend>For the query <code>database</code>, choose a setup</legend><label><input type="radio" name="retrieval-mode" value="keyword" checked /> Keyword only</label><label><input type="radio" name="retrieval-mode" value="semantic" /> Local embeddings available</label><label><input type="radio" name="retrieval-mode" value="offline" /> Local model unavailable</label></fieldset>
+      <div class="retrieval-lanes"><section><h3>Lexical candidates</h3><p class="lane-description">The words match.</p><ul data-lexical-results></ul></section><section><h3>Additional semantic candidates</h3><p class="lane-description">The meaning can match, too.</p><ul data-semantic-results></ul></section></div>
+      <p class="retrieval-explanation" role="status" data-retrieval-explanation></p><p class="demo-field-note">In Pi, explicit recall combines semantic matches with deterministic recall. Its recent-memory fallback and optional query expansion add behavior beyond this illustration.</p>
+    </section>
+    <div class="playground-outro"><h2>Make it part of your day.</h2><p>Install Lore in Pi and start building a memory of your own.</p><a class="button" href="/guides/pi/">Start with Pi</a><a class="text-link" href="/guides/getting-started/">Using Copilot CLI?</a></div>
+    <noscript><p>Enable JavaScript to interact with these examples. The <a href="/guides/pi/">Pi guide</a> walks through the same workflow in text.</p></noscript>
+  </main>
+</Base>
+<script>
+  import "../scripts/playground";
+</script>

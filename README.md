@@ -403,6 +403,8 @@ tests/                 # Unit and smoke tests
 
 ## Docs and contributing
 
+The [documentation website](website/README.md) is an Astro site with friendly guides and an interactive memory walkthrough. Run it locally with `cd website && pnpm install && pnpm dev`; its own README covers Cloudflare Pages hosting.
+
 If you want the deeper contract, these are the main references:
 
 - [docs/support-matrix.md](docs/support-matrix.md) — supported vs experimental surfaces

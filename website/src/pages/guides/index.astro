@@ -1,0 +1,16 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import Icon from "../../components/Icon.astro";
+const docs = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+const sections = ["Start here", "Understand Lore", "Reference"];
+---
+<Base title="Guides">
+  <main id="main" class="guides-index">
+    <div class="index-intro"><h1>A place to begin.<br />And come back to.</h1><p>Make yourself at home. From your first memory to the finer details, let’s get Lore working for you.</p></div>
+    {sections.map((section, i) => <section class="index-section">
+      <div class="index-section-label"><span>0{i + 1} /</span><h2>{section}</h2></div>
+      <div class="index-links">{docs.filter((doc) => doc.data.section === section).map((doc) => <a href={`/guides/${doc.id}/`}><div><h3>{doc.data.title}</h3><p>{doc.data.description}</p></div><Icon name="arrow" /></a>)}</div>
+    </section>)}
+  </main>
+</Base>

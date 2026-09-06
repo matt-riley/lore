@@ -1,0 +1,53 @@
+---
+import "@fontsource/dm-sans/400.css";
+import "@fontsource/dm-sans/500.css";
+import "@fontsource/dm-sans/600.css";
+import "@fontsource-variable/newsreader";
+import "../styles/global.css";
+import "../styles/demos.css";
+import Icon from "../components/Icon.astro";
+import Search from "../components/Search.astro";
+interface Props { title?: string; description?: string; home?: boolean; }
+const { title, description = "Give Pi a memory between sessions. Friendly guides and interactive examples for Lore, with Copilot CLI integration too.", home = false } = Astro.props;
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site) : undefined;
+const path = Astro.url.pathname;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title ? `${title} — Lore` : "Lore — A little memory. A lot of continuity."}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#f3efe5" />
+    <meta property="og:title" content={title ? `${title} — Lore` : "Lore — A little memory. A lot of continuity."} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    {canonical && <link rel="canonical" href={canonical} />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body class:list={[{ "is-home": home }]}>
+    <a href="#main" class="skip-link">Skip to content</a>
+    <header class="site-header">
+      <a href="/" class="wordmark" aria-label="Lore home">lore</a>
+      <nav class="main-nav" aria-label="Main navigation" id="main-nav">
+        <a href="/guides/pi/" aria-current={path === "/guides/pi/" ? "page" : undefined}>Pi</a>
+        <a href="/guides/" aria-current={path === "/guides/" ? "page" : undefined}>Guides</a>
+        <a href="/playground/" aria-current={path === "/playground/" ? "page" : undefined}>Try Lore</a>
+        <a href="/guides/how-memory-works/" aria-current={path === "/guides/how-memory-works/" ? "page" : undefined}>How it works</a>
+        <a href="/guides/tools/" aria-current={path === "/guides/tools/" ? "page" : undefined}>Reference</a>
+        <a href="https://github.com/matt-riley/lore">GitHub</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-trigger" data-search-open aria-label="Search documentation"><Icon name="search" size={19} /><span>Search</span></button>
+        <button class="menu-toggle" aria-label="Open navigation" aria-expanded="false" aria-controls="main-nav"><Icon name="menu" /></button>
+      </div>
+    </header>
+    <slot />
+    <footer class="site-footer"><span>Your memory stays on your machine.</span><span><a href="/guides/">Documentation</a><span class="footer-slash">/</span><a href="/">Lore</a></span></footer>
+    <Search />
+    <script>
+      import "../scripts/site";
+    </script>
+  </body>
+</html>

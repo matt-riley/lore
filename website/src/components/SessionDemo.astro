@@ -1,0 +1,25 @@
+<section class="session-demo" data-session-demo aria-label="Try memory across Pi sessions">
+  <div class="example-disclosure"><span>Interactive example · sample data</span><span>Runs in this page. Your Lore store is untouched.</span></div>
+  <ol class="demo-progress" aria-label="Example progress"><li aria-current="step">1. Save a preference</li><li>2. Start a new session</li><li>3. Recall it</li></ol>
+  <div class="session-workspace">
+    <div class="demo-conversation">
+      <div class="demo-pane-heading"><h3>Pi <span data-session-name>Session 01</span></h3><span class="session-state" data-session-state>Ready to remember</span></div>
+      <div data-draft-conversation><label class="demo-label" for="sample-memory">What should Pi remember?</label>
+      <textarea id="sample-memory" data-memory-input maxlength="160" rows="3">Use pnpm for package scripts.</textarea>
+      <p class="demo-field-note">Edit this sample preference, then save it for the fictional <code>demo/orchard</code> project.</p></div>
+      <div class="new-session-prompt" data-new-conversation hidden><span class="demo-label">You, in a fresh conversation</span><p>What preferences have I saved for this project?</p><span class="demo-field-note">The earlier message isn’t in this conversation. Lore’s saved memory is.</span></div>
+      <div class="demo-actions"><button type="button" class="demo-button" data-save>Save this preference</button><button type="button" class="demo-button" data-next disabled>Start a new session</button><button type="button" class="demo-button" data-recall disabled>Ask Pi to recall</button></div>
+      <p class="demo-feedback" role="status" data-session-feedback>Nothing saved yet. Give this session something worth keeping.</p>
+    </div>
+    <div class="demo-memory-store">
+      <div class="demo-pane-heading"><h3>Lore’s memory</h3><span data-memory-count>0 notes</span></div>
+      <div class="retained-note" data-retained-note><span class="memory-seal" aria-hidden="true"></span><p data-memory-content>Your saved preference will appear here.</p><span class="demo-note-meta" data-memory-meta>Local to this example</span></div>
+      <details class="demo-code"><summary>See the Pi tool call</summary><pre><code data-tool-call>No tool call yet.</code></pre></details>
+      <button type="button" class="demo-reset" data-reset>Reset example</button>
+    </div>
+  </div>
+  <noscript><p>Enable JavaScript to try this example. In Pi, save a preference with <code>lore_save</code>, start a new session, and use <code>lore_recall</code> to find it again.</p></noscript>
+</section>
+<script>
+  import "../scripts/session-demo";
+</script>

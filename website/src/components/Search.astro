@@ -1,0 +1,11 @@
+---
+import Icon from "./Icon.astro";
+---
+<dialog class="search-dialog" aria-labelledby="search-title">
+  <div class="search-top"><h2 id="search-title">Find your way.</h2><button class="icon-button" data-search-close aria-label="Close search"><Icon name="close" /></button></div>
+  <label for="docs-search" class="visually-hidden">Search documentation</label>
+  <div class="search-input-wrap"><Icon name="search" /><input id="docs-search" type="search" placeholder="Try ‘install’, ‘scopes’, or ‘Pi’…" autocomplete="off" /></div>
+  <p class="search-status" aria-live="polite">Search the guides. Everything is right here.</p>
+  <ul class="search-results"></ul>
+  <div class="search-bottom"><span>Local search. No tracking.</span><span><kbd>esc</kbd> to close</span></div>
+</dialog>

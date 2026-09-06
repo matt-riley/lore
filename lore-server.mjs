@@ -24,7 +24,6 @@
 
 import os from "node:os";
 import path from "node:path";
-import { openSync, readSync, closeSync, readdirSync, statSync } from "node:fs";
 import { loadConfig } from "./lib/config.mjs";
 import { LoreDb } from "./lib/db.mjs";
 import { seedOnboardingMemories } from "./lib/onboarding.mjs";
@@ -38,6 +37,7 @@ import {
 } from "./lib/rollout-flags.mjs";
 import { runPreToolUseGuardrail } from "./lib/pre-tool-use-guardrail.mjs";
 import { readPiSessionFile } from "./pi-session-reader.mjs";
+import { PiArchiveScanner, parseBackfillSettings } from "./lib/pi-archive-scanner.mjs";
 
 const RECALL_TYPES = [
   "commitment",
@@ -52,14 +52,19 @@ const RECALL_TYPES = [
   "interaction_style",
 ];
 
-// Bounded pi-session backfill knobs. Override with env vars.
-const BACKFILL_MAX = Number(process.env.LORE_PI_BACKFILL_MAX ?? 5);
-const BACKFILL_MIN_AGE_MS = Number(process.env.LORE_PI_BACKFILL_MIN_AGE_MS ?? 30_000);
-const BACKFILL_MAX_FILE_BYTES = Number(process.env.LORE_PI_BACKFILL_MAX_FILE_BYTES ?? 10 * 1024 * 1024);
-const BACKFILL_SCAN_CAP = Number(process.env.LORE_PI_BACKFILL_SCAN_CAP ?? 5000);
+// Bounded pi-session backfill knobs. Invalid values fall back to safe defaults.
+const BACKFILL = parseBackfillSettings();
 
 let db = null;
 let errorTelemetryWrites = 0;
+let archiveScanner = null;
+let archiveQueue = [];
+let archiveQueuedPaths = new Set();
+let archiveWorkerRunning = false;
+let archiveIdle = Promise.resolve();
+let resolveArchiveIdle = null;
+let archiveScanQueue = Promise.resolve();
+let archiveScanScheduled = false;
 
 function expandHome(p) {
   if (typeof p !== "string" || !p) {
@@ -73,6 +78,13 @@ function piSessionDir() {
   return expandHome(configured) || path.join(os.homedir(), ".pi", "agent", "sessions");
 }
 
+function archiveCursorPath() {
+  const derivedStorePath = expandHome(db?.config?.paths?.derivedStorePath);
+  return derivedStorePath
+    ? `${derivedStorePath}.pi-archive-cursor.json`
+    : path.join(os.homedir(), ".copilot", "lore-archive-cursor.json");
+}
+
 async function init() {
   const config = await loadConfig();
   if (config?.enabled !== true) {
@@ -81,6 +93,14 @@ async function init() {
   db = new LoreDb(config);
   db.initialize();
   seedOnboardingMemories({ db, sessionId: "lore-server" });
+  archiveScanner = new PiArchiveScanner({
+    rootDir: piSessionDir(),
+    scanCap: BACKFILL.scanCap,
+    minAgeMs: BACKFILL.minAgeMs,
+    maxFileBytes: BACKFILL.maxFileBytes,
+    cursorPath: archiveCursorPath(),
+    isAlreadyExtracted: (sessionId) => alreadyExtracted(sessionId),
+  });
   return { schemaVersion: db.getStats().schemaVersion };
 }
 
@@ -133,64 +153,59 @@ function extractPiSession(filePath, repository) {
   };
 }
 
-function listPiSessionCandidates({ currentSessionId = null } = {}) {
-  const dir = piSessionDir();
-  if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
-    return [];
-  }
-  const now = Date.now();
-  const candidates = [];
-  const walk = (dirPath) => {
-    let entries;
-    try {
-      entries = readdirSync(dirPath, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const full = path.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-        try {
-          const st = statSync(full);
-          if (now - st.mtimeMs < BACKFILL_MIN_AGE_MS || st.size > BACKFILL_MAX_FILE_BYTES) {
-            continue;
-          }
-          const firstLine = readFirstLine(full);
-          const header = firstLine ? JSON.parse(firstLine) : null;
-          const sessionId = header?.id ?? null;
-          if (sessionId && sessionId === currentSessionId) {
-            continue;
-          }
-          if (sessionId && alreadyExtracted(sessionId)) {
-            continue;
-          }
-          candidates.push({
-            path: full,
-            sessionId,
-            timestamp: header?.timestamp ?? st.mtime.toISOString(),
-          });
-        } catch {
-          // unreadable or malformed session file — skip
-        }
-      }
-    }
-  };
-  walk(dir);
-  return candidates.sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1)).slice(0, BACKFILL_SCAN_CAP);
+function yieldToForeground() {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
-function readFirstLine(filePath) {
-  const fd = openSync(filePath, "r");
-  try {
-    const buf = Buffer.alloc(64 * 1024);
-    const n = readSync(fd, buf, 0, buf.length, 0);
-    const idx = buf.indexOf(0x0a, 0, n);
-    return buf.toString("utf8", 0, idx >= 0 ? idx : n);
-  } finally {
-    closeSync(fd);
+async function runArchiveQueue() {
+  while (archiveQueue.length > 0) {
+    // Give requests already waiting on stdin a chance to run between archive
+    // files. Extraction itself remains one ordered DB mutation at a time.
+    await yieldToForeground();
+    const candidate = archiveQueue.shift();
+    if (!candidate) {
+      continue;
+    }
+    try {
+      const result = extractPiSession(candidate.path, null);
+      if (result.extracted) {
+        console.error(
+          `[lore-server] imported ${candidate.sessionId?.slice(0, 8)}: ${result.memoryCount} memories, ${result.turns} turns`,
+        );
+      }
+    } catch (error) {
+      console.error(`[lore-server] backfill failed for ${candidate.path}: ${error?.message ?? String(error)}`);
+    } finally {
+      archiveQueuedPaths.delete(candidate.path);
+    }
   }
+  archiveWorkerRunning = false;
+  resolveArchiveIdle?.();
+  resolveArchiveIdle = null;
+}
+
+function queueArchiveCandidates(candidates) {
+  let queued = 0;
+  for (const candidate of candidates) {
+    if (archiveQueuedPaths.has(candidate.path)) {
+      continue;
+    }
+    archiveQueuedPaths.add(candidate.path);
+    archiveQueue.push(candidate);
+    queued += 1;
+  }
+  if (queued > 0 && !archiveWorkerRunning) {
+    archiveWorkerRunning = true;
+    archiveIdle = new Promise((resolve) => {
+      resolveArchiveIdle = resolve;
+    });
+    void runArchiveQueue();
+  }
+  return queued;
+}
+
+function waitForArchiveIdle() {
+  return archiveScanQueue.then(() => archiveWorkerRunning ? archiveIdle : undefined);
 }
 
 async function dispatch(method, params) {
@@ -278,30 +293,24 @@ async function dispatch(method, params) {
       return extractPiSession(filePath, params.repository ?? null);
     }
     case "backfill": {
-      const candidates = listPiSessionCandidates({
-        currentSessionId: params.currentSessionId ?? null,
-      });
-      const batch = candidates.slice(0, Math.max(1, Number(params.max ?? BACKFILL_MAX)));
-      if (batch.length === 0) {
-        return { scanned: candidates.length, processed: [] };
+      // Discovery is independent of the foreground request queue. Returning
+      // immediately lets the first recall/status request run while the
+      // bounded async walker inspects archive entries.
+      if (!archiveScanScheduled) {
+        archiveScanScheduled = true;
+        archiveScanQueue = archiveScanQueue.then(async () => {
+          const scan = await archiveScanner.scan({
+            currentSessionId: params.currentSessionId ?? null,
+            maxCandidates: Math.max(1, Number(params.max ?? BACKFILL.max)),
+          });
+          queueArchiveCandidates(scan.candidates);
+        }).catch((error) => {
+          console.error(`[lore-server] backfill scan failed: ${error?.message ?? String(error)}`);
+        }).finally(() => {
+          archiveScanScheduled = false;
+        });
       }
-      // Extraction is queued in the background so it never blocks the next
-      // request (the first prompt's recall must not wait for archive import).
-      queue = queue.then(async () => {
-        for (const candidate of batch) {
-          try {
-            const result = extractPiSession(candidate.path, null);
-            if (result.extracted) {
-              console.error(
-                `[lore-server] imported ${candidate.sessionId?.slice(0, 8)}: ${result.memoryCount} memories, ${result.turns} turns`,
-              );
-            }
-          } catch (error) {
-            console.error(`[lore-server] backfill failed for ${candidate.path}: ${error?.message ?? String(error)}`);
-          }
-        }
-      });
-      return { scanned: candidates.length, queued: batch.length, processed: [] };
+      return { scanned: 0, queued: 0, exhausted: false, pending: true, processed: [] };
     }
     case "semantic_search": {
       const { semanticSearch } = await import("./lib/semantic-search.mjs");
@@ -393,6 +402,7 @@ async function dispatch(method, params) {
       };
     }
     case "close":
+      await waitForArchiveIdle();
       return { closing: true };
     default:
       throw new Error(`unknown method: ${method}`);
@@ -430,7 +440,10 @@ rl.on("line", (line) => {
 });
 
 rl.on("close", () => {
-  queue.finally(() => {
+  queue.then(async () => {
+    await waitForArchiveIdle();
+    await archiveScanner?.close();
+  }).finally(() => {
     try {
       db?.close();
     } catch {

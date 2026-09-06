@@ -96,6 +96,7 @@ Requirements and notes:
 - Ambient recall is injected into the model context each prompt but hidden from the Pi TUI, cached per session, and pruned to the most recent injection so the memory cost stays bounded.
 - The Pi worker buffers streamed responses and restarts on the next operation if it exits unexpectedly. Shutdown drains queued extraction before closing the database, with a bounded forced-stop fallback.
 - Pi vector search refreshes cached embeddings when memory content, provider, model, or vector dimensions change. Each search indexes at most `min(localInference.embeddings.maxInputs, 24)` memories, plus the query, and has a 10-second default deadline. Cold stores fill incrementally across searches; errors fall back to lexical retrieval, and results must meet `minSimilarity`.
+- Archive import scans a bounded number of entries in the background and resumes across batches. Its restart cursor lives beside the Lore database (`lore.db.pi-archive-cursor.json`); the source Pi session files remain read-only. Foreground requests can run between imported sessions.
 
 ---
 

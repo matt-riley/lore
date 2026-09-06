@@ -157,7 +157,10 @@ export function readPiSessionFile(filePath, { repository = null } = {}) {
         if (typeof filePathArg !== "string" || !filePathArg.trim()) {
           continue;
         }
-        const resolved = path.resolve(filePathArg.trim());
+        // Pi tool calls commonly use paths relative to the session's working
+        // directory. Resolve after reading the header so archive extraction is
+        // independent of the server process cwd.
+        const resolved = path.resolve(header?.cwd ?? process.cwd(), filePathArg.trim());
         if (!files.has(resolved)) {
           files.set(resolved, {
             file_path: resolved,

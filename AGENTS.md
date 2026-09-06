@@ -1,25 +1,25 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Lore is a Node 22+ ESM extension for GitHub Copilot CLI with no build step. `extension.mjs` is the runtime entrypoint. Core logic lives in `lib/`, browser dashboard code lives in `browser/`, developer scripts live in `scripts/`, JSON schema files live in `schemas/`, and long-form docs live in `docs/`. Tests are split between fast unit coverage in `tests/unit/`, subprocess smoke coverage in `tests/smoke/`, plus shared helpers and fixtures under `tests/helpers/` and `tests/fixtures/`.
+Lore provides local memory for Copilot CLI, Pi, Codex CLI, Claude Code, and Antigravity CLI. The Node 22.5+ runtime has no build step or runtime dependencies. Entrypoints are `extension.mjs` (Copilot), `lore-pi.ts`/`lore-server.mjs` (Pi), and `lore-cli.mjs` (native CLI hooks/commands). Core logic lives in `lib/`, the local dashboard in `browser/`, scripts in `scripts/`, schemas in `schemas/`, and reference docs in `docs/`. Tests live in `tests/unit/` and `tests/smoke/`, with shared helpers and fixtures. The separate Astro site lives in `website/`; guides are in `website/src/content/docs/` and assets in `website/public/`.
 
 ## Build, Test, and Development Commands
-- `npm test` runs the full Node test suite.
-- `npm run test:smoke` runs subprocess-oriented smoke tests only.
-- `node --test tests/unit/query-normalizer.test.mjs` runs one test file while iterating.
-- `npm run validate-schema` checks `lib/config.mjs` defaults against `schemas/lore.schema.json`.
-- `npm run lint` runs `oxlint` across the main source directories.
-- `npm run dev-install` copies a development checkout into `~/.copilot/extensions/lore`.
-- `npm run browser` starts the localhost-only read-only dashboard.
+
+- `npm run setup` detects clients and installs selected integrations; use `-- --clients all --dry-run` to preview.
+- `npm test` runs core tests; `npm run test:smoke` runs subprocess tests.
+- `node --test tests/unit/config.test.mjs` runs a focused test file.
+- `npm run validate-schema` checks config/schema parity; `npm run lint` runs oxlint.
+- `npm run browser` starts the loopback-only dashboard.
+- In `website/`, use Node 22.12+ and pnpm 11.24.0: `pnpm install --frozen-lockfile`, then `pnpm dev`. Validate with `pnpm check`, `pnpm test`, `pnpm build`, and `pnpm check:links`.
 
 ## Coding Style & Naming Conventions
-Stay in plain ESM: `import`/`export`, `.mjs`, double quotes, semicolons, and trailing commas to match the current codebase. Follow the existing two-space indentation style. Prefer Node built-ins over new packages; Lore is intentionally zero-runtime-dependency. Keep modules focused and use descriptive names such as `memory-tools-*.mjs`, `*-utils.mjs`, and `*.test.mjs`.
+Use two-space indentation, double quotes, semicolons, and trailing commas. Keep core code in plain ESM (`.mjs`); Pi uses TypeScript and the website uses Astro/TypeScript. Prefer Node built-ins for runtime work. Use focused modules and descriptive names such as `memory-tools-*.mjs` and `*.test.mjs`.
 
 ## Testing Guidelines
-Add unit tests for isolated logic and smoke tests for script, temp-home, or subprocess behavior. Name tests after the target module, for example `tests/unit/config.test.mjs`. Run `npm test` before opening a PR; if you changed config or schema behavior, also run `npm run validate-schema`.
+Use `node:test` for unit and subprocess coverage. Name tests after their modules. Test installers with isolated homes, covering selection, cancellation, preservation, reruns, and rollback; never modify real client settings during tests. Run core tests before PRs and website checks for site changes. Verify rendered UI changes on desktop and mobile.
 
 ## Commit & Pull Request Guidelines
-Recent history uses Conventional Commits such as `fix: ...`, `refactor: ...`, and `chore: ...`; keep commits and PR titles in that format because release-please depends on them. Link related issues, describe user-visible behavior changes, and include terminal output or screenshots when touching the browser dashboard. Use `.github/pull_request_template.md` and keep release-facing docs in sync when changing public surfaces.
+Use atomic Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`); release-please relies on them. Follow `.github/pull_request_template.md`, link issues, describe behavior changes, and include verification evidence and screenshots for UI changes. Keep README and website guidance aligned.
 
 ## Security & Release Notes
-Do not expose the browser dashboard beyond loopback. Treat `~/.config/lore/lore.db` and `~/.config/lore/lore.json` as sensitive local data. When changing tool metadata or support levels, update `lib/capability-manifest.mjs` and `docs/support-matrix.md` together.
+Keep the dashboard loopback-only. Treat Lore databases, configs, transcripts, and backups as sensitive. Preserve configured paths and legacy storage; never migrate user data implicitly. Update `lib/capability-manifest.mjs` and `docs/support-matrix.md` together when changing tool metadata or support levels.

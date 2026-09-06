@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
@@ -104,5 +104,29 @@ test("remove uses ownership records, preserves unrelated hooks and memories, and
     assert.equal(existsSync(path.join(home, ".copilot/extensions/lore")), false);
     assert.equal(readFileSync(path.join(home, ".config/lore/lore.db"), "utf8"), "memories");
     assert.doesNotThrow(() => applyRemove(planRemove(["codex", "copilot"], { home, env })));
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("rollback quarantines an edited runtime instead of deleting the user's change", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-quarantine-"));
+  try {
+    const target = path.join(home, ".copilot/extensions/lore");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(path.join(target, "package.json"), '{"name":"lore"}');
+    writeFileSync(path.join(target, "extension.mjs"), "// old\n");
+    const plan = planSetup(["copilot", "codex"], { home, env: {} });
+    mkdirSync(path.join(home, ".codex"));
+    writeFileSync(path.join(home, ".codex/hooks.json"), "{}\n");
+    const changed = path.join(home, ".codex/hooks.json");
+    writeFileSync(changed, "{\"changed\":true}\n");
+    assert.throws(() => applySetup(plan, {
+      afterApply(change) {
+        if (change.type === "directory") writeFileSync(path.join(change.target, "extension.mjs"), "// user edit\n");
+      },
+    }), /changed during setup/);
+    assert.equal(readFileSync(path.join(target, "extension.mjs"), "utf8"), "// old\n");
+    const quarantine = readdirSync(path.dirname(target)).find((name) => name.startsWith("lore.lore-setup-quarantine-"));
+    assert.ok(quarantine, "edited runtime should be quarantined");
+    assert.equal(readFileSync(path.join(path.dirname(target), quarantine, "extension.mjs"), "utf8"), "// user edit\n");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

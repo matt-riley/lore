@@ -51,7 +51,7 @@ try {
         console.log("Recalled memories become context for each client's configured model. No experimental rollout flags are enabled by setup.");
       }
       if (options.dryRun) console.log("Dry run. No changes made.");
-      else if (!options.yes && !/^y(?:es)?$/iu.test((await ask("Install and enable Lore for these clients? [y/N] ")).trim())) console.log("Cancelled. No changes made.");
+      else if (!options.yes && !/^y(?:es)?$/iu.test((await ask(options.remove ? "Remove Lore hooks and runtimes for these clients? [y/N] " : "Install and enable Lore for these clients? [y/N] ")).trim())) console.log("Cancelled. No changes made.");
       else {
         const backup = options.remove ? applyRemove(plan) : applySetup(plan);
         console.log(options.remove ? "\nLore removal complete. Preserved data and settings were verified." : "\nLore installed. Configuration and installed files verified.");

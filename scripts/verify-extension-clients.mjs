@@ -97,9 +97,9 @@ function runMock() {
   const worker = runWorkerSaveRestartRecall();
   outcomes.push(result("worker.save-restart-recall", worker.ok ? "passed" : "failed", "mocked", worker.detail));
   const capture = runTest(path.join(root, "tests", "smoke", "extension-certification.test.mjs"), ["--test-name-pattern", "capture survives"]);
-  outcomes.push(result("copilot.capture-new-session", capture ? "passed" : "failed", "mocked", "executed the extension capture pipeline, closed the store, reopened it, and recalled from a fresh session"));
+  outcomes.push(result("core.capture-new-session", capture ? "passed" : "failed", "mocked", "executed the shared core capture pipeline, closed the store, reopened it, and recalled from a fresh session"));
   const isolation = runTest(path.join(root, "tests", "smoke", "extension-certification.test.mjs"), ["--test-name-pattern", "retrieval keeps repo"]);
-  outcomes.push(result("repo-isolation-global", isolation ? "passed" : "failed", "mocked", "executed repository-scoped and global retrieval against an isolated Lore database"));
+  outcomes.push(result("core.repo-isolation-global", isolation ? "passed" : "failed", "mocked", "executed repository-scoped and global retrieval against an isolated Lore database"));
   outcomes.push(result("install-runtime-loading", "pending", "mocked", "runtime loading requires the client host; source presence is not evidence"));
   return outcomes;
 }

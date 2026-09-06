@@ -34,39 +34,54 @@ test("Antigravity global probe refuses the personal home without a dedicated tes
   }
 });
 
-test("Antigravity global probe preserves concurrent config edits during cleanup", { skip: !FTS5_AVAILABLE, timeout: 20000 }, async () => {
-  const home = await mkdtemp(path.join(os.tmpdir(), "lore-probe-concurrent-"));
-  const shared = path.join(home, ".gemini", "config", "hooks.json");
-  await mkdir(path.dirname(shared), { recursive: true });
-  await writeFile(shared, JSON.stringify({ existing: { enabled: true } }) + "\n", { mode: 0o600 });
-  const child = spawn(process.execPath, [fileURLToPath(new URL("../../scripts/verify-cli-hooks.mjs", import.meta.url)), "antigravity", "--global-hook-probe", "--test-home", home, "--json"], {
-    env: { ...process.env },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let mutated = false;
-  const poll = setInterval(async () => {
+for (const modifyOwned of [false, true]) {
+  test(`Antigravity probe cleanup preserves concurrent edits (modified owned key: ${modifyOwned})`, { skip: !FTS5_AVAILABLE, timeout: 20000 }, async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "lore-probe-concurrent-"));
+    const shared = path.join(home, ".gemini", "config", "hooks.json");
+    const bin = path.join(home, "bin");
+    await mkdir(path.dirname(shared), { recursive: true });
+    await mkdir(bin);
+    await writeFile(shared, JSON.stringify({ existing: { enabled: true } }) + "\n", { mode: 0o600 });
+    // A deterministic client double performs the competing write before exiting.
+    // No installed host or credentials are used by this test.
+    await writeFile(path.join(bin, "agy"), `#!${process.execPath}
+const fs = require("node:fs");
+if (process.argv.includes("--version")) { console.log("agy test double"); process.exit(0); }
+const file = ${JSON.stringify(shared)};
+const value = JSON.parse(fs.readFileSync(file, "utf8"));
+const key = Object.keys(value).find(name => name.startsWith("lore-verification-"));
+if (!key) process.exit(2);
+if (${modifyOwned}) value[key] = { changedByConcurrentWriter: true };
+value.concurrent = { preserved: true };
+fs.writeFileSync(file, JSON.stringify(value));
+console.log("Not logged in; /login required");
+process.exit(1);
+`, { mode: 0o700 });
+    const child = spawn(process.execPath, [fileURLToPath(new URL("../../scripts/verify-cli-hooks.mjs", import.meta.url)), "antigravity", "--global-hook-probe", "--test-home", home, "--json"], {
+      env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.on("data", chunk => { output += chunk; });
+    child.stderr.resume();
+    const closed = once(child, "close");
+    let artifacts;
     try {
-      const current = JSON.parse(await readFile(shared, "utf8"));
-      const key = Object.keys(current).find((name) => name.startsWith("lore-verification-"));
-      if (key && !mutated) {
-        current[key] = { changedByConcurrentWriter: true };
-        current.concurrent = { preserved: true };
-        await writeFile(shared, JSON.stringify(current) + "\n", { mode: 0o600 });
-        mutated = true;
-      }
-    } catch { /* file is not created yet or probe is finishing */ }
-  }, 5);
-  try {
-    const [code] = await once(child, "close");
-    assert.equal(code, 0);
-    assert.equal(mutated, true, "test must mutate the probe key while it is live");
-    const after = JSON.parse(await readFile(shared, "utf8"));
-    assert.deepEqual(after.existing, { enabled: true });
-    assert.deepEqual(after.concurrent, { preserved: true });
-    assert.deepEqual(after[Object.keys(after).find((name) => name.startsWith("lore-verification-"))], { changedByConcurrentWriter: true });
-  } finally {
-    clearInterval(poll);
-    if (child.exitCode === null) child.kill("SIGKILL");
-    await rm(home, { recursive: true, force: true });
-  }
-});
+      const [code] = await closed;
+      assert.equal(code, 0, output);
+      const report = JSON.parse(output);
+      artifacts = report.artifacts;
+      assert.equal(report.checks.nativeRecall.status, "pending");
+      const after = JSON.parse(await readFile(shared, "utf8"));
+      assert.deepEqual(after.existing, { enabled: true });
+      assert.deepEqual(after.concurrent, { preserved: true });
+      const key = Object.keys(after).find(name => name.startsWith("lore-verification-"));
+      if (modifyOwned) assert.deepEqual(after[key], { changedByConcurrentWriter: true });
+      else assert.equal(key, undefined);
+    } finally {
+      if (child.exitCode === null) { child.kill("SIGKILL"); await closed; }
+      await rm(home, { recursive: true, force: true });
+      if (artifacts?.startsWith(path.join(os.tmpdir(), "lore-live-antigravity-"))) await rm(artifacts, { recursive: true, force: true });
+    }
+  });
+}

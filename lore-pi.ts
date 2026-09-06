@@ -27,9 +27,10 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { createPiServerClient } from "./lib/pi-server-client.mjs";
 
 type LoreConfig = {
   enabled?: boolean;
@@ -40,17 +41,13 @@ type LoreRuntime = {
   config: LoreConfig;
 };
 
-type ServerHandle = {
-  proc: ReturnType<typeof spawn>;
-  nextId: number;
-  pending: Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>;
-  dead: boolean;
-};
+type ServerClient = ReturnType<typeof createPiServerClient>;
 
 let runtime: LoreRuntime | null = null;
 let initAttempted = false;
 let notifiedReady = false;
-let server: ServerHandle | null = null;
+let server: ServerClient | null = null;
+let initialization: Promise<LoreRuntime | null> | null = null;
 let nodeBin: string | null = null;
 const repoCache = new Map<string, string | null>();
 
@@ -109,48 +106,24 @@ function resolveNode(): string | null {
 }
 
 function request<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 15000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    if (!server || server.dead) {
-      reject(new Error("lore server not running"));
-      return;
-    }
-    const id = server.nextId++;
-    const timer = setTimeout(() => {
-      server?.pending.delete(id);
-      reject(new Error(`lore server timeout (${method})`));
-    }, timeoutMs);
-    server.pending.set(id, {
-      resolve: (v) => {
-        clearTimeout(timer);
-        resolve(v as T);
-      },
-      reject: (e) => {
-        clearTimeout(timer);
-        reject(e);
-      },
-    });
-    server.proc.stdin?.write(JSON.stringify({ id, method, params }) + "\n");
-  });
+  if (!server) {
+    return Promise.reject(new Error("lore server not running"));
+  }
+  return server.request(method, params, timeoutMs) as Promise<T>;
 }
 
 async function stopServer(): Promise<void> {
-  if (!server) {
+  const s = server;
+  if (!s) {
     return;
   }
-  const s = server;
-  server = null;
-  s.dead = true;
   try {
-    await request("close", {}, 1000);
+    await s.close();
   } catch {
     // ignore
   }
-  s.pending.forEach((p) => p.reject(new Error("lore server stopped")));
-  s.pending.clear();
-  try {
-    s.proc.kill();
-  } catch {
-    // ignore
+  if (server === s) {
+    server = null;
   }
 }
 
@@ -158,77 +131,59 @@ async function ensureRuntime(ctx: {
   ui?: { notify: (t: string, m?: string, l?: string) => void };
   sessionManager: { getSessionId(): string | null };
 }): Promise<LoreRuntime | null> {
-  if (runtime) {
+  if (runtime && server?.isAlive()) {
     return runtime;
+  }
+  if (runtime && !server?.isAlive()) {
+    // A child can die after a successful handshake. Drop the stale runtime so
+    // the next hook can establish a fresh client instead of caching failure.
+    runtime = null;
+    initAttempted = false;
+  }
+  if (initialization) {
+    return initialization;
   }
   if (initAttempted) {
     return runtime;
   }
   initAttempted = true;
+  initialization = (async () => {
+    try {
+      // config.mjs uses only node os/path/fs, so it's safe to load in-process.
+      const { loadConfig } = await import("./lib/config.mjs");
+      const config = (await loadConfig()) as LoreConfig;
+      if (config?.enabled !== true) {
+        ctx.ui?.notify('lore: disabled — set "enabled": true in ~/.copilot/lore.json', "warning");
+        return null;
+      }
 
+      const node = resolveNode();
+      if (!node) {
+        ctx.ui?.notify("lore: node (>=22.5) not found on PATH; cannot start lore server", "error");
+        return null;
+      }
+
+      const serverPath = fileURLToPath(new URL("./lore-server.mjs", import.meta.url));
+      const client = createPiServerClient({ command: node, args: [serverPath] });
+      server = client;
+      // Ping to confirm the server initialized before returning.
+      await client.start();
+      runtime = { config };
+      return runtime;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[lore-pi] init failed:", error);
+      ctx.ui?.notify(`lore: unavailable: ${message}`, "error");
+      await stopServer();
+      // Permit a later hook to recover from a transient startup failure.
+      initAttempted = false;
+      return null;
+    }
+  })();
   try {
-    // config.mjs uses only node os/path/fs, so it's safe to load in-process.
-    const { loadConfig } = await import("./lib/config.mjs");
-    const config = (await loadConfig()) as LoreConfig;
-    if (config?.enabled !== true) {
-      ctx.ui?.notify('lore: disabled — set "enabled": true in ~/.copilot/lore.json', "warning");
-      return null;
-    }
-
-    const node = resolveNode();
-    if (!node) {
-      ctx.ui?.notify("lore: node (>=22.5) not found on PATH; cannot start lore server", "error");
-      return null;
-    }
-
-    const serverPath = fileURLToPath(new URL("./lore-server.mjs", import.meta.url));
-    const proc = spawn(node, [serverPath], {
-      stdio: ["pipe", "pipe", "inherit"],
-    });
-    server = { proc, nextId: 1, pending: new Map(), dead: false };
-    proc.on("exit", () => {
-      if (server?.proc === proc) {
-        server.dead = true;
-      }
-    });
-    proc.stdout?.on("data", (chunk: Buffer) => {
-      if (!server) {
-        return;
-      }
-      for (const line of chunk.toString("utf8").split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          continue;
-        }
-        let msg;
-        try {
-          msg = JSON.parse(trimmed);
-        } catch {
-          continue;
-        }
-        const pending = server.pending.get(msg.id);
-        if (!pending) {
-          continue;
-        }
-        server.pending.delete(msg.id);
-        if (msg.ok) {
-          pending.resolve(msg.result);
-        } else {
-          pending.reject(new Error(msg.error ?? "lore server error"));
-        }
-      }
-    });
-
-    // Ping to confirm the server initialized before returning.
-    await request("status", {}, 15000);
-    runtime = { config };
-    return runtime;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[lore-pi] init failed:", error);
-    ctx.ui?.notify(`lore: unavailable: ${message}`, "error");
-    await stopServer();
-    return null;
+    return await initialization;
+  } finally {
+    initialization = null;
   }
 }
 

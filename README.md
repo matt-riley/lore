@@ -94,6 +94,7 @@ Requirements and notes:
 - **`"enabled": true` in `~/.copilot/lore.json`.** The Pi and Copilot CLI adapters share one config file and one store.
 - The `paths.piSessionDir` and `paths.piHome` config keys are optional for Pi — the server defaults to `~/.pi/agent/sessions` when they are unset.
 - Ambient recall is injected into the model context each prompt but hidden from the Pi TUI, cached per session, and pruned to the most recent injection so the memory cost stays bounded.
+- The Pi worker buffers streamed responses and restarts on the next operation if it exits unexpectedly. Shutdown drains queued extraction before closing the database, with a bounded forced-stop fallback.
 
 ---
 

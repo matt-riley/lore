@@ -5,7 +5,7 @@ import {
   compressContextWithLocalInference,
   evaluateReflectionQualityWithLocalInference,
   expandRetrievalQueryWithLocalInference,
-} from "../../lib/local-inference-augmentation.mjs";
+} from "../../lib/inference/local-inference-augmentation.mjs";
 
 function jsonResponse(body) {
   return new Response(JSON.stringify(body), {

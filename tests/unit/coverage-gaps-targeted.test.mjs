@@ -12,7 +12,7 @@ import {
   startControlledBackfillRun,
   summarizeBackfillPreviewProgress,
   summarizeBackfillRunProgress,
-} from "../../lib/backfill.mjs";
+} from "../../lib/sessions/backfill.mjs";
 import {
   evaluateCapabilityRouter,
   recommendCapabilityRoute,
@@ -20,7 +20,7 @@ import {
   renderCapabilityInventoryReport,
   renderCapabilityRecommendationReport,
   scanCapabilityInventory,
-} from "../../lib/capability-inventory.mjs";
+} from "../../lib/capabilities/capability-inventory.mjs";
 
 describe("targeted coverage-gap export references", () => {
   test("backfill exports are directly imported and callable", () => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, test } from "node:test";
 
-import { MEMORY_SCOPE, classifySemanticMemory } from "../../lib/memory-scope.mjs";
+import { MEMORY_SCOPE, classifySemanticMemory } from "../../lib/memory/memory-scope.mjs";
 import { parseArgs } from "../../scripts/run-maintenance.mjs";
 import { resolveDefaultLoreConfigPath } from "../../scripts/shared-args.mjs";
 

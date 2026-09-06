@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { assembleMemoryCapsule } from "../../lib/capsule-assembler.mjs";
-import { buildWorkingProfileSection } from "../../lib/working-profile.mjs";
+import { assembleMemoryCapsule } from "../../lib/context/capsule-assembler.mjs";
+import { buildWorkingProfileSection } from "../../lib/context/working-profile.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE

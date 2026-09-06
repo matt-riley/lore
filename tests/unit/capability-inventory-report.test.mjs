@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   renderCapabilityRecommendationReport,
-} from "../../lib/capability-inventory.mjs";
+} from "../../lib/capabilities/capability-inventory.mjs";
 import { loadCapabilityFunctions } from "../helpers/capability-inventory-fixtures.mjs";
 
 describe("capability inventory reporting", () => {

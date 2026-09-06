@@ -8,17 +8,17 @@ import {
   renderCapabilityInventoryReport,
   renderCapabilityRecommendationReport,
   scanCapabilityInventory,
-} from "../../lib/capability-inventory.mjs";
-import { scanCapabilityInventory as scanCapabilityInventoryFromScanner } from "../../lib/capability-scanner.mjs";
+} from "../../lib/capabilities/capability-inventory.mjs";
+import { scanCapabilityInventory as scanCapabilityInventoryFromScanner } from "../../lib/capabilities/capability-scanner.mjs";
 import {
   evaluateCapabilityRouter as evaluateCapabilityRouterFromRouter,
   recommendCapabilityRoute as recommendCapabilityRouteFromRouter,
-} from "../../lib/capability-router.mjs";
+} from "../../lib/capabilities/capability-router.mjs";
 import {
   renderCapabilityEvaluationReport as renderCapabilityEvaluationReportFromRenderer,
   renderCapabilityInventoryReport as renderCapabilityInventoryReportFromRenderer,
   renderCapabilityRecommendationReport as renderCapabilityRecommendationReportFromRenderer,
-} from "../../lib/capability-renderer.mjs";
+} from "../../lib/capabilities/capability-renderer.mjs";
 
 describe("capability inventory module split", () => {
   test("barrel exports stay aligned with the split modules", () => {

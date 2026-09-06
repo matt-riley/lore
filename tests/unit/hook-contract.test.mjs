@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { buildLoreHooks, LORE_HOOK_NAMES } from "../../lib/hook-registration.mjs";
+import { buildLoreHooks, LORE_HOOK_NAMES } from "../../lib/lifecycle/hook-registration.mjs";
 
 // Programmatic unit tests for the hook helper and canonical contract
 const run = async () => {

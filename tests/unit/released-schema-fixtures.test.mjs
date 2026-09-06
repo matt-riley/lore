@@ -5,8 +5,8 @@ import path from "node:path";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-import { LoreDb } from "../../lib/db.mjs";
-import { SCHEMA_VERSION } from "../../lib/schema.mjs";
+import { LoreDb } from "../../lib/db/db.mjs";
+import { SCHEMA_VERSION } from "../../lib/db/schema.mjs";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
 
 const FIXTURE_DIR = path.join(process.cwd(), "tests", "fixtures", "released-upgrades");

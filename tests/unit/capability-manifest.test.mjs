@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { LORE_CAPABILITY_SPECS } from "../../lib/capability-manifest.mjs";
-import { createMemoryTools } from "../../lib/memory-tools.mjs";
+import { LORE_CAPABILITY_SPECS } from "../../lib/capabilities/capability-manifest.mjs";
+import { createMemoryTools } from "../../lib/tools/memory-tools.mjs";
 
 const EXPECTED_TOOL_NAMES = [
   "memory_status",

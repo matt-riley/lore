@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { planSetup, applySetup, planRemove, applyRemove } from "../../lib/setup.mjs";
+import { planSetup, applySetup, planRemove, applyRemove } from "../../lib/clients/setup.mjs";
 
 test("failed installation restores config instead of leaving Lore partially enabled", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-rollback-"));
@@ -75,7 +75,7 @@ test("cross-volume backups support extension updates and rollback", () => {
     assert.throws(() => applySetup(failing), /changed during setup/);
     assert.equal(readFileSync(path.join(target, "local.txt"), "utf8"), "keep");
     const backup = applySetup(planSetup(["copilot"], { home, env: {} }));
-    assert.ok(existsSync(path.join(target, "lib/setup.mjs")));
+    assert.ok(existsSync(path.join(target, "lib/clients/setup.mjs")));
     assert.deepEqual(fs.readdirSync(path.dirname(target)), ["lore"]);
     const manifest = JSON.parse(readFileSync(path.join(backup, "manifest.json")));
     const saved = manifest.find((entry) => entry.target === target);

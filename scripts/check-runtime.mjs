@@ -1,4 +1,4 @@
-import { checkRuntime, formatRuntimeDiagnostics } from "../lib/runtime.mjs";
+import { checkRuntime, formatRuntimeDiagnostics } from "../lib/core/runtime.mjs";
 
 const result = await checkRuntime();
 if (result.ok) console.log(`Node ${process.version}: SQLite and FTS5 available.`);

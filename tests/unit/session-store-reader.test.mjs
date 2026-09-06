@@ -5,7 +5,7 @@ import path from "node:path";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-import { SessionStoreReader } from "../../lib/session-store-reader.mjs";
+import { SessionStoreReader } from "../../lib/sessions/session-store-reader.mjs";
 import { buildFixtureConfig } from "../helpers/fixture-config.mjs";
 
 function makeTempDir() {

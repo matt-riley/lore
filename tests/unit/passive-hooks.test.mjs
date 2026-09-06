@@ -26,7 +26,7 @@ import {
   buildPostToolUseObservation,
   deriveToolCategory,
   normalizeToolArgsShape,
-} from "../../lib/passive-hooks.mjs";
+} from "../../lib/lifecycle/passive-hooks.mjs";
 
 // ---------------------------------------------------------------------------
 // buildErrorTelemetryRecord — null / undefined / malformed

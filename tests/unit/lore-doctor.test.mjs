@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
 
-import { runDoctorObservation } from "../../lib/lore-doctor.mjs";
+import { runDoctorObservation } from "../../lib/maintenance/lore-doctor.mjs";
 
 function createRuntime({
   maintenanceTaskStates = [],

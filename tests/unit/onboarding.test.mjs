@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { createMemoryTools } from "../../lib/memory-tools.mjs";
+import { createMemoryTools } from "../../lib/tools/memory-tools.mjs";
 import {
   buildOnboardingMemories,
   buildOnboardingSection,
   readOnboardingState,
   resolveOnboardingInput,
   seedOnboardingMemories,
-} from "../../lib/onboarding.mjs";
+} from "../../lib/memory/onboarding.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE && "FTS5 not available in this Node build";

@@ -26,7 +26,7 @@ import {
   buildOkfBundleDocuments,
   writeOkfBundle,
   formatOkfBundleResult,
-} from "../../lib/memory-tools-okf-bundle.mjs";
+} from "../../lib/tools/memory-tools-okf-bundle.mjs";
 
 function makeTmpDir() {
   return mkdtempSync(path.join(os.tmpdir(), "lore-okf-bundle-test-"));

@@ -1,7 +1,7 @@
 // Pi's Bun extension talks to this Node child over JSON lines. Keep the
 // database implementation behind the runtime preflight: an unsupported Node
 // process must still answer requests with protocol-shaped errors.
-import { checkRuntime, formatRuntimeDiagnostics } from "./lib/runtime.mjs";
+import { checkRuntime, formatRuntimeDiagnostics } from "./lib/core/runtime.mjs";
 
 const runtime = await checkRuntime();
 if (!runtime.ok) {

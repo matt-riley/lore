@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   requestLocalInferenceEmbeddings,
   requestLocalInferenceJson,
-} from "../../lib/local-inference.mjs";
+} from "../../lib/inference/local-inference.mjs";
 
 test("requestLocalInferenceJson calls the configured loopback chat-completions endpoint", async () => {
   const calls = [];

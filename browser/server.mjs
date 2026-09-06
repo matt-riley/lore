@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { buildMaintenancePlan } from "../lib/maintenance-scheduler.mjs"
-import { clampInteger } from "../lib/numeric-utils.mjs"
-import { parseJsonArray } from "../lib/json-array-utils.mjs"
-import { parseJsonObject } from "../lib/json-object-utils.mjs"
-import { normalizeRepository } from "../lib/repository-utils.mjs"
+import { buildMaintenancePlan } from "../lib/maintenance/maintenance-scheduler.mjs"
+import { clampInteger } from "../lib/utils/numeric-utils.mjs"
+import { parseJsonArray } from "../lib/utils/json-array-utils.mjs"
+import { parseJsonObject } from "../lib/utils/json-object-utils.mjs"
+import { normalizeRepository } from "../lib/utils/repository-utils.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const STATIC_ROOT = __dirname

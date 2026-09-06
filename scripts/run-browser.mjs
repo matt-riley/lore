@@ -5,9 +5,9 @@ import { once } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/config.mjs";
+import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/core/config.mjs";
 export { mergeDeep };
-import { LoreDb } from "../lib/db.mjs";
+import { LoreDb } from "../lib/db/db.mjs";
 import { startLoreBrowserServer } from "../browser/server.mjs";
 import { COMMON_PATH_ARG_HANDLERS, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
 

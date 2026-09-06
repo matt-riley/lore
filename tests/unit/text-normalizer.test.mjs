@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { normalizeText } from "../../lib/text-normalizer.mjs";
+import { normalizeText } from "../../lib/utils/text-normalizer.mjs";
 
 describe("normalizeText", () => {
   test("collapses internal whitespace and trims ends", () => {

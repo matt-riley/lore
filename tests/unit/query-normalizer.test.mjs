@@ -28,7 +28,7 @@ import {
   GENERIC_QUERY_TERMS,
   sanitizeFtsQuery,
   normalizeFtsToken,
-} from "../../lib/query-normalizer.mjs";
+} from "../../lib/utils/query-normalizer.mjs";
 
 // ---------------------------------------------------------------------------
 // Fixed reference point for all date tests.

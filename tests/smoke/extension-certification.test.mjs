@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 
-import { applySessionExtraction } from "../../lib/backfill.mjs";
-import { recallMemory, retainMemory } from "../../lib/memory-operations.mjs";
+import { applySessionExtraction } from "../../lib/sessions/backfill.mjs";
+import { recallMemory, retainMemory } from "../../lib/memory/memory-operations.mjs";
 import { FTS5_AVAILABLE, freshDb, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE

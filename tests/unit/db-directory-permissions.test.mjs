@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
 
-const dbModule = new URL("../../lib/db.mjs", import.meta.url).href;
+const dbModule = new URL("../../lib/db/db.mjs", import.meta.url).href;
 for (const kind of ["default", "explicit", "custom-parent", "legacy", "symlink"]) {
   test(`opening a database tightens only its dedicated Lore home (${kind})`, { skip: !FTS5_AVAILABLE }, () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "lore-home-permissions-"));

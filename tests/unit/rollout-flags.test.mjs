@@ -39,7 +39,7 @@ import {
   readPostToolUseEnabled,
   readSubagentScopeTrackingEnabled,
   readPreToolUseGuardrailEnabled,
-} from "../../lib/rollout-flags.mjs";
+} from "../../lib/rollout/rollout-flags.mjs";
 
 // ---------------------------------------------------------------------------
 // Helpers

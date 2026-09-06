@@ -4,8 +4,8 @@ import { describe, test } from "node:test";
 import {
   applySessionExtraction,
   processDeferredExtractions,
-} from "../../lib/backfill.mjs";
-import { createMemoryTools } from "../../lib/memory-tools.mjs";
+} from "../../lib/sessions/backfill.mjs";
+import { createMemoryTools } from "../../lib/tools/memory-tools.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 import { findTool, buildBackfillRuntime as buildRuntime } from "../helpers/tool-helpers.mjs";
 

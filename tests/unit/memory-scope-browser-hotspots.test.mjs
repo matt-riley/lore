@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
 
-import { buildSemanticCanonicalKey } from "../../lib/memory-scope.mjs";
+import { buildSemanticCanonicalKey } from "../../lib/memory/memory-scope.mjs";
 import { buildConfig, mergeDeep, parseArgs } from "../../scripts/run-browser.mjs";
 
 describe("run-browser parseArgs", () => {

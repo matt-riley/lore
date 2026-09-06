@@ -6,7 +6,7 @@ import { describe, test } from "node:test";
 import {
   generateProposalArtifacts,
   verifyProposalArtifacts,
-} from "../../lib/proposal-generator.mjs";
+} from "../../lib/sessions/proposal-generator.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE

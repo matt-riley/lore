@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import {
   enhanceReflectionWithLocalInference,
   formatEmbeddingRetrievalInput,
-} from "../../lib/local-inference-reflection.mjs";
+} from "../../lib/inference/local-inference-reflection.mjs";
 
 function jsonResponse(body) {
   return new Response(JSON.stringify(body), {

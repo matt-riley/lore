@@ -18,7 +18,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { USER_CONFIG_DEFAULTS } from "../lib/config.mjs";
+import { USER_CONFIG_DEFAULTS } from "../lib/core/config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

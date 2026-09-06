@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
-import { createMemoryTools } from "../../lib/memory-tools.mjs";
-import { buildMemoryStatusIdentityLines } from "../../lib/memory-tools-status-identity.mjs";
+import { createMemoryTools } from "../../lib/tools/memory-tools.mjs";
+import { buildMemoryStatusIdentityLines } from "../../lib/tools/memory-tools-status-identity.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 import { findTool } from "../helpers/tool-helpers.mjs";
 
@@ -12,12 +12,12 @@ const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   : false;
 
 const MODULE_SOURCES = {
-  root: readFileSync(new URL("../../lib/memory-tools.mjs", import.meta.url), "utf8"),
-  helpers: readFileSync(new URL("../../lib/memory-tools-helpers.mjs", import.meta.url), "utf8"),
-  reports: existsSync(new URL("../../lib/memory-tools-reports.mjs", import.meta.url))
-    ? readFileSync(new URL("../../lib/memory-tools-reports.mjs", import.meta.url), "utf8")
+  root: readFileSync(new URL("../../lib/tools/memory-tools.mjs", import.meta.url), "utf8"),
+  helpers: readFileSync(new URL("../../lib/tools/memory-tools-helpers.mjs", import.meta.url), "utf8"),
+  reports: existsSync(new URL("../../lib/tools/memory-tools-reports.mjs", import.meta.url))
+    ? readFileSync(new URL("../../lib/tools/memory-tools-reports.mjs", import.meta.url), "utf8")
     : null,
-  builders: readFileSync(new URL("../../lib/memory-tools-builders.mjs", import.meta.url), "utf8"),
+  builders: readFileSync(new URL("../../lib/tools/memory-tools-builders.mjs", import.meta.url), "utf8"),
 };
 
 function countLines(source) {

@@ -22,4 +22,4 @@ Use `node:test` for unit and subprocess coverage. Name tests after their modules
 Use atomic Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`); release-please relies on them. Follow `.github/pull_request_template.md`, link issues, describe behavior changes, and include verification evidence and screenshots for UI changes. Keep README and website guidance aligned.
 
 ## Security & Release Notes
-Keep the dashboard loopback-only. Treat Lore databases, configs, transcripts, and backups as sensitive. Preserve configured paths and legacy storage; never migrate user data implicitly. Update `lib/capability-manifest.mjs` and `docs/support-matrix.md` together when changing tool metadata or support levels.
+Keep the dashboard loopback-only. Treat Lore databases, configs, transcripts, and backups as sensitive. Preserve configured paths and legacy storage; never migrate user data implicitly. Update `lib/capabilities/capability-manifest.mjs` and `docs/support-matrix.md` together when changing tool metadata or support levels.

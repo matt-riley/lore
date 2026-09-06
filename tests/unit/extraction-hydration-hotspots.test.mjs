@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { hydrateWorkstreamOverlay } from "../../lib/overlay-hydrator.mjs";
+import { hydrateWorkstreamOverlay } from "../../lib/context/overlay-hydrator.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -13,13 +13,13 @@ let ruleExtractorHotspotsPromise = null;
 
 async function loadRuleExtractorHotspots() {
   if (!ruleExtractorHotspotsPromise) {
-    const ruleExtractorPath = path.join(REPO_ROOT, "lib", "rule-extractor.mjs");
+    const ruleExtractorPath = path.join(REPO_ROOT, "lib", "sessions", "rule-extractor.mjs");
     const ruleExtractorUrl = pathToFileURL(ruleExtractorPath).href;
     const source = readFileSync(ruleExtractorPath, "utf8")
-      .replace(/from "\.\/memory-scope\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory-scope.mjs")).href}"`)
-      .replace(/from "\.\/rollout-flags\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "rollout-flags.mjs")).href}"`)
-      .replace(/from "\.\/retention-sanitizer\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "retention-sanitizer.mjs")).href}"`)
-      .replace(/from "\.\/text-normalizer\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "text-normalizer.mjs")).href}"`)
+      .replace(/from "\.\.\/memory\/memory-scope\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory", "memory-scope.mjs")).href}"`)
+      .replace(/from "\.\.\/rollout\/rollout-flags\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "rollout", "rollout-flags.mjs")).href}"`)
+      .replace(/from "\.\.\/memory\/retention-sanitizer\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory", "retention-sanitizer.mjs")).href}"`)
+      .replace(/from "\.\.\/utils\/text-normalizer\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "utils", "text-normalizer.mjs")).href}"`)
       .replace("function extractInteractionStyleMemory({ message, repository, sessionId, turnIndex }) {", "export function extractInteractionStyleMemory({ message, repository, sessionId, turnIndex }) {");
     ruleExtractorHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${ruleExtractorUrl}\n`).toString("base64")}`);
   }

@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRefreshableObservation } from "../../lib/observations.mjs";
+import { buildRefreshableObservation } from "../../lib/sessions/observations.mjs";
 
 describe("buildRefreshableObservation", () => {
   test("normalizes observation metadata and bounds freshness/confidence", () => {

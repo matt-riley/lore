@@ -22,7 +22,7 @@
 import { describe, test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { createSubagentScopeTracker } from "../../lib/subagent-scope-tracker.mjs";
+import { createSubagentScopeTracker } from "../../lib/lifecycle/subagent-scope-tracker.mjs";
 
 // ---------------------------------------------------------------------------
 // Helpers

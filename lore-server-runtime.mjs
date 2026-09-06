@@ -24,21 +24,21 @@
 
 import os from "node:os";
 import path from "node:path";
-import { loadConfig } from "./lib/config.mjs";
-import { resolveLorePaths } from "./lib/lore-paths.mjs";
-import { LoreDb } from "./lib/db.mjs";
-import { seedOnboardingMemories } from "./lib/onboarding.mjs";
-import { recallMemory, retainMemory } from "./lib/memory-operations.mjs";
-import { applySessionExtraction } from "./lib/backfill.mjs";
-import { buildErrorTelemetryRecord, buildPostToolUseObservation } from "./lib/passive-hooks.mjs";
+import { loadConfig } from "./lib/core/config.mjs";
+import { resolveLorePaths } from "./lib/core/lore-paths.mjs";
+import { LoreDb } from "./lib/db/db.mjs";
+import { seedOnboardingMemories } from "./lib/memory/onboarding.mjs";
+import { recallMemory, retainMemory } from "./lib/memory/memory-operations.mjs";
+import { applySessionExtraction } from "./lib/sessions/backfill.mjs";
+import { buildErrorTelemetryRecord, buildPostToolUseObservation } from "./lib/lifecycle/passive-hooks.mjs";
 import {
   readErrorTelemetryEnabled,
   readPostToolUseEnabled,
   readPreToolUseGuardrailEnabled,
-} from "./lib/rollout-flags.mjs";
-import { runPreToolUseGuardrail } from "./lib/pre-tool-use-guardrail.mjs";
+} from "./lib/rollout/rollout-flags.mjs";
+import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.mjs";
 import { readPiSessionFile } from "./pi-session-reader.mjs";
-import { PiArchiveScanner, parseBackfillSettings } from "./lib/pi-archive-scanner.mjs";
+import { PiArchiveScanner, parseBackfillSettings } from "./lib/sessions/pi-archive-scanner.mjs";
 
 const RECALL_TYPES = [
   "commitment",
@@ -263,8 +263,8 @@ async function dispatch(method, params) {
     case "onboard": {
       // Delegate to lore's own onboarding pipeline so personality updates use
       // the same canonical-key upserts as the Copilot lore_onboard tool.
-      const { readOnboardingState, resolveOnboardingInput } = await import("./lib/onboarding.mjs");
-      const { persistOnboardingMemories } = await import("./lib/memory-tools-admin.mjs");
+      const { readOnboardingState, resolveOnboardingInput } = await import("./lib/memory/onboarding.mjs");
+      const { persistOnboardingMemories } = await import("./lib/tools/memory-tools-admin.mjs");
       const built = resolveOnboardingInput({
         existingState: readOnboardingState({ db }),
         userName: params.userName,
@@ -314,7 +314,7 @@ async function dispatch(method, params) {
       return { scanned: 0, queued: 0, exhausted: false, pending: true, processed: [] };
     }
     case "semantic_search": {
-      const { semanticSearch } = await import("./lib/semantic-search.mjs");
+      const { semanticSearch } = await import("./lib/memory/semantic-search.mjs");
       return await semanticSearch({
         db,
         query: String(params.query ?? ""),
@@ -327,7 +327,7 @@ async function dispatch(method, params) {
       // Query expansion via the local chat model (Gemma3). Opt-in via
       // localInference.queryExpansion.enabled; fails open to the deterministic
       // query on any error so recall never breaks.
-      const { expandRetrievalQueryWithLocalInference } = await import("./lib/local-inference-augmentation.mjs");
+      const { expandRetrievalQueryWithLocalInference } = await import("./lib/inference/local-inference-augmentation.mjs");
       const fallback = params.query ?? params.prompt ?? "";
       try {
         const result = await expandRetrievalQueryWithLocalInference({

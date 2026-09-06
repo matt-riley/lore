@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { assembleMemoryCapsule } from "../../lib/capsule-assembler.mjs";
+import { assembleMemoryCapsule } from "../../lib/context/capsule-assembler.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE

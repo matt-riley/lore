@@ -4,12 +4,12 @@ import { describe, test } from "node:test";
 import {
   formatRetrievalTraceSampleRows,
   formatTrajectoryArtifactRows,
-} from "../../lib/memory-tools-trace-reports.mjs";
+} from "../../lib/tools/memory-tools-trace-reports.mjs";
 import {
   formatDoctorReport,
   formatDoctorSafetyGateSection,
   formatReviewGateReport,
-} from "../../lib/memory-tools-governance-reports.mjs";
+} from "../../lib/tools/memory-tools-governance-reports.mjs";
 
 describe("memory-tools-observability-reports", () => {
   test("formatRetrievalTraceSampleRows renders repository, sections, and prompt preview", () => {

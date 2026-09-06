@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSyn
 import os from "node:os";
 import path from "node:path";
 
-import { PiArchiveScanner, parseBackfillSettings } from "../../lib/pi-archive-scanner.mjs";
+import { PiArchiveScanner, parseBackfillSettings } from "../../lib/sessions/pi-archive-scanner.mjs";
 
 function session(id) {
   return `${JSON.stringify({ type: "session", id, cwd: "/tmp/project", timestamp: "2026-01-01T00:00:00.000Z" })}\n`;

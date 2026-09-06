@@ -59,7 +59,7 @@ All must pass with zero failures. If any test is skipped (e.g., FTS5 unavailable
 
 ### 5. Support matrix current
 
-- `lib/capability-manifest.mjs` is updated for any Lore tool lifecycle/category/notes/rollout changes this cycle.
+- `lib/capabilities/capability-manifest.mjs` is updated for any Lore tool lifecycle/category/notes/rollout changes this cycle.
 - `docs/support-matrix.md` mirrors the canonical manifest metadata for Lore tools and reflects any graduated (experimental → supported), deprecated, or removed surfaces.
 
 ### 6. CI green on `main`

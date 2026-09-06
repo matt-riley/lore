@@ -6,7 +6,7 @@ import {
   renderCapabilityRecommendationReport,
   recommendCapabilityRoute,
   scanCapabilityInventory,
-} from "../../lib/capability-inventory.mjs";
+} from "../../lib/capabilities/capability-inventory.mjs";
 import { loadCapabilityFunctions, createCapabilityFixtureRoot } from "../helpers/capability-inventory-fixtures.mjs";
 
 describe("capability inventory heuristics", () => {

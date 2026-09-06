@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
 
-import { assembleMemoryCapsule } from "../../lib/capsule-assembler.mjs";
+import { assembleMemoryCapsule } from "../../lib/context/capsule-assembler.mjs";
 import { buildFixtureConfig } from "../helpers/fixture-config.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 

@@ -34,7 +34,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { LoreDb } from "../../lib/db.mjs";
+import { LoreDb } from "../../lib/db/db.mjs";
 
 // ---------------------------------------------------------------------------
 // Runtime capability detection

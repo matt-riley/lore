@@ -34,7 +34,7 @@ Codex, Claude Code, and Antigravity use `lore-cli.mjs`, not MCP. Native hooks pr
 and transcript capture. The direct shell commands are `lore_recall`,
 `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`,
 and `memory_status`. The canonical lists are `LORE_CLIENT_HOOKS` and
-`LORE_CLI_TOOL_NAMES` in `lib/capability-manifest.mjs`.
+`LORE_CLI_TOOL_NAMES` in `lib/capabilities/capability-manifest.mjs`.
 See [installation, verification, and boundaries](cli-integrations.md).
 
 All five adapters target stable macOS support for v1. The entries above describe current support; the v1 host certification and soak are still pending. Pi has not been promoted by adding it to this table.

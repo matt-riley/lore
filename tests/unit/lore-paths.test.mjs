@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveLorePaths } from "../../lib/lore-paths.mjs";
+import { resolveLorePaths } from "../../lib/core/lore-paths.mjs";
 
 function resolve(env = {}, files = []) {
   return resolveLorePaths({ env, home: "/users/test", exists: (p) => files.includes(p) });

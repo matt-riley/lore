@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { inspectRecoveryTarget, createRecoverySnapshot, restoreRecoverySnapshot, resolveRecoveryConfig } from "../lib/recovery.mjs";
+import { inspectRecoveryTarget, createRecoverySnapshot, restoreRecoverySnapshot, resolveRecoveryConfig } from "../lib/maintenance/recovery.mjs";
 import path from "node:path";
 
 const resolveArgPath = (value) => path.resolve(process.cwd(), String(value ?? ""));

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseCliTranscript } from "../../lib/cli-session-reader.mjs";
+import { parseCliTranscript } from "../../lib/clients/cli-session-reader.mjs";
 
 const parse = (client, entries) => parseCliTranscript(entries.map(JSON.stringify).join("\n"), {
   client, sessionId: `${client}:session`, cwd: "/test", repository: "test", timestamp: "2026-09-06T12:00:00Z",

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkRuntime, formatRuntimeDiagnostics } from "../../lib/runtime.mjs";
+import { checkRuntime, formatRuntimeDiagnostics } from "../../lib/core/runtime.mjs";
 
 test("runtime accepts Node 24 with node:sqlite and FTS5", async () => {
   const result = await checkRuntime({

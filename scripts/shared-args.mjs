@@ -1,4 +1,4 @@
-import { resolveLorePaths } from "../lib/lore-paths.mjs";
+import { resolveLorePaths } from "../lib/core/lore-paths.mjs";
 import path from "node:path";
 
 function resolveArgPath(value) {

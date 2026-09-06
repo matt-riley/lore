@@ -9,11 +9,11 @@ const sourcePath = path.join(root, "lore-pi.ts");
 const fixturePath = path.join(root, "tests", "fixtures", "pi-transport-server.mjs");
 const tempDir = mkdtempSync(path.join(os.tmpdir(), "lore-pi-adapter-"));
 const adapterPath = path.join(tempDir, "lore-pi.ts");
-const clientUrl = pathToFileURL(path.join(root, "lib", "pi-server-client.mjs")).href;
-const configUrl = pathToFileURL(path.join(root, "lib", "config.mjs")).href;
+const clientUrl = pathToFileURL(path.join(root, "lib", "clients", "pi-server-client.mjs")).href;
+const configUrl = pathToFileURL(path.join(root, "lib", "core", "config.mjs")).href;
 const source = readFileSync(sourcePath, "utf8")
-  .replace('from "./lib/pi-server-client.mjs"', `from "${clientUrl}"`)
-  .replace('import("./lib/config.mjs")', `import("${configUrl}")`)
+  .replace('from "./lib/clients/pi-server-client.mjs"', `from "${clientUrl}"`)
+  .replace('import("./lib/core/config.mjs")', `import("${configUrl}")`)
   .replace(
     'const serverPath = fileURLToPath(new URL("./lore-server.mjs", import.meta.url));',
     `const serverPath = ${JSON.stringify(fixturePath)};`,

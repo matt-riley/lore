@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { LORE_CLIENT_HOOKS } from "../../lib/capability-manifest.mjs";
+import { LORE_CLIENT_HOOKS } from "../../lib/capabilities/capability-manifest.mjs";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
 
 const entry = fileURLToPath(new URL("../../lore-cli.mjs", import.meta.url));

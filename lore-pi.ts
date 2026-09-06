@@ -30,7 +30,7 @@ import { Type } from "typebox";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { createPiServerClient } from "./lib/pi-server-client.mjs";
+import { createPiServerClient } from "./lib/clients/pi-server-client.mjs";
 
 type LoreConfig = {
   configPath?: string;
@@ -151,7 +151,7 @@ async function ensureRuntime(ctx: {
   initialization = (async () => {
     try {
       // config.mjs uses only node os/path/fs, so it's safe to load in-process.
-      const { loadConfig } = await import("./lib/config.mjs");
+      const { loadConfig } = await import("./lib/core/config.mjs");
       const config = (await loadConfig()) as LoreConfig;
       if (config?.enabled !== true) {
         ctx.ui?.notify(`lore: disabled — set "enabled": true in ${config.configPath}`, "warning");

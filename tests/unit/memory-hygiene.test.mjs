@@ -7,7 +7,7 @@ import {
   formatLatestMemoryHygieneSummary,
   rollbackMemoryHygiene,
   runMemoryHygiene,
-} from "../../lib/memory-hygiene.mjs";
+} from "../../lib/memory/memory-hygiene.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE

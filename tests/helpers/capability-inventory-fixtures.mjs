@@ -4,10 +4,10 @@ import path from "node:path";
 import { makeSourceExtractor } from "./source-parser.mjs";
 
 const CAPABILITY_SOURCE_EXTRACTORS = [
-  "../../lib/capability-utils.mjs",
-  "../../lib/capability-scanner.mjs",
-  "../../lib/capability-router.mjs",
-  "../../lib/capability-renderer.mjs",
+  "../../lib/capabilities/capability-utils.mjs",
+  "../../lib/capabilities/capability-scanner.mjs",
+  "../../lib/capabilities/capability-router.mjs",
+  "../../lib/capabilities/capability-renderer.mjs",
 ].map((relativePath) => makeSourceExtractor(readFileSync(new URL(relativePath, import.meta.url), "utf8")));
 
 function extractCapabilityFunctionSource(name) {

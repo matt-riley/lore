@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { formatReflectionReport } from "../../lib/memory-tools-reports.mjs";
+import { formatReflectionReport } from "../../lib/tools/memory-tools-reports.mjs";
 
 test("reflection reports advisory consolidation, contradiction, trend, and quality diagnostics", () => {
   const output = formatReflectionReport({

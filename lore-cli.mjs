@@ -1,7 +1,7 @@
 // Native hook and direct-tool entrypoint; no daemon, network, or MCP required.
 // Keep database imports behind the runtime preflight so unsupported hosts can
 // still receive the hook protocol's neutral response.
-import { checkRuntime, formatRuntimeDiagnostics } from "./lib/runtime.mjs";
+import { checkRuntime, formatRuntimeDiagnostics } from "./lib/core/runtime.mjs";
 
 const [mode, clientOrTool, event] = process.argv.slice(2);
 const neutral = clientOrTool === "antigravity" && event === "Stop" ? { decision: "stop" } : {};
@@ -15,7 +15,7 @@ try {
   if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Expected a JSON object on stdin");
   const runtime = await checkRuntime();
   if (!runtime.ok) throw new Error(formatRuntimeDiagnostics(runtime));
-  const { runCliHook, runCliTool } = await import("./lib/cli-runtime.mjs");
+  const { runCliHook, runCliTool } = await import("./lib/clients/cli-runtime.mjs");
   if (mode === "hook") {
     process.stdout.write(`${JSON.stringify(await runCliHook(clientOrTool, event, args))}\n`);
   } else if (mode === "tool") {

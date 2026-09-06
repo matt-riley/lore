@@ -4,7 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { buildCliHookConfig, mergeCliHookConfig } from "../lib/cli-hook-config.mjs";
+import { buildCliHookConfig, mergeCliHookConfig } from "../lib/clients/cli-hook-config.mjs";
 
 try {
   const [client, ...args] = process.argv.slice(2);

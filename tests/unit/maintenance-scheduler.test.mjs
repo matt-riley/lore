@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import {
   buildMaintenancePlan,
   runMaintenanceSweep,
-} from "../../lib/maintenance-scheduler.mjs";
+} from "../../lib/maintenance/maintenance-scheduler.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE

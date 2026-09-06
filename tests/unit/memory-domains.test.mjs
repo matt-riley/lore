@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildMemoryDomain } from "../../lib/memory-domains.mjs";
+import { buildMemoryDomain } from "../../lib/memory/memory-domains.mjs";
 
 describe("buildMemoryDomain", () => {
   test("normalizes key, scope, repository, and payloads", () => {

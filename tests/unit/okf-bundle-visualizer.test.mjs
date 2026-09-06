@@ -28,7 +28,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { renderOkfVisualizerHtml, writeOkfVisualizerHtml } from "../../lib/okf-bundle-visualizer.mjs";
+import { renderOkfVisualizerHtml, writeOkfVisualizerHtml } from "../../lib/okf/okf-bundle-visualizer.mjs";
 
 function makeTmpDir() {
   return mkdtempSync(path.join(os.tmpdir(), "lore-okf-viz-test-"));

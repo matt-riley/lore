@@ -3,8 +3,8 @@
 import path from "node:path";
 import { existsSync, statSync } from "node:fs";
 
-import { readOkfBundle } from "../lib/okf-bundle-reader.mjs";
-import { renderOkfVisualizerHtml, writeOkfVisualizerHtml } from "../lib/okf-bundle-visualizer.mjs";
+import { readOkfBundle } from "../lib/okf/okf-bundle-reader.mjs";
+import { renderOkfVisualizerHtml, writeOkfVisualizerHtml } from "../lib/okf/okf-bundle-visualizer.mjs";
 
 const VALUE_ARGUMENTS = Object.freeze({
   "--bundle": "bundle",

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 
-import { LoreDb } from "../../lib/db.mjs";
+import { LoreDb } from "../../lib/db/db.mjs";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
 
 function makeTempDir() {

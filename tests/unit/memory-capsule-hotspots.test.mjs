@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { renderEpisode } from "../../lib/capsule-assembler.mjs";
-import { matchesReflectFocus } from "../../lib/memory-operations.mjs";
+import { renderEpisode } from "../../lib/context/capsule-assembler.mjs";
+import { matchesReflectFocus } from "../../lib/memory/memory-operations.mjs";
 
 describe("matchesReflectFocus", () => {
   test("treats recurring mistakes as decision-focused evidence", () => {

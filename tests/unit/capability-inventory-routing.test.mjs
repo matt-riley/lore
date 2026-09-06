@@ -5,7 +5,7 @@ import {
   evaluateCapabilityRouter,
   recommendCapabilityRoute,
   scanCapabilityInventory,
-} from "../../lib/capability-inventory.mjs";
+} from "../../lib/capabilities/capability-inventory.mjs";
 import { createCapabilityFixtureRoot } from "../helpers/capability-inventory-fixtures.mjs";
 
 describe("capability inventory routing", () => {

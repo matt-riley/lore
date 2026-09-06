@@ -31,8 +31,8 @@ import {
   buildConceptFromDocument,
   buildOkfGraph,
   readOkfBundle,
-} from "../../lib/okf-bundle-reader.mjs";
-import { buildOkfBundleDocuments, writeOkfBundle } from "../../lib/memory-tools-okf-bundle.mjs";
+} from "../../lib/okf/okf-bundle-reader.mjs";
+import { buildOkfBundleDocuments, writeOkfBundle } from "../../lib/tools/memory-tools-okf-bundle.mjs";
 
 function makeTmpDir() {
   return mkdtempSync(path.join(os.tmpdir(), "lore-okf-reader-test-"));

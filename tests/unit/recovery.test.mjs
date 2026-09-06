@@ -11,9 +11,9 @@ import {
   createRecoverySnapshot,
   restoreRecoverySnapshot,
   resolveRecoveryConfig,
-} from "../../lib/recovery.mjs";
-import { SCHEMA_VERSION } from "../../lib/schema.mjs";
-import { LoreDb } from "../../lib/db.mjs";
+} from "../../lib/maintenance/recovery.mjs";
+import { SCHEMA_VERSION } from "../../lib/db/schema.mjs";
+import { LoreDb } from "../../lib/db/db.mjs";
 
 function fixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "lore-recovery-test-"));

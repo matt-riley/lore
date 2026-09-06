@@ -23,7 +23,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import {
   resolveWorkspacePath,
   readWorkspaceContext,
-} from "../../lib/workspace-reader.mjs";
+} from "../../lib/sessions/workspace-reader.mjs";
 
 // ---------------------------------------------------------------------------
 // Helpers

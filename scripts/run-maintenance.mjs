@@ -4,11 +4,11 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { COMMON_PATH_ARG_HANDLERS, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
-import { LoreDb } from "../lib/db.mjs";
-import { SessionStoreReader } from "../lib/session-store-reader.mjs";
-import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/config.mjs";
-import { createTraceRecorder } from "../lib/trace-recorder.mjs";
-import { runMaintenanceSweep, TASK_ORDER } from "../lib/maintenance-scheduler.mjs";
+import { LoreDb } from "../lib/db/db.mjs";
+import { SessionStoreReader } from "../lib/sessions/session-store-reader.mjs";
+import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/core/config.mjs";
+import { createTraceRecorder } from "../lib/lifecycle/trace-recorder.mjs";
+import { runMaintenanceSweep, TASK_ORDER } from "../lib/maintenance/maintenance-scheduler.mjs";
 
 function parseTaskList(value) {
   return String(value ?? "")

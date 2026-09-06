@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import {
   detectAssistantIdentityDeclaration,
   detectAssistantIdentityName,
-} from "../../lib/memory-scope.mjs";
+} from "../../lib/memory/memory-scope.mjs";
 
 // detectAssistantIdentityName is the loose, general-purpose detector used at
 // prompt time (capsule-assembler.mjs, db.mjs) to recognize when the *current*

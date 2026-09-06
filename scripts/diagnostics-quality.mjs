@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { cpus, platform, arch } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { explainMemoryRetrieval } from "../lib/diagnostics.mjs";
+import { explainMemoryRetrieval } from "../lib/maintenance/diagnostics.mjs";
 import { withFixtureDb } from "../tests/helpers/fixture-db.mjs";
 
 export const QUALITY_THRESHOLDS = Object.freeze({ positiveRecall: 0.95, startupP95Ms: 300, promptP95Ms: 200 });

@@ -21,10 +21,10 @@ import path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-import { LoreDb } from "../../lib/db.mjs";
-import { SCHEMA_VERSION } from "../../lib/schema.mjs";
+import { LoreDb } from "../../lib/db/db.mjs";
+import { SCHEMA_VERSION } from "../../lib/db/schema.mjs";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
-import { buildErrorTelemetryRecord } from "../../lib/passive-hooks.mjs";
+import { buildErrorTelemetryRecord } from "../../lib/lifecycle/passive-hooks.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build"

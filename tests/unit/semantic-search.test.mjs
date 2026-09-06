@@ -19,7 +19,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { cosineSimilarity, semanticSearch, semanticSearchEnabled } from "../../lib/semantic-search.mjs";
+import { cosineSimilarity, semanticSearch, semanticSearchEnabled } from "../../lib/memory/semantic-search.mjs";
 import { freshDb } from "../helpers/fixture-db.mjs";
 import { createTempHome } from "../helpers/temp-home.mjs";
 import { buildFixtureConfig } from "../helpers/fixture-config.mjs";

@@ -4,11 +4,11 @@ import { describe, test } from "node:test";
 import {
   appendPromptTemporalRecallIntro,
   setPromptTemporalVerifierTraceState,
-} from "../../lib/db-temporal-recall.mjs";
+} from "../../lib/db/db-temporal-recall.mjs";
 import {
   appendPromptCrossRepoHintsSection,
   appendPromptTemporalVerifierSection,
-} from "../../lib/db-temporal-sections.mjs";
+} from "../../lib/db/db-temporal-sections.mjs";
 
 function buildTrace() {
   return {

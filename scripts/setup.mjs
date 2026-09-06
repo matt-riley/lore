@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
-import { detectClients, selectClients, planSetup, applySetup, planRemove, applyRemove } from "../lib/setup.mjs";
-import { checkRuntime, formatRuntimeDiagnostics } from "../lib/runtime.mjs";
+import { detectClients, selectClients, planSetup, applySetup, planRemove, applyRemove } from "../lib/clients/setup.mjs";
+import { checkRuntime, formatRuntimeDiagnostics } from "../lib/core/runtime.mjs";
 
 try {
   const options = { yes: false, dryRun: false, remove: false, clients: null };

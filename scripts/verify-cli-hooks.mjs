@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildCliHookConfig } from "../lib/cli-hook-config.mjs";
+import { buildCliHookConfig } from "../lib/clients/cli-hook-config.mjs";
 
 function parseArgs(argv) {
   const [client, ...rest] = argv;

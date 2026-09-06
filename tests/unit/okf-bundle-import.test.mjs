@@ -23,8 +23,8 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildOkfImportMemories, formatOkfImportResult } from "../../lib/okf-bundle-import.mjs";
-import { buildSemanticCanonicalKey } from "../../lib/memory-scope.mjs";
+import { buildOkfImportMemories, formatOkfImportResult } from "../../lib/okf/okf-bundle-import.mjs";
+import { buildSemanticCanonicalKey } from "../../lib/memory/memory-scope.mjs";
 
 function makeConcept(overrides = {}) {
   return {

@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import {
   normalizeRolloutConfig,
   USER_CONFIG_DEFAULTS,
-} from "../../lib/config.mjs";
+} from "../../lib/core/config.mjs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const MALFORMED_FIXTURE = resolve(
@@ -35,7 +35,7 @@ async function freshConfig(envOverrides = {}) {
     process.env[k] = v;
   }
   try {
-    const url = new URL(`../../lib/config.mjs?v=${++bust}`, import.meta.url);
+    const url = new URL(`../../lib/core/config.mjs?v=${++bust}`, import.meta.url);
     return await import(url.href);
   } finally {
     for (const [k, v] of Object.entries(saved)) {

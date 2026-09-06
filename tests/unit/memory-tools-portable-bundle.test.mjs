@@ -29,11 +29,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
 
-import { createMemoryTools } from "../../lib/memory-tools.mjs";
+import { createMemoryTools } from "../../lib/tools/memory-tools.mjs";
 import {
   buildPortableBundleRequest,
   mapImprovementArtifactRow,
-} from "../../lib/memory-tools-portable-bundle.mjs";
+} from "../../lib/tools/memory-tools-portable-bundle.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 import { findTool } from "../helpers/tool-helpers.mjs";
 

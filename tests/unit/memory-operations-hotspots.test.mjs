@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { buildRecallEnvelope, reflectMemory } from "../../lib/memory-operations.mjs";
+import { buildRecallEnvelope, reflectMemory } from "../../lib/memory/memory-operations.mjs";
 
 const TEST_CONFIG = {
   enabled: true,

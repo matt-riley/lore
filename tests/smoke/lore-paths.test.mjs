@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const CONFIG_MODULE = pathToFileURL(path.join(REPO_ROOT, "lib/config.mjs")).href;
+const CONFIG_MODULE = pathToFileURL(path.join(REPO_ROOT, "lib/core/config.mjs")).href;
 const BROWSER_MODULE = pathToFileURL(path.join(REPO_ROOT, "scripts/run-browser.mjs")).href;
 
 function makeTempHome() {

@@ -28,7 +28,7 @@ import {
   GUARDRAIL_TIMEOUT_MS,
   isToolInAllowlist,
   runPreToolUseGuardrail,
-} from "../../lib/pre-tool-use-guardrail.mjs";
+} from "../../lib/lifecycle/pre-tool-use-guardrail.mjs";
 
 // ---------------------------------------------------------------------------
 // Helpers

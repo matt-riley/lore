@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { createPiServerClient } from "../../lib/pi-server-client.mjs";
+import { createPiServerClient } from "../../lib/clients/pi-server-client.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const FIXTURE = path.join(REPO_ROOT, "tests", "fixtures", "pi-transport-server.mjs");

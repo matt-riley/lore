@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { buildStyleAddressingSection } from "../../lib/style-addressing.mjs";
+import { buildStyleAddressingSection } from "../../lib/context/style-addressing.mjs";
 
 function renderSemantic(row) {
   return row.content;

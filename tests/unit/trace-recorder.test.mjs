@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { createTraceRecorder } from "../../lib/trace-recorder.mjs";
+import { createTraceRecorder } from "../../lib/lifecycle/trace-recorder.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -12,10 +12,10 @@ let traceHotspotsPromise = null;
 
 async function loadTraceHotspots() {
   if (!traceHotspotsPromise) {
-    const tracePath = path.join(REPO_ROOT, "lib", "trace-recorder.mjs");
+    const tracePath = path.join(REPO_ROOT, "lib", "lifecycle", "trace-recorder.mjs");
     const traceUrl = pathToFileURL(tracePath).href;
     const source = readFileSync(tracePath, "utf8")
-      .replace(/from "\.\/numeric-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "numeric-utils.mjs")).href}"`)
+      .replace(/from "\.\.\/utils\/numeric-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "utils", "numeric-utils.mjs")).href}"`)
       .replace("function buildTraceRecord(event, options, index) {", "export function buildTraceRecord(event, options, index) {")
       .replace("function normalizeRecorderOptions(config) {", "export function normalizeRecorderOptions(config) {");
     traceHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${traceUrl}\n`).toString("base64")}`);

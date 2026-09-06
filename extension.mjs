@@ -1,7 +1,7 @@
 import { approveAll } from "@github/copilot-sdk";
 import { joinSession } from "@github/copilot-sdk/extension";
 
-import { loadConfig, normalizeBoolean, clampInteger } from "./lib/config.mjs";
+import { loadConfig, normalizeBoolean, clampInteger } from "./lib/core/config.mjs";
 import {
   applySessionExtraction,
   buildSessionStartBackfillDecision,
@@ -10,39 +10,39 @@ import {
   processDeferredExtractions,
   startControlledBackfillRun,
   summarizeBackfillRunProgress,
-} from "./lib/backfill.mjs";
-import { LoreDb } from "./lib/db.mjs";
-import { runMaintenanceSweep } from "./lib/maintenance-scheduler.mjs";
-import { recallMemory } from "./lib/memory-operations.mjs";
-import { createMemoryTools } from "./lib/memory-tools.mjs";
+} from "./lib/sessions/backfill.mjs";
+import { LoreDb } from "./lib/db/db.mjs";
+import { runMaintenanceSweep } from "./lib/maintenance/maintenance-scheduler.mjs";
+import { recallMemory } from "./lib/memory/memory-operations.mjs";
+import { createMemoryTools } from "./lib/tools/memory-tools.mjs";
 import {
   buildProceduralProfile,
   detectRelevantInstructionFiles,
-} from "./lib/procedural-memory.mjs";
-import { SessionStoreReader } from "./lib/session-store-reader.mjs";
-import { createTraceRecorder } from "./lib/trace-recorder.mjs";
+} from "./lib/memory/procedural-memory.mjs";
+import { SessionStoreReader } from "./lib/sessions/session-store-reader.mjs";
+import { createTraceRecorder } from "./lib/lifecycle/trace-recorder.mjs";
 import {
   readWorkspaceContext,
   resolveWorkspacePath,
-} from "./lib/workspace-reader.mjs";
-import { assembleMemoryCapsule, detectPromptContextNeed } from "./lib/capsule-assembler.mjs";
-import { hydrateWorkstreamOverlay } from "./lib/overlay-hydrator.mjs";
-import { seedOnboardingMemories } from "./lib/onboarding.mjs";
+} from "./lib/sessions/workspace-reader.mjs";
+import { assembleMemoryCapsule, detectPromptContextNeed } from "./lib/context/capsule-assembler.mjs";
+import { hydrateWorkstreamOverlay } from "./lib/context/overlay-hydrator.mjs";
+import { seedOnboardingMemories } from "./lib/memory/onboarding.mjs";
 import {
   readOverlayAutoHydrationEnabled,
   readErrorTelemetryEnabled,
   readPostToolUseEnabled,
   readSubagentScopeTrackingEnabled,
-} from "./lib/rollout-flags.mjs";
+} from "./lib/rollout/rollout-flags.mjs";
 import {
   buildErrorTelemetryRecord,
   buildPostToolUseObservation,
-} from "./lib/passive-hooks.mjs";
-import { createSubagentScopeTracker } from "./lib/subagent-scope-tracker.mjs";
-import { runPreToolUseGuardrail } from "./lib/pre-tool-use-guardrail.mjs";
-import { consumeLatestMemoryHygieneSummary } from "./lib/memory-hygiene.mjs";
+} from "./lib/lifecycle/passive-hooks.mjs";
+import { createSubagentScopeTracker } from "./lib/lifecycle/subagent-scope-tracker.mjs";
+import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.mjs";
+import { consumeLatestMemoryHygieneSummary } from "./lib/memory/memory-hygiene.mjs";
 import { setTimeout as delay } from "node:timers/promises";
-import { checkRuntime, formatRuntimeDiagnostics } from "./lib/runtime.mjs";
+import { checkRuntime, formatRuntimeDiagnostics } from "./lib/core/runtime.mjs";
 
 let lastKnownCwd = process.cwd();
 
@@ -1644,7 +1644,7 @@ function maybeCompactErrorTelemetry(activeRuntime) {
   });
 }
 
-import { buildLoreHooks } from "./lib/hook-registration.mjs";
+import { buildLoreHooks } from "./lib/lifecycle/hook-registration.mjs";
 
 // Session-local sub-agent scope tracker. Reset on session end.
 const subagentScopeTracker = createSubagentScopeTracker();

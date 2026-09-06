@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import {
   readRolloutBoolean,
   createRolloutBooleanReader,
-} from "../../lib/rollout-flag-utils.mjs";
+} from "../../lib/rollout/rollout-flag-utils.mjs";
 
 describe("readRolloutBoolean", () => {
   test("returns true when key is true", () => {

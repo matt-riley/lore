@@ -1,156 +1,124 @@
 #!/usr/bin/env node
-
 import { performance } from "node:perf_hooks";
+import { cpus, platform, arch } from "node:os";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { explainMemoryRetrieval } from "../lib/diagnostics.mjs";
 import { withFixtureDb } from "../tests/helpers/fixture-db.mjs";
 
 export const QUALITY_THRESHOLDS = Object.freeze({ positiveRecall: 0.95, startupP95Ms: 300, promptP95Ms: 200 });
-
-function memory(id, content, repository = null, extra = {}) {
-  return { id: `quality-${id}`, type: "user_preference", content, repository, scope: repository ? "repo" : "global", confidence: 1, tags: ["quality-fixture"], ...extra };
-}
-
-const POSITIVE = [
-  ["deployment rollback", "We documented the deployment rollback procedure with snapshot restore."],
-  ["search budget", "The retrieval search budget is capped at eight semantic results."],
-  ["search", "The scope override audit records the source and reason for every manual override; search can retrieve it."],
-  ["search", "Prompt shaping keeps identity-only greetings free of cross-repo examples; search can retrieve it."],
-  ["temporal summary", "On 2026-08-27 we reviewed the temporal recall summary and closed the stale query bug."],
-  ["fixture isolation", "The quality runner uses an isolated fixture database and never seeds a user database."],
-  ["trace evidence", "The diagnostics trace records ranked and included evidence rows for every lookup."],
-  ["archive policy", "Archived memories remain excluded from default retrieval unless archive mode is requested."],
+const REPO = "quality/current";
+const TOPICS = [
+  ["Redis retries", "Redis retries use exponential backoff.", "What are our retries for Redis?"],
+  ["deployment rollback", "Deployment rollback restores the previous immutable image.", "Remind me about deployment rollback."],
+  ["invoice currency", "Invoice currency is GBP for domestic customers.", "What did we decide about invoice currency?"],
+  ["cache eviction", "Cache eviction uses least recently used entries.", "Tell me about our cache eviction."],
+  ["database backups", "Database backups run nightly and are encrypted.", "How are our database backups handled?"],
+  ["upload timeout", "Upload timeout is thirty seconds.", "What upload timeout did we decide to use?"],
+  ["branch naming", "Branch naming uses the issue identifier as a prefix.", "Can you remind me about branch naming?"],
+  ["release checklist", "Release checklist requires a tested recovery rehearsal.", "What is our release checklist again?"],
 ];
+const NEGATIVES = ["What is the capital of Finland?", "Explain photosynthesis.", "How many moons does Mars have?", "Translate hello into French.", "What causes a solar eclipse?", "How do penguins stay warm?", "Calculate seven times eight.", "Write a poem about the ocean."];
+const DATE_PROMPTS = ["What did we do on 2026-08-20?", "What happened on August 21, 2026?", "Recall our work on 2026-08-22.", "What did we do on 2026-08-23?", "What happened on August 24, 2026?", "Recall our work on 2026-08-25.", "What did we do on 2026-08-26?", "What happened on August 27, 2026?"];
+export const QUALITY_CASES = Object.freeze(TOPICS.flatMap(([topic, content, paraphrase], index) => [
+  { id: `explicit-${index}`, category: "explicit", prompt: topic, topic, content },
+  { id: `paraphrase-${index}`, category: "paraphrase", prompt: paraphrase, topic, content },
+  { id: `irrelevant-${index}`, category: "irrelevant", prompt: NEGATIVES[index], topic, content },
+  { id: `stale-${index}`, category: "stale-conflicting", prompt: topic, topic, content },
+  { id: `temporal-${index}`, category: "temporal", prompt: DATE_PROMPTS[index], topic, content, date: `2026-08-${20 + index}` },
+  { id: `scope-${index}`, category: "repo-isolation", prompt: topic, topic, content },
+]));
 
-export const QUALITY_CASES = Object.freeze([
-  ...POSITIVE.map(([key, content], index) => ({ id: `explicit-${index + 1}`, category: "explicit", prompt: `What did we change about the ${key} detail in this project?`, expectedEvidence: [key], memories: [memory(`explicit-${index + 1}`, content)] })),
-  ...POSITIVE.map(([key, content], index) => ({ id: `paraphrase-${index + 1}`, category: "paraphrase", prompt: `Remind me how we handled ${key.replace("deployment rollback", "rolling back a deploy").replace("search budget", "the retrieval limit").replace("scope audit", "auditing scope overrides").replace("prompt shaping", "shaping prompts")}.`, expectedEvidence: [key.split(" ")[0]], memories: [memory(`paraphrase-${index + 1}`, content)] })),
-  ...Array.from({ length: 8 }, (_, index) => ({ id: `irrelevant-${index + 1}`, category: "irrelevant", prompt: `What is the unrelated topic ${index + 1}?`, forbiddenEvidence: ["unrelated note"], memories: [memory(`irrelevant-${index + 1}`, "An unrelated note belongs to a different question.")] })),
-  ...Array.from({ length: 8 }, (_, index) => ({ id: `stale-conflicting-${index + 1}`, category: "stale-conflicting", prompt: `What did we decide about the current policy for conflict ${index + 1}?`, expectedEvidence: [`current policy ${index + 1}`], forbiddenEvidence: [`stale policy ${index + 1}`], memories: [memory(`current-${index + 1}`, `Current policy ${index + 1} is to retain the reviewed setting.`), memory(`stale-${index + 1}`, `Stale policy ${index + 1} said to use the old setting.`, null, { confidence: 0.1, metadata: { supersededBy: `quality-current-${index + 1}` } })] })),
-  ...Array.from({ length: 8 }, (_, index) => ({ id: `temporal-${index + 1}`, category: "temporal", prompt: `What did we do on 2026-08-${20 + index}?`, expectedEvidence: [`temporal work ${index + 1}`], memories: [memory(`temporal-${index + 1}`, `Temporal work ${index + 1} was completed on 2026-08-${20 + index}.`)] })),
-  ...Array.from({ length: 8 }, (_, index) => ({ id: `repo-isolation-${index + 1}`, category: "repo-isolation", repository: "quality/current-repo", prompt: `In this repo, can you remember the local decision ${index + 1}?`, expectedEvidence: [`local decision ${index + 1}`], forbiddenEvidence: [`foreign decision ${index + 1}`], memories: [memory(`local-${index + 1}`, `Local decision ${index + 1} belongs to this repository.`, "quality/current-repo", { scope: "repo" }), memory(`foreign-${index + 1}`, `Foreign decision ${index + 1} belongs to another repository.`, "quality/other-repo")] })),
-]);
-
-function flattenRows(trace) {
-  const rows = [];
-  for (const lookup of Object.values(trace?.lookups ?? {})) {
-    for (const key of ["rankedRows", "includedRows"]) {
-      for (const row of lookup?.[key] ?? []) rows.push({ row, included: key === "includedRows" });
-    }
-  }
-  return rows;
+function includedRows(explanation) {
+  return Object.values(explanation.trace?.lookups ?? {}).flatMap(lookup => lookup?.includedRows ?? []);
 }
 
-function contains(rows, phrase) {
-  const needle = phrase.toLowerCase();
-  return rows.some(({ row }) => JSON.stringify(row).toLowerCase().includes(needle));
-}
-
-function evaluateCase(definition, explanation) {
-  const rows = flattenRows(explanation.trace);
+// Exported so tests can prove ranked-only evidence and unrelated output fail.
+export function evaluateQualityCase(definition, explanation, { expectedId, forbiddenIds = [], forbiddenContent = [] } = {}) {
+  const rows = includedRows(explanation);
+  const text = explanation.text ?? "";
   const assertions = [];
-  for (const phrase of definition.expectedEvidence ?? []) assertions.push({ kind: "evidence", label: `includes evidence: ${phrase}`, passed: contains(rows, phrase), details: phrase });
-  for (const phrase of definition.forbiddenEvidence ?? []) assertions.push({ kind: "evidence", label: `excludes forbidden evidence: ${phrase}`, passed: !contains(rows.filter((item) => item.included), phrase), details: phrase });
-  if (definition.category === "repo-isolation") {
-    const foreign = rows.filter(({ row, included }) => included && row.repository === "quality/other-repo");
-    assertions.push({ kind: "safety", label: "no foreign repository evidence", passed: foreign.length === 0, details: String(foreign.length) });
+  if (definition.category !== "irrelevant") {
+    assertions.push({ kind: "evidence", label: "expected evidence emitted", passed: text.includes(definition.content) && rows.some(row => row.id === expectedId || (definition.category === "temporal" && JSON.stringify(row).includes(definition.content))) });
+  } else {
+    assertions.push({ kind: "evidence", label: "no repository memory injected", passed: !rows.some(row => row.repository === REPO) && !text.includes(definition.content) });
   }
-  return { passed: assertions.every((item) => item.passed), assertions };
+  assertions.push({ kind: "safety", label: "forbidden evidence excluded", passed: !rows.some(row => forbiddenIds.includes(row.id)) && !forbiddenContent.some(content => text.includes(content)) });
+  assertions.push({ kind: "safety", label: "foreign repository excluded", passed: !rows.some(row => row.repository && row.repository !== REPO) });
+  return { passed: assertions.every(item => item.passed), assertions };
 }
 
 async function runCase(definition) {
-  const fixture = await withFixtureDb({ configOverrides: { enabled: true, rollout: { hybridRetrieval: true, temporalQueryNormalization: true, memoryOperations: true } } });
+  const fixture = await withFixtureDb({ configOverrides: { enabled: true, now: new Date("2026-09-06T12:00:00Z"), rollout: { memoryOperations: true, temporalQueryNormalization: true } } });
   try {
-    // The diagnostics FTS query intentionally uses AND semantics. Including the
-    // prompt terms in each fixture row keeps this corpus focused on routing,
-    // scope, and evidence accounting rather than accidental token sparsity.
-    for (const item of definition.memories) fixture.db.insertSemanticMemory(item);
-    if (definition.category === "stale-conflicting") {
-      const stale = definition.memories.find((item) => item.id.includes("stale-"));
-      const current = definition.memories.find((item) => item.id.includes("current-"));
-      if (stale && current) fixture.db.forgetMemory({ id: stale.id, supersededBy: current.id });
-    }
-    const forgottenId = `quality-forgotten-${definition.id}`;
-    fixture.db.insertSemanticMemory({ id: forgottenId, type: "user_preference", content: `Forgotten quality fixture for ${definition.id}.`, scope: "global", repository: null, confidence: 1, tags: ["quality-fixture"] });
-    fixture.db.forgetMemory({ id: forgottenId, supersededBy: `quality-forget-event-${definition.id}` });
-    const explanation = await explainMemoryRetrieval({ runtime: { db: fixture.db, config: fixture.config, repository: definition.repository ?? "quality/current-repo", sessionStore: null }, prompt: definition.prompt, mode: "prompt", repository: definition.repository ?? "quality/current-repo" });
-    const evaluation = evaluateCase(definition, explanation);
-    const forgottenRows = fixture.db.searchSemantic({ query: "forgotten quality fixture", limit: 8 });
-    evaluation.assertions.push({ kind: "safety", label: "excludes forgotten evidence", passed: forgottenRows.length === 0, details: String(forgottenRows.length) });
-    return { id: definition.id, category: definition.category, passed: evaluation.assertions.every((item) => item.passed), assertions: evaluation.assertions, elapsedMs: 0, trace: explanation.trace };
-  } finally {
-    fixture.cleanup();
-  }
+    const save = (content, repository = REPO) => fixture.db.insertSemanticMemory({ type: "user_preference", content, repository, scope: "repo", confidence: 1, sourceSessionId: "quality-synthetic" });
+    let expectedId;
+    const forbiddenContent = [`${definition.topic} must follow the obsolete crimson setting.`, `${definition.topic} uses the foreign violet setting.`];
+    const staleId = save(forbiddenContent[0]);
+    const foreignId = save(forbiddenContent[1], "quality/other");
+    if (definition.category === "temporal") {
+      expectedId = `episode-${definition.id}`;
+      fixture.db.upsertEpisodeDigest({ id: expectedId, sessionId: expectedId, repository: REPO, summary: definition.content, actions: [], decisions: [], learnings: [], filesChanged: [], refs: [], significance: 7, themes: [], openItems: [], dateKey: definition.date, createdAt: `${definition.date}T12:00:00Z` });
+      fixture.db.refreshDaySummary({ date: definition.date, repository: REPO });
+    } else expectedId = save(definition.content);
+    fixture.db.forgetMemory({ id: staleId, supersededBy: definition.category === "stale-conflicting" ? expectedId : "manual-forget" });
+    const explanation = await explainMemoryRetrieval({ runtime: { db: fixture.db, config: fixture.config, repository: REPO, sessionStore: null }, prompt: definition.prompt, mode: "prompt", repository: REPO });
+    const result = evaluateQualityCase(definition, explanation, { expectedId, forbiddenIds: [staleId, foreignId], forbiddenContent });
+    return { id: definition.id, category: definition.category, ...result, text: explanation.text, trace: explanation.trace };
+  } finally { fixture.cleanup(); }
+}
+
+function percentile(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.ceil(sorted.length * 0.95) - 1];
 }
 
 async function measureSyntheticStore(size) {
-  const startupSamples = [];
-  for (let index = 0; index < 10; index += 1) {
-    const started = performance.now();
-    const warmup = await withFixtureDb({ configOverrides: { enabled: true } });
-    startupSamples.push(performance.now() - started);
-    warmup.cleanup();
-  }
-  for (let index = 0; index < 100; index += 1) {
-    const started = performance.now();
-    const measured = await withFixtureDb({ configOverrides: { enabled: true } });
-    startupSamples.push(performance.now() - started);
-    measured.cleanup();
-  }
   const fixture = await withFixtureDb({ configOverrides: { enabled: true } });
   try {
-    for (let index = 0; index < size; index += 1) {
-      fixture.db.insertSemanticMemory({ id: `quality-synthetic-${size}-${index}`, type: "user_preference", content: `Synthetic benchmark memory ${index} for quality retrieval.`, scope: "global", repository: null, confidence: 1, tags: ["quality-benchmark"] });
+    // Fixture-only bulk insert includes the production FTS triggers. No user paths.
+    const statement = fixture.db.db.prepare("INSERT INTO semantic_memory (id,type,content,scope,repository,created_at,updated_at) VALUES (?, 'user_preference', ?, 'repo', ?, ?, ?)");
+    fixture.db.db.exec("BEGIN");
+    for (let index = 0; index < size; index++) statement.run(`benchmark-${index}`, `${TOPICS[index % TOPICS.length][1]} Synthetic record ${index}.`, REPO, "2026-09-01T12:00:00Z", "2026-09-01T12:00:00Z");
+    fixture.db.db.exec("COMMIT");
+    const startup = [], prompt = [];
+    for (let index = 0; index < 110; index++) {
+      fixture.db.close();
+      let started = performance.now();
+      fixture.db.initialize();
+      await explainMemoryRetrieval({ runtime: { db: fixture.db, config: fixture.config, repository: REPO, sessionStore: null }, prompt: "Redis retries", mode: "session_start", repository: REPO });
+      if (index >= 10) startup.push(performance.now() - started);
+      started = performance.now();
+      await explainMemoryRetrieval({ runtime: { db: fixture.db, config: fixture.config, repository: REPO, sessionStore: null }, prompt: TOPICS[index % TOPICS.length][2], mode: "prompt", repository: REPO });
+      if (index >= 10) prompt.push(performance.now() - started);
     }
-    for (let index = 0; index < 10; index += 1) fixture.db.searchSemantic({ query: "synthetic benchmark", limit: 8 });
-    const samples = [];
-    for (let index = 0; index < 100; index += 1) {
-      const started = performance.now();
-      await explainMemoryRetrieval({
-        runtime: { db: fixture.db, config: fixture.config, repository: "quality/current-repo", sessionStore: null },
-        prompt: "What did we do about synthetic benchmark memory?",
-        mode: "prompt",
-        repository: "quality/current-repo",
-      });
-      samples.push(performance.now() - started);
-    }
-    return { size, warmups: 10, measured: 100, startupP95Ms: Math.round(percentile(startupSamples.slice(10), 0.95) * 100) / 100, promptP95Ms: Math.round(percentile(samples, 0.95) * 100) / 100, informational: size >= 100000 };
-  } finally {
-    fixture.cleanup();
-  }
+    const startupP95Ms = percentile(startup), promptP95Ms = percentile(prompt);
+    return { size, warmups: 10, measured: 100, startupP95Ms, promptP95Ms, startupDefinition: "reopen seeded DB and build session-start capsule; OS disk cache not flushed", informational: size !== 10000, passed: size !== 10000 || (startupP95Ms < 300 && promptP95Ms < 200) };
+  } finally { fixture.cleanup(); }
 }
 
-function percentile(values, p) {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
-}
-
-export async function runQualityBenchmark({ sizes = [1], skipPerformance = false } = {}) {
+export async function runQualityBenchmark({ sizes = [1000, 10000, 100000], skipPerformance = true, benchmarkOnly = false } = {}) {
   const cases = [];
-  for (const definition of QUALITY_CASES) {
-    const started = performance.now();
-    const result = await runCase(definition);
-    result.elapsedMs = Math.round((performance.now() - started) * 100) / 100;
-    cases.push(result);
-  }
-  const positive = cases.filter((item) => ["explicit", "paraphrase", "temporal", "repo-isolation", "stale-conflicting"].includes(item.category));
-  const positiveRecall = positive.length === 0 ? 1 : positive.filter((item) => item.passed).length / positive.length;
-  const safety = { forbiddenRepoEvidence: cases.filter((item) => item.assertions.some((a) => a.label === "no foreign repository evidence" && !a.passed)).length, forgottenEvidence: cases.filter((item) => item.assertions.some((a) => a.label === "excludes forgotten evidence" && !a.passed)).length, supersededEvidence: cases.filter((item) => item.category === "stale-conflicting" && item.assertions.some((a) => a.label.startsWith("excludes forbidden") && !a.passed)).length };
-  const performanceResults = skipPerformance ? [] : [];
-  if (!skipPerformance) {
-    for (const size of sizes) performanceResults.push(await measureSyntheticStore(size));
-  }
-  return { generatedAt: new Date().toISOString(), totalCases: cases.length, passedCases: cases.filter((item) => item.passed).length, failedCases: cases.filter((item) => !item.passed).length, positiveRecall, safety, performance: performanceResults, cases };
+  if (!benchmarkOnly) for (const definition of QUALITY_CASES) cases.push(await runCase(definition));
+  const positive = cases.filter(item => item.category !== "irrelevant");
+  const positiveRecall = positive.length ? positive.filter(item => item.assertions.find(a => a.label === "expected evidence emitted")?.passed).length / positive.length : null;
+  const safetyFailures = cases.filter(item => item.assertions.some(a => (a.kind === "safety" || a.label === "no repository memory injected") && !a.passed));
+  const timings = [];
+  if (!skipPerformance) for (const size of sizes) timings.push(await measureSyntheticStore(size));
+  return { generatedAt: new Date().toISOString(), environment: { node: process.version, platform: platform(), architecture: arch(), cpu: cpus()[0]?.model }, totalCases: cases.length, passedCases: cases.filter(item => item.passed).length, failedCases: cases.filter(item => !item.passed).length, positiveRecall, safetyFailures: safetyFailures.map(item => item.id), performance: timings, cases, passed: (positiveRecall === null || positiveRecall >= 0.95) && safetyFailures.length === 0 && timings.every(item => item.passed) };
 }
 
 export function renderQualityReport(result) {
-  const lines = [`qualityCases: ${result.totalCases}`, `passed: ${result.passedCases}`, `failed: ${result.failedCases}`, `positiveRecall: ${result.positiveRecall}`, `safety: ${JSON.stringify(result.safety)}`];
-  for (const item of result.cases.filter((entry) => !entry.passed)) lines.push(`FAIL ${item.id}: ${item.assertions.filter((assertion) => !assertion.passed).map((assertion) => assertion.label).join(", ")}`);
-  return lines.join("\n");
+  return [`qualityCases: ${result.totalCases}`, `passed: ${result.passedCases}`, `failed: ${result.failedCases}`, `positiveRecall: ${result.positiveRecall ?? "not measured"}`, `safetyFailures: ${result.safetyFailures.length}`, ...result.cases.filter(item => !item.passed).map(item => `FAIL ${item.id}: ${item.assertions.filter(a => !a.passed).map(a => a.label).join(", ")}`), ...result.performance.map(item => `${item.size} memories: startup p95=${item.startupP95Ms.toFixed(2)}ms prompt p95=${item.promptP95Ms.toFixed(2)}ms ${item.informational ? "informational" : item.passed ? "PASS" : "FAIL"}`)].join("\n");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const result = await runQualityBenchmark({ sizes: [Number(process.env.LORE_QUALITY_SIZE ?? 10000)] });
-  process.stdout.write(`${process.argv.includes("--json") ? JSON.stringify(result, null, 2) : renderQualityReport(result)}\n`);
-  if (result.failedCases > 0 || result.positiveRecall < QUALITY_THRESHOLDS.positiveRecall || Object.values(result.safety).some((value) => value > 0)) process.exitCode = 1;
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const args = process.argv.slice(2);
+    if (args.some(arg => !["--json", "--benchmark"].includes(arg))) throw new Error("Usage: diagnostics-quality.mjs [--json] [--benchmark]");
+    const benchmarkOnly = args.includes("--benchmark");
+    const result = await runQualityBenchmark({ skipPerformance: !benchmarkOnly, benchmarkOnly });
+    console.log(args.includes("--json") ? JSON.stringify(result, null, 2) : renderQualityReport(result));
+    if (!result.passed) process.exitCode = 1;
+  } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

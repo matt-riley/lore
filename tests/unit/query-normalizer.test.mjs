@@ -256,3 +256,10 @@ describe("extractFtsTerms", () => {
     assert.strictEqual(sanitizeFtsQuery("lore"), "lore memory");
   });
 });
+
+test("calendar dates and recall scaffolding are not topical search terms", () => {
+  assert.deepEqual(extractTemporalContentTerms("What did we do on 2026-08-20?"), []);
+  assert.deepEqual(extractTemporalContentTerms("What happened on August 21, 2026?"), []);
+  assert.deepEqual(extractTemporalContentTerms("Recall our work on 2026-08-22."), []);
+  assert.deepEqual(extractTemporalContentTerms("Redis retries on 2026-08-20"), ["redi", "retry"]);
+});

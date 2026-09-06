@@ -125,8 +125,33 @@ test("rollback quarantines an edited runtime instead of deleting the user's chan
       },
     }), /changed during setup/);
     assert.equal(readFileSync(path.join(target, "extension.mjs"), "utf8"), "// old\n");
-    const quarantine = readdirSync(path.dirname(target)).find((name) => name.startsWith("lore.lore-setup-quarantine-"));
-    assert.ok(quarantine, "edited runtime should be quarantined");
-    assert.equal(readFileSync(path.join(path.dirname(target), quarantine, "extension.mjs"), "utf8"), "// user edit\n");
+    const backupRoot = path.join(home, ".config/lore/install-backups");
+    const quarantine = readdirSync(backupRoot).flatMap(run => readdirSync(path.join(backupRoot, run)).filter(name => name.startsWith("quarantine-")).map(name => path.join(backupRoot, run, name)))[0];
+    assert.ok(quarantine, "edited runtime should be quarantined outside extension discovery");
+    assert.equal(readFileSync(path.join(quarantine, "extension.mjs"), "utf8"), "// user edit\n");
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("legacy hook removal refuses unrelated commands merely mentioning Lore", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-remove-legacy-"));
+  try {
+    const target = path.join(home, ".codex/hooks.json");
+    mkdirSync(path.dirname(target), { recursive: true });
+    const original = JSON.stringify({ hooks: { Stop: [{ hooks: [{ command: "echo 'lore-cli.mjs hook codex Stop'" }] }] } });
+    writeFileSync(target, original);
+    assert.throws(() => planRemove(["codex"], { home, env: {} }), /ownership/);
+    assert.equal(readFileSync(target, "utf8"), original);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("removal refuses runtime edits made after its preview", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-remove-race-"));
+  try {
+    applySetup(planSetup(["copilot"], { home, env: {} }));
+    const plan = planRemove(["copilot"], { home, env: {} });
+    const target = path.join(home, ".copilot/extensions/lore/extension.mjs");
+    writeFileSync(target, "// concurrent user edit");
+    assert.throws(() => applyRemove(plan), /changed during removal/);
+    assert.equal(readFileSync(target, "utf8"), "// concurrent user edit");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

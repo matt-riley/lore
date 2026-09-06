@@ -25,7 +25,7 @@ The numbered instructions below are advanced alternatives for project-only hooks
 
 ## 1. Keep Lore in a stable location
 
-You need Node.js 22.5 or later with built-in SQLite/FTS5. macOS is the primary platform; Linux is expected to work and Windows is unsupported. No build or runtime dependency installation is needed for Lore itself.
+You need Node.js 24.0.0 or later with built-in SQLite/FTS5. macOS is the primary platform; Linux is best effort and Windows is unsupported. No build or runtime dependency installation is needed for Lore itself.
 
 If you already have a Lore checkout, use it. Otherwise, clone into a location you intend to keep:
 
@@ -78,7 +78,7 @@ Restart your client. In Codex, use `/hooks` to review and trust the exact defini
 
 ### Antigravity: mount your project explicitly
 
-With the verified Antigravity CLI 1.1.19, launch from your project using:
+With the observed Antigravity CLI 1.1.27 target, launch from your project using:
 
 ```sh
 agy --add-dir "$PWD"
@@ -131,7 +131,7 @@ Memory storage stays local, but context injected into a conversation goes to the
 
 ## Compatibility and current limits
 
-Automatic recall injection and completed-session capture passed live checks on macOS on **2026-09-06** with Codex CLI **0.153.4**, Claude Code **2.1.263**, and Antigravity CLI **1.1.19**. These are verified versions, not established minimum requirements or a guarantee for every host version.
+Available targets are Copilot CLI **1.0.80**, Pi **0.84.3**, Codex CLI **0.153.4**, Claude Code **2.1.263**, and Antigravity CLI **1.1.27**. These are targets, not certifications or established minimum requirements. No client is promoted until a 14-day release-candidate soak has successful checks on at least 10 distinct days for that client.
 
 Automatic maintenance, raw archive backfill, host hook metrics, and subagent-specific scope tracking are not wired into these adapters. Use the separate [maintenance script](/guides/maintenance/) when needed. [Troubleshooting](/guides/troubleshooting/#native-cli-hooks-do-not-recall-or-capture) covers trust, paths, and missing transcripts.
 

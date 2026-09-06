@@ -5,7 +5,7 @@ section: "Reference"
 order: 9
 ---
 
-Lore is local-first. By default it makes no non-loopback outbound network calls, does not sync to the cloud, and does not share memory between machines or users.
+Lore is local-first. By default it makes no non-loopback outbound network calls, does not sync to the cloud, and does not share memory between machines or users. Recalled context can still be sent by the host to its configured model, which may be cloud-hosted.
 
 ## Files Lore uses
 
@@ -47,6 +47,6 @@ Backups and exported portability bundles can contain the same sensitive material
 
 ## Review before sharing
 
-`memory_portable_bundle` is experimental and exports approved improvement artifacts rather than the full raw corpus. Even so, review every generated JSON or OKF bundle before putting it in a repository or sending it to another person. OKF import is manual and only the OKF format supports import today.
+`memory_portable_bundle` is experimental and exports approved improvement artifacts rather than the full raw corpus. Even so, review every generated JSON or OKF bundle before putting it in a repository or sending it to another person. Soft-deleted memories and related residual data may remain for provenance and recovery. OKF import is manual and only the OKF format supports import today.
 
 See [Local inference](/guides/local-inference/) for provider boundaries and [Troubleshooting](/guides/troubleshooting/) for safe issue reports.

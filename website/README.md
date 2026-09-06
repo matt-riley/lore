@@ -4,7 +4,7 @@ An Astro static site with a Blender-authored archive sculpture, an optional Thre
 
 ## Work locally
 
-Use Node.js 22.12 or later and pnpm 11.24.0. From this directory:
+Use Node.js 24.0.0 or later and pnpm 11.24.0. From this directory:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -32,7 +32,7 @@ Connect the repository to a Cloudflare Workers project using these settings:
 | Root directory | `website` |
 | Build command | `pnpm build` |
 | Deploy command | `pnpm exec wrangler deploy` |
-| `NODE_VERSION` | `22.16.0` or a newer supported release |
+| `NODE_VERSION` | `24.0.0` or a newer supported release |
 | `PNPM_VERSION` | `11.24.0` |
 | `SITE_URL` | Your final public origin, including `https://` |
 

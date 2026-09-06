@@ -12,7 +12,7 @@ Lore follows [Semantic Versioning](https://semver.org/):
 
 | Version component | When to bump |
 |---|---|
-| **MAJOR** (`1.x.x → 2.x.x`) | Breaking changes to a **supported** surface (hook signatures, supported tool names, DB schema removal). |
+| **MAJOR** (`1.x.x → 2.x.x`) | Removal or other breaking change to a **supported** surface (hook signatures, supported tool names, DB schema removal). |
 | **MINOR** (`0.1.x → 0.2.x`) | New supported surface, new experimental surface, backwards-compatible behaviour change. |
 | **PATCH** (`0.1.0 → 0.1.1`) | Bug fixes, docs, internal refactors with no observable behaviour change. |
 
@@ -20,7 +20,9 @@ Lore follows [Semantic Versioning](https://semver.org/):
 
 Until the `1.0.0` release, **experimental surfaces carry no SemVer promise**. A MINOR bump is sufficient to change or remove an experimental tool. See [support-matrix.md](support-matrix.md) for surface classifications.
 
-The current version lives in `package.json`, but it is maintained by release-please. Tags and GitHub Releases are created by automation after a reviewed release PR merges.
+The current version lives in `package.json`, but it is maintained by release-please. Tags and GitHub Releases are created by automation after a reviewed release PR merges. Do not hand-edit the version, publish a package, or create a tag in a normal change; this documentation update does not bump a version or publish anything.
+
+Release-please tags use the `lore-` prefix, for example `lore-v0.12.0`, not `v0.12.0`. Use the actual tag shown by GitHub when checking out a release.
 
 ---
 
@@ -107,7 +109,7 @@ Merging the release PR is the release action. release-please will create the tag
     ```sh
     git clone <repo> lore-release-check
     cd lore-release-check
-    git checkout v0.x.x
+    git checkout lore-v0.x.x
     npm test
     npm run validate-schema
     node scripts/dev-install.mjs --dry-run
@@ -140,7 +142,7 @@ Users primarily install Lore by cloning the repository directly into `~/.copilot
    ```sh
    cd ~/.copilot/extensions/lore
    git fetch --tags
-   git checkout v0.x.y    # previous good tag
+   git checkout lore-v0.x.y    # previous good tag
    ```
 
    If the user cloned Lore directly into `~/.copilot/extensions/lore`, checking out the old tag is sufficient. If they use a separate development checkout plus `dev-install.mjs`, they should check out the old tag in that source checkout and rerun the helper so the copied install is refreshed.
@@ -159,7 +161,16 @@ This is the highest-risk scenario. The DB is at `~/.config/lore/lore.db` by defa
    memory_doctor_report
    ```
 
-2. **Restore from backup** if you have one. Lore does not automatically back up the DB — users should include `~/.config/lore/lore.db` in their normal backup strategy.
+2. **Inspect and restore a snapshot** if you have one. Lore's recovery CLI separates explicit recovery snapshots from routine backup policy:
+
+   ```sh
+   node scripts/recover.mjs status
+   node scripts/recover.mjs backup
+   node scripts/recover.mjs restore --from /path/to/snapshot
+   node scripts/recover.mjs restore --from /path/to/snapshot --write --clients-stopped
+   ```
+
+   `status`, `backup`, and restore without `--write` are previews. A write restore requires `--clients-stopped`; stop all Lore hosts first. These snapshots are a recovery aid, not a replacement for your normal backup strategy.
 
 3. **Re-derive from session-store** — if the DB is corrupted and there is no backup, the memory store can be partially rebuilt by re-running backfill tools against the raw `session-store.db` (which Lore never writes to). The rebuilt store will be missing any memories that were saved explicitly but not derivable from raw sessions.
 

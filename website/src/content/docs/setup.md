@@ -9,7 +9,7 @@ Run one command, choose your coding agents, and let Lore set up their integratio
 
 ## Run the installer
 
-You need Node.js 22.5 or later with built-in SQLite/FTS5 and at least one supported CLI installed on `PATH`. macOS is the primary platform; Linux is expected to work and Windows is unsupported.
+You need Node.js 24.0.0 or later with built-in SQLite/FTS5 and at least one supported CLI installed on `PATH`. macOS is the primary platform; Linux is best effort and Windows is unsupported.
 
 ```sh
 git clone https://github.com/matt-riley/lore.git ~/dev/lore
@@ -58,7 +58,7 @@ npm run setup -- --clients codex,claude --yes
 npm run setup -- --help
 ```
 
-`--dry-run` never writes. `--yes` skips confirmation but requires an explicit `--clients` selection. `all` selects all detected supported clients. An unavailable or unknown client causes an error; setup does not install the CLI itself.
+`--dry-run` never writes. `--yes` skips confirmation but requires an explicit `--clients` selection. `all` selects all detected supported clients. Add `--remove` to preview or apply removal for the selected clients; removal preserves memories, configuration, unrelated hooks, and modified installs. An unavailable or unknown client causes an error; setup does not install the CLI itself.
 
 ## Existing and custom installations
 
@@ -79,3 +79,5 @@ npm run setup
 ```
 
 Repeated setup refreshes selected extension copies and merges exact hook definitions without duplicating them. Restart or reload the clients afterwards. Before moving the checkout or changing Node installations, remove old native hook definitions using the [advanced removal instructions](/guides/cli-integrations/#update-or-remove), then rerun setup from the new location.
+
+Install backups preserve modified files and settings. They are separate from database recovery snapshots; use `node scripts/recover.mjs status`, `backup`, or `restore --from <snapshot>` for the latter. A restore preview never writes; a write restore requires `--clients-stopped`.

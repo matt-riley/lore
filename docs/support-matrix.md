@@ -14,7 +14,7 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | 🟡 **Experimental** | Available and functional. Interface may change before graduation. No stability promise. |
 | 🔴 **Unsupported / internal** | Not intended for direct external use. May change or disappear without notice. |
 
-**Graduation path**: an experimental surface graduates to supported when it has been stable across ≥ 3 months of daily use, has clear documented semantics, and has at least one automated smoke test.
+**Graduation path**: an experimental surface graduates to supported only after a 14-day release-candidate soak with successful checks on at least 10 distinct days for each client, clear documented semantics, and automated smoke coverage. No client is promoted without that evidence.
 
 **Deprecation path**: a supported surface moves to deprecated with a notice in the changelog and a migration guide. Removal happens no sooner than the next minor release after deprecation.
 
@@ -24,9 +24,11 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Client | Status | Interface |
 |---|---|---|
+| GitHub Copilot CLI | 🟢 Supported | Native extension hooks and Copilot tool surface. Observed target 1.0.80; the minimum version floor is pending certification. |
+| Pi | 🟢 Supported | Native TypeScript extension, shared Lore server, `lore_*` tools, and `/lore` commands. Observed target 0.84.3; the minimum version floor is pending certification. |
 | Codex CLI | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, and `PostToolUse` command hooks. |
 | Claude Code | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, `PostToolUse`, and `PostToolUseFailure` command hooks. |
-| Google Antigravity CLI | 🟡 Experimental | Native `PreInvocation`, `PostInvocation`, `Stop`, and `PostToolUse` hooks; shared configuration and explicit workspace mounting are required on 1.1.19. |
+| Google Antigravity CLI | 🟡 Experimental | Native `PreInvocation`, `PostInvocation`, `Stop`, and `PostToolUse` hooks; shared configuration and explicit workspace mounting are required on the observed 1.1.27 target. |
 
 These clients use `lore-cli.mjs`, not MCP. Native hooks provide automatic recall
 and transcript capture. The direct shell commands are `lore_recall`,
@@ -34,6 +36,18 @@ and transcript capture. The direct shell commands are `lore_recall`,
 and `memory_status`. The canonical lists are `LORE_CLIENT_HOOKS` and
 `LORE_CLI_TOOL_NAMES` in `lib/capability-manifest.mjs`.
 See [installation, verification, and boundaries](cli-integrations.md).
+
+### Adapter capability differences
+
+| Capability | Copilot CLI | Pi | Codex / Claude / Antigravity |
+|---|---|---|---|
+| Native interface | Extension hooks and registered tools | Pi extension tools and `/lore` commands | Shell-invoked commands plus native host hooks |
+| Automatic recall | Supported | Supported | Experimental; host hook coverage varies |
+| Session capture | Supported | Supported | Experimental; active supplied transcript only |
+| Archive backfill | Copilot session store, experimental | Pi archive importer, experimental | Not wired |
+| Maintenance at startup | Supported when configured | Adapter-specific bounded behavior | Not wired; use the standalone script |
+| Diagnostics | `memory_status`, `memory_explain`, `memory_validate` | `lore_status` | `memory_status`; the Copilot-only diagnostics are unavailable |
+| Local semantic search | Optional embeddings through shared store | Optional embeddings through shared store | Optional for explicit `lore_recall` only |
 
 ## Session hooks
 
@@ -63,7 +77,7 @@ events map to shared behavior through the adapters above.
 | `lore_onboard` | 🟢 Supported | Captures the user name plus Lore's assistant/style profile in one step. |
 | `memory_search` | 🟢 Supported | Keyword search over the derived semantic-memory store. Meaning-based (vector) search is available via `lore_recall` when embeddings are configured. |
 | `memory_save` | 🟢 Supported | Explicit save for freeform notes and decisions. |
-| `memory_forget` | 🟢 Supported | Soft-deletes a memory by ID. |
+| `memory_forget` | 🟢 Supported | Soft-deletes a memory by ID. Superseded rows and related residual data may remain for provenance and recovery; this is not secure erasure. |
 
 ### Status and diagnostics
 
@@ -104,7 +118,7 @@ events map to shared behavior through the adapters above.
 | Tool | Status | Notes |
 |---|---|---|
 | `memory_replay` | 🟡 Experimental | Runs the replay corpus against current retrieval behavior and reports ranking hits/misses. |
-| `memory_portable_bundle` | 🟡 Experimental | Exports a portable bundle of approved improvement artifacts. format=json (default) writes a single signed JSON file; format=okf writes an OKF v0.1 markdown+frontmatter bundle directory for human/agent-readable, git-diffable exchange. action=import (format=okf only) reads an OKF bundle directory from disk and retains each concept as a `type=okf_concept` semantic memory row, retrievable via `memory_search(query="okf_import", type="okf_concept")` — imported content defaults to a lower confidence (0.7) than self-authored memory and is always manually invoked, never automatic. Re-importing the same bundle reinforces existing rows (by a stable `repository::conceptId` canonical key) instead of duplicating them, but stored content is not overwritten by a later import — the first import's content wins. json format import is not yet implemented. |
+| `memory_portable_bundle` | 🟡 Experimental | Exports approved improvement artifacts, not a raw database dump. format=json (default) writes a single signed JSON file; format=okf writes an OKF v0.1 markdown+frontmatter bundle directory for human/agent-readable, git-diffable exchange. action=import (format=okf only) is manual and never automatic. |
 
 ### Improvement and evolution
 
@@ -152,6 +166,7 @@ events map to shared behavior through the adapters above.
 | `scripts/validate-config-schema.mjs` | 🟢 Supported | Validates `lore.json` against the schema. Safe to run at any time. |
 | `scripts/run-maintenance.mjs` | 🟡 Experimental | The supported out-of-session entry point for maintenance tasks (`memoryHygiene`, `validationCorpus`, `replayCorpus`, `backlogReview`, `traceCompaction`, `indexUpkeep`, `doctorSnapshot`). Designed for cron, launchd, or any external scheduler. Exits 0 on success, 1 on unknown task names or DB error. Operates only on the configured Lore database — never on test fixtures or other users' databases. See [`docs/maintenance-scheduling.md`](maintenance-scheduling.md) for the full guide. Use `maintenance_schedule_run` tool for in-session triggering. |
 | `scripts/run-browser.mjs` | 🟡 Experimental | Starts the local browser dashboard. Loopback hosts only (`127.0.0.1`, `localhost`, or `::1`). |
+| `scripts/recover.mjs` | 🟢 Supported | Reports recovery status, creates an explicit database snapshot, or previews/restores one with `--from`; a write restore requires `--write --clients-stopped`. |
 
 ---
 

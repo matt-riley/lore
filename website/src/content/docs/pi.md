@@ -13,7 +13,7 @@ Also use Codex CLI, Claude Code, or Antigravity CLI? Their [native lifecycle int
 
 ## Install the adapter
 
-You need Node.js 22.5.0 or later on `PATH`. Pi runs extensions with bun, while Lore's SQLite server uses Node's built-in `node:sqlite` module.
+You need Node.js 24.0.0 or later on `PATH`. Pi runs extensions with bun, while Lore's SQLite server uses Node's built-in `node:sqlite` module.
 
 Use the [guided installer](/guides/setup/) and select Pi:
 
@@ -84,7 +84,7 @@ The adapter exposes `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status
 
 ## If Pi cannot find Node
 
-Pi's extension runtime is bun, but bun does not provide Node's `node:sqlite`. The adapter therefore starts Lore's server with the system `node` executable. Node 22.5.0 or later must be on `PATH`. If your Node installation uses mise, fnm, or another shim that Pi cannot see, set `LORE_NODE` to the absolute Node path.
+Pi's extension runtime is bun, but bun does not provide Node's `node:sqlite`. The adapter therefore starts Lore's server with the system `node` executable. Node 24.0.0 or later must be on `PATH`. If your Node installation uses mise, fnm, or another shim that Pi cannot see, set `LORE_NODE` to the absolute Node path.
 
 ## Pi-specific behavior
 

@@ -16,7 +16,7 @@ node --version
 node -e 'console.log(process.versions.node)'
 ```
 
-Node must be 22.5.0 or later. Confirm `~/.config/lore/lore.json` exists and includes `"enabled": true`. Restart Copilot CLI after installing or updating the extension so it rescans `~/.copilot/extensions/`.
+Node must be 24.0.0 or later. Confirm `~/.config/lore/lore.json` exists and includes `"enabled": true`. Restart Copilot CLI after installing or updating the extension so it rescans `~/.copilot/extensions/`.
 
 ## Hooks seem silent
 
@@ -34,7 +34,7 @@ For Codex CLI, Claude Code, and Antigravity CLI, check the [installation guide](
 
 - The installer is a dry run unless you pass `--write`. Restart the host after applying hooks, and install only one scope per client.
 - In Codex, review and trust the definitions with `/hooks` and trust project configuration. Check that local or managed settings have not disabled hooks. Claude may require project hook approval.
-- In Antigravity 1.1.19, use the global installation and launch with `agy --add-dir "$PWD"` from your project. Check `/hooks` for the `lore` group. An empty workspace is not treated as the shared config directory; `LORE_WORKSPACE` can provide an explicit fallback.
+- In Antigravity 1.1.27, use the global installation and launch with `agy --add-dir "$PWD"` from your project. Check `/hooks` for the `lore` group. An empty workspace is not treated as the shared config directory; `LORE_WORKSPACE` can provide an explicit fallback.
 - If you moved Lore or changed Node installations, remove and reinstall hooks so their absolute paths are correct.
 - Check that clients use the same Lore home and repository identifier. `LORE_REPOSITORY` can align the scope explicitly.
 
@@ -52,7 +52,7 @@ Confirm the server is running at the configured loopback URL and exposes `/v1/ch
 
 ## Pi says Node is missing
 
-Pi's bun runtime cannot provide `node:sqlite`. Put Node 22.5+ on Pi's `PATH`, or set `LORE_NODE` to an absolute Node path, then `/reload`.
+Pi's bun runtime cannot provide `node:sqlite`. Put Node 24.0+ on Pi's `PATH`, or set `LORE_NODE` to an absolute Node path, then `/reload`.
 
 ## Maintenance did not run
 

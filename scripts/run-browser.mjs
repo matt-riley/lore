@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync } from "node:fs";
+import { once } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -83,7 +84,13 @@ async function main() {
     repository: args.repository,
   });
 
-  const localUrl = `http://${host}:${port}`;
+  try {
+    await once(server, "listening");
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+  const localUrl = `http://${host.includes(":") ? `[${host}]` : host}:${port}`;
   console.log(`[lore-browser] local read-only server started at ${localUrl}`);
   console.log(`[lore-browser] using database ${config.paths.derivedStorePath}`);
   console.log("[lore-browser] press Ctrl+C to stop");

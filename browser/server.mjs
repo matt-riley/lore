@@ -1187,9 +1187,14 @@ export function startLoreBrowserServer({
       return
     }
 
-    const url = new URL(req.url || "/", `http://${host}:${port}`)
-
     try {
+      let url
+      try {
+        const urlHost = host.includes(":") ? `[${host}]` : host
+        url = new URL(req.url || "/", `http://${urlHost}:${port}`)
+      } catch {
+        throw new HttpError(400, "invalid_url", "Invalid request URL")
+      }
       const apiResponse = buildBrowserApiResponse({ db, url, host, normalizedRepository })
       if (apiResponse) {
         jsonResponse(res, apiResponse.statusCode, apiResponse.payload)

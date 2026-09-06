@@ -119,3 +119,10 @@ describe("detectPromptContextNeed", () => {
     assert.equal(result.identityOnly, false);
   });
 });
+
+
+test("explicit calendar dates activate temporal recall", () => {
+  for (const prompt of ["What did we do on 2026-08-20?", "What happened on August 21, 2026?"]) {
+    assert.equal(detectPromptContextNeed(prompt).hasTemporalSignal, true, prompt);
+  }
+});

@@ -68,6 +68,10 @@ describe("SessionStoreReader.initialize", () => {
       const reader = new SessionStoreReader(buildFixtureConfig(tempHome));
       reader.initialize();
       assert.ok(reader.db, "expected session-store reader to hold an open database");
+      assert.throws(
+        () => reader.db.exec("CREATE TABLE should_not_be_created (id INTEGER)"),
+        /readonly database/i,
+      );
       reader.db.close();
     } finally {
       rmSync(tempHome, { recursive: true, force: true });

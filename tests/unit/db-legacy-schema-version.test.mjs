@@ -65,6 +65,12 @@ describe("LoreDb legacy schema version compatibility", () => {
       });
       loreDb.initialize();
 
+      assert.ok(loreDb.lastBackupPath, "legacy adoption should snapshot before changing schema names");
+      const snapshot = new DatabaseSync(loreDb.lastBackupPath, { readOnly: true });
+      assert.ok(snapshot.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'coherence_schema_version'").get());
+      assert.equal(snapshot.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'lore_schema_version'").get(), undefined);
+      snapshot.close();
+
       assert.equal(loreDb.getCurrentVersion(), SCHEMA_VERSION);
       const adopted = loreDb.db
         .prepare("SELECT MAX(version) AS version FROM lore_schema_version")
@@ -80,6 +86,27 @@ describe("LoreDb legacy schema version compatibility", () => {
       assert.equal(memoryDomain?.name, "memory_domain");
 
       loreDb.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a future schema before opening or creating Lore paths", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "future.db");
+    const backupDir = path.join(tempHome, "backups");
+    try {
+      const rawDb = new DatabaseSync(dbPath);
+      rawDb.exec(`CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (${SCHEMA_VERSION + 1});`);
+      rawDb.close();
+
+      const loreDb = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      assert.throws(
+        () => loreDb.initialize(),
+        new RegExp(`unsupported future Lore schema version ${SCHEMA_VERSION + 1}.*${dbPath.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")}`),
+      );
+      assert.equal(loreDb.db, null, "future-schema rejection must happen before opening the database");
+      assert.equal(loreDb.lastBackupPath, null);
     } finally {
       rmSync(tempHome, { recursive: true, force: true });
     }

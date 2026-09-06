@@ -96,8 +96,10 @@ function runMock() {
   outcomes.push(result("scope.path-isolation", paths ? "passed" : "failed", "mocked", "executed path-resolution tests for explicit Lore and Copilot homes"));
   const worker = runWorkerSaveRestartRecall();
   outcomes.push(result("worker.save-restart-recall", worker.ok ? "passed" : "failed", "mocked", worker.detail));
-  outcomes.push(result("copilot.capture-new-session", "pending", "mocked", "no existing behavioral test proves automatic capture and new-session recall"));
-  outcomes.push(result("repo-isolation-global", "pending", "mocked", "no existing adapter-level behavioral test proves both repository and global recall"));
+  const capture = runTest(path.join(root, "tests", "smoke", "extension-certification.test.mjs"), ["--test-name-pattern", "capture survives"]);
+  outcomes.push(result("copilot.capture-new-session", capture ? "passed" : "failed", "mocked", "executed the extension capture pipeline, closed the store, reopened it, and recalled from a fresh session"));
+  const isolation = runTest(path.join(root, "tests", "smoke", "extension-certification.test.mjs"), ["--test-name-pattern", "retrieval keeps repo"]);
+  outcomes.push(result("repo-isolation-global", isolation ? "passed" : "failed", "mocked", "executed repository-scoped and global retrieval against an isolated Lore database"));
   outcomes.push(result("install-runtime-loading", "pending", "mocked", "runtime loading requires the client host; source presence is not evidence"));
   return outcomes;
 }
@@ -108,7 +110,7 @@ function workerRequest(home, requests) {
   try {
     const stdout = run(process.execPath, [path.join(root, "lore-server.mjs")], {
       timeout: 30_000,
-      env: { LORE_HOME: home, LORE_CONFIG: config },
+      env: { HOME: home, LORE_HOME: home, LORE_CONFIG: config },
       input,
     });
     return stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line));
@@ -120,7 +122,7 @@ function workerRequest(home, requests) {
 function runWorkerSaveRestartRecall() {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-worker-cert-"));
   try {
-    writeFileSync(path.join(home, "lore.json"), JSON.stringify({ enabled: true }));
+    writeFileSync(path.join(home, "lore.json"), JSON.stringify({ enabled: true, paths: { piSessionDir: path.join(home, "pi-sessions") } }));
     const marker = `worker-${Date.now()}`;
     const first = workerRequest(home, [
       { id: 1, method: "save", params: { content: `The ${marker} memory survives a worker restart.`, type: "user_preference", repository: "certification" } },
@@ -158,7 +160,7 @@ function runLive(timeoutMs) {
     const piVersion = (() => { try { return run("pi", ["--version"], { timeout: 10_000 }); } catch { return "unavailable"; } })();
     const copilotVersion = (() => { try { return run("copilot", ["--version"], { timeout: 10_000 }); } catch { return "unavailable"; } })();
     const config = path.join(syntheticHome, "lore.json");
-    writeFileSync(config, JSON.stringify({ enabled: true }));
+    writeFileSync(config, JSON.stringify({ enabled: true, paths: { piSessionDir: path.join(syntheticHome, "pi-sessions") } }));
     const livePi = piVersion === "unavailable" || !runNodeExists(node24)
       ? { ok: false, detail: piVersion === "unavailable" ? "Pi executable unavailable" : "Node 24 runtime unavailable" }
       : runPiBounded(syntheticHome, config, node24, timeoutMs);
@@ -185,7 +187,7 @@ function runPiBounded(home, config, node24, timeoutMs) {
   try {
     const output = run("pi", ["-ne", "-e", path.join(root, "lore-pi.ts"), "--session-dir", path.join(home, "sessions"), "--no-context-files", "--no-skills", "--no-builtin-tools", "-p", "Reply with exactly READY"], {
       timeout: Math.min(timeoutMs, 120_000),
-      env: { LORE_HOME: home, LORE_CONFIG: config, LORE_NODE: node24, PI_CODING_AGENT_DIR: path.join(home, "pi-agent") },
+      env: { HOME: home, LORE_HOME: home, LORE_CONFIG: config, LORE_NODE: node24, PI_CODING_AGENT_DIR: path.join(home, "pi-agent") },
     });
     return /(?:^|\n)READY(?:\n|$)/u.test(output.trim()) ? { ok: true, detail: "Pi launched and returned the requested READY answer" } : { ok: false, detail: "Pi exited successfully without the requested READY answer" };
   } catch (error) {

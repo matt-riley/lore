@@ -2,7 +2,7 @@
 import Archive from "./Archive.astro";
 const steps = [
   { title: "Capture", heading: "A useful detail, worth keeping.", body: "In Pi, ask lore_save to keep an explicit note. Lore can also derive context from session activity. The paper layers represent those sessions; the amber pieces represent useful memories.", example: "“Use pnpm for package scripts.”", label: "An example preference" },
-  { title: "Store", heading: "A home for what you learned.", body: "The bronze frame represents your local SQLite store. Pi and Copilot CLI can share it. This sculpture is a metaphor for the product, not a database diagram.", example: "~/.copilot/lore.db", label: "The default memory store" },
+  { title: "Store", heading: "A home for what you learned.", body: "The bronze frame represents your local SQLite store. Pi and Copilot CLI can share it. This sculpture is a metaphor for the product, not a database diagram.", example: "~/.config/lore/lore.db", label: "The default memory store" },
   { title: "Recall", heading: "The right context, back in reach.", body: "Pi can receive relevant memory before a prompt reaches the agent. You can also use lore_recall or /lore search for an explicit lookup.", example: "/lore search pnpm", label: "Try it in a later Pi session" },
 ];
 ---

@@ -52,10 +52,10 @@ Rollback restores rows carrying that marker and records an audit artifact.
 Example cron entry:
 
 ```text
-0 */6 * * * LORE_COPILOT_HOME=/Users/YOU/.copilot /path/to/node /Users/YOU/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview >> /Users/YOU/.copilot/lore-maintenance.log 2>&1
+0 */6 * * * LORE_HOME=/Users/YOU/.config/lore /path/to/node /Users/YOU/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview >> /Users/YOU/.config/lore/maintenance.log 2>&1
 ```
 
-Use an absolute Node path because cron has a minimal `PATH`. Set `LORE_COPILOT_HOME` or `LORE_CONFIG` explicitly. On macOS, launchd is the recommended scheduler; the full property-list example lives in `docs/maintenance-scheduling.md`.
+Use an absolute Node path because cron has a minimal `PATH`. Set `LORE_HOME` or `LORE_CONFIG` explicitly; use `LORE_COPILOT_HOME` when Copilot input files are elsewhere. Without a configured Lore home, legacy fallback remains available until the new home exists. On macOS, launchd is the recommended scheduler; the full property-list example lives in `docs/maintenance-scheduling.md`.
 
 ## Recovery and isolation
 

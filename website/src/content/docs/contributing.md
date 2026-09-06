@@ -56,4 +56,4 @@ Use a Conventional Commit title such as `fix: handle missing session store`. Inc
 
 ## Privacy while contributing
 
-Never commit `~/.copilot/lore.db`, `lore.json`, raw session stores, credentials, or generated exports containing private work. Use temporary homes and fixtures for tests. If reporting a problem, share the smallest reproducible details and redact code, paths, and session notes.
+Never commit `~/.config/lore/lore.db`, `lore.json`, raw session stores, credentials, or generated exports containing private work. Use temporary homes and fixtures for tests. If reporting a problem, share the smallest reproducible details and redact code, paths, and session notes.

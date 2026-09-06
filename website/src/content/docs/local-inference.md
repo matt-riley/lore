@@ -13,7 +13,7 @@ The server must provide `/v1/chat/completions`. `/v1/embeddings` is optional and
 
 ## Enable a chat model
 
-Add a provider and model to `~/.copilot/lore.json`:
+Add a provider and model to `~/.config/lore/lore.json`:
 
 ```json
 {

@@ -206,7 +206,7 @@ Lore's maintenance loop is intentionally bounded. It is about **runtime/data hea
 
 ### Isolated database rule
 
-Scheduled maintenance operates only on the configured Lore database (default `~/.copilot/lore.db`). It must never be pointed at test fixtures, shared databases, or other users' databases. Failed migrations and jobs use forward recovery — if a task fails, the database is left intact and the failure is recorded for the next run to retry.
+Scheduled maintenance operates only on the configured Lore database (default `~/.config/lore/lore.db`). It must never be pointed at test fixtures, shared databases, or other users' databases. Failed migrations and jobs use forward recovery — if a task fails, the database is left intact and the failure is recorded for the next run to retry.
 
 ### Auto-run conditions
 

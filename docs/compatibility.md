@@ -55,6 +55,8 @@ The CI matrix tests the latest release of each listed major; it does not certify
 
 ### `lore.json` (config)
 
+Fresh installs use `~/.config/lore/lore.json` (or `$XDG_CONFIG_HOME/lore/lore.json`; `XDG_CONFIG_HOME` must be absolute) and `~/.config/lore/lore.db`, with backups in `~/.config/lore/backups`. `LORE_HOME` overrides the Lore directory; `LORE_CONFIG` overrides the config file path without relocating the database; `LORE_COPILOT_HOME` applies to Copilot inputs. For compatibility, an unconfigured install with no new home continues to use legacy files under `~/.copilot`, including `backups/lore`. Once the new home exists, it is selected. Existing users must migrate before creating it. Use `npm run migrate-home -- --from <old> --to <new>` for an explicit, non-overwriting migration; stop Lore sessions first. The command leaves the source untouched and preserves custom paths. If you choose a custom destination, set `LORE_HOME` to it in each harness. Update or unset any `LORE_CONFIG` override that still points to the old config.
+
 | Scenario | Compatibility |
 |---|---|
 | Fresh install (no prior config) | ✅ All keys have defaults. A minimal config with only `"enabled": true` is sufficient to start. |
@@ -111,8 +113,8 @@ Lore is local-only. This section is the canonical summary of what it stores, wha
 
 | File | Contents |
 |---|---|
-| `~/.copilot/lore.db` | Session memories — code snippets, decisions, notes, file paths, and summaries captured from your sessions. This is the primary data store. |
-| `~/.copilot/lore.json` | Your configuration and preferences. |
+| `~/.config/lore/lore.db` | Session memories — code snippets, decisions, notes, file paths, and summaries captured from your sessions. This is the primary data store. |
+| `~/.config/lore/lore.json` | Your configuration and preferences. |
 | `~/.copilot/session-store.db` | Raw Copilot CLI session data. **Lore reads this for backfill; it never writes to it.** |
 
 ### What Lore does NOT do by default
@@ -129,8 +131,8 @@ When `localInference.enabled` is explicitly set, Lore sends bounded session or r
 `lore.db` contains a record of your work — code you've written, decisions you've made, notes you've kept. Consider restricting file access to your user account:
 
 ```sh
-chmod 600 ~/.copilot/lore.db
-chmod 600 ~/.copilot/lore.json
+chmod 600 ~/.config/lore/lore.db
+chmod 600 ~/.config/lore/lore.json
 ```
 
 The `memory_portable_bundle` export tool (experimental) can generate a portable snapshot as a signed JSON file or an Open Knowledge Format (OKF v0.1) markdown bundle. It exports your approved improvement artifacts (not the full raw memory corpus), but treat any exported bundle as sensitive — those artifacts can still contain excerpts of your code, decisions, and notes.

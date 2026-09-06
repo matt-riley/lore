@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -8,21 +7,18 @@ import { parseArgs } from "../../scripts/run-maintenance.mjs";
 import { resolveDefaultLoreConfigPath } from "../../scripts/shared-args.mjs";
 
 describe("run-maintenance parseArgs", () => {
-  test("uses the real Copilot home config when no script path override is supplied", () => {
+  test("uses the explicit Lore home when no script config override is supplied", () => {
     const savedConfig = process.env.LORE_CONFIG;
-    const savedHome = process.env.LORE_COPILOT_HOME;
+    const savedHome = process.env.LORE_HOME;
     delete process.env.LORE_CONFIG;
-    delete process.env.LORE_COPILOT_HOME;
+    process.env.LORE_HOME = "/fixture/lore";
     try {
-      assert.equal(
-        resolveDefaultLoreConfigPath(),
-        path.join(os.homedir(), ".copilot", "lore.json"),
-      );
+      assert.equal(resolveDefaultLoreConfigPath(), "/fixture/lore/lore.json");
     } finally {
       if (savedConfig === undefined) delete process.env.LORE_CONFIG;
       else process.env.LORE_CONFIG = savedConfig;
-      if (savedHome === undefined) delete process.env.LORE_COPILOT_HOME;
-      else process.env.LORE_COPILOT_HOME = savedHome;
+      if (savedHome === undefined) delete process.env.LORE_HOME;
+      else process.env.LORE_HOME = savedHome;
     }
   });
 

@@ -25,6 +25,7 @@
 import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "./lib/config.mjs";
+import { resolveLorePaths } from "./lib/lore-paths.mjs";
 import { LoreDb } from "./lib/db.mjs";
 import { seedOnboardingMemories } from "./lib/onboarding.mjs";
 import { recallMemory, retainMemory } from "./lib/memory-operations.mjs";
@@ -82,13 +83,13 @@ function archiveCursorPath() {
   const derivedStorePath = expandHome(db?.config?.paths?.derivedStorePath);
   return derivedStorePath
     ? `${derivedStorePath}.pi-archive-cursor.json`
-    : path.join(os.homedir(), ".copilot", "lore-archive-cursor.json");
+    : `${resolveLorePaths().derivedStorePath}.pi-archive-cursor.json`;
 }
 
 async function init() {
   const config = await loadConfig();
   if (config?.enabled !== true) {
-    throw new Error('lore is disabled — set "enabled": true in ~/.copilot/lore.json');
+    throw new Error(`lore is disabled — set "enabled": true in ${config.configPath}`);
   }
   db = new LoreDb(config);
   db.initialize();

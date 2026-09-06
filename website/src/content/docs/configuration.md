@@ -1,11 +1,11 @@
 ---
 title: "Configuration"
-description: "Tune Lore with the local lore.json file while keeping the stable defaults intact."
+description: "Tune Lore with the local config while keeping the stable defaults intact."
 section: "Understand Lore"
 order: 4
 ---
 
-Lore reads JSON configuration from `~/.copilot/lore.json`. The `LORE_CONFIG` environment variable can point to an exact alternative file; `LORE_COPILOT_HOME` changes the default Copilot home. New keys are additive, and a minimal config is valid:
+Lore reads JSON configuration from `~/.config/lore/lore.json` (or `$XDG_CONFIG_HOME/lore/lore.json`; `XDG_CONFIG_HOME` must be absolute). `LORE_HOME` overrides the Lore directory, `LORE_CONFIG` overrides the config file path without relocating the database, and `LORE_COPILOT_HOME` changes the Copilot input home. When no Lore home is configured and the new home does not exist, legacy files under `~/.copilot` remain supported. New keys are additive, and a minimal config is valid:
 
 ```json
 { "enabled": true }
@@ -17,13 +17,17 @@ The default path settings are:
 
 | Key | Default |
 | --- | --- |
-| `paths.copilotHome` | `~/.copilot` |
+| `paths.copilotHome` | `~/.copilot` (Copilot inputs only) |
 | `paths.rawStorePath` | `~/.copilot/session-store.db` |
-| `paths.derivedStorePath` | `~/.copilot/lore.db` |
-| `paths.backupDir` | `~/.copilot/backups/lore` |
+| `paths.derivedStorePath` | `~/.config/lore/lore.db` |
+| `paths.backupDir` | `~/.config/lore/backups` |
 | `paths.instructionsPath` | `~/.copilot/copilot-instructions.md` |
 
 Keep the raw store and derived store separate. Lore reads the raw store and writes derived memory to `lore.db`.
+
+## Migrating an existing installation
+
+Lore keeps using legacy files under `~/.copilot` only when no Lore home is configured and the new home does not exist. Creating the new home selects it, so existing users must migrate before creating it. Stop Lore sessions, then run `npm run migrate-home -- --from <old> --to <new>` (the defaults are the legacy and new homes). The command never overwrites the destination, leaves the source untouched, and preserves custom configured paths. If you choose a custom destination, set `LORE_HOME` to it in each harness. Update or unset any `LORE_CONFIG` override that still points to the old config.
 
 ## Core controls
 

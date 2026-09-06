@@ -149,7 +149,7 @@ Users primarily install Lore by cloning the repository directly into `~/.copilot
 
 ### Scenario 3 — DB schema migration causes data issues
 
-This is the highest-risk scenario. The DB is at `~/.copilot/lore.db`.
+This is the highest-risk scenario. The DB is at `~/.config/lore/lore.db` by default.
 
 1. **Run validation first** before taking any action:
 
@@ -159,7 +159,7 @@ This is the highest-risk scenario. The DB is at `~/.copilot/lore.db`.
    memory_doctor_report
    ```
 
-2. **Restore from backup** if you have one. Lore does not automatically back up the DB — users should include `~/.copilot/lore.db` in their normal backup strategy.
+2. **Restore from backup** if you have one. Lore does not automatically back up the DB — users should include `~/.config/lore/lore.db` in their normal backup strategy.
 
 3. **Re-derive from session-store** — if the DB is corrupted and there is no backup, the memory store can be partially rebuilt by re-running backfill tools against the raw `session-store.db` (which Lore never writes to). The rebuilt store will be missing any memories that were saved explicitly but not derivable from raw sessions.
 

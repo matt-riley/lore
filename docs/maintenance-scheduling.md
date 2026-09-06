@@ -77,15 +77,15 @@ Scheduled maintenance reads the same `lore.json` that the extension uses at sess
 The script resolves the config path in this order:
 
 1. `--config <path>` flag
-2. `LORE_CONFIG` environment variable (exact path)
-3. `LORE_COPILOT_HOME` environment variable joined with `lore.json`
+2. `LORE_CONFIG` environment variable (config file path without relocating the database)
+3. `LORE_HOME`/XDG default Lore home joined with `lore.json`
 4. `lore.json` relative to the current working directory
 
-For cron and launchd, always set `LORE_COPILOT_HOME` or `LORE_CONFIG` explicitly so the script does not depend on the working directory.
+For cron and launchd, always set `LORE_HOME` or `LORE_CONFIG` explicitly so the script does not depend on the working directory. Set `LORE_COPILOT_HOME` when Copilot input files are elsewhere; without a configured Lore home, legacy fallback remains available until the new home exists.
 
 ### Database isolation rule
 
-Scheduled maintenance operates **only on the configured Lore database** (`~/.copilot/lore.db` or the path in your config). It must never be pointed at test fixtures, shared databases, or databases owned by other users.
+Scheduled maintenance operates **only on the configured Lore database** (`~/.config/lore/lore.db` or the path in your config). It must never be pointed at test fixtures, shared databases, or databases owned by other users.
 
 The `--derived-store-path` and `--raw-store-path` flags exist for legitimate path overrides (e.g., non-standard install locations), not for pointing the scheduler at fixture databases.
 
@@ -98,17 +98,17 @@ The `--derived-store-path` and `--raw-store-path` flags exist for legitimate pat
 Add entries to your crontab with `crontab -e`. Always redirect stderr alongside stdout so failures are not silently discarded.
 
 ```cron
-# Lore maintenance — default ~/.copilot install
+# Lore maintenance — default Lore home install
 # Redirect both stdout and stderr so failures appear in the log
-0 */6 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview >> ~/.copilot/lore-maintenance.log 2>&1
-15 2 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks replayCorpus,indexUpkeep,traceCompaction >> ~/.copilot/lore-maintenance.log 2>&1
-30 3 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks doctorSnapshot >> ~/.copilot/lore-maintenance.log 2>&1
+0 */6 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview >> ~/.config/lore/maintenance.log 2>&1
+15 2 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks replayCorpus,indexUpkeep,traceCompaction >> ~/.config/lore/maintenance.log 2>&1
+30 3 * * * node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --tasks doctorSnapshot >> ~/.config/lore/maintenance.log 2>&1
 ```
 
-For a non-standard install location, set `LORE_COPILOT_HOME`:
+For a non-standard Lore location, set `LORE_HOME`:
 
 ```cron
-0 */6 * * * LORE_COPILOT_HOME=/path/to/copilot-home node /path/to/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview >> /path/to/lore-maintenance.log 2>&1
+0 */6 * * * LORE_HOME=/path/to/lore-home node /path/to/lore/scripts/run-maintenance.mjs --tasks validationCorpus,backlogReview >> /path/to/maintenance.log 2>&1
 ```
 
 **cron environment notes:**
@@ -147,15 +147,15 @@ launchd is the recommended scheduler on macOS. Create a property list at `~/Libr
 
   <!-- Capture both stdout and stderr -->
   <key>StandardOutPath</key>
-  <string>/Users/YOU/.copilot/lore-maintenance.log</string>
+    <string>/Users/YOU/.config/lore/maintenance.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/YOU/.copilot/lore-maintenance.log</string>
+    <string>/Users/YOU/.config/lore/maintenance.log</string>
 
   <!-- Explicit home path so the script does not depend on cwd -->
   <key>EnvironmentVariables</key>
   <dict>
-    <key>LORE_COPILOT_HOME</key>
-    <string>/Users/YOU/.copilot</string>
+    <key>LORE_HOME</key>
+    <string>/Users/YOU/.config/lore</string>
   </dict>
 </dict>
 </plist>
@@ -207,7 +207,7 @@ To check whether the last run was successful without a monitoring system:
 
 ```sh
 # tail the last ~20 lines of the log
-tail -20 ~/.copilot/lore-maintenance.log
+tail -20 ~/.config/lore/maintenance.log
 
 # or run a status check on-demand
 node ~/.copilot/extensions/lore/scripts/run-maintenance.mjs --status

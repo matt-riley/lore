@@ -17,7 +17,7 @@
       "properties": {
         "copilotHome": {
           "type": "string",
-          "description": "Override Lore's resolved Copilot home directory. Runtime default: ~/.copilot."
+          "description": "Override the Copilot input home directory. Runtime default: ~/.copilot. Lore's own files live under the Lore home."
         },
         "rawStorePath": {
           "type": "string",
@@ -25,19 +25,19 @@
         },
         "derivedStorePath": {
           "type": "string",
-          "description": "Override Lore's derived SQLite database path. Runtime default: <copilotHome>/lore.db."
+          "description": "Override Lore's derived SQLite database path. Runtime default: ~/.config/lore/lore.db (or $XDG_CONFIG_HOME/lore/lore.db when absolute; LORE_HOME and legacy fallback also affect resolution)."
         },
         "backupDir": {
           "type": "string",
-          "description": "Override the directory Lore uses for database backups. Runtime default: <copilotHome>/backups/lore."
+          "description": "Override the directory Lore uses for database backups. Runtime default: ~/.config/lore/backups (or $XDG_CONFIG_HOME/lore/backups when absolute; LORE_HOME and legacy fallback also affect resolution)."
         },
         "instructionsPath": {
           "type": "string",
-          "description": "Override the global Copilot instructions file path. Runtime default: <copilotHome>/copilot-instructions.md."
+          "description": "Override the global Copilot instructions file path. Runtime default: ~/.copilot/copilot-instructions.md."
         },
         "scopedInstructionsDir": {
           "type": "string",
-          "description": "Override the directory for scoped instruction files. Runtime default: <copilotHome>/instructions."
+          "description": "Override the directory for scoped instruction files. Runtime default: ~/.copilot/instructions."
         }
       }
     },

@@ -192,7 +192,7 @@ document.querySelectorAll<HTMLElement>("[data-archive]").forEach((element) => {
   const descriptions: Record<string, string> = {
     pages: "The paper layers represent your sessions. Lore derives useful context from your work; it doesn’t put the whole transcript into every prompt.",
     memories: "The amber pieces represent useful preferences, decisions, and reminders. In Pi, lore_save keeps an explicit note and lore_recall finds it again.",
-    store: "The bronze frame represents the local store: ~/.copilot/lore.db. Pi and Copilot can share it. The sculpture is a metaphor, not a diagram of database tables.",
+    store: "The bronze frame represents the local store: ~/.config/lore/lore.db. Pi and Copilot can share it. The sculpture is a metaphor, not a diagram of database tables.",
   };
   element.querySelectorAll<HTMLButtonElement>("[data-archive-part]").forEach((partButton) => {
     partButton.addEventListener("click", () => {

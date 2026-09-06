@@ -16,7 +16,7 @@ node --version
 node -e 'console.log(process.versions.node)'
 ```
 
-Node must be 22.5.0 or later. Confirm `~/.copilot/lore.json` exists and includes `"enabled": true`. Restart Copilot CLI after installing or updating the extension so it rescans `~/.copilot/extensions/`.
+Node must be 22.5.0 or later. Confirm `~/.config/lore/lore.json` exists and includes `"enabled": true`. Restart Copilot CLI after installing or updating the extension so it rescans `~/.copilot/extensions/`.
 
 ## Hooks seem silent
 

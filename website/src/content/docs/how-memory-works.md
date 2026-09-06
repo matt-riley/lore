@@ -29,7 +29,7 @@ Temporal questions use normalised dates and day or episode summaries first. Lore
 
 The derived store can contain semantic memories, episode and day summaries, commitments, working-profile information, and provenance. A memory may include a repository scope, category, confidence, source, and supersession history.
 
-Lore reads Copilot's raw `session-store.db` for extraction and backfill. It never writes to that raw store. The derived database is `~/.copilot/lore.db` by default.
+Lore reads Copilot's raw `session-store.db` for extraction and backfill. It never writes to that raw store. The derived database is `~/.config/lore/lore.db` by default (or `$XDG_CONFIG_HOME/lore/lore.db`).
 
 ## Retrieval and scope
 

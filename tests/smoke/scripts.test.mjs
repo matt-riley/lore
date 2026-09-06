@@ -271,7 +271,7 @@ describe("run-maintenance --recommended-schedule", () => {
     const tempHome = makeTempDir();
     try {
       const result = run("run-maintenance.mjs", ["--recommended-schedule"], {
-        env: { LORE_COPILOT_HOME: tempHome },
+        env: { LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" },
       });
       assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
       assert.ok(
@@ -291,7 +291,7 @@ describe("run-maintenance --recommended-schedule", () => {
     const tempHome = makeTempDir();
     try {
       const result = run("run-maintenance.mjs", ["--recommended-schedule"], {
-        env: { LORE_COPILOT_HOME: tempHome },
+        env: { LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" },
       });
       assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
       assert.ok(
@@ -315,7 +315,7 @@ describe("run-maintenance --recommended-schedule", () => {
     const tempHome = makeTempDir();
     try {
       const result = run("run-maintenance.mjs", ["--recommended-schedule"], {
-        env: { LORE_COPILOT_HOME: tempHome },
+        env: { LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" },
       });
       assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
       assert.ok(
@@ -341,7 +341,7 @@ describe("run-maintenance --dry-run", () => {
       const result = run(
         "run-maintenance.mjs",
         ["--dry-run", "--raw-store-path", rawStorePath],
-        { env: { LORE_COPILOT_HOME: tempHome } },
+        { env: { LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" } },
       );
       assert.strictEqual(
         result.status,
@@ -371,7 +371,7 @@ describe("run-maintenance --status", () => {
       const result = run(
         "run-maintenance.mjs",
         ["--status", "--raw-store-path", rawStorePath],
-        { env: { LORE_COPILOT_HOME: tempHome } },
+        { env: { LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" } },
       );
       assert.strictEqual(
         result.status,
@@ -434,7 +434,7 @@ describe("run-maintenance --tasks validation", () => {
       const result = run(
         "run-maintenance.mjs",
         ["--tasks", "validationCorpus,typo", "--dry-run"],
-        { env: { LORE_COPILOT_HOME: tempHome } },
+        { env: { LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" } },
       );
       assert.strictEqual(
         result.status,

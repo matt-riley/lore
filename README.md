@@ -68,7 +68,7 @@ node scripts/dev-install.mjs
 
 ### Pi (coding agent)
 
-Lore also ships an adapter for [Pi](https://pi.dev), the terminal coding agent. [`lore-pi.ts`](lore-pi.ts) maps Lore's hooks onto Pi events and exposes the same memory store as the `lore_save`, `lore_recall`, and `lore_status` tools plus a `/lore` command. It shares the same config (`~/.copilot/lore.json`) and the same database (`~/.copilot/lore.db`) as the Copilot CLI install, so both agents on one machine use a single memory bank — no migration needed.
+Lore also ships an adapter for [Pi](https://pi.dev), the terminal coding agent. [`lore-pi.ts`](lore-pi.ts) maps Lore's hooks onto Pi events and exposes the same memory store as the `lore_save`, `lore_recall`, and `lore_status` tools plus a `/lore` command. It shares Lore's config and database with the Copilot CLI install, so both agents on one machine use a single memory bank.
 
 Install by cloning the repository into Pi's global extensions directory:
 
@@ -91,8 +91,7 @@ Verify it loaded: you should see a `lore: memory ready` notification on startup,
 Requirements and notes:
 
 - **Node.js 22.5+ on PATH.** Pi's extension runtime is bun, which does not implement `node:sqlite`; the adapter spawns your system `node` to run [`lore-server.mjs`](lore-server.mjs), which owns the database. If `node` is not on PATH (for example, a mise or fnm shim), set `LORE_NODE` to the absolute path.
-- **`"enabled": true` in `~/.copilot/lore.json`.** The Pi and Copilot CLI adapters share one config file and one store.
-- The `paths.piSessionDir` and `paths.piHome` config keys are optional for Pi — the server defaults to `~/.pi/agent/sessions` when they are unset.
+- **`"enabled": true` in the Lore config.** The Pi and Copilot CLI adapters share one config file and one store.
 - Ambient recall is injected into the model context each prompt but hidden from the Pi TUI, cached per session, and pruned to the most recent injection so the memory cost stays bounded.
 - The Pi worker buffers streamed responses and restarts on the next operation if it exits unexpectedly. Shutdown drains queued extraction before closing the database, with a bounded forced-stop fallback.
 - Pi vector search refreshes cached embeddings when memory content, provider, model, or vector dimensions change. Each search indexes at most `min(localInference.embeddings.maxInputs, 24)` memories, plus the query, and has a 10-second default deadline. Cold stores fill incrementally across searches; errors fall back to lexical retrieval, and results must meet `minSimilarity`.
@@ -102,15 +101,16 @@ Requirements and notes:
 
 ## Configure
 
-Copy the example config into your Copilot home:
+For a fresh install, copy the example config into the Lore home. If you already have Lore data under `~/.copilot`, migrate it first; creating an empty new Lore home selects it and disables the legacy fallback. See [Configuration](docs/compatibility.md) for the migration steps. If you set `XDG_CONFIG_HOME`, it must be an absolute path.
 
 ```sh
-cp lore.example.json ~/.copilot/lore.json
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/lore"
+cp lore.example.json "${XDG_CONFIG_HOME:-$HOME/.config}/lore/lore.json"
 ```
 
 The checked-in example is the "all features on" starting point. It enables Lore itself, turns on the maintenance scheduler, enables session-start archive import, and opts into the current rollout-gated experimental surfaces.
 
-If you want a quieter setup, copy the file first and then dial features back in `~/.copilot/lore.json`.
+If you want a quieter setup, copy the file first and then dial features back in the Lore config. `LORE_HOME` overrides the Lore directory, while `LORE_CONFIG` overrides the config file path without relocating the database. `LORE_COPILOT_HOME` changes where Lore looks for Copilot inputs such as `session-store.db` and instructions; legacy fallback still applies when no new Lore home exists.
 
 ---
 
@@ -354,7 +354,9 @@ Each concept is retained as a `type: "okf_concept"` semantic memory row, tagged 
 
 Lore is local-only by design.
 
-It stores derived memory in `~/.copilot/lore.db`, reads Copilot CLI's raw `session-store.db` as input, and keeps configuration in `~/.copilot/lore.json`. Lore does **not** sync memory to the cloud or expose a network API. If you explicitly enable `localInference`, selected session or reflection evidence is sent only to the configured loopback model endpoint.
+It stores derived memory in `~/.config/lore/lore.db` (or `$XDG_CONFIG_HOME/lore/lore.db`), reads Copilot CLI's raw `session-store.db` from `~/.copilot` as input, and keeps configuration in `~/.config/lore/lore.json`. Lore does **not** sync memory to the cloud or expose a network API. If you explicitly enable `localInference`, selected session or reflection evidence is sent only to the configured loopback model endpoint.
+
+Existing installations remain compatible: when no Lore home is configured and the new home does not exist, Lore continues using a legacy `~/.copilot/lore.json` and `~/.copilot/lore.db` (including `~/.copilot/backups/lore`). Once the new Lore home exists, it is used. To migrate explicitly, stop Lore sessions and run `npm run migrate-home -- --from <old> --to <new>`; the command defaults to the legacy and new homes, copies the database snapshot, config, backups, and cursor without overwriting the destination, leaves the source untouched, and preserves custom configured paths. If you choose a custom destination, set `LORE_HOME` to it in each harness. Update or unset any `LORE_CONFIG` override that still points to the old config. Lore never migrates a real user's data automatically.
 
 If you enable the optional browser dashboard, keep in mind:
 
@@ -381,6 +383,7 @@ Useful commands:
 | `npm run test:smoke` | Run smoke tests only |
 | `npm run validate-schema` | Validate config/schema parity |
 | `npm run dev-install` | Copy a dev checkout into `~/.copilot/extensions/lore` |
+| `npm run migrate-home -- --from <old> --to <new>` | Explicitly copy a Lore home without overwriting the destination |
 | `npm run maintenance` | Run the maintenance script |
 | `npm run browser` | Start the local browser dashboard |
 | `npm run visualize-okf -- --bundle <dir>` | Render an interactive `viz.html` for an OKF-format `memory_portable_bundle` export |

@@ -1,4 +1,4 @@
-import os from "node:os";
+import { resolveLorePaths } from "../lib/lore-paths.mjs";
 import path from "node:path";
 
 function resolveArgPath(value) {
@@ -10,15 +10,7 @@ function normalizeRepositoryArg(value) {
 }
 
 export function resolveDefaultLoreConfigPath() {
-  const configFromEnv = (process.env.LORE_CONFIG ?? "").trim();
-  if (configFromEnv.length > 0) {
-    return configFromEnv;
-  }
-  const homeFromEnv = (process.env.LORE_COPILOT_HOME ?? "").trim();
-  if (homeFromEnv.length > 0) {
-    return path.join(homeFromEnv, "lore.json");
-  }
-  return path.join(os.homedir(), ".copilot", "lore.json");
+  return resolveLorePaths().configPath;
 }
 
 export function finalizeScriptConfig(merged, args, configPath) {

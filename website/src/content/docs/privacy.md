@@ -11,8 +11,8 @@ Lore is local-first. By default it makes no non-loopback outbound network calls,
 
 | File | Role |
 | --- | --- |
-| `~/.copilot/lore.db` | Derived memories, summaries, notes, provenance, and maintenance artifacts |
-| `~/.copilot/lore.json` | Configuration and preferences |
+| `~/.config/lore/lore.db` | Derived memories, summaries, notes, provenance, and maintenance artifacts |
+| `~/.config/lore/lore.json` | Configuration and preferences |
 | `~/.copilot/session-store.db` | Raw Copilot session input; Lore reads it and never writes it |
 
 These stores can contain code excerpts, file paths, decisions, and session notes. Treat them as sensitive local data.
@@ -32,7 +32,7 @@ The optional browser dashboard is experimental, read-only, unauthenticated, and 
 On a single-user machine, you may restrict permissions:
 
 ```sh
-chmod 600 ~/.copilot/lore.db ~/.copilot/lore.json
+chmod 600 ~/.config/lore/lore.db ~/.config/lore/lore.json
 ```
 
 Backups and exported portability bundles can contain the same sensitive material. Keep them private and remove them using your normal secure local-data policy when they are no longer needed.

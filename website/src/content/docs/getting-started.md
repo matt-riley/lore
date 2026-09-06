@@ -21,11 +21,11 @@ git clone https://github.com/matt-riley/lore.git ~/.copilot/extensions/lore
 
 ## 2. Turn memory on
 
-Create the config directory, then create or edit `~/.copilot/lore.json`. If that file already exists, keep it and add the Lore settings you want; do not replace it wholesale:
+For a fresh install, create the Lore config directory, then create or edit `~/.config/lore/lore.json`. If you already have Lore data under `~/.copilot`, [migrate it first](/guides/configuration/#migrating-an-existing-installation); creating an empty new Lore home selects it and disables the legacy fallback. If that file already exists, keep it and add the Lore settings you want; do not replace it wholesale. If you set `XDG_CONFIG_HOME`, it must be an absolute path:
 
 ```sh
-mkdir -p ~/.copilot
-${EDITOR:-vi} ~/.copilot/lore.json
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/lore"
+${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/lore/lore.json"
 ```
 
 For a new file, start with this minimal config:
@@ -64,4 +64,4 @@ git -C ~/.copilot/extensions/lore pull
 
 ## If nothing appears
 
-Run `memory_validate` and check that Node is at least 22.5.0. Confirm `~/.copilot/lore.json` contains `"enabled": true`, then restart Copilot CLI so it rescans extensions. [Troubleshooting](/guides/troubleshooting/) covers missing hooks, paths, and database errors.
+Run `memory_validate` and check that Node is at least 22.5.0. Confirm the Lore config contains `"enabled": true`, then restart Copilot CLI so it rescans extensions. [Troubleshooting](/guides/troubleshooting/) covers missing hooks, paths, and database errors.

@@ -31,11 +31,11 @@ Reload Pi again after an update.
 
 ## Enable Lore without replacing your config
 
-Create or edit the shared config without replacing any settings you already use:
+For a fresh install, create or edit the shared config without replacing any settings you already use. If you already have Lore data under `~/.copilot`, [migrate it first](/guides/configuration/#migrating-an-existing-installation); creating an empty new Lore home selects it and disables the legacy fallback. If you set `XDG_CONFIG_HOME`, it must be an absolute path:
 
 ```sh
-mkdir -p ~/.copilot
-${EDITOR:-vi} ~/.copilot/lore.json
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/lore"
+${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/lore/lore.json"
 ```
 
 Merge this key into the JSON object:
@@ -52,8 +52,8 @@ The adapter uses:
 
 | Item | Default path |
 | --- | --- |
-| Configuration | `~/.copilot/lore.json` |
-| Derived memory | `~/.copilot/lore.db` |
+| Configuration | `~/.config/lore/lore.json` |
+| Derived memory | `~/.config/lore/lore.db` |
 | Pi sessions | `~/.pi/agent/sessions` |
 
 ## Verify Pi loaded Lore

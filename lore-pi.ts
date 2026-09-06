@@ -9,8 +9,8 @@
 //   Copilot onSessionEnd          -> pi session_shutdown (close db)
 //   Copilot memory_save/_search   -> pi tools lore_save / lore_recall / lore_status
 //
-// Shared config: ~/.copilot/lore.json (lore's own documented config path);
-// memory lives in ~/.copilot/lore.db, so installing lore into the Copilot CLI
+// Shared config: ~/.config/lore/lore.json (lore's own documented config path);
+// memory lives in ~/.config/lore/lore.db, so installing lore into the Copilot CLI
 // later reuses the same store.
 //
 // Why a server process: pi's extension runtime is bun 1.3.x, which does not
@@ -33,6 +33,7 @@ import path from "node:path";
 import { createPiServerClient } from "./lib/pi-server-client.mjs";
 
 type LoreConfig = {
+  configPath?: string;
   enabled?: boolean;
   paths?: Record<string, string>;
 };
@@ -153,7 +154,7 @@ async function ensureRuntime(ctx: {
       const { loadConfig } = await import("./lib/config.mjs");
       const config = (await loadConfig()) as LoreConfig;
       if (config?.enabled !== true) {
-        ctx.ui?.notify('lore: disabled — set "enabled": true in ~/.copilot/lore.json', "warning");
+        ctx.ui?.notify(`lore: disabled — set "enabled": true in ${config.configPath}`, "warning");
         return null;
       }
 

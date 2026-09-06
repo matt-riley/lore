@@ -30,6 +30,7 @@
     "lint": "oxlint lib/ extension.mjs lore-pi.ts lore-server.mjs pi-session-reader.mjs browser/ scripts/",
     "dev-install": "node scripts/dev-install.mjs",
     "maintenance": "node scripts/run-maintenance.mjs",
+    "migrate-home": "node scripts/migrate-home.mjs",
     "browser": "node scripts/run-browser.mjs",
     "visualize-okf": "node scripts/visualize-okf-bundle.mjs"
   },

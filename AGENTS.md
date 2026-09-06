@@ -22,4 +22,4 @@ Add unit tests for isolated logic and smoke tests for script, temp-home, or subp
 Recent history uses Conventional Commits such as `fix: ...`, `refactor: ...`, and `chore: ...`; keep commits and PR titles in that format because release-please depends on them. Link related issues, describe user-visible behavior changes, and include terminal output or screenshots when touching the browser dashboard. Use `.github/pull_request_template.md` and keep release-facing docs in sync when changing public surfaces.
 
 ## Security & Release Notes
-Do not expose the browser dashboard beyond loopback. Treat `~/.copilot/lore.db` and `~/.copilot/lore.json` as sensitive local data. When changing tool metadata or support levels, update `lib/capability-manifest.mjs` and `docs/support-matrix.md` together.
+Do not expose the browser dashboard beyond loopback. Treat `~/.config/lore/lore.db` and `~/.config/lore/lore.json` as sensitive local data. When changing tool metadata or support levels, update `lib/capability-manifest.mjs` and `docs/support-matrix.md` together.

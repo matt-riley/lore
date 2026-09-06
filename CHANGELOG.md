@@ -20,6 +20,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.11.0](https://github.com/matt-riley/lore/compare/lore-v0.10.2...lore-v0.11.0) (2026-09-06)
+
+
+### Features
+
+* add native Codex Claude and Antigravity integrations ([4246555](https://github.com/matt-riley/lore/commit/42465555e825067af1611ff4e2c171c8039814c6))
+
+
+### Bug Fixes
+
+* make semantic memory refreshes transactional ([9a10de5](https://github.com/matt-riley/lore/commit/9a10de5d78b8af387dbe6bec8a572d501d6b9813))
+
 ## [0.10.2](https://github.com/matt-riley/lore/compare/lore-v0.10.1...lore-v0.10.2) (2026-09-06)
 
 

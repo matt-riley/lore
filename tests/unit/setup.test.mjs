@@ -180,3 +180,37 @@ for (const client of ["codex", "claude", "antigravity"]) {
     } finally { rmSync(home, { recursive: true, force: true }); }
   });
 }
+
+test("malformed ownership manifests fail with an actionable error before setup or removal writes", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-invalid-manifest-"));
+  try {
+    const options = { home, env: { HOME: home } };
+    applySetup(planSetup(["codex"], options));
+    const manifestPath = path.join(home, ".config/lore/install-manifest.json");
+    const hooksPath = path.join(home, ".codex/hooks.json");
+    const configPath = path.join(home, ".config/lore/lore.json");
+    const hooks = readFileSync(hooksPath, "utf8");
+    const config = readFileSync(configPath, "utf8");
+    for (const value of [
+      "{", "null", "[]", "{}",
+      ...[null, [], "broken", 42].map(installs => JSON.stringify({ version: 1, installs })),
+      JSON.stringify({ version: 2, installs: {} }),
+      JSON.stringify({ version: 1, installs: { codex: null } }),
+      JSON.stringify({ version: 1, installs: { codex: { kind: "hooks", target: hooksPath, commands: "broken" } } }),
+    ]) {
+      writeFileSync(manifestPath, value);
+      for (const plan of [planSetup, planRemove]) {
+        assert.throws(() => plan(["codex"], options), error => {
+          assert.equal(error instanceof TypeError, false);
+          assert.match(error.message, /Invalid Lore installation manifest/);
+          assert.ok(error.message.includes(manifestPath));
+          assert.match(error.message, /restore.*backup/i);
+          return true;
+        });
+        assert.equal(readFileSync(manifestPath, "utf8"), value);
+        assert.equal(readFileSync(hooksPath, "utf8"), hooks);
+        assert.equal(readFileSync(configPath, "utf8"), config);
+      }
+    }
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

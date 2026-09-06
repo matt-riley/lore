@@ -2,7 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 import { LoreDb } from "../../lib/db.mjs";
@@ -107,6 +107,132 @@ describe("LoreDb legacy schema version compatibility", () => {
       );
       assert.equal(loreDb.db, null, "future-schema rejection must happen before opening the database");
       assert.equal(loreDb.lastBackupPath, null);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves memory identity, content, scope, and provenance across an older-schema upgrade", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "lore.db");
+    const backupDir = path.join(tempHome, "backups");
+    const memory = {
+      id: "stable-memory-id",
+      content: "The deployment runbook requires a staged rollout.",
+      scope: "global",
+      scopeSource: "manual",
+      repository: null,
+      metadata: JSON.stringify({ source: "synthetic-boundary" }),
+    };
+    try {
+      const initial = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      initial.initialize();
+      initial.db.prepare(`
+        INSERT INTO semantic_memory
+          (id, type, content, confidence, scope, scope_source, repository, tags,
+           created_at, updated_at, metadata_json)
+        VALUES (?, 'fact', ?, 0.8, ?, ?, ?, 'boundary', datetime('now'), datetime('now'), ?)
+      `).run(memory.id, memory.content, memory.scope, memory.scopeSource, memory.repository, memory.metadata);
+      initial.close();
+
+      const raw = new DatabaseSync(dbPath);
+      raw.exec("UPDATE lore_schema_version SET version = 17");
+      raw.close();
+
+      const upgraded = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      upgraded.initialize();
+      const row = upgraded.db.prepare(
+        "SELECT id, content, scope, scope_source, repository, metadata_json FROM semantic_memory WHERE id = ?",
+      ).get(memory.id);
+      assert.deepEqual({ ...row }, {
+        id: memory.id,
+        content: memory.content,
+        scope: memory.scope,
+        scope_source: memory.scopeSource,
+        repository: memory.repository,
+        metadata_json: memory.metadata,
+      });
+      upgraded.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("closes after an injected migration failure and retries safely", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "lore.db");
+    const backupDir = path.join(tempHome, "backups");
+    class RetryLoreDb extends LoreDb {
+      failed = false;
+
+      applySchemaStatementsMigration() {
+        if (!this.failed) {
+          this.failed = true;
+          throw new Error("synthetic migration interruption");
+        }
+        return super.applySchemaStatementsMigration();
+      }
+    }
+    try {
+      const raw = new DatabaseSync(dbPath);
+      raw.exec("CREATE TABLE lore_schema_version (version INTEGER NOT NULL); INSERT INTO lore_schema_version VALUES (17);");
+      raw.close();
+      const loreDb = new RetryLoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      assert.throws(() => loreDb.initialize(), /synthetic migration interruption/);
+      assert.equal(loreDb.db, null, "failed migrations must release the open handle for retry");
+      loreDb.initialize();
+      assert.equal(loreDb.getCurrentVersion(), SCHEMA_VERSION);
+      loreDb.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("does not adopt legacy names when the migration snapshot fails", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "legacy.db");
+    const backupDir = path.join(tempHome, "backups");
+    class FailingSnapshotLoreDb extends LoreDb {
+      backupDatabase() {
+        throw new Error("synthetic snapshot failure");
+      }
+    }
+    try {
+      const raw = new DatabaseSync(dbPath);
+      raw.exec(`
+        CREATE TABLE coherence_schema_version (version INTEGER NOT NULL);
+        INSERT INTO coherence_schema_version VALUES (13);
+        CREATE TABLE coherence_activity_state (scope_key TEXT PRIMARY KEY, scope_type TEXT NOT NULL, repository TEXT);
+      `);
+      raw.close();
+      const loreDb = new FailingSnapshotLoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      assert.throws(() => loreDb.initialize(), /synthetic snapshot failure/);
+      assert.equal(loreDb.db, null);
+      const check = new DatabaseSync(dbPath, { readOnly: true });
+      assert.ok(check.prepare("SELECT name FROM sqlite_master WHERE name = 'coherence_schema_version'").get());
+      assert.ok(check.prepare("SELECT name FROM sqlite_master WHERE name = 'coherence_activity_state'").get());
+      assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name = 'lore_schema_version'").get(), undefined);
+      check.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("serial fresh initializers converge on one schema", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "lore.db");
+    const backupDir = path.join(tempHome, "backups");
+    try {
+      const first = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      const second = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      first.initialize();
+      second.initialize();
+      assert.equal(first.getCurrentVersion(), SCHEMA_VERSION);
+      assert.equal(second.getCurrentVersion(), SCHEMA_VERSION);
+      second.close();
+      first.close();
+      assert.equal(statSync(dbPath).mode & 0o777, 0o600);
+      assert.equal(statSync(path.dirname(dbPath)).mode & 0o777, 0o700);
     } finally {
       rmSync(tempHome, { recursive: true, force: true });
     }

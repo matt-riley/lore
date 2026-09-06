@@ -15,6 +15,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Bound Pi archive scanning and resolve imported file paths against the source session's working directory.
 - Serve the dashboard over IPv6 loopback and reject malformed request URLs without terminating the server.
 
+### Changed
+
+- Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
+- Clarify that schema validation checks committed defaults, not the user's configuration file.
+
 ## [0.10.0](https://github.com/matt-riley/lore/compare/lore-v0.9.0...lore-v0.10.0) (2026-09-06)
 
 

@@ -13,12 +13,12 @@ This document defines the minimum supported runtime environments, version expect
 | Requirement | Value |
 |---|---|
 | **Minimum** | Node 22.5.0 |
-| **Recommended** | Node 22 LTS or Node 23+ |
-| **Tested** | Node 23.x (author's daily driver) |
+| **Recommended** | Node 24 |
+| **CI matrix** | Latest Node 22, 24, and 26 releases on Linux and macOS |
 
 **Why 22.5.0?** Lore uses [`node:sqlite`](https://nodejs.org/api/sqlite.html) (`DatabaseSync`) from Node's built-in module set. This API landed experimentally in Node 22.5.0. If you're on an older version, Lore will fail to initialise with a clear error at startup.
 
-Node 22 is the current LTS line. If you're on Node 20 or earlier, upgrade before installing.
+The CI matrix tests the latest release of each listed major; it does not certify every earlier minor release. If you're on Node 20 or earlier, upgrade before installing.
 
 ---
 
@@ -27,7 +27,7 @@ Node 22 is the current LTS line. If you're on Node 20 or earlier, upgrade before
 | Platform | Status | Notes |
 |---|---|---|
 | macOS (Apple Silicon / Intel) | 🟢 Supported | Primary development and testing platform. |
-| Linux (x86-64, ARM64) | 🟡 Expected to work | No dedicated test matrix yet. Path and filesystem assumptions should hold. File an issue if you hit platform-specific problems. |
+| Linux (x86-64, ARM64) | 🟡 Expected to work | CI exercises the GitHub-hosted Ubuntu runner; it does not cover every architecture. File an issue if you hit platform-specific problems. |
 | Windows | 🔴 Not supported | Path handling, shell quoting, and process assumptions are macOS/Linux-oriented. WSL2 on Windows may work but is untested and unsupported. |
 
 ---
@@ -58,8 +58,8 @@ Node 22 is the current LTS line. If you're on Node 20 or earlier, upgrade before
 | Scenario | Compatibility |
 |---|---|
 | Fresh install (no prior config) | ✅ All keys have defaults. A minimal config with only `"enabled": true` is sufficient to start. |
-| Existing config from prior versions | ✅ New keys are additive, including rollout flags like `memoryDomains` and `refreshableObservations`. Unknown keys are rejected by schema validation, so `memory_validate` will surface any stale keys from old configs. |
-| Config validated against schema | ✅ `scripts/validate-config-schema.mjs` validates `lore.json` against `schemas/lore.schema.json`. Run it after any manual config edits. |
+| Existing config from prior versions | New keys are additive, including rollout flags like `memoryDomains` and `refreshableObservations`. Runtime loading merges user values with defaults; it does not perform full JSON Schema validation or reject every unknown key. |
+| Schema/default parity | `npm run validate-schema` checks committed defaults against `schemas/lore.schema.json`. It does not read or validate your personal `lore.json`. Use an editor with JSON Schema support and the checked-in schema to validate manual config edits. |
 
 `maintenanceScheduler.memoryHygiene` is additive and defaults to `mode: "off"`. `shadow` mode is report-only. `apply` mode can supersede `open_loop` and `assistant_goal` rows only when deterministic later evidence satisfies the documented scope rules. Each mutation is soft, marked with `auto-hygiene:<run-id>`, and reversible through `maintenance_schedule_run` using `action: "rollback_hygiene"`.
 

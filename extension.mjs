@@ -167,7 +167,7 @@ async function shutdownRuntime(session, gracePeriodMs = 4000) {
 
   if (runtime.pendingWork.size > 0) {
     await Promise.race([
-      Promise.allSettled([...runtime.pendingWork]),
+      Promise.allSettled(runtime.pendingWork),
       delay(gracePeriodMs),
     ]);
   }

@@ -9,7 +9,7 @@ Lore runs on your machine, plugs into native agent lifecycle hooks, and stores i
 
 ## What it does
 
-Every time you work with Copilot, you build up context — decisions made, patterns discovered, blockers hit, things learned. Normally that context evaporates when a session ends. **Lore changes that.**
+Every time you work with your coding agent, you build up context — decisions made, patterns discovered, blockers hit, things learned. Normally that context evaporates when a session ends. **Lore changes that.**
 
 Lore quietly captures what matters from your sessions and surfaces it again when it's relevant. Ask about your work yesterday and Lore will remember. Ask about a pattern you keep hitting and Lore has examples. Ask about a decision from three weeks ago and Lore might have the answer.
 
@@ -25,6 +25,8 @@ At a glance, Lore can:
 **Zero runtime dependencies.** Lore is plain ESM built on Node's built-in `node:sqlite` module. No npm bloat. No surprises.
 
 Lore has a stable core and an experimental ring. The support boundary for each surface lives in [`docs/support-matrix.md`](docs/support-matrix.md).
+
+Capabilities vary by adapter: Codex, Claude Code, and Antigravity integrations are experimental and provide automatic recall/capture plus a small shell-command surface. They do not run automatic maintenance or archive backfill, or expose Copilot's full diagnostics and tool set.
 
 ---
 
@@ -42,7 +44,19 @@ For the full compatibility contract, including browser and database notes, see [
 
 ## Install
 
-The primary install layout is to clone Lore directly into your Copilot extensions directory:
+Choose your agent; you do not need Copilot installed to use the others:
+
+| Agent | Integration | Setup |
+| --- | --- | --- |
+| Copilot CLI | Native extension | [Copilot installation](#github-copilot-cli) |
+| Pi | Native extension and `/lore` commands | [Pi installation](#pi-coding-agent) |
+| Codex CLI | Experimental native lifecycle hooks | [CLI hook installation](#codex-cli-claude-code-and-antigravity-cli) |
+| Claude Code | Experimental native lifecycle hooks, not Claude Desktop | [CLI hook installation](#codex-cli-claude-code-and-antigravity-cli) |
+| Antigravity CLI | Experimental native lifecycle hooks, not the IDE integration | [CLI hook installation](#codex-cli-claude-code-and-antigravity-cli) |
+
+### GitHub Copilot CLI
+
+Clone Lore directly into your Copilot extensions directory, then [enable Lore](#configure):
 
 ```sh
 git clone https://github.com/matt-riley/lore.git ~/.copilot/extensions/lore
@@ -68,10 +82,16 @@ node scripts/dev-install.mjs
 
 ### Codex CLI, Claude Code, and Antigravity CLI
 
-These integrations use native command hooks for automatic recall and session
-capture. All clients share Lore's existing config and database; MCP is not
-required. First [configure and enable Lore](#configure), then preview and install
-the relevant hooks from your stable Lore checkout:
+These experimental integrations use native command hooks for automatic recall
+and session capture, not MCP. Use an existing stable Lore checkout or clone one:
+
+```sh
+git clone https://github.com/matt-riley/lore.git ~/dev/lore
+cd ~/dev/lore
+```
+
+First [configure and enable Lore](#configure), then preview and install the
+relevant hooks from that checkout. Replace `/path/to/project` with your project:
 
 ```sh
 node scripts/install-hooks.mjs codex --project /path/to/project
@@ -80,18 +100,44 @@ node scripts/install-hooks.mjs claude --project /path/to/project --write
 node scripts/install-hooks.mjs antigravity --global --write
 ```
 
-Codex requires reviewing the installed hooks with `/hooks`. Restart the client
-after installing. For Antigravity, launch `agy --add-dir /path/to/project` so its
-hooks receive the workspace. Existing hooks/settings are preserved, and modified
-files get backups. Use `--remove --write` with the same client and scope to
-uninstall Lore's entries.
+The installer defaults to a dry run; `--write` applies changes. Codex and Claude
+also accept `--global`; use one scope per client to avoid duplicate invocations.
+Codex requires reviewing and trusting the installed hooks with `/hooks` and
+trusting project configuration. Claude may require project hook approval.
+Restart the client after installing.
+
+Antigravity 1.1.19 requires the global installation and an explicitly mounted
+workspace: launch `agy --add-dir /path/to/project`. Its `/hooks` should list the
+`lore` group. The documented project hook location was not discovered in live
+checks for that version.
+
+Existing hooks/settings are preserved, and modified files get backups. Use
+`--remove --write` with the same client and scope to uninstall Lore's entries.
+Remove and reinstall hooks if you move the checkout or change Node installations;
+the installer records absolute paths.
+
+All clients share Lore's config and database by default. Repository-scoped recall
+also requires the same repository identifier, normally derived from Git origin.
+Set `LORE_REPOSITORY` in the client environment to align it explicitly.
+
+From your project directory, verify the store or recall a memory directly:
+
+```sh
+printf '%s\n' '{}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_status
+printf '%s\n' '{"prompt":"What did we decide about storage?"}' | node /absolute/path/to/lore/lore-cli.mjs tool lore_recall
+```
+
+These are shell-invoked commands, not registered model tools. Live automatic
+recall and completed-session capture passed on macOS on 2026-09-06 with Codex
+0.153.4, Claude Code 2.1.263, and Antigravity CLI 1.1.19. These are verified
+versions, not established minimum versions.
 
 See [native CLI integrations](docs/cli-integrations.md) for event mappings, global
 installation, direct memory commands, verification, and limitations.
 
 ### Pi (coding agent)
 
-Lore also ships an adapter for [Pi](https://pi.dev), the terminal coding agent. [`lore-pi.ts`](lore-pi.ts) maps Lore's hooks onto Pi events and exposes the same memory store as the `lore_save`, `lore_recall`, and `lore_status` tools plus a `/lore` command. It shares Lore's config and database with the Copilot CLI install, so both agents on one machine use a single memory bank.
+Lore also ships an adapter for [Pi](https://pi.dev), the terminal coding agent. [`lore-pi.ts`](lore-pi.ts) maps Lore's hooks onto Pi events and exposes the shared memory store through `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status`, plus a `/lore` command. It uses the same default config and database as the other adapters; no Copilot installation is required.
 
 Install by cloning the repository into Pi's global extensions directory:
 
@@ -109,12 +155,12 @@ git -C ~/.pi/agent/extensions/lore pull
 
 then `/reload` again.
 
-Verify it loaded: you should see a `lore: memory ready` notification on startup, and `/lore status` should print the same counts as the Copilot CLI install. The `lore_save`, `lore_recall`, and `lore_status` tools are then available to the agent.
+After [enabling Lore](#configure), verify it loaded: you should see a `lore: memory ready` notification on startup, and `/lore status` should print memory counts and store information. The `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status` tools are then available to the agent.
 
 Requirements and notes:
 
 - **Node.js 22.5+ on PATH.** Pi's extension runtime is bun, which does not implement `node:sqlite`; the adapter spawns your system `node` to run [`lore-server.mjs`](lore-server.mjs), which owns the database. If `node` is not on PATH (for example, a mise or fnm shim), set `LORE_NODE` to the absolute path.
-- **`"enabled": true` in the Lore config.** The Pi and Copilot CLI adapters share one config file and one store.
+- **`"enabled": true` in the Lore config.** All adapters use the shared config and store by default.
 - Ambient recall is injected into the model context each prompt but hidden from the Pi TUI, cached per session, and pruned to the most recent injection so the memory cost stays bounded.
 - The Pi worker buffers streamed responses and restarts on the next operation if it exits unexpectedly. Shutdown drains queued extraction before closing the database, with a bounded forced-stop fallback.
 - Pi vector search refreshes cached embeddings when memory content, provider, model, or vector dimensions change. Each search indexes at most `min(localInference.embeddings.maxInputs, 24)` memories, plus the query, and has a 10-second default deadline. Cold stores fill incrementally across searches; errors fall back to lexical retrieval, and results must meet `minSimilarity`.
@@ -124,16 +170,24 @@ Requirements and notes:
 
 ## Configure
 
-For a fresh install, copy the example config into the Lore home. If you already have Lore data under `~/.copilot`, migrate it first; creating an empty new Lore home selects it and disables the legacy fallback. See [Configuration](docs/compatibility.md) for the migration steps. If you set `XDG_CONFIG_HOME`, it must be an absolute path.
+For a fresh install, create or edit the config in the Lore home. If you already have Lore data under `~/.copilot`, migrate it first; creating an empty new Lore home selects it and disables the legacy fallback. See [configuration and migration](docs/compatibility.md#lorejson-config) for the steps. If you set `XDG_CONFIG_HOME`, it must be an absolute path.
 
 ```sh
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/lore"
-cp lore.example.json "${XDG_CONFIG_HOME:-$HOME/.config}/lore/lore.json"
+${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/lore/lore.json"
 ```
 
-The checked-in example is the "all features on" starting point. It enables Lore itself, turns on the maintenance scheduler, enables session-start archive import, and opts into the current rollout-gated experimental surfaces.
+For a new file, start with:
 
-If you want a quieter setup, copy the file first and then dial features back in the Lore config. `LORE_HOME` overrides the Lore directory, while `LORE_CONFIG` overrides the config file path without relocating the database. `LORE_COPILOT_HOME` changes where Lore looks for Copilot inputs such as `session-store.db` and instructions; legacy fallback still applies when no new Lore home exists.
+```json
+{ "enabled": true }
+```
+
+For an existing file, merge that key without replacing other settings. Restart your client, or `/reload` Pi, after enabling Lore.
+
+[`lore.example.json`](lore.example.json) is a fuller example, not a minimal or "all features on" config. It enables the maintenance scheduler, session-start archive import, and several rollout-gated experimental surfaces, but leaves local inference disabled. Review and merge only the features you need; adapter-specific limits still apply.
+
+`LORE_HOME` overrides the Lore directory, while `LORE_CONFIG` overrides the config file path without relocating the database. `LORE_COPILOT_HOME` changes where Lore looks for Copilot inputs such as `session-store.db` and instructions; legacy fallback still applies when no new Lore home exists.
 
 ---
 
@@ -214,7 +268,7 @@ The provider and each consuming surface have separate opt-ins:
 - When embeddings are enabled, Lore embeds generated claims in a second bounded pass and discards claims below `groundingMinSimilarity`. If no grounded insight remains, Lore returns the deterministic reflection.
 - Embedding-based semantic memory search is opt-in via `embeddings.enabled` + `model`. When enabled, `lore_recall` appends meaning-ranked matches (cosine similarity) to its lexical results. Memory vectors are cached in the local `memory_embedding` table and reused across searches, so only the query and any new memories are re-embedded. Search fails open to lexical-only when the endpoint is unavailable.
 
-Prompt-context hooks make no model calls by default. Enabling query expansion or context compression permits bounded loopback-only inference during context assembly and can add latency. Invalid output, missing citations, ungrounded claims, timeouts, or an unavailable model server are reported while Lore preserves its deterministic retrieval, capsule, extraction, or reflection result. Embedding vectors are cached locally in the `memory_embedding` table only — memory content and the query string are sent solely to the configured loopback endpoint, never anywhere else.
+Prompt-context hooks make no model calls by default. In the Copilot adapter, enabling query expansion or context compression permits bounded loopback-only inference during context assembly and can add latency. Codex, Claude Code, and Antigravity automatic recall remains deterministic; their explicit `lore_recall` command can use optional local query expansion and embeddings. Invalid output, missing citations, ungrounded claims, timeouts, or an unavailable model server are reported while Lore preserves its deterministic retrieval, capsule, extraction, or reflection result. Embedding vectors are cached locally in `memory_embedding`; Lore's inference requests go only to the configured loopback endpoint. Recalled context can separately reach your coding agent's model, as explained under [Privacy and security](#privacy-and-security).
 
 ### `traceRecorder`
 
@@ -239,7 +293,7 @@ Use `memory_status` for recorder health and recent samples. `includeRecentTraces
 
 ### `maintenanceScheduler`
 
-`maintenanceScheduler` is the opt-in maintenance loop for automated memory hygiene, deferred extraction processing, validation and replay corpus runs, backlog review, and index upkeep. On session start, Lore evaluates the maintenance plan and runs the bounded `memoryHygiene` and `deferredExtraction` tasks when they are enabled and due. The work is deferred so the session-start hook remains responsive. The same scheduler also powers manual or scripted sweeps through `maintenance_schedule_run` and `node scripts/run-maintenance.mjs`.
+`maintenanceScheduler` is the opt-in maintenance loop for automated memory hygiene, deferred extraction processing, validation and replay corpus runs, backlog review, and index upkeep. On Copilot session start, Lore evaluates the maintenance plan and runs the bounded `memoryHygiene` and `deferredExtraction` tasks when they are enabled and due. The work is deferred so the session-start hook remains responsive. The same scheduler also powers manual or scripted sweeps through `maintenance_schedule_run` and `node scripts/run-maintenance.mjs`. Codex, Claude Code, and Antigravity hooks do not run automatic maintenance; use the standalone script.
 
 > **Session hooks do not guarantee wall-clock cadence.** For reliable periodic upkeep independent of session frequency, wire `scripts/run-maintenance.mjs` into cron or launchd. See [`docs/maintenance-scheduling.md`](docs/maintenance-scheduling.md) for the full guide including cron and launchd examples, failure detection, and the isolated-database rule.
 
@@ -291,7 +345,7 @@ If you want Lore to import older session history gradually as you keep working, 
 }
 ```
 
-This uses the controlled backfill engine during session start, stays read-only against `session-store.db`, and reports progress in the CLI as it works through queued history.
+This uses the controlled backfill engine during Copilot session start, stays read-only against `session-store.db`, and reports progress in the CLI as it works through queued history. Pi has its own bounded archive importer. The Codex, Claude Code, and Antigravity adapters capture only the active supplied transcript, not session archives.
 
 ---
 
@@ -342,12 +396,16 @@ Lore has two main rings:
 - **Supported core** for stable hooks and core memory tools
 - **Experimental surfaces** for newer capabilities that are useful but still evolving
 
-The canonical breakdown lives in [`docs/support-matrix.md`](docs/support-matrix.md), but the short version is:
+The canonical breakdown lives in [`docs/support-matrix.md`](docs/support-matrix.md). For the Copilot adapter, the short version is:
 
 - stable session hooks: `onSessionStart`, `onUserPromptSubmitted`, `onSessionEnd`
 - stable core verbs such as `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, and `memory_forget`
 - stable diagnostics such as `memory_status`, `memory_explain`, and `memory_validate`
 - experimental reflection, backfill, portability, maintenance, browser, and self-diagnostic surfaces gated by rollout flags
+
+Pi exposes `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status`, plus `/lore status`, `/lore save <text>`, and `/lore search <query>`.
+
+The experimental Codex, Claude Code, and Antigravity adapters expose these shell commands through `lore-cli.mjs tool <name>`: `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, and `memory_status`. They do not expose `memory_explain`, `memory_validate`, or the experimental Copilot tools. Their native event names and lifecycle mappings are listed in the [CLI integration guide](docs/cli-integrations.md#lifecycle-behavior).
 
 For runtime and platform promises, see [`docs/compatibility.md`](docs/compatibility.md).
 
@@ -375,9 +433,13 @@ Each concept is retained as a `type: "okf_concept"` semantic memory row, tagged 
 
 ## Privacy and security
 
-Lore is local-only by design.
+Lore is local-first by design.
 
 It stores derived memory in `~/.config/lore/lore.db` (or `$XDG_CONFIG_HOME/lore/lore.db`), reads Copilot CLI's raw `session-store.db` from `~/.copilot` as input, and keeps configuration in `~/.config/lore/lore.json`. Lore does **not** sync memory to the cloud or expose a network API. If you explicitly enable `localInference`, selected session or reflection evidence is sent only to the configured loopback model endpoint.
+
+Pi reads its own session files, normally under `~/.pi/agent/sessions`. Codex, Claude Code, and Antigravity hooks read only the active transcript supplied by the host, excluding thinking, reasoning, tool output, and injected Lore context from extraction. These adapters do not scan unrelated sessions. Optional post-tool/error observations are default-off and retain categories and success/failure, not raw arguments, outputs, error messages, or stacks.
+
+**Local storage does not mean model context stays local.** Memories injected into a conversation, or read through a shell command by the agent, become context for the host's configured model, which may be cloud-hosted. Lore does not override the host's permissions or model privacy settings.
 
 Existing installations remain compatible: when no Lore home is configured and the new home does not exist, Lore continues using a legacy `~/.copilot/lore.json` and `~/.copilot/lore.db` (including `~/.copilot/backups/lore`). Once the new Lore home exists, it is used. To migrate explicitly, stop Lore sessions and run `npm run migrate-home -- --from <old> --to <new>`; the command defaults to the legacy and new homes, copies the database snapshot, config, backups, and cursor without overwriting the destination, leaves the source untouched, and preserves custom configured paths. If you choose a custom destination, set `LORE_HOME` to it in each harness. Update or unset any `LORE_CONFIG` override that still points to the old config. Lore never migrates a real user's data automatically.
 
@@ -405,6 +467,7 @@ Useful commands:
 | `npm test` | Run the full unit + smoke test suite |
 | `npm run test:smoke` | Run smoke tests only |
 | `npm run validate-schema` | Validate config/schema parity |
+| `npm run lint` | Lint runtime, adapters, browser, and scripts |
 | `npm run dev-install` | Copy a dev checkout into `~/.copilot/extensions/lore` |
 | `npm run install-hooks -- <client> [--global] [--write]` | Preview or install native Codex, Claude Code, or Antigravity lifecycle hooks |
 | `npm run migrate-home -- --from <old> --to <new>` | Explicitly copy a Lore home without overwriting the destination |
@@ -425,18 +488,20 @@ scripts/               # Dev and maintenance scripts
 schemas/               # Config schema
 docs/                  # Compatibility, support matrix, and release docs
 tests/                 # Unit and smoke tests
+website/               # Separate Astro documentation site and interactive examples
 ```
 
 ---
 
 ## Docs and contributing
 
-The [documentation website](website/README.md) is an Astro site with friendly guides and an interactive memory walkthrough. Run it locally with `cd website && pnpm install && pnpm dev`; its own README covers Cloudflare Pages hosting.
+The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 22.12+ and pnpm 11.24.0, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
 
 If you want the deeper contract, these are the main references:
 
 - [docs/support-matrix.md](docs/support-matrix.md) — supported vs experimental surfaces
 - [docs/compatibility.md](docs/compatibility.md) — runtime, OS, browser, and DB expectations
+- [docs/cli-integrations.md](docs/cli-integrations.md) — native Codex, Claude Code, and Antigravity setup, lifecycle behavior, and verification
 - [CONTRIBUTING.md](CONTRIBUTING.md) — local workflow and PR guidance
 - [docs/releasing.md](docs/releasing.md) — release process and rollback guidance
 - [CHANGELOG.md](CHANGELOG.md) — release history

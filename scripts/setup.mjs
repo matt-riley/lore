@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import { detectClients, selectClients, planSetup, applySetup } from "../lib/setup.mjs";
+import { checkRuntime, formatRuntimeDiagnostics } from "../lib/runtime.mjs";
 
 try {
   const options = { yes: false, dryRun: false, clients: null };
@@ -14,9 +15,8 @@ try {
     } else throw new Error(`Unknown or incomplete argument: ${args[i]}`);
   }
   if (process.platform === "win32") throw new Error("Windows is not supported.");
-  const { DatabaseSync } = await import("node:sqlite");
-  const probe = new DatabaseSync(":memory:");
-  try { probe.exec("CREATE VIRTUAL TABLE setup_probe USING fts5(content)"); } finally { probe.close(); }
+  const runtime = await checkRuntime();
+  if (!runtime.ok) throw new Error(formatRuntimeDiagnostics(runtime));
   const clients = detectClients();
   const available = clients.filter((client) => client.executablePath);
   console.log("Lore setup — one memory, your choice of coding agents\n");

@@ -33,7 +33,7 @@ Codex and Claude also accept `--global`. Target files:
 |---|---|---|
 | Codex | `.codex/hooks.json` | `$CODEX_HOME/hooks.json`, normally `~/.codex/hooks.json` |
 | Claude Code | `.claude/settings.local.json` | `$CLAUDE_CONFIG_DIR/settings.json`, normally `~/.claude/settings.json` |
-| Antigravity CLI | Not used: 1.1.19 did not discover the documented `.agents/hooks.json` location in live checks | `~/.gemini/config/hooks.json` |
+| Antigravity CLI | Not used: the observed 1.1.27 target did not discover the documented `.agents/hooks.json` location in live checks | `~/.gemini/config/hooks.json` |
 
 Run the installer for one scope per client to avoid duplicate hook invocation.
 It records absolute, shell-quoted Node and entrypoint paths, merges existing
@@ -48,7 +48,7 @@ exact hook definitions. Project configuration must also be trusted, and hooks
 must not be disabled by local or managed settings. Claude may require approving
 project hooks. Antigravity's `/hooks` lists the installed `lore` group.
 
-For Antigravity 1.1.19, explicitly mount the current project:
+For Antigravity 1.1.27, explicitly mount the current project:
 
 ```sh
 agy --add-dir "$PWD"
@@ -116,12 +116,12 @@ preferences use `lore_retain` with `scope: "global"`.
 
 ## Compatibility and boundaries
 
-These adapters are experimental. The development verification targets are
-Codex CLI 0.153.4, Claude Code 2.1.263, and Antigravity CLI 1.1.19 on macOS with
-Node's built-in SQLite/FTS5. These are verification targets, not established
-minimum versions. Older hosts may lack events or use a different transcript
-format. This integration targets Claude Code, not Claude Desktop, and
-Antigravity CLI, not the separate IDE extension.
+These adapters are experimental. The available verification targets are Codex
+CLI 0.153.4, Claude Code 2.1.263, and Antigravity CLI 1.1.27 on macOS with
+Node's built-in SQLite/FTS5. These are available targets, not certifications or
+established minimum versions. Older hosts may lack events or use a different
+transcript format. This integration targets Claude Code, not Claude Desktop,
+and Antigravity CLI, not the separate IDE extension.
 
 Live verification on 2026-09-06 passed automatic memory injection and completed
 session capture in all three CLI versions listed above, using isolated Lore
@@ -148,6 +148,10 @@ backfill, and subagent-specific scope tracking are not wired into these adapters
 
 Memory storage remains local. Context returned to a host is sent to that host's
 configured model as part of the conversation. Lore opens no listening socket.
+
+These observations do not certify a client or establish its version floor. A
+client can be promoted only after a 14-day release-candidate soak with
+successful checks on at least 10 distinct days for that client.
 
 ## Verify
 

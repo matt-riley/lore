@@ -28,6 +28,16 @@ The `/lore` command provides the same daily workflow:
 
 These Pi names are adapter names. Pi does not expose the Copilot extension's `memory_*` tools as native Pi tools.
 
+Copilot and Pi provide the supported native adapter surfaces. Their shared store
+also supports the experimental native hook adapters, but capabilities differ:
+
+| Capability | Copilot CLI | Pi | Native CLI adapters |
+|---|---|---|---|
+| Registered tools | Full Copilot tool surface | `lore_*` tools | None; commands run through the shell |
+| Automatic recall and capture | Supported | Supported | Experimental and host-event dependent |
+| Archive backfill | Copilot store, experimental | Pi sessions, experimental | Not wired |
+| Maintenance and diagnostics | Full supported diagnostics | `lore_status` | `memory_status`; Copilot-only diagnostics unavailable |
+
 ## Copilot CLI tools
 
 | Tool | What it does |
@@ -37,7 +47,7 @@ These Pi names are adapter names. Pi does not expose the Copilot extension's `me
 | `lore_onboard` | Stores your preferred name and Lore's profile |
 | `memory_search` | Searches semantic memory by keyword |
 | `memory_save` | Saves an explicit freeform note or decision |
-| `memory_forget` | Soft-deletes a memory by marking it superseded |
+| `memory_forget` | Soft-deletes a memory by marking it superseded; residual data may remain for provenance and recovery |
 | `memory_status` | Reports health, counts, latency, and maintenance state |
 | `memory_explain` | Explains a retrieval or suppression decision |
 | `memory_validate` | Checks database integrity and schema parity |

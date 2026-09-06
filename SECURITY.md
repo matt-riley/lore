@@ -23,7 +23,7 @@ You can expect an acknowledgement within 5 business days. We aim to triage and p
 
 ## Security model
 
-Lore is a **local-first tool**. All data lives on your machine. Nothing is sent to a remote service at any point during normal operation.
+Lore is a **local-first tool**. Lore's own storage and network surface stay on your machine, and it does not send data to a Lore-operated remote service. Recalled context can still be included in the conversation sent by your host to its configured model, which may be cloud-hosted.
 
 ### What Lore stores
 
@@ -68,13 +68,13 @@ Your responsibilities:
 
 ### Remote surface
 
-There is no remote surface. Lore makes no non-loopback outbound network calls.
+There is no Lore-operated remote surface. Lore makes no non-loopback outbound network calls.
 
-The optional `localInference` provider is default-off and accepts only `127.0.0.1`, `localhost`, or `::1`. When enabled, bounded session, retrieval, reflection, or capsule evidence is sent to that local model server. Deferred extraction, query expansion, context compression, and quality evaluation each require their own config opt-in. Reflection can use a persistent config opt-in, while an explicit per-call `useLocalInference` value overrides it. Consolidation, contradiction, supersession, and trend findings are advisory and cannot mutate trusted memory. When embeddings are enabled, Lore filters weak evidence and semantically validates generated claims before rendering; embedding vectors remain in memory and are never persisted. Lore rejects provider URLs containing credentials or non-loopback hosts.
+The optional `localInference` provider is default-off and accepts only `127.0.0.1`, `localhost`, or `::1`. When enabled, bounded session, retrieval, reflection, or capsule evidence is sent to that local model server. Deferred extraction, query expansion, context compression, and quality evaluation each require their own config opt-in. Reflection can use a persistent config opt-in, while an explicit per-call `useLocalInference` value overrides it. Consolidation, contradiction, supersession, and trend findings are advisory and cannot mutate trusted memory. When embeddings are enabled, Lore filters weak evidence and semantically validates generated claims before rendering; embedding vectors are cached in the local `memory_embedding` table. Lore rejects provider URLs containing credentials or non-loopback hosts.
 
 ### Portable export
 
-The `memory_portable_bundle` tool (experimental) can export a snapshot of your memory store. This export contains raw memory data. Do not share the bundle unless you are comfortable sharing everything it contains.
+The `memory_portable_bundle` tool (experimental) exports approved improvement artifacts, not a raw dump of the memory store. Review every JSON or OKF bundle before sharing; approved artifacts can still contain sensitive excerpts.
 
 ---
 

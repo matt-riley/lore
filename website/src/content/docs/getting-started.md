@@ -7,9 +7,9 @@ order: 2
 
 ## Make yourself at home
 
-You’ll need **Node.js 22.5 or later** and a Copilot CLI that supports extensions and session hooks. Lore runs on your machine and keeps its memory in a local SQLite database. No build step or runtime dependency installation needed.
+You’ll need **Node.js 24.0.0 or later** and a Copilot CLI that supports extensions and session hooks. Lore runs on your machine and keeps its memory in a local SQLite database. No build step or runtime dependency installation needed.
 
-macOS is the primary supported platform. Linux is expected to work; Windows is unsupported. Using Pi? Start with [Start with Pi](/guides/pi/) instead. For Codex CLI, Claude Code, or Antigravity CLI, use the [native hooks guide](/guides/cli-integrations/).
+macOS is the primary supported platform. Linux is best effort; Windows is unsupported. Using Pi? Start with [Start with Pi](/guides/pi/) instead. For Codex CLI, Claude Code, or Antigravity CLI, use the [native hooks guide](/guides/cli-integrations/).
 
 ## 1. Add Lore to Copilot
 
@@ -70,4 +70,4 @@ npm run setup
 
 ## If nothing appears
 
-Run `memory_validate` and check that Node is at least 22.5.0. Confirm the Lore config contains `"enabled": true`, then restart Copilot CLI so it rescans extensions. [Troubleshooting](/guides/troubleshooting/) covers missing hooks, paths, and database errors.
+Run `memory_validate` and check that Node is at least 24.0.0. Confirm the Lore config contains `"enabled": true`, then restart Copilot CLI so it rescans extensions. [Troubleshooting](/guides/troubleshooting/) covers missing hooks, paths, and database errors.

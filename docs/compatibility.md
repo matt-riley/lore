@@ -12,11 +12,11 @@ This document defines the minimum supported runtime environments, version expect
 
 | Requirement | Value |
 |---|---|
-| **Minimum** | Node 22.5.0 |
-| **Recommended** | Node 24 |
-| **CI matrix** | Latest Node 22, 24, and 26 releases on Linux and macOS |
+| **Minimum** | Node 24.0.0 |
+| **Recommended** | Node 24 LTS |
+| **CI matrix** | Node 24.0.0 and the latest Node 24 and 26 releases on macOS and Linux |
 
-**Why 22.5.0?** Lore uses [`node:sqlite`](https://nodejs.org/api/sqlite.html) (`DatabaseSync`) from Node's built-in module set. This API landed experimentally in Node 22.5.0. If you're on an older version, Lore will fail to initialise with a clear error at startup.
+**Why 24.0.0?** Lore uses [`node:sqlite`](https://nodejs.org/api/sqlite.html) (`DatabaseSync`) from Node's built-in module set. Node 24 is the current supported baseline for the release plan. If you're on an older version, Lore will fail to initialise with a clear error at startup.
 
 The CI matrix tests the latest release of each listed major; it does not certify every earlier minor release. If you're on Node 20 or earlier, upgrade before installing.
 
@@ -27,7 +27,7 @@ The CI matrix tests the latest release of each listed major; it does not certify
 | Platform | Status | Notes |
 |---|---|---|
 | macOS (Apple Silicon / Intel) | 🟢 Supported | Primary development and testing platform. |
-| Linux (x86-64, ARM64) | 🟡 Expected to work | CI exercises the GitHub-hosted Ubuntu runner; it does not cover every architecture. File an issue if you hit platform-specific problems. |
+| Linux (x86-64, ARM64) | 🟡 Best effort | CI covers the core suite on Node 24.0.0 and exercises latest Node 24 and 26 on the GitHub-hosted Ubuntu runner; it does not certify every architecture or host integration. |
 | Windows | 🔴 Not supported | Path handling, shell quoting, and process assumptions are macOS/Linux-oriented. WSL2 on Windows may work but is untested and unsupported. |
 
 ---
@@ -39,15 +39,16 @@ The CI matrix tests the latest release of each listed major; it does not certify
 | **Minimum** | Any Copilot CLI release that supports the `extensions/` directory and the three hook names (`onSessionStart`, `onUserPromptSubmitted`, `onSessionEnd`) |
 | **SDK model** | The `@github/copilot-sdk` package is **not** bundled — it is resolved by the CLI runtime. Lore does not declare it as a dependency. |
 
-> **Provisional**: the exact minimum CLI version with stable extension-hook support hasn't been pinned against a published release number. If you're on a recent Copilot CLI (mid-2025 or later) you should be fine. If extension hooks don't fire, verify your CLI supports the extension directory model.
+> **Pending floor**: the exact minimum Copilot CLI version with stable extension-hook support has not yet been certified. The observed Copilot 1.0.80 build is an available verification target, not a published minimum or certification claim.
 
 ---
 
 ## Native Codex, Claude, and Antigravity CLIs
 
 Experimental command-hook adapters provide automatic recall and capture without
-MCP. Development verification targets are Codex 0.153.4, Claude Code 2.1.263,
-and Antigravity CLI 1.1.19. Exact minimum versions are not established.
+MCP. Observed available verification targets are Codex 0.153.4, Claude Code
+2.1.263, and Antigravity CLI 1.1.27. These are targets, not certifications;
+exact minimum host versions remain pending.
 Antigravity currently needs shared hook configuration and `--add-dir` workspace
 mounting. See [native CLI integrations](cli-integrations.md) for complete event
 mappings, transcript limits, setup, and reproducible verification commands.
@@ -95,7 +96,7 @@ Failed migrations and tasks use **forward recovery**: if a migration or maintena
 | **Authentication** | Not supported in the URL; Lore rejects embedded credentials |
 | **Failure behavior** | Deterministic retrieval, capsule, extraction, and reflection results are preserved for provider, embedding, malformed-output, citation, and grounding failures |
 
-Local inference is disabled by default. Deferred extraction, query expansion, context compression, and quality evaluation require separate config opt-ins. Reflection can be enabled persistently with `localInference.reflection.enabledByDefault`, while an explicit per-call `useLocalInference` value overrides that default. Optional embeddings filter bounded evidence and validate generated claims before rendering. EmbeddingGemma and Nomic retrieval inputs automatically use model-specific query and document prefixes; unknown embedding models keep the protocol's raw text behavior. Model-backed lookback reflection can also enrich recent-session titles with the latest bounded checkpoint overview before reranking. Consolidation, contradiction, possible-supersession, and recurring-trend findings remain advisory. Prompt-context hooks make no model calls unless query expansion or context compression is explicitly enabled; those features can add local inference latency and preserve the deterministic capsule on failure.
+Local inference is disabled by default. Deferred extraction, query expansion, context compression, and quality evaluation require separate config opt-ins. Reflection can be enabled persistently with `localInference.reflection.enabledByDefault`, while an explicit per-call `useLocalInference` value overrides that default. Optional embeddings filter bounded evidence and validate generated claims before rendering. Embedding vectors are cached in the local `memory_embedding` table and reused across searches; they are not merely in-memory or universally ephemeral. EmbeddingGemma and Nomic retrieval inputs automatically use model-specific query and document prefixes; unknown embedding models keep the protocol's raw text behavior. Model-backed lookback reflection can also enrich recent-session titles with the latest bounded checkpoint overview before reranking. Consolidation, contradiction, possible-supersession, and recurring-trend findings remain advisory. Prompt-context hooks make no model calls unless query expansion or context compression is explicitly enabled; those features can add local inference latency and preserve the deterministic capsule on failure.
 
 ---
 
@@ -129,11 +130,11 @@ Lore is local-only. This section is the canonical summary of what it stores, wha
 ### What Lore does NOT do by default
 
 - Make non-loopback outbound network calls.
-- Send memory content to any third-party service.
+- Send memory content through a Lore-owned remote service.
 - Sync data to the cloud.
 - Share data between machines or users.
 
-When `localInference.enabled` is explicitly set, Lore sends bounded session or reflection evidence to the configured loopback model server. Lore rejects non-loopback provider URLs.
+When `localInference.enabled` is explicitly set, Lore sends bounded session or reflection evidence to the configured loopback model server. Lore rejects non-loopback provider URLs. Separately, any context that Lore injects into a host conversation is sent by that host to the host's configured model, which may be cloud-hosted. Local Lore networking does not prevent that host-model transmission.
 
 ### Protecting your data
 

@@ -34,9 +34,9 @@ Capabilities vary by adapter: Codex, Claude Code, and Antigravity integrations a
 
 Lore keeps things simple, but it does expect a modern runtime:
 
-- **Node.js:** 22.5.0 or later
+- **Node.js:** 24.0.0 or later
 - **Agent:** Copilot CLI with extension hooks, Pi, or a hook-capable Codex CLI, Claude Code, or Antigravity CLI release (see [native CLI compatibility](docs/cli-integrations.md))
-- **Operating system:** macOS is the primary supported platform; Linux is expected to work; Windows is not supported
+- **Operating system:** macOS is the primary supported platform; Linux is best effort; Windows is not supported
 
 For the full compatibility contract, including browser and database notes, see [`docs/compatibility.md`](docs/compatibility.md).
 
@@ -44,7 +44,7 @@ For the full compatibility contract, including browser and database notes, see [
 
 ## Install
 
-Use the same guided installer for every supported agent. With Node.js 22.5+ and your CLI installed:
+Use the same guided installer for every supported agent. With Node.js 24.0.0+ and your CLI installed:
 
 ```sh
 git clone https://github.com/matt-riley/lore.git ~/dev/lore
@@ -63,9 +63,11 @@ For unattended setup, explicitly select targets:
 ```sh
 npm run setup -- --clients codex,claude --yes
 npm run setup -- --clients all --dry-run
+npm run setup -- --remove --clients codex,claude --dry-run
+npm run setup -- --remove --clients codex,claude --yes
 ```
 
-`all` means all detected supported clients, not every client on the machine. Detection checks executable availability, not version compatibility or authentication. See the [setup guide](website/src/content/docs/setup.md) for custom paths, safeguards, and troubleshooting.
+`all` means all detected supported clients, not every client on the machine. Detection checks executable availability, not version compatibility or authentication. Removal previews by default; `--yes` writes only with an explicit `--clients` selection. Removal preserves memories, configuration, unrelated hooks, and modified installs. See the [setup guide](website/src/content/docs/setup.md) for custom paths, safeguards, and troubleshooting.
 
 To update, pull this checkout and run `npm run setup` again. Keep the checkout and Node installation in place: native hooks reference their absolute paths. Copilot and Pi receive runtime copies. Use only one installation scope per client to avoid duplicate hooks.
 
@@ -134,7 +136,7 @@ Codex requires reviewing and trusting the installed hooks with `/hooks` and
 trusting project configuration. Claude may require project hook approval.
 Restart the client after installing.
 
-Antigravity 1.1.19 requires the global installation and an explicitly mounted
+Antigravity 1.1.27 requires the global installation and an explicitly mounted
 workspace: launch `agy --add-dir /path/to/project`. Its `/hooks` should list the
 `lore` group. The documented project hook location was not discovered in live
 checks for that version.
@@ -157,8 +159,9 @@ printf '%s\n' '{"prompt":"What did we decide about storage?"}' | node /absolute/
 
 These are shell-invoked commands, not registered model tools. Live automatic
 recall and completed-session capture passed on macOS on 2026-09-06 with Codex
-0.153.4, Claude Code 2.1.263, and Antigravity CLI 1.1.19. These are verified
-versions, not established minimum versions.
+0.153.4, Claude Code 2.1.263, and Antigravity CLI 1.1.27. These are available
+targets, not certified versions or established minimum versions. Copilot 1.0.80
+and Pi 0.84.3 are also available targets; their version floors remain pending.
 
 See [native CLI integrations](docs/cli-integrations.md) for event mappings, global
 installation, direct memory commands, verification, and limitations.
@@ -187,7 +190,7 @@ After [enabling Lore](#configure), verify it loaded: you should see a `lore: mem
 
 Requirements and notes:
 
-- **Node.js 22.5+ on PATH.** Pi's extension runtime is bun, which does not implement `node:sqlite`; the adapter spawns your system `node` to run [`lore-server.mjs`](lore-server.mjs), which owns the database. If `node` is not on PATH (for example, a mise or fnm shim), set `LORE_NODE` to the absolute path.
+- **Node.js 24.0.0+ on PATH.** Pi's extension runtime is bun, which does not implement `node:sqlite`; the adapter spawns your system `node` to run [`lore-server.mjs`](lore-server.mjs), which owns the database. If `node` is not on PATH (for example, a mise or fnm shim), set `LORE_NODE` to the absolute path.
 - **`"enabled": true` in the Lore config.** All adapters use the shared config and store by default.
 - Ambient recall is injected into the model context each prompt but hidden from the Pi TUI, cached per session, and pruned to the most recent injection so the memory cost stays bounded.
 - The Pi worker buffers streamed responses and restarts on the next operation if it exits unexpectedly. Shutdown drains queued extraction before closing the database, with a bounded forced-stop fallback.
@@ -443,7 +446,7 @@ For runtime and platform promises, see [`docs/compatibility.md`](docs/compatibil
 
 ### Portable exports and the OKF viewer
 
-`memory_portable_bundle` accepts a `format` argument: `json` (default, machine-readable) or `okf`. The `okf` format writes an [Open Knowledge Format v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundle -- one markdown file with YAML frontmatter per approved improvement artifact, plus a root `index.md` -- so approved Lore improvements can be reviewed, archived, or shared outside the CLI with any OKF-aware tool.
+`memory_portable_bundle` accepts a `format` argument: `json` (default, machine-readable) or `okf`. It exports approved improvement artifacts, not a raw database dump. The `okf` format writes an [Open Knowledge Format v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundle -- one markdown file with YAML frontmatter per approved improvement artifact, plus a root `index.md` -- so approved Lore improvements can be reviewed, archived, or shared outside the CLI with any OKF-aware tool.
 
 To browse an OKF bundle visually, render it into a self-contained HTML viewer:
 
@@ -467,7 +470,7 @@ Each concept is retained as a `type: "okf_concept"` semantic memory row, tagged 
 
 Lore is local-first by design.
 
-It stores derived memory in `~/.config/lore/lore.db` (or `$XDG_CONFIG_HOME/lore/lore.db`), reads Copilot CLI's raw `session-store.db` from `~/.copilot` as input, and keeps configuration in `~/.config/lore/lore.json`. Lore does **not** sync memory to the cloud or expose a network API. If you explicitly enable `localInference`, selected session or reflection evidence is sent only to the configured loopback model endpoint.
+It stores derived memory in `~/.config/lore/lore.db` (or `$XDG_CONFIG_HOME/lore/lore.db`), reads Copilot CLI's raw `session-store.db` from `~/.copilot` as input, and keeps configuration in `~/.config/lore/lore.json`. Lore does **not** sync memory to the cloud or expose a network API. If you explicitly enable `localInference`, selected session or reflection evidence is sent only to the configured loopback model endpoint. Any recalled context injected into a host conversation is then sent by that host to its configured model, which may be cloud-hosted.
 
 Pi reads its own session files, normally under `~/.pi/agent/sessions`. Codex, Claude Code, and Antigravity hooks read only the active transcript supplied by the host, excluding thinking, reasoning, tool output, and injected Lore context from extraction. These adapters do not scan unrelated sessions. Optional post-tool/error observations are default-off and retain categories and success/failure, not raw arguments, outputs, error messages, or stacks.
 
@@ -528,7 +531,7 @@ website/               # Separate Astro documentation site and interactive examp
 
 ## Docs and contributing
 
-The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 22.12+ and pnpm 11.24.0, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
+The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 24.0.0+ and pnpm 11.24.0, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
 
 If you want the deeper contract, these are the main references:
 

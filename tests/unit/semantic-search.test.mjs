@@ -217,6 +217,41 @@ describe("semanticSearch", () => {
     }
   });
 
+  test("treats vectors from the legacy cache table as stale and upgrades it additively", async () => {
+    const { home, cleanup } = createTempHome();
+    try {
+      const config = buildFixtureConfig(home);
+      const db = freshDb(config);
+      try {
+        db.db.prepare(`
+          INSERT INTO semantic_memory (id, type, content, confidence, repository, scope, tags, metadata_json, created_at, updated_at)
+          VALUES (?, 'user_preference', ?, 0.9, NULL, 'global', '[]', '{}', ?, ?)
+        `).run("mem-auth", "Authentication and login logic belong in the middleware layer.", "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:00.000Z");
+        db.db.exec("DROP TABLE memory_embedding");
+        db.db.exec(`
+          CREATE TABLE memory_embedding (
+            memory_id TEXT PRIMARY KEY,
+            vector TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          )
+        `);
+        db.db.prepare("INSERT INTO memory_embedding (memory_id, vector, updated_at) VALUES (?, ?, ?)")
+          .run("mem-auth", JSON.stringify([1, 1, 0, 0, 1]), "2024-01-01T00:00:00.000Z");
+
+        const { fetchImpl, calls } = makeFakeFetch();
+        const result = await semanticSearch({ db, query: "sign-in flow", fetchImpl, config: withSemanticConfig(db) });
+        assert.equal(result.enabled, true);
+        assert.equal(calls.length, 2, "legacy vectors must be refreshed once with metadata");
+        const columns = db.db.prepare("PRAGMA table_info(memory_embedding)").all().map((row) => row.name);
+        assert.deepEqual(columns, ["memory_id", "vector", "updated_at", "content_hash", "provider", "model", "dimensions"]);
+      } finally {
+        db.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
   test("fails open when the embeddings endpoint errors", async () => {
     const { home, cleanup } = createTempHome();
     try {
@@ -240,6 +275,288 @@ describe("semanticSearch", () => {
         assert.strictEqual(result.enabled, false);
         assert.deepEqual(result.rows, []);
         assert.ok(typeof result.error === "string" && result.error.length > 0);
+      } finally {
+        db.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("re-embeds a memory when its content changes or the embedding model changes", async () => {
+    const { home, cleanup } = createTempHome();
+    try {
+      const config = buildFixtureConfig(home);
+      const db = freshDb(config);
+      try {
+        db.db.prepare(`
+          INSERT INTO semantic_memory (id, type, content, confidence, repository, scope, tags, metadata_json, created_at, updated_at)
+          VALUES (?, 'user_preference', ?, 0.9, NULL, 'global', '[]', '{}', ?, ?)
+        `).run("mem-auth", "Authentication and login logic belong in the middleware layer.", "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:00.000Z");
+
+        const { fetchImpl, calls } = makeFakeFetch();
+        const firstConfig = withSemanticConfig(db);
+        await semanticSearch({ db, query: "sign-in flow", fetchImpl, config: firstConfig });
+        assert.equal(calls.length, 2);
+
+        db.db.prepare("UPDATE semantic_memory SET content = ? WHERE id = ?")
+          .run("Router authorization belongs in the edge gateway.", "mem-auth");
+        await semanticSearch({ db, query: "router", fetchImpl, config: firstConfig });
+        assert.equal(calls.length, 4, "changed content must be embedded again");
+
+        const secondModelConfig = withSemanticConfig(db, { model: "test-embedding-model-v2" });
+        const modelCalls = [];
+        const modelFetch = async (url, options) => {
+          const body = JSON.parse(options.body);
+          modelCalls.push(body);
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ data: body.input.map((text, index) => ({ index, embedding: embedText(text) })) }),
+          };
+        };
+        await semanticSearch({ db, query: "router", fetchImpl: modelFetch, config: secondModelConfig });
+        assert.equal(modelCalls.length, 2, "changing the model must invalidate the memory cache");
+        assert.equal(modelCalls[1].model, "test-embedding-model-v2");
+      } finally {
+        db.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("filters scores below minSimilarity and malformed cached vectors", async () => {
+    const { home, cleanup } = createTempHome();
+    try {
+      const config = buildFixtureConfig(home);
+      const db = freshDb(config);
+      try {
+        for (const [id, content] of [
+          ["mem-auth", "Authentication and login logic belong in the middleware layer."],
+          ["mem-cats", "Cats are crepuscular and sleep most of the day."],
+          ["mem-zero", "A zero vector must never be a semantic hit."],
+        ]) {
+          db.db.prepare(`
+            INSERT INTO semantic_memory (id, type, content, confidence, repository, scope, tags, metadata_json, created_at, updated_at)
+            VALUES (?, 'user_preference', ?, 0.9, NULL, 'global', '[]', '{}', ?, ?)
+          `).run(id, content, "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:00.000Z");
+        }
+
+        const { fetchImpl } = makeFakeFetch();
+        await semanticSearch({
+          db,
+          query: "sign-in flow",
+          fetchImpl,
+          config: withSemanticConfig(db, { minSimilarity: 0.85 }),
+        });
+        db.db.prepare("UPDATE memory_embedding SET vector = ? WHERE memory_id = ?")
+          .run(JSON.stringify([0, 0, 0, 0, 0]), "mem-zero");
+        db.db.prepare("UPDATE memory_embedding SET vector = ? WHERE memory_id = ?")
+          .run(JSON.stringify([1, 0]), "mem-cats");
+
+        const result = await semanticSearch({
+          db,
+          query: "sign-in flow",
+          fetchImpl,
+          config: withSemanticConfig(db, { minSimilarity: 0.85 }),
+        });
+        assert.deepEqual(result.rows.map((row) => row.id), ["mem-auth"]);
+        assert.ok(result.rows.every((row) => row.score >= 0.85));
+      } finally {
+        db.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("bounds cold-search embedding work by maxInputs and advances across searches", async () => {
+    const { home, cleanup } = createTempHome();
+    try {
+      const config = buildFixtureConfig(home);
+      const db = freshDb(config);
+      try {
+        for (let index = 0; index < 5; index++) {
+          db.db.prepare(`
+            INSERT INTO semantic_memory (id, type, content, confidence, repository, scope, tags, metadata_json, created_at, updated_at)
+            VALUES (?, 'user_preference', ?, 0.9, NULL, 'global', '[]', '{}', ?, ?)
+          `).run(`mem-${index}`, `Authentication router memory ${index}`, "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:00.000Z");
+        }
+
+        const { fetchImpl, calls } = makeFakeFetch();
+        const searchConfig = withSemanticConfig(db, { maxInputs: 3, minSimilarity: 0 });
+        await semanticSearch({ db, query: "router", fetchImpl, config: searchConfig });
+        const firstInputCount = calls.slice(1).reduce((total, call) => total + call.input.length, 0);
+        assert.ok(firstInputCount <= 3, `first search embedded ${firstInputCount} memories`);
+
+        const callsAfterFirst = calls.length;
+        await semanticSearch({ db, query: "router", fetchImpl, config: searchConfig });
+        assert.ok(calls.length > callsAfterFirst, "a later search should index remaining candidates");
+        const secondSearchInputCount = calls.slice(callsAfterFirst + 1)
+          .reduce((total, call) => total + call.input.length, 0);
+        assert.ok(secondSearchInputCount <= 3, `second search embedded ${secondSearchInputCount} memories`);
+      } finally {
+        db.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("does not let an invalid vector response starve later candidates", async () => {
+    const { home, cleanup } = createTempHome();
+    try {
+      const config = buildFixtureConfig(home);
+      const db = freshDb(config);
+      try {
+        for (let index = 0; index < 3; index++) {
+          db.db.prepare(`
+            INSERT INTO semantic_memory (id, type, content, confidence, repository, scope, tags, metadata_json, created_at, updated_at)
+            VALUES (?, 'user_preference', ?, 0.9, NULL, 'global', '[]', '{}', ?, ?)
+          `).run(`mem-${index}`, `Router candidate ${index}`, "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:00.000Z");
+        }
+
+        let memoryCall = 0;
+        let requestCount = 0;
+        const memoryInputs = [];
+        const fetchImpl = async (url, options) => {
+          const body = JSON.parse(options.body);
+          const isMemoryRequest = requestCount++ % 2 === 1;
+          if (isMemoryRequest) {
+            memoryInputs.push(body.input);
+            if (memoryCall++ === 0) {
+              return {
+                ok: true,
+                status: 200,
+                json: async () => ({ data: [{ index: 0, embedding: [0, 0, 0, 0, 0] }] }),
+              };
+            }
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ data: body.input.map((text, index) => ({ index, embedding: embedText(text) })) }),
+          };
+        };
+        const searchConfig = withSemanticConfig(db, { maxInputs: 1, minSimilarity: 0 });
+        await semanticSearch({ db, query: "router", fetchImpl, config: searchConfig });
+        await semanticSearch({ db, query: "router", fetchImpl, config: searchConfig });
+        assert.equal(memoryInputs.length, 2);
+        assert.deepEqual(memoryInputs[0], ["Router candidate 0"]);
+        assert.deepEqual(memoryInputs[1], ["Router candidate 1"]);
+      } finally {
+        db.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("advances past a null memory vector with maxInputs one", async () => {
+    const { home, cleanup } = createTempHome();
+    try {
+      const config = buildFixtureConfig(home);
+      const db = freshDb(config);
+      try {
+        for (let index = 0; index < 2; index++) {
+          db.db.prepare(`
+            INSERT INTO semantic_memory (id, type, content, confidence, repository, scope, tags, metadata_json, created_at, updated_at)
+            VALUES (?, 'user_preference', ?, 0.9, NULL, 'global', '[]', '{}', ?, ?)
+          `).run(`mem-${index}`, `Router candidate ${index}`, "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:00.000Z");
+        }
+
+        const memoryInputs = [];
+        const fetchImpl = async (url, options) => {
+          const body = JSON.parse(options.body);
+          if (body.input[0] === "router") {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ data: [{ index: 0, embedding: [1, 0, 0, 0, 1] }] }),
+            };
+          }
+          memoryInputs.push(body.input[0]);
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: [{
+                index: 0,
+                embedding: body.input[0].endsWith("0") ? null : embedText(body.input[0]),
+              }],
+            }),
+          };
+        };
+        const searchConfig = withSemanticConfig(db, { maxInputs: 1, minSimilarity: 0 });
+        await semanticSearch({ db, query: "router", fetchImpl, config: searchConfig });
+        const second = await semanticSearch({ db, query: "router", fetchImpl, config: searchConfig });
+
+        assert.deepEqual(memoryInputs, ["Router candidate 0", "Router candidate 1"]);
+        assert.deepEqual(second.rows.map((row) => row.id), ["mem-1"]);
+      } finally {
+        db.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("honors an explicit deadline while embedding", { timeout: 5000 }, async () => {
+    const { home, cleanup } = createTempHome();
+    try {
+      const config = buildFixtureConfig(home);
+      const db = freshDb(config);
+      try {
+        let endpointSignal;
+        const slowFetch = async (_url, options) => {
+          endpointSignal = options.signal;
+          return new Promise(() => {});
+        };
+        const result = await semanticSearch({
+          db,
+          query: "deadline",
+          fetchImpl: slowFetch,
+          config: withSemanticConfig(db),
+          deadlineMs: 20,
+        });
+        assert.equal(endpointSignal.aborted, true);
+        assert.match(endpointSignal.reason.message, /semantic search deadline exceeded/);
+        assert.equal(result.enabled, false);
+        assert.match(result.error, /aborted/);
+        assert.deepEqual(result.rows, []);
+      } finally {
+        db.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("honors caller AbortSignal cancellation", async () => {
+    const { home, cleanup } = createTempHome();
+    try {
+      const config = buildFixtureConfig(home);
+      const db = freshDb(config);
+      try {
+        const controller = new AbortController();
+        const slowFetch = async () => new Promise((resolve) => {
+          setTimeout(() => resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ data: [{ index: 0, embedding: [1, 0, 0, 0, 1] }] }),
+          }), 100);
+        });
+        setTimeout(() => controller.abort(), 10);
+        const result = await semanticSearch({
+          db,
+          query: "cancel",
+          fetchImpl: slowFetch,
+          config: withSemanticConfig(db),
+          signal: controller.signal,
+        });
+        assert.equal(result.enabled, false);
+        assert.deepEqual(result.rows, []);
       } finally {
         db.close();
       }

@@ -11,6 +11,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 ### Fixed
 
 - Preserve fragmented Pi worker responses, recover after worker exit, and drain work during graceful shutdown.
+- Refresh stale embedding caches, filter weak semantic matches, and bound incremental indexing and inference latency.
 
 ## [0.10.0](https://github.com/matt-riley/lore/compare/lore-v0.9.0...lore-v0.10.0) (2026-09-06)
 

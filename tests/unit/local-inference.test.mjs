@@ -85,6 +85,51 @@ test("requestLocalInferenceEmbeddings returns vectors from the configured loopba
   });
 });
 
+test("embedding slot preservation is opt-in and keeps malformed indices aligned", async () => {
+  const config = {
+    enabled: true,
+    baseUrl: "http://127.0.0.1:12434/v1",
+    model: "local-embedding-model",
+  };
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: [
+        { index: 1, embedding: [0, 1] },
+        { index: 0, embedding: null },
+      ],
+    }),
+  });
+
+  await assert.rejects(
+    () => requestLocalInferenceEmbeddings({ config, input: ["bad", "good"], fetchImpl }),
+    /valid embeddings/,
+  );
+  assert.deepStrictEqual(
+    await requestLocalInferenceEmbeddings({ config, input: ["bad", "good"], fetchImpl, preserveInvalid: true }),
+    [null, [0, 1]],
+  );
+
+  const nullRowFetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ data: [null, { index: 1, embedding: [0, 1] }] }),
+  });
+  await assert.rejects(
+    () => requestLocalInferenceEmbeddings({ config, input: ["bad", "good"], fetchImpl: nullRowFetch }),
+  );
+  assert.deepStrictEqual(
+    await requestLocalInferenceEmbeddings({
+      config,
+      input: ["bad", "good"],
+      fetchImpl: nullRowFetch,
+      preserveInvalid: true,
+    }),
+    [null, [0, 1]],
+  );
+});
+
 test("requestLocalInferenceJson keeps bare loopback base URLs on the configured host", async () => {
   let requestUrl = null;
   await requestLocalInferenceJson({

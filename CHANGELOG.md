@@ -20,6 +20,38 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.13.0](https://github.com/matt-riley/lore/compare/lore-v0.12.0...lore-v0.13.0) (2026-09-06)
+
+
+### Features
+
+* add safe Lore database recovery commands ([da5799d](https://github.com/matt-riley/lore/commit/da5799d2be41bd3b2914363bb555fbcb895db20e))
+* add safe Lore installer removal ([a20cdad](https://github.com/matt-riley/lore/commit/a20cdad1622ab43947648f3ee2a1eb2acb481fd7))
+* validate supported node runtime ([641ff65](https://github.com/matt-riley/lore/commit/641ff655b861964bbdd532a6598ee736d858dfbb))
+
+
+### Bug Fixes
+
+* bound long memory previews in dashboard tables ([e9195bf](https://github.com/matt-riley/lore/commit/e9195bf8890092a2dff84c3e86850de286c30d7d))
+* clean stale install records and successful probe artifacts ([a435f91](https://github.com/matt-riley/lore/commit/a435f91181229c0728a8e1516f752f7502709060))
+* enforce loopback binding at dashboard server boundary ([642fe49](https://github.com/matt-riley/lore/commit/642fe494736ebca9189f38556bc50363506cf31e))
+* handle closed stdin in client verification probes ([88e78b5](https://github.com/matt-riley/lore/commit/88e78b57dfecc50efa9a36aae5e22405b590e7f5))
+* harden database schema adoption safety ([97672d9](https://github.com/matt-riley/lore/commit/97672d94c0d3c466003fc01cb33f9f65cd3bb281))
+* harden Lore recovery replacement ([4e19644](https://github.com/matt-riley/lore/commit/4e196443d31509b7525cc203186abe1eb1bde5c3))
+* include snapshot WAL in recovery validation ([b7cf1fb](https://github.com/matt-riley/lore/commit/b7cf1fb92fdf247af5def8a33f10af472946fd1e))
+* label dashboard memory filters for assistive technology ([b02897b](https://github.com/matt-riley/lore/commit/b02897bedd15eaea1c378c95ebc47796bdee34c0))
+* migrate legacy domain column before schema indexes ([95897b4](https://github.com/matt-riley/lore/commit/95897b4379c9a8b374f2e5d1bf40a3da07cc23f2))
+* preflight pi runtime before database startup ([d86327b](https://github.com/matt-riley/lore/commit/d86327b33a03efa384902d59f5fc48dec89d5522))
+* preserve installer edits during rollback ([795fc27](https://github.com/matt-riley/lore/commit/795fc27a02c27394abc20f6173c3162f064bc6cc))
+* preserve installer ownership at removal and rollback boundaries ([8f487af](https://github.com/matt-riley/lore/commit/8f487af70778e3a5e97e941d5dc1a82ba25e2e9c))
+* preserve orphan database journals during recovery ([325b792](https://github.com/matt-riley/lore/commit/325b7927f583741440e0db1d3eee364b196e351c))
+* recall scoped evidence from natural prompts and explicit dates ([426db53](https://github.com/matt-riley/lore/commit/426db53ee756d68c1b3e342ae8a09bea18cdf60d))
+* tighten existing dedicated Lore home permissions ([d35803f](https://github.com/matt-riley/lore/commit/d35803f8189c0b9409e967287e18441fcfc0d242))
+* validate explicit calendar dates ([aec55d3](https://github.com/matt-riley/lore/commit/aec55d38d60a6d4094ae4788e36f15363a0517c9))
+* validate installer ownership manifests before planning writes ([1bc5149](https://github.com/matt-riley/lore/commit/1bc5149f2bce042e424788fef4f9dca575ca7f0a))
+* validate recovery against canonical schema ([12733ae](https://github.com/matt-riley/lore/commit/12733ae2a25993839e548978008a9b880003f089))
+* validate shared schema versions and recovery snapshots ([e616aeb](https://github.com/matt-riley/lore/commit/e616aeb49f84361ab2cf7ac0aaeb533facdee07f))
+
 ## [0.12.0](https://github.com/matt-riley/lore/compare/lore-v0.11.0...lore-v0.12.0) (2026-09-06)
 
 

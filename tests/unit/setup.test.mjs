@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { planSetup, applySetup } from "../../lib/setup.mjs";
+import { planSetup, applySetup, planRemove, applyRemove } from "../../lib/setup.mjs";
 
 test("failed installation restores config instead of leaving Lore partially enabled", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-rollback-"));
@@ -85,4 +85,24 @@ test("cross-volume backups support extension updates and rollback", () => {
     syncBuiltinESMExports();
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("remove uses ownership records, preserves unrelated hooks and memories, and is idempotent", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-remove-"));
+  try {
+    const env = { HOME: home };
+    applySetup(planSetup(["codex", "copilot"], { home, env }));
+    const hooksPath = path.join(home, ".codex/hooks.json");
+    const hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
+    hooks.hooks.SessionStart.push({ hooks: [{ type: "command", command: "echo unrelated" }] });
+    writeFileSync(hooksPath, `${JSON.stringify(hooks)}\n`);
+    writeFileSync(path.join(home, ".config/lore/lore.db"), "memories");
+    applyRemove(planRemove(["codex", "copilot"], { home, env }));
+    const after = JSON.parse(readFileSync(hooksPath, "utf8"));
+    assert.equal(after.hooks.SessionStart.length, 1);
+    assert.equal(after.hooks.SessionStart[0].hooks[0].command, "echo unrelated");
+    assert.equal(existsSync(path.join(home, ".copilot/extensions/lore")), false);
+    assert.equal(readFileSync(path.join(home, ".config/lore/lore.db"), "utf8"), "memories");
+    assert.doesNotThrow(() => applyRemove(planRemove(["codex", "copilot"], { home, env })));
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });

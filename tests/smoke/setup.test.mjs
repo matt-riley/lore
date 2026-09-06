@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -87,7 +87,9 @@ test("unrelated and dangling symlink extension targets are never replaced", () =
     symlinkSync(path.join(f.home, "missing"), target);
     assert.notEqual(f.run(["--clients", "copilot", "--yes"]).status, 0);
     assert.equal(existsSync(path.join(f.home, ".config/lore/lore.json")), false);
-    rmSync(target);
+    // Node 24's recursive rm leaves dangling symlinks behind; unlink the
+    // directory entry explicitly so the second preservation case is isolated.
+    unlinkSync(target);
     mkdirSync(target);
     writeFileSync(path.join(target, "user.txt"), "keep");
     assert.notEqual(f.run(["--clients", "copilot", "--yes"]).status, 0);
@@ -136,5 +138,23 @@ test("setup preserves legacy config and refuses malformed selected settings befo
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(readFileSync(config)), { enabled: true, limits: { promptContextLimit: 123 } });
     assert.equal(existsSync(path.join(f.home, ".config/lore")), false);
+  } finally { f.close(); }
+});
+
+test("remove requires confirmation, supports dry-run, and preserves memory data", () => {
+  const f = fixture();
+  try {
+    assert.equal(f.run(["--clients", "codex", "--yes"]).status, 0);
+    writeFileSync(path.join(f.home, ".config/lore/lore.db"), "keep");
+    const preview = f.run(["--remove", "--clients", "codex", "--dry-run"]);
+    assert.equal(preview.status, 0, preview.stderr);
+    assert.ok(existsSync(path.join(f.home, ".codex/hooks.json")));
+    const cancelled = f.run(["--remove", "--clients", "codex"], "n\n");
+    assert.equal(cancelled.status, 0, cancelled.stderr);
+    assert.ok(existsSync(path.join(f.home, ".codex/hooks.json")));
+    const removed = f.run(["--remove", "--clients", "codex", "--yes"]);
+    assert.equal(removed.status, 0, removed.stderr);
+    assert.equal(readFileSync(path.join(f.home, ".config/lore/lore.db"), "utf8"), "keep");
+    assert.deepEqual(JSON.parse(readFileSync(path.join(f.home, ".codex/hooks.json"))).hooks, {});
   } finally { f.close(); }
 });

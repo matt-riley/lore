@@ -203,7 +203,8 @@ describe("dev-install", () => {
       const result = run("dev-install.mjs", ["--copilot-home", tempHome]);
       assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
       assert.ok(existsSync(path.join(installTarget, "extension.mjs")), "expected installed extension.mjs");
-      assert.ok(existsSync(path.join(installTarget, "lib", "config.mjs")), "expected installed lib/config.mjs");
+    assert.ok(existsSync(path.join(installTarget, "lib", "config.mjs")), "expected installed lib/config.mjs");
+    assert.ok(existsSync(path.join(installTarget, "lore-server-runtime.mjs")), "expected copied server runtime");
       assert.equal(lstatSync(installTarget).isSymbolicLink(), false, "expected a real directory install");
       const installedExtension = readFileSync(path.join(installTarget, "extension.mjs"), "utf8");
       assert.ok(

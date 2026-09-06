@@ -28,6 +28,7 @@ import {
   mkdirSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -156,6 +157,7 @@ function main() {
   rmSync(installTarget, { recursive: true, force: true });
   mkdirSync(installTarget, { recursive: true });
   copyLoreInstall(REPO_ROOT, installTarget);
+  writeFileSync(path.join(installTarget, ".lore-install.json"), `${JSON.stringify({ version: 1, client: "copilot", source: REPO_ROOT }, null, 2)}\n`, { mode: 0o600 });
 
   console.log("✓ Installed Lore as a directory copy.");
   console.log("Restart the Copilot CLI process to force extension rediscovery.");

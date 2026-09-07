@@ -1014,7 +1014,7 @@ function quoteShell(value) {
 }
 
 function buildPreviewCommand(tool, payload) {
-  return `printf '%s\\n' ${quoteShell(JSON.stringify({ action: "preview", ...payload }))} | node lore-cli.mjs tool ${tool}`
+  return `printf '%s\\n' ${quoteShell(JSON.stringify({ action: "preview", ...payload }))} | node '/absolute/path/to/lore/lore-cli.mjs' tool ${tool}`
 }
 
 function renderAdministrationPreviewSection(focus) {

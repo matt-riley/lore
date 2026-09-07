@@ -33,11 +33,11 @@ function extraction(sessionId, repository, memories) {
 }
 
 describe("database reliability foundation", () => {
-  test("fresh schema is v19 and contains lifecycle tables", { skip: SKIP_NO_FTS5 }, async () => {
+  test("fresh schema is v20 and contains lifecycle tables", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, cleanup } = await withFixtureDb();
     try {
-      assert.equal(db.getCurrentVersion(), 19);
-      assert.equal(SCHEMA_VERSION, 19);
+      assert.equal(db.getCurrentVersion(), 20);
+      assert.equal(SCHEMA_VERSION, 20);
       for (const table of [
         "session_evidence",
         "memory_evidence",

@@ -59,8 +59,8 @@ function evidenceText(memory) {
 export function matchesProposition(memory, proposition) {
   if (!memory || !proposition) return false;
   if (proposition.type && memory.type !== proposition.type) return false;
-  if (proposition.scope && memory.scope && memory.scope !== proposition.scope) return false;
-  if (proposition.scope === "repo" && proposition.repository && (memory.scope === "global" || (memory.repository && memory.repository !== proposition.repository))) return false;
+  if (proposition.scope && memory.scope !== proposition.scope) return false;
+  if (proposition.scope === "repo" && proposition.repository && memory.repository !== proposition.repository) return false;
   if (proposition.scope === "global" && memory.scope === "repo") return false;
   const evidence = evidenceText(memory);
   return hasExactShortAnchors(evidence, proposition.anchors ?? []) && overlap(evidence, proposition.anchors ?? []) >= 0.72;
@@ -72,12 +72,26 @@ function matchesForbidden(memory, forbidden) {
     && overlap(evidence, forbidden?.anchors ?? []) >= 0.72;
 }
 
+// Historical session summaries may accurately quote the question or rejected
+// proposal. They are not current directives. Unexpected/new sections remain
+// checked so an unlabeled assertion cannot evade the rendered guidance gate.
+export function currentGuidanceText(text) {
+  const historical = new Set(["Relevant Prior Work", "Long-Range Related Hints", "Cross-Repo Examples", "Cross-Repo Hints"]);
+  let include = true;
+  return String(text ?? "").split("\n").filter((line) => {
+    const heading = line.match(/^##\s+(.+)$/u);
+    if (heading) include = !historical.has(heading[1].trim());
+    return include;
+  }).join("\n");
+}
+
 function includedRows(result) {
   return Object.values(result?.trace?.lookups ?? {}).flatMap((lookup) => Array.isArray(lookup?.includedRows) ? lookup.includedRows : []);
 }
 
 function candidateMemories(extraction) {
-  const semantic = extraction.semanticMemories.filter((memory) => CANDIDATE_TYPES.has(memory.type));
+  const retired = new Set(extraction.retiredEvidenceKeys ?? []);
+  const semantic = extraction.semanticMemories.filter((memory) => CANDIDATE_TYPES.has(memory.type) && !retired.has(memory.evidence?.key));
   const decisions = (extraction.episodeDigest?.decisions ?? []).map((content) => ({
     type: "decision",
     scope: "repo",
@@ -250,8 +264,8 @@ async function runScenario(scenario) {
     const recall = recallMemory({ db: fixture.db, prompt: scenario.query, repository: scenario.repository, limit: 12 });
     const rows = includedRows(recall);
     const recalledExpected = findExpectedRecall(scenario, rows);
-    const forbiddenSemanticRows = (scenario.forbidden ?? []).filter((forbidden) => rows.some((row) => matchesForbidden(row, forbidden)));
-    const forbiddenRenderedOutput = (scenario.forbidden ?? []).filter((forbidden) => matchesForbidden({ content: recall.text }, forbidden));
+    const forbiddenSemanticRows = (scenario.forbidden ?? []).filter((forbidden) => normalizeRecallEvidence(rows).some((row) => matchesForbidden(row, forbidden)));
+    const forbiddenRenderedOutput = (scenario.forbidden ?? []).filter((forbidden) => matchesForbidden({ content: currentGuidanceText(recall.text) }, forbidden));
     const foreignRows = evaluateForeignRows({ rows, foreignEvidence });
     const isolationFailure = scenario.critical?.includes("isolation") && foreignRows.length > 0;
     const suppressionFailure = scenario.critical?.includes("suppression") && (recalledExpected.length > 0 || retainedRows.some((row) => scenario.expected.some((proposition) => matchesProposition(row, { ...proposition, scope: undefined, repository: undefined }))));

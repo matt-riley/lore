@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { withFixtureDb } from "../helpers/fixture-db.mjs";
 import { mergeSemanticRecallResult } from "../../lib/memory/memory-operations.mjs";
 import { extractMeaningfulPromptTerms, scorePromptFallbackRows } from "../../lib/context/prompt-search-query.mjs";
-import { buildSemanticEligibilitySql } from "../../lib/db/db-retrieval-policy.mjs";
+import { buildSemanticEligibilitySql, isManualMemoryRow } from "../../lib/db/db-retrieval-policy.mjs";
 import { embeddingContentHash, indexMemoryEmbeddings, semanticSearch, validatedCachedEmbeddingVector } from "../../lib/memory/semantic-search.mjs";
 import { estimateTokens } from "../../lib/utils/token-estimator.mjs";
 
@@ -53,6 +53,35 @@ test("suppression fingerprints exclude a restored generated copy while manual re
     assert.deepEqual(fixture.db.searchSemantic({ query: "kiwi", repository: "repo/a" }), []);
     const manual = fixture.db.insertSemanticMemory({ type: "user_preference", content: "Prefer kiwi", repository: "repo/a", scope: "repo", metadata: { source: "memory_save" } });
     assert.deepEqual(fixture.db.searchSemantic({ query: "kiwi", repository: "repo/a" }).map((row) => row.id), [manual]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Pi command saves remain manual and can restore forgotten evidence", async () => {
+  const fixture = await withFixtureDb();
+  try {
+    const oldId = fixture.db.insertSemanticMemory({
+      id: "pi-old",
+      type: "user_preference",
+      content: "Prefer Pi command memory",
+      repository: "repo/a",
+      scope: "repo",
+    });
+    fixture.db.forgetMemory({ id: oldId });
+    const restoredId = fixture.db.insertSemanticMemory({
+      type: "user_preference",
+      content: "Prefer Pi command memory",
+      repository: "repo/a",
+      scope: "repo",
+      metadata: { source: "pi:command" },
+    });
+    assert.ok(restoredId);
+    assert.equal(isManualMemoryRow({ metadata: { source: "pi" } }), true);
+    assert.deepEqual(
+      fixture.db.searchSemantic({ query: "Pi command", repository: "repo/a" }).map((row) => row.id),
+      [restoredId],
+    );
   } finally {
     fixture.cleanup();
   }

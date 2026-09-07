@@ -118,12 +118,60 @@ function computeLatencyTrend(rows) {
   }
 }
 
+const SECURITY_HEADERS = Object.freeze({
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+})
+
+const ALLOWED_LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"])
+
+export function isAllowedHostHeader(hostHeader) {
+  if (typeof hostHeader !== "string") {
+    return false
+  }
+  const rawHost = hostHeader.trim().toLowerCase()
+  if (!rawHost) {
+    return false
+  }
+  if (rawHost.startsWith("[")) {
+    const closing = rawHost.indexOf("]")
+    if (closing === -1) {
+      return false
+    }
+    const ip = rawHost.slice(0, closing + 1)
+    const remainder = rawHost.slice(closing + 1)
+    if (remainder.length > 0 && !/^:\d+$/.test(remainder)) {
+      return false
+    }
+    return ip === "[::1]"
+  }
+  if (rawHost === "::1") {
+    return true
+  }
+  const colonIndex = rawHost.indexOf(":")
+  if (colonIndex !== -1) {
+    if (rawHost.indexOf(":", colonIndex + 1) !== -1) {
+      return false
+    }
+    const hostname = rawHost.slice(0, colonIndex)
+    const portPart = rawHost.slice(colonIndex + 1)
+    if (!/^\d+$/.test(portPart)) {
+      return false
+    }
+    return hostname === "localhost" || hostname === "127.0.0.1"
+  }
+  return ALLOWED_LOOPBACK_HOSTS.has(rawHost)
+}
+
 function jsonResponse(res, statusCode, payload) {
   const body = JSON.stringify(payload, null, 2)
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
     "Content-Length": Buffer.byteLength(body),
+    ...SECURITY_HEADERS,
   })
   res.end(body)
 }
@@ -149,23 +197,40 @@ function buildReadOnlyPayload(payload = {}) {
   }
 }
 
+const STATIC_CONTENT_TYPES = new Map([
+  [".html", "text/html; charset=utf-8"],
+  [".css", "text/css; charset=utf-8"],
+  [".js", "text/javascript; charset=utf-8"],
+  [".svg", "image/svg+xml"],
+  [".ico", "image/x-icon"],
+  [".png", "image/png"],
+  [".json", "application/json; charset=utf-8"],
+  [".woff", "font/woff"],
+  [".woff2", "font/woff2"],
+])
+
+const ALLOWED_STATIC_EXTENSIONS = new Set(STATIC_CONTENT_TYPES.keys())
+
 function getStaticContentType(filePath) {
-  if (filePath.endsWith(".html")) {
-    return "text/html; charset=utf-8"
-  }
-  if (filePath.endsWith(".css")) {
-    return "text/css; charset=utf-8"
-  }
-  if (filePath.endsWith(".js")) {
-    return "text/javascript; charset=utf-8"
-  }
-  return "text/plain; charset=utf-8"
+  const ext = path.extname(filePath).toLowerCase()
+  return STATIC_CONTENT_TYPES.get(ext) ?? "text/plain; charset=utf-8"
 }
 
 async function serveStatic(res, pathname) {
   const candidate = pathname === "/" ? "/index.html" : pathname
   const resolved = path.resolve(STATIC_ROOT, `.${candidate}`)
-  if (!resolved.startsWith(STATIC_ROOT)) {
+  const relative = path.relative(STATIC_ROOT, resolved)
+  if (
+    (!resolved.startsWith(STATIC_ROOT + path.sep) && resolved !== STATIC_ROOT) ||
+    relative.startsWith("..") ||
+    path.isAbsolute(relative)
+  ) {
+    notFound(res)
+    return
+  }
+
+  const ext = path.extname(resolved).toLowerCase()
+  if (!ALLOWED_STATIC_EXTENSIONS.has(ext)) {
     notFound(res)
     return
   }
@@ -176,12 +241,10 @@ async function serveStatic(res, pathname) {
       "Content-Type": getStaticContentType(resolved),
       "Cache-Control": "no-store",
       "Content-Length": content.length,
+      ...SECURITY_HEADERS,
     })
     res.end(content)
   } catch {
-    if (candidate !== "/index.html") {
-      return serveStatic(res, "/index.html")
-    }
     notFound(res)
   }
 }
@@ -1438,6 +1501,15 @@ export function startLoreBrowserServer({
   const normalizedRepository = normalizeRepository(repository)
 
   const server = createServer(async (req, res) => {
+    if (!isAllowedHostHeader(req.headers?.host)) {
+      jsonResponse(res, 403, {
+        ok: false,
+        error: "forbidden",
+        message: "Invalid host header",
+      })
+      return
+    }
+
     if (req.method !== "GET") {
       methodNotAllowed(res)
       return

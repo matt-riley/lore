@@ -33,6 +33,30 @@ test("administration previews are bounded and fingerprinted without changing row
   }
 });
 
+test("administration previews report every selector that affects targeting", async () => {
+  const { db, cleanup } = await withFixtureDb();
+  try {
+    db.insertSemanticMemory({ type: "user_preference", content: "Global fixture preference.", scope: "global" });
+    const plan = previewMemoryAdministration(db, normalizeAdministrationRequest({
+      operation: "purge",
+      scope: "global",
+      includeDependentAggregates: true,
+      limit: 7,
+    }));
+    assert.deepEqual(plan.selectors, {
+      memoryIds: [],
+      sessionIds: [],
+      repository: null,
+      repositoryMappings: [],
+      scope: "global",
+      includeDependentAggregates: true,
+      limit: 7,
+    });
+  } finally {
+    cleanup();
+  }
+});
+
 test("correction apply requires the preview fingerprint and preserves manual authority", async () => {
   const { db, cleanup } = await withFixtureDb();
   try {

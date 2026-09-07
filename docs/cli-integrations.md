@@ -117,7 +117,8 @@ preferences use `lore_retain` with `scope: "global"`.
 
 The CLI also exposes the reliability administration commands
 `memory_correct`, `memory_repair`, and `memory_purge`. They default to a
-read-only preview and accept JSON on stdin:
+read-only preview and accept JSON on stdin. Preview first; applying requires
+the exact returned `planFingerprint` and any selected candidate IDs:
 
 ```sh
 printf '%s\n' '{"memoryId":"<id>","content":"<replacement>","reason":"<why>"}' | node /absolute/lore/lore-cli.mjs tool memory_correct
@@ -125,9 +126,36 @@ printf '%s\n' '{"sessionIds":["<session-id>"]}' | node /absolute/lore/lore-cli.m
 printf '%s\n' '{"memoryIds":["<id>"]}' | node /absolute/lore/lore-cli.mjs tool memory_purge
 ```
 
-Review the preview fingerprint and retained source or backup consequences before
-an explicit apply. Purge is a derived-record cleanup operation and is not
-secure erasure.
+For a reviewed correction, pass `action: "apply"`, the same selector and
+payload, and the preview fingerprint:
+
+```sh
+printf '%s\n' '{"action":"apply","memoryId":"<id>","content":"<replacement>","reason":"<why>","planFingerprint":"<preview-fingerprint>"}' | node /absolute/lore/lore-cli.mjs tool memory_correct
+```
+
+Repair applies only explicitly selected actionable source-re-extraction or
+repository-mapping candidates from its preview. Source-backed repair scans at
+most 32 MiB and 10,000 turns; unavailable or oversized legacy sources remain
+unresolved. Purge aggregate candidates use typed IDs such as
+`aggregate:episode_digest:<json-primary-key>`. If the initial preview reports
+residual aggregates, run a new preview with `includeDependentAggregates: true`,
+then use that new fingerprint and select every residual aggregate ID to remove. A correction `repository` sets the replacement
+destination; omit it to preserve the existing repository, or use
+`scope: "global", repository: null` explicitly for a global replacement.
+
+Review the preview fingerprint, retained source or backup consequences, and
+unresolved items before an explicit apply. Purge is a derived-record cleanup
+operation and is not secure erasure.
+
+Native capture resume is a separate bounded command. The dashboard only copies
+it; running it performs capture and may write evidence. Each pass reads at most
+4 MiB with a 250 ms cooperative read budget, keeps at most a 1 MiB incomplete record, and reports skipped
+oversized records through categorical health. Its stdin is
+`{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}`:
+
+```sh
+printf '%s\n' '{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}' | node /absolute/lore/lore-cli.mjs capture --resume --client codex --session '<native-session-id>'
+```
 
 ## Compatibility and boundaries
 
@@ -153,9 +181,11 @@ inferred from arbitrary shell output. Automatic recall uses deterministic
 retrieval; explicit `lore_recall` retains the shared tool's optional local query
 expansion and embedding behavior.
 
-Transcript snapshots are capped at 32 MiB and hook input at 1 MiB. Oversized or
-malformed input produces a diagnostic and is not imported. An incomplete final
-JSONL record is deferred until a later capture. Hosts that disable transcript
+Hook-provided transcript snapshots are capped at 32 MiB and hook input at 1
+MiB. Oversized or malformed hook input produces a diagnostic and is not
+imported. The separate native `capture --resume` command handles larger
+transcripts incrementally within its per-pass bounds. An incomplete final JSONL
+record is deferred until a later capture. Hosts that disable transcript
 persistence cannot provide automatic extraction. Hook timeouts are 10 seconds,
 except Codex `SessionEnd` at its 3-second maximum; `Stop` provides the normal
 capture point before shutdown. Hook metrics, automatic maintenance, raw archive

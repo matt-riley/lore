@@ -60,9 +60,11 @@ The shared retrieval concepts are exposed through adapter-specific interfaces:
 
 With local embeddings enabled, `lore_recall` appends meaning-ranked matches to lexical results. Embeddings augment lexical retrieval; they do not replace it, and endpoint failures fall back to lexical search.
 
-The dashboard overview reports active-memory embedding coverage and bounded
-fallback diagnostics so an unavailable or partial embedding index is visible.
-Lexical retrieval remains the deterministic fallback.
+The dashboard overview reports a bounded sample of eligible active-memory
+embedding coverage and bounded fallback diagnostics. It validates cache content
+hash, provider, model, dimensions, vector shape, expiry, scope, suppression,
+and active evidence before counting a sampled row. Lexical retrieval remains
+the deterministic fallback.
 
 ## Writing and retiring memories
 

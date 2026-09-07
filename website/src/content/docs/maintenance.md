@@ -28,9 +28,12 @@ The in-session equivalent is `maintenance_schedule_run({ dryRun: true })`. Start
 
 The optional [browser dashboard](/guides/troubleshooting/#dashboard-cannot-be-reached)
 keeps this inspection read-only. Its overview shows the last successful native
-capture, pending bytes, resumable source checkpoints, embedding coverage, and
-recent fallback diagnostics. A resume button only copies a command for review;
-it does not run capture from the browser.
+ capture, pending bytes, resumable source checkpoints, embedding coverage, and
+ recent fallback diagnostics. A resume button only copies a command for review;
+ it does not run capture from the browser. Running the copied native
+ `capture --resume` command performs capture and may write evidence. Each pass
+ reads at most 4 MiB with a 250 ms cooperative read budget, retains at most a 1 MiB incomplete record, and
+ reports skipped oversized records through categorical health.
 
 ## Useful task cadence
 
@@ -68,6 +71,10 @@ Use an absolute Node path because cron has a minimal `PATH`. Set `LORE_HOME` or 
 Stale deferred jobs and abandoned maintenance runs are reclaimed after their configured 30-minute defaults. Failed migrations and tasks use forward recovery and leave the database intact. Point maintenance only at the configured Lore database; do not aim it at fixtures or another user's data.
 
 Administrative repair and purge follow the same review boundary: preview first,
-then apply only with the preview fingerprint and explicit candidate IDs. Purge
-removes selected derived records while retaining raw sources and recovery
-snapshots; it is not secure erasure.
+then apply only with the preview fingerprint and explicit candidate IDs. Repair
+candidate IDs are limited to actionable source re-extraction or repository
+mapping candidates. Purge aggregate candidates use typed IDs such as
+`aggregate:episode_digest:<json-primary-key>` and require
+`includeDependentAggregates: true` plus every residual aggregate ID selected
+from the preview. Purge removes selected derived records while retaining raw
+sources and recovery snapshots; it is not secure erasure.

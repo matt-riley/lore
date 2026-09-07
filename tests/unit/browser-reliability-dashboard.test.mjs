@@ -6,8 +6,9 @@ import { describe, test } from "node:test";
 
 import { startLoreBrowserServer } from "../../browser/server.mjs";
 import { LoreDb } from "../../lib/db/db.mjs";
+import { embeddingContentHash } from "../../lib/memory/semantic-search.mjs";
 import { createAppRunner, createBrowserTestEnvironment } from "../helpers/browser-dom.mjs";
-import { enabledConfig } from "../helpers/fixture-config.mjs";
+import { buildFixtureConfig, enabledConfig } from "../helpers/fixture-config.mjs";
 
 const runApp = createAppRunner();
 
@@ -117,7 +118,8 @@ describe("reliability dashboard renderers", () => {
     await runApp(document, makeWindow(), fixtureFetch, history);
     const html = elements.get("view-overview")?.innerHTML ?? "";
     assert.match(html, /Capture health/);
-    assert.match(html, /Copy preview command/);
+    assert.match(html, /Copy resume command/);
+    assert.match(html, />pending</);
     assert.match(html, /Embedding coverage/);
     assert.match(html, /partial_embedding_coverage/);
   });
@@ -160,6 +162,11 @@ describe("reliability dashboard renderers", () => {
         },
       }],
     });
+    const evidenceKey = db.listSemanticEvidence(memoryId)[0].key;
+    db.db.prepare("UPDATE session_evidence SET retired_at = ? WHERE evidence_key = ?").run("2026-09-07T09:00:00.000Z", evidenceKey);
+    db.db.prepare("UPDATE memory_evidence SET retired_at = ? WHERE memory_id = ? AND evidence_key = ?").run("2026-09-07T09:05:00.000Z", memoryId, evidenceKey);
+    db.db.prepare(`INSERT INTO memory_suppression (suppression_key, memory_id, scope, repository, actor, reason, created_at, superseded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("suppression:fixture", memoryId, "repo", "owner/repo", "fixture", "reviewed test suppression", "2026-09-07T08:30:00.000Z", null);
     const { server } = startLoreBrowserServer({ db, host: "127.0.0.1", port: 0, repository: "owner/repo" });
     await new Promise((resolve) => server.once("listening", resolve));
     try {
@@ -169,7 +176,79 @@ describe("reliability dashboard renderers", () => {
       assert.equal(payload.mode, "read_only");
       assert.equal(payload.data.lifecycle.evidence[0].sourceRole, "user");
       assert.equal(payload.data.lifecycle.evidence[0].sourceRecordId, "turn-1");
-      assert.equal(payload.data.lifecycle.state.correction, "none");
+      assert.equal(payload.data.lifecycle.state.suppression, "suppressed");
+      const evidenceTimeline = payload.data.lifecycle.timeline.filter((item) => item.kind.includes("evidence"));
+      assert.deepEqual(new Set(evidenceTimeline.map((item) => item.kind)), new Set(["evidence", "evidence_retired", "evidence_link_retired"]));
+      assert.equal(evidenceTimeline.find((item) => item.kind === "evidence_retired").at, "2026-09-07T09:00:00.000Z");
+      assert.equal(evidenceTimeline.find((item) => item.kind === "evidence_link_retired").at, "2026-09-07T09:05:00.000Z");
+      assert.deepEqual(payload.data.lifecycle.timeline.find((item) => item.kind === "suppression"), {
+        at: "2026-09-07T08:30:00.000Z",
+        kind: "suppression",
+        label: "Suppression recorded",
+        actor: "fixture",
+        reason: "reviewed test suppression",
+      });
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      db.close();
+    }
+  });
+
+  test("overview reports valid eligible cache coverage and categorical fallback diagnostics", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "lore-browser-coverage-fixture-"));
+    const config = buildFixtureConfig(home, {
+      enabled: true,
+      localInference: { enabled: true, embeddings: { enabled: true, model: "fixture-model" } },
+    });
+    const db = new LoreDb(config);
+    db.initialize();
+    const [activeId, expiredId] = db.reconcileGeneratedMemories({
+      sessionId: "codex:coverage",
+      repository: "owner/repo",
+      memories: [
+        { type: "user_preference", content: "Use the active fixture memory.", scope: "repo", repository: "owner/repo" },
+        { type: "user_preference", content: "Use the expired fixture memory.", scope: "repo", repository: "owner/repo" },
+      ],
+    });
+    db.db.prepare("UPDATE semantic_memory SET expires_at = ? WHERE id = ?").run("2020-01-01T00:00:00.000Z", expiredId);
+    db.ensureMemoryEmbeddingTable();
+    db.db.prepare(`INSERT OR REPLACE INTO memory_embedding (memory_id, content_hash, provider, model, dimensions, vector, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(activeId, embeddingContentHash("Use the active fixture memory."), "http://127.0.0.1:12434/v1", "fixture-model", 2, "[1,0]", "2026-09-07T08:00:00.000Z");
+    db.writeRetrievalTraceSample({
+      id: "trace-coverage",
+      repository: "owner/repo",
+      scopeType: "repo",
+      hook: "test",
+      route: "lexical",
+      routeReason: "fallback",
+      contextInjected: false,
+      latencyMs: 1,
+      promptPreview: "fixture",
+      sectionTitles: [],
+      promptNeed: JSON.stringify({}),
+      eligibility: JSON.stringify({}),
+      lookups: JSON.stringify({}),
+      omissions: JSON.stringify([]),
+      output: JSON.stringify({}),
+      trace: JSON.stringify({ fallback: true, partialCoverage: true, deadline: true }),
+      recordedAt: "2026-09-07T08:00:00.000Z",
+    });
+    const { server } = startLoreBrowserServer({ db, host: "127.0.0.1", port: 0, repository: "owner/repo" });
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      const responseValue = await fetch(`http://127.0.0.1:${server.address().port}/api/overview`);
+      const payload = await responseValue.json();
+      assert.equal(responseValue.status, 200);
+      assert.equal(payload.data.indexing.totalActive, 1);
+      assert.equal(payload.data.indexing.sampleSize, 1);
+      assert.equal(payload.data.indexing.indexed, 1);
+      assert.equal(payload.data.indexing.pending, 0);
+      assert.equal(payload.data.indexing.dimensionsBasis, "stored vector dimensions");
+      assert.deepEqual(payload.data.indexing.fallbackDiagnostics, [
+        { reason: "deterministic_fallback", count: 1 },
+        { reason: "partial_embedding_coverage", count: 1 },
+        { reason: "embedding_deadline", count: 1 },
+      ]);
     } finally {
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
       db.close();

@@ -135,10 +135,10 @@ For direct commands run outside your project, pass an explicit `repository` argu
 
 Only the supplied active-session transcript is read; these adapters do not scan archives or import unrelated sessions. Thinking, reasoning, tool output, injected Lore context, and Antigravity prompt metadata are excluded from extraction. Hosts that disable transcript persistence cannot provide automatic capture.
 
-Hook input is limited to 1 MiB and hook-provided transcript snapshots to 32
-MiB. Malformed or oversized hook input is not imported; the separate native
-`capture --resume` command handles larger transcripts incrementally within its
-per-pass bounds. An unfinished final JSONL record is deferred. Hooks have a
+Hook input is limited to 1 MiB; malformed or oversized hook input is not
+imported. Capture hooks and `capture --resume` both handle transcripts larger
+than 32 MiB incrementally within the per-pass bounds above. An unfinished final
+JSONL record is deferred. Hooks have a
 10-second timeout, except Codex `SessionEnd` at 3 seconds; `Stop` is its normal
 capture point.
 

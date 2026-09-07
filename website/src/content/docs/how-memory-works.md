@@ -36,6 +36,12 @@ Codex CLI, Claude Code, and Antigravity CLI connect through native lifecycle com
 
 The derived store can contain semantic memories, episode and day summaries, commitments, working-profile information, and provenance. A memory may include a repository scope, category, confidence, source, and supersession history.
 
+The local dashboard can open a memory's evidence ledger. Each linked source
+record shows its attributed role, descriptive confidence basis, revision, and
+capture time. The same view shows scope, expiry, suppression, correction state,
+and a chronological lifecycle timeline. These are provenance signals for
+review; a confidence basis is not a calibrated probability.
+
 Lore reads Copilot's raw `session-store.db` for extraction and backfill. It never writes to that raw store. The derived database is `~/.config/lore/lore.db` by default (or `$XDG_CONFIG_HOME/lore/lore.db`).
 
 ## Retrieval and scope
@@ -53,6 +59,10 @@ The shared retrieval concepts are exposed through adapter-specific interfaces:
 | Codex, Claude, Antigravity | `lore_recall` / `memory_search` | Direct shell-invoked recall and keyword search via `lore-cli.mjs tool` |
 
 With local embeddings enabled, `lore_recall` appends meaning-ranked matches to lexical results. Embeddings augment lexical retrieval; they do not replace it, and endpoint failures fall back to lexical search.
+
+The dashboard overview reports active-memory embedding coverage and bounded
+fallback diagnostics so an unavailable or partial embedding index is visible.
+Lexical retrieval remains the deterministic fallback.
 
 ## Writing and retiring memories
 

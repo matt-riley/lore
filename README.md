@@ -440,7 +440,7 @@ The canonical breakdown lives in [`docs/support-matrix.md`](docs/support-matrix.
 
 Pi exposes `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status`, plus `/lore status`, `/lore save <text>`, and `/lore search <query>`.
 
-The experimental Codex, Claude Code, and Antigravity adapters expose these shell commands through `lore-cli.mjs tool <name>`: `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, and `memory_status`. They do not expose `memory_explain`, `memory_validate`, or the experimental Copilot tools. Their native event names and lifecycle mappings are listed in the [CLI integration guide](docs/cli-integrations.md#lifecycle-behavior).
+The experimental Codex, Claude Code, and Antigravity adapters expose these shell commands through `lore-cli.mjs tool <name>`: `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, `memory_status`, `memory_correct`, `memory_repair`, and `memory_purge`. They do not expose `memory_explain`, `memory_validate`, or the other experimental Copilot tools. Their native event names and lifecycle mappings are listed in the [CLI integration guide](docs/cli-integrations.md#lifecycle-behavior).
 
 For runtime and platform promises, see [`docs/compatibility.md`](docs/compatibility.md).
 
@@ -486,6 +486,29 @@ If you enable the optional browser dashboard, keep in mind:
 - it can display sensitive local memory content, including code, notes, file paths, and decisions
 
 Useful, yes. Internet-facing, absolutely not.
+
+The dashboard is also the quickest way to inspect a memory's evidence links,
+source role, confidence basis, scope, expiry, suppression, and correction
+timeline. Its overview reports native capture checkpoints and embedding
+coverage, including resumable sessions and recent lexical fallback reasons.
+Resume actions and administration actions are copy-only previews; the browser
+never executes them or writes to the database.
+
+For native capture that reports pending bytes, rerun the displayed command from
+the Lore checkout after reviewing the source path and workspace. Direct
+administration commands default to a read-only preview and accept JSON on
+stdin:
+
+```sh
+printf '%s\n' '{"memoryId":"<id>","content":"<replacement>","reason":"<why>"}' | node lore-cli.mjs tool memory_correct
+printf '%s\n' '{"sessionIds":["<session-id>"]}' | node lore-cli.mjs tool memory_repair
+printf '%s\n' '{"memoryIds":["<id>"]}' | node lore-cli.mjs tool memory_purge
+```
+
+Review the preview's `planFingerprint`, affected derived records, retained
+source and backup consequences, and unresolved items before an explicit apply.
+Purge removes selected derived records and keeps raw sources, snapshots, and
+non-plaintext suppression; it is not secure erasure.
 
 For the full security model, see [SECURITY.md](SECURITY.md).
 

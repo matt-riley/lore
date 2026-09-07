@@ -76,3 +76,6 @@ jobs:
 
       - name: Memory quality and isolation gate
         run: npm run test:quality
+
+      - name: Transcript reliability gate
+        run: npm run test:reliability

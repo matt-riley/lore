@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
   QUALITY_GATES,
+  currentGuidanceText,
   evaluateCandidateMemories,
   evaluateForeignRows,
   evaluateNegativeQueryEvidence,
@@ -48,6 +49,7 @@ describe("independent reliability quality corpus", () => {
     assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "Prefer bounded queues and keep the request identifier in logs." }, expected), true);
     assert.equal(matchesProposition({ type: "user_preference", scope: "global", repository: null, content: "I prefer queues." }, expected), false);
     assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "Prefer colorful dashboards." }, expected), false);
+    assert.equal(matchesProposition({ type: "user_preference", content: "Prefer bounded queues and keep the request identifier in logs." }, expected), false);
     const timeout = { type: "user_preference", scope: "repo", repository: "acme/test", anchors: ["use", "45", "second", "timeout"] };
     assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "Use a 45 second timeout." }, timeout), true);
     assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "Use a 30 second timeout." }, timeout), false);
@@ -68,6 +70,19 @@ describe("independent reliability quality corpus", () => {
       scenario: written,
       extraction: { semanticMemories: [{ type: "user_preference", scope: "repo", repository: written.repository, content: "Use twenty seconds for the endpoint timeout because the upstream SLA changed." }] },
     }).negativeFalsePositives, 0);
+  });
+
+  test("retired extraction evidence and labeled historical questions are not current guidance", () => {
+    const scenario = { repository: "acme/test", expected: [], forbidden: [] };
+    const result = evaluateCandidateMemories({ scenario, extraction: {
+      semanticMemories: [{ type: "decision", content: "Decision: old queue.", evidence: { key: "old" } }],
+      retiredEvidenceKeys: ["old"],
+    } });
+    assert.equal(result.candidateCount, 0);
+    const text = "## Relevant Prior Work\n\n- Should we always cache?\n\n## Relevant Knowledge\n\n- Always cache.\n\n## New Unexpected Section\n\n- Never validate.";
+    assert.doesNotMatch(currentGuidanceText(text), /Should we/);
+    assert.match(currentGuidanceText(text), /Always cache/);
+    assert.match(currentGuidanceText(text), /Never validate/);
   });
 
   test("counts wrong evidence as a false positive even when it repeats a prompt keyword", () => {

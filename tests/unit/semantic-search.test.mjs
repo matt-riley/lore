@@ -19,7 +19,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { cosineSimilarity, semanticSearch, semanticSearchEnabled } from "../../lib/memory/semantic-search.mjs";
+import { cosineSimilarity, embeddingContentHash, semanticSearch, semanticSearchEnabled } from "../../lib/memory/semantic-search.mjs";
 import { freshDb } from "../helpers/fixture-db.mjs";
 import { createTempHome } from "../helpers/temp-home.mjs";
 import { buildFixtureConfig } from "../helpers/fixture-config.mjs";
@@ -121,6 +121,60 @@ describe("semanticSearchEnabled", () => {
 });
 
 describe("semanticSearch", () => {
+  test("flushes already resolved embeddings when a later provider page fails", async () => {
+    const { home, cleanup } = createTempHome();
+    try {
+      const config = buildFixtureConfig(home);
+      config.localInference = {
+        enabled: true,
+        baseUrl: "http://127.0.0.1:1/v1",
+        embeddings: { enabled: true, model: "test-embedding-model", maxInputs: 24, minSimilarity: 0 },
+      };
+      const db = freshDb(config);
+      try {
+        db.insertSemanticMemory({ id: "first", type: "user_preference", content: "First resolved candidate", repository: "repo/a", scope: "repo" });
+        db.insertSemanticMemory({ id: "second", type: "user_preference", content: "Second failing candidate", repository: "repo/a", scope: "repo" });
+        const originalList = db.listSemanticMemoriesForEmbedding.bind(db);
+        let listCalls = 0;
+        db.listSemanticMemoriesForEmbedding = (options) => {
+          listCalls += 1;
+          if (options.embeddingState === "missing") {
+            return [{ id: "first", type: "user_preference", content: "First resolved candidate", scope: "repo", repository: "repo/a", metadata_json: "{}" }];
+          }
+          if (listCalls === 2) {
+            return [{ id: "second", type: "user_preference", content: "Second failing candidate", scope: "repo", repository: "repo/a", metadata_json: "{}" }];
+          }
+          return originalList(options);
+        };
+        let embeddingCall = 0;
+        const fetchImpl = async (_url, options) => {
+          embeddingCall += 1;
+          const input = JSON.parse(options.body).input;
+          if (embeddingCall === 1) {
+            return { ok: true, status: 200, json: async () => ({ data: [{ index: 0, embedding: [1, 0] }] }) };
+          }
+          if (embeddingCall === 2) {
+            return { ok: true, status: 200, json: async () => ({ data: [{ index: 0, embedding: [1, 0] }] }) };
+          }
+          return { ok: false, status: 503, json: async () => ({}) };
+        };
+        const result = await semanticSearch({ db, query: "resolved candidate", repository: "repo/a", fetchImpl, config });
+        assert.equal(result.enabled, true);
+        assert.equal(result.diagnostics.partialCoverage, true);
+        assert.ok(db.getMemoryEmbedding("first", {
+          contentHash: embeddingContentHash("First resolved candidate"),
+          provider: "http://127.0.0.1:1/v1",
+          model: "test-embedding-model",
+          dimensions: 2,
+        }), "resolved vectors should be cached before a later page fails");
+      } finally {
+        db.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
   test("returns enabled:false when embeddings are not configured", async () => {
     const { home, cleanup } = createTempHome();
     try {

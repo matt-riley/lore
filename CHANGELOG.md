@@ -20,6 +20,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.15.2](https://github.com/matt-riley/lore/compare/lore-v0.15.1...lore-v0.15.2) (2026-09-07)
+
+
+### Bug Fixes
+
+* **cli:** prevent interactive TTY hang and improve diagnostic logging ([#114](https://github.com/matt-riley/lore/issues/114)) ([5311ef8](https://github.com/matt-riley/lore/commit/5311ef819f4bf2cf7063c2312dbc8fc472b62e86))
+* **db:** safely quote SQL identifiers in PRAGMA and ALTER statements ([#113](https://github.com/matt-riley/lore/issues/113)) ([f79b91b](https://github.com/matt-riley/lore/commit/f79b91b52e8fdb21823290fc94b38bfa8a38ed86))
+* **extraction:** eliminate false-positive directive capture and semantic drift ([#116](https://github.com/matt-riley/lore/issues/116)) ([07ccd43](https://github.com/matt-riley/lore/commit/07ccd43af2a756710b6972f06bb1775b26f95bae))
+* **security:** prevent DNS rebinding and protect static dashboard assets ([#115](https://github.com/matt-riley/lore/issues/115)) ([a33fea4](https://github.com/matt-riley/lore/commit/a33fea496902ba91dbb1cb490239ae81c3108dfd))
+
 ## [0.15.1](https://github.com/matt-riley/lore/compare/lore-v0.15.0...lore-v0.15.1) (2026-09-07)
 
 

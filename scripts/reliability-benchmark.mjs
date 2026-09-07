@@ -104,6 +104,7 @@ export function checkpointDeltaWork(before, after) {
 function measureNativeCapture(home, env) {
   const transcriptPath = path.join(home, "capture.jsonl");
   const entries = [
+    { type: "session_meta", payload: { id: "benchmark-capture" } },
     { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Prefer capture evidence with a source record." }] } },
     { type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "I will retain the source record with the captured evidence." }] } },
   ];

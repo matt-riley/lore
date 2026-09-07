@@ -109,3 +109,15 @@ test("accepted record cap resumes without skipping bytes after excluded records"
     assert.deepEqual(next.records.map((r) => r.value.n), [3]);
   });
 });
+
+test("accepted byte budget defers a whole record without dropping or splitting it", async () => {
+  await fixture(async (file) => {
+    const records = [{ text: "a".repeat(80) }, { text: "b".repeat(80) }];
+    await writeFile(file, records.map(JSON.stringify).join("\n") + "\n");
+    const first = await readJsonlDelta(file, { maxAcceptedBytes: 128 });
+    assert.deepEqual(first.records.map((r) => r.value), [records[0]]);
+    const second = await readJsonlDelta(file, { checkpoint: first.checkpoint, maxAcceptedBytes: 128 });
+    assert.deepEqual(second.records.map((r) => r.value), [records[1]]);
+    assert.equal(second.checkpoint.pendingBytes, 0);
+  });
+});

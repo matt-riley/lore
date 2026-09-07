@@ -204,3 +204,17 @@ describe("extension hook trace helpers", () => {
     }]);
   });
 });
+
+test("Copilot context fails open before mapping lookup after database initialization failure", async () => {
+  const failure = new Error("schema migration failed");
+  const runtime = { initialized: false, config: { paths: {} }, lastError: failure, db: { getRepositoryMappings() { throw new Error("database not open"); } } };
+  const getContext = loadFunction("getContext", {
+    ensureRuntime: async () => runtime,
+    lastKnownCwd: "/fixture",
+    resolveWorkspacePath: () => { throw new Error("unavailable hooks must not load context"); },
+  });
+  const context = await getContext({}, "session", "/fixture");
+  assert.equal(context.runtime.lastError, failure);
+  assert.equal(context.repository, null);
+  assert.equal(context.cwd, "/fixture");
+});

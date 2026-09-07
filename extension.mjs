@@ -754,6 +754,9 @@ async function ensureRuntime(session) {
 
 async function getContext(session, sessionId, cwd) {
   const activeRuntime = await ensureRuntime(session);
+  if (!activeRuntime.initialized || activeRuntime.lastError) {
+    return { runtime: activeRuntime, workspacePath: null, workspace: { workspace: {} }, repository: null, cwd: cwd || lastKnownCwd };
+  }
   const workspacePath = resolveWorkspacePath(
     session.workspacePath,
     sessionId,

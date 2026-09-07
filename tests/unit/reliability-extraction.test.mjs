@@ -158,12 +158,59 @@ describe("conservative rule extraction", () => {
         { user_message: "Please ask for the failing logs." },
         { user_message: "Please do not include the failing request in the bug report." },
         { user_message: "Please avoid retrying the failing payment request for this incident." },
-        { user_message: "In future, always include the failing request in the bug report." },
-        { user_message: "As a policy, never include the failing request in the bug report." },
       ],
     });
 
     assert.deepEqual(extraction.semanticMemories, []);
+  });
+
+  test("retains explicit policies and general failure or payment constraints", () => {
+    const cases = [
+      ["In future, always include the failing request in the bug report.", "user_preference"],
+      ["As a policy, never include the failing request in the bug report.", "rejected_approach"],
+      ["Please avoid silently retrying payment mutations. A duplicate charge is worse than a visible failure, so retries need an idempotency key.", "rejected_approach"],
+      ["Always preserve failure evidence for future reviews.", "user_preference"],
+      ["Never retry payment mutations without an idempotency key.", "rejected_approach"],
+      ["Please use payment idempotency keys for mutations.", "user_preference"],
+      ["Please keep failure reports concise for every incident.", "user_preference"],
+      ["Never retain personal customer names in debugging memories.", "rejected_approach"],
+      ["From now on, please include the failing request in the bug report.", "user_preference"],
+      ["For this repository, as a policy, please include the failing request in the bug report.", "user_preference"],
+    ];
+    for (const [user_message, type] of cases) {
+      const memories = extract({ turns: [{ user_message }] }).semanticMemories;
+      assert.equal(memories.length, 1, user_message);
+      assert.equal(memories[0].type, type, user_message);
+      assert.equal(memories[0].scope, MEMORY_SCOPE.REPO);
+    }
+  });
+
+  test("keeps explicitly temporary requests out of enduring directives", () => {
+    for (const user_message of [
+      "Please use payment idempotency keys just this once.",
+      "For this incident, please preserve failure evidence.",
+      "Please run the tests now.",
+      "Please write a bug report.",
+      "Please use the attachment.",
+      "Please make a reproduction.",
+      "Please keep this request open.",
+      "I prefer verbose logging for this run only.",
+      "Please avoid retrying payment mutations for this incident only.",
+    ]) {
+      assert.deepEqual(extract({ turns: [{ user_message }] }).semanticMemories, [], user_message);
+    }
+  });
+
+  test("does not detach directive clauses from questions, quotations, or hypothetical qualifiers", () => {
+    for (const user_message of [
+      "Should we prefer Redis and never use SQLite?",
+      "If we need caching, prefer Redis and never use SQLite.",
+      "The old guide says 'Prefer Redis and never use SQLite.'",
+      "The old guide says `Prefer Redis and never use SQLite.`",
+      "Prefer Redis and never use SQLite if the prototype needs caching.",
+    ]) {
+      assert.deepEqual(extract({ turns: [{ user_message }] }).semanticMemories, [], user_message);
+    }
   });
 
   test("keeps standing safety constraints despite incident request guards", () => {
@@ -323,6 +370,55 @@ describe("conservative rule extraction", () => {
     assert.deepEqual(extraction.retiredEvidenceKeys, [
       decisions[2].evidence.key,
     ]);
+  });
+
+  test("shared rationales and generic subject words cannot retire distinct decisions", () => {
+    for (const [earlier, later] of [
+      ["We decided to use Redis for billing because reliability matters.", "Instead, we chose PostgreSQL for analytics because reliability matters."],
+      ["We chose Redis for billing API because performance matters.", "Instead, we chose PostgreSQL for analytics API because performance matters."],
+      ["We chose Redis for catalog invalidation.", "Instead, we chose PostgreSQL for inventory invalidation because losing invalidations is unacceptable."],
+      ["We chose Redis because reliability matters.", "Instead, we chose PostgreSQL because reliability matters."],
+      ["We chose Redis for catalog invalidation.", "Instead, we chose PostgreSQL because catalog invalidation was mentioned in the review."],
+    ]) {
+      const extraction = extract({ turns: [{ user_message: earlier }, { assistant_response: later }] });
+      assert.equal(semantic(extraction, "decision").length, 2);
+      assert.deepEqual(extraction.retiredEvidenceKeys, [], `${earlier} / ${later}`);
+    }
+  });
+
+  test("an entity reference must identify one prior decision subject before retirement", () => {
+    const extraction = extract({ turns: [
+      { user_message: "We chose Redis for catalog invalidation." },
+      { user_message: "We chose polling for inventory invalidation." },
+      { assistant_response: "The decision changed after review: use PostgreSQL notifications instead, because losing invalidations is unacceptable." },
+    ] });
+    assert.equal(semantic(extraction, "decision").length, 3);
+    assert.deepEqual(extraction.retiredEvidenceKeys, []);
+  });
+
+  test("only completion context can introduce an attributed decision", () => {
+    for (const text of [
+      "Perhaps we chose PostgreSQL for billing.",
+      "The draft says we chose PostgreSQL for billing.",
+      "In a hypothetical review, we chose PostgreSQL for billing.",
+      "We chose PostgreSQL for billing, or maybe we did not.",
+    ]) {
+      for (const role of ["user_message", "assistant_response"]) {
+        assert.deepEqual(semantic(extract({ turns: [{ [role]: text }] }), "decision"), [], text);
+      }
+    }
+  });
+
+  test("questions and hypothetical or quoted repeated failures do not infer repair goals", () => {
+    for (const [first, second] of [
+      ["Did the build fail?", "Did the build fail again?"],
+      ["Did the build fail? Please inspect the logs.", "Did the build fail again? Please inspect the logs."],
+      ["Suppose the build failed.", "Suppose the build failed again."],
+      ["The example says \"The build failed.\"", "The example says \"The build failed again.\""],
+    ]) {
+      const extraction = extract({ turns: [{ assistant_response: first }, { assistant_response: second }] });
+      assert.deepEqual(extraction.semanticMemories, [], `${first} / ${second}`);
+    }
   });
 
   test("recognizes common decision reversal phrasing", () => {

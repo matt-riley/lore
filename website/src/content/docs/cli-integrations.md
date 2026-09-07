@@ -50,7 +50,7 @@ All clients use the same Lore database by default. See [Configuration](/guides/c
 
 ## 3. Install your client's hooks
 
-Run these commands from the Lore checkout. The installer previews changes by default:
+For automatic detection and installation across all five clients, run `npm run setup` from the Lore checkout. The `install-hooks` commands below are an advanced native-hook helper for Codex, Claude Code, and Antigravity only; they preview changes by default:
 
 ```sh
 node scripts/install-hooks.mjs codex --project /absolute/project

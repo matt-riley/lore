@@ -19,7 +19,7 @@ Keep this checkout in a stable location. Enable Lore using the README's
 `LORE_HOME`, `LORE_CONFIG`, `LORE_ENABLED`, the XDG default home, and the existing
 legacy-home fallback. They never migrate user data automatically.
 
-The installer defaults to a dry run. Add `--write` to apply its configuration:
+The `install-hooks` helper covers Codex, Claude Code, and Antigravity only. Use `npm run setup` for automatic detection and installation across all five clients. The helper defaults to a dry run; add `--write` to apply its configuration:
 
 ```sh
 node scripts/install-hooks.mjs codex --project /absolute/project --write

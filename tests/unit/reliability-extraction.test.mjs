@@ -678,6 +678,21 @@ describe("extraction evidence", () => {
   });
 });
 
+test("a reversal retires every corroborating old source while retaining corroborating current sources", () => {
+  const turns = [
+    { turn_index: 1, source_record_id: "u1", user_message: "We chose Redis for catalog invalidation.", assistant_response: "", assistant_source_records: [{ source_record_id: "a1", text: "We chose Redis for catalog invalidation." }] },
+    { turn_index: 2, source_record_id: "u2", user_message: "We switched to PostgreSQL for catalog invalidation because durability matters.", assistant_response: "", assistant_source_records: [{ source_record_id: "a2", text: "We switched to PostgreSQL for catalog invalidation because durability matters." }] },
+  ];
+  const result = extractSessionMemories({
+    sessionId: "corroborated-reversal", repository: "owner/catalog",
+    sessionArtifacts: { session: {}, checkpoints: [], files: [], refs: [], turns },
+    workspace: { workspace: {} },
+  });
+  const retired = new Set(result.retiredEvidenceKeys);
+  assert.deepEqual(result.semanticMemories.filter((row) => retired.has(row.evidence.key)).map((row) => row.evidence.sourceRecordId).sort(), ["a1", "u1"]);
+  assert.deepEqual(result.semanticMemories.filter((row) => !retired.has(row.evidence.key)).map((row) => row.evidence.sourceRecordId).sort(), ["a2", "u2"]);
+});
+
 describe("scope classification", () => {
   test("defaults known origins to repo and leaves unknown origins out of global scope", () => {
     assert.deepEqual(classifySemanticMemory({

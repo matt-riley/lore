@@ -2,5 +2,20 @@
   "extends": [
     "github>matt-riley/renovate-config",
     "github>matt-riley/renovate-config:github-actions"
+  ],
+  "packageRules": [
+    {
+      "description": "Astro check requires the TypeScript JavaScript API; revisit when https://github.com/withastro/roadmap/discussions/1321 is supported.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "website/package.json"
+      ],
+      "matchPackageNames": [
+        "typescript"
+      ],
+      "allowedVersions": "<7"
+    }
   ]
 }

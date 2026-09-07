@@ -87,3 +87,25 @@ test("reader rejects relative paths and invalid work budgets", async () => {
     }
   });
 });
+
+test("small append preserves generation and reads only appended records", async () => {
+  await fixture(async (file) => {
+    await writeFile(file, '{"text":"first"}\n');
+    const first = await readJsonlDelta(file);
+    await appendFile(file, '{"text":"second"}\n');
+    const next = await readJsonlDelta(file, { checkpoint: first.checkpoint });
+    assert.equal(next.reset, false);
+    assert.equal(next.checkpoint.generation, first.checkpoint.generation);
+    assert.deepEqual(next.records.map((r) => r.value.text), ["second"]);
+  });
+});
+
+test("accepted record cap resumes without skipping bytes after excluded records", async () => {
+  await fixture(async (file) => {
+    await writeFile(file, [0, 1, 2, 3, 4].map((n) => JSON.stringify({ n })).join("\n") + "\n");
+    const first = await readJsonlDelta(file, { maxRecords: 1, acceptRecord: (v) => v.n % 2 === 1 });
+    assert.deepEqual(first.records.map((r) => r.value.n), [1]);
+    const next = await readJsonlDelta(file, { checkpoint: first.checkpoint, maxRecords: 1, acceptRecord: (v) => v.n % 2 === 1 });
+    assert.deepEqual(next.records.map((r) => r.value.n), [3]);
+  });
+});

@@ -284,6 +284,27 @@ describe("database reliability foundation", () => {
     }
   });
 
+  test("LoreDb.restoreFromBackup atomically restores and preserves current suppressions", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      const id = db.insertSemanticMemory({
+        type: "user_preference",
+        content: "Preserve direct restore suppression.",
+        repository: "fixture-repo",
+        scope: "repo",
+        metadata: { source: "rule_extractor" },
+      });
+      const backupPath = db.backupDatabase();
+      db.forgetMemory({ id });
+      const restored = db.restoreFromBackup(backupPath);
+      assert.equal(restored.schemaVersion, SCHEMA_VERSION);
+      assert.equal(db.db.prepare("SELECT COUNT(*) AS count FROM memory_suppression WHERE memory_id = ?").get(id).count, 1);
+      assert.equal(db.db.prepare("SELECT COUNT(*) AS count FROM semantic_memory WHERE id = ?").get(id).count, 1);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("mapping APIs preserve explicit legacy to canonical associations", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, cleanup } = await withFixtureDb();
     try {

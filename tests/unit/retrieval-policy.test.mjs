@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { withFixtureDb } from "../helpers/fixture-db.mjs";
 import { mergeSemanticRecallResult } from "../../lib/memory/memory-operations.mjs";
 import { extractMeaningfulPromptTerms, scorePromptFallbackRows } from "../../lib/context/prompt-search-query.mjs";
+import { buildSemanticEligibilitySql } from "../../lib/db/db-retrieval-policy.mjs";
 import { indexMemoryEmbeddings } from "../../lib/memory/semantic-search.mjs";
 
 test("semantic retrieval enforces repository, expiry, and unknown-repository policy", async () => {
@@ -86,4 +87,74 @@ test("semantic merge accounts for heading overhead at a small total budget", () 
   assert.equal(result.semanticMatches.length, 0);
   assert.equal(result.trace.omissions[0].reason, "budget");
   assert.equal(result.estimatedTokens, 0);
+});
+
+test("maintenance advances past persistently malformed vectors within a short final page", async () => {
+  const fixture = await withFixtureDb({ configOverrides: { localInference: { enabled: true, embeddings: { enabled: true, model: "test" } } } });
+  try {
+    for (let n = 0; n < 4; n += 1) fixture.db.insertSemanticMemory({ id: `fair-${n}`, type: "user_preference", content: `Prefer queue${n} records.`, repository: "repo/a", scope: "repo" });
+    const visited = new Set();
+    let cursor = 0;
+    for (let pass = 0; pass < 4; pass += 1) {
+      const result = await indexMemoryEmbeddings({ db: fixture.db, config: fixture.config, cursor, maxMemories: 1, fetchImpl: async (_url, options) => {
+        const input = JSON.parse(options.body).input;
+        input.forEach((text) => visited.add(text));
+        return { ok: true, status: 200, json: async () => ({ data: input.map((_, index) => ({ index, embedding: [] })) }) };
+      } });
+      cursor = result.cursor;
+    }
+    assert.equal(visited.size, 4);
+  } finally { fixture.cleanup(); }
+});
+
+test("vector candidates include authority metadata and suppress changed-content canonical restores in SQL", async () => {
+  const fixture = await withFixtureDb();
+  try {
+    fixture.db.insertSemanticMemory({ id: "old-canonical", type: "user_preference", content: "Prefer quartz queues.", repository: "repo/a", scope: "repo" });
+    fixture.db.db.prepare("UPDATE semantic_memory SET canonical_key = 'queue-policy' WHERE id = 'old-canonical'").run();
+    fixture.db.forgetMemory({ id: "old-canonical" });
+    fixture.db.db.prepare(`INSERT INTO semantic_memory(id,type,content,scope,repository,canonical_key,metadata_json,created_at,updated_at)
+      SELECT 'restored-canonical',type,'Prefer changed quartz queues.',scope,repository,canonical_key,metadata_json,created_at,updated_at FROM semantic_memory WHERE id='old-canonical'`).run();
+    fixture.db.insertSemanticMemory({ id: "manual-canonical", type: "user_preference", content: "Prefer quartz queues.", scope: "repo", repository: "repo/a", metadata: { source: "memory_save" } });
+    fixture.db.listActiveMemorySuppressions = () => { throw new Error("retrieval must not load the entire suppression ledger"); };
+    assert.deepEqual(fixture.db.searchSemantic({ query: "quartz", repository: "repo/a" }).map((row) => row.id), ["manual-canonical"]);
+    const candidates = fixture.db.listSemanticMemoriesForEmbedding({ repository: "repo/a" });
+    assert.deepEqual(candidates.map((row) => row.id), ["manual-canonical"]);
+    assert.equal(JSON.parse(candidates[0].metadata_json).source, "memory_save");
+  } finally { fixture.cleanup(); }
+});
+
+test("transferable vector fallback keeps local and global context while excluding private foreign rows", async () => {
+  const fixture = await withFixtureDb();
+  try {
+    for (const [id, scope, repository] of [["local", "repo", "repo/a"], ["global", "global", null], ["foreign-private", "repo", "repo/b"], ["foreign-shared", "transferable", "repo/b"]]) {
+      fixture.db.insertSemanticMemory({ id, type: "user_preference", content: `Prefer ${id} fixtures.`, scope, repository, metadata: { source: "memory_save" } });
+    }
+    assert.deepEqual(fixture.db.listSemanticMemoriesForEmbedding({ repository: "repo/a", includeOtherRepositories: true, transferableFallback: true }).map((row) => row.id).sort(), ["foreign-shared", "global", "local"]);
+    assert.deepEqual(fixture.db.listSemanticMemoriesForEmbedding({ repository: null, includeOtherRepositories: true, transferableFallback: true }).map((row) => row.id), ["global"]);
+  } finally { fixture.cleanup(); }
+});
+
+test("public expiry timestamps normalize for SQL reads and inferred repeats preserve manual expiry", async () => {
+  const fixture = await withFixtureDb();
+  try {
+    const id = fixture.db.insertSemanticMemory({ id: "expiry-policy", type: "user_preference", content: "Prefer expiry fixtures.", scope: "repo", repository: "repo/a", expiresAt: "September 8, 2035 12:00:00 GMT", metadata: { source: "memory_save" } });
+    assert.deepEqual(fixture.db.searchSemantic({ query: "expiry", repository: "repo/a", now: "2030-01-01" }).map((row) => row.id), [id]);
+    const expiry = fixture.db.getSemanticMemoryByIds([id])[0].expires_at;
+    fixture.db.insertSemanticMemory({ type: "user_preference", content: "Prefer expiry fixtures.", scope: "repo", repository: "repo/a", expiresAt: null });
+    assert.equal(fixture.db.getSemanticMemoryByIds([id])[0].expires_at, expiry);
+  } finally { fixture.cleanup(); }
+});
+
+
+test("suppression eligibility uses indexed lookups before limiting candidates", async () => {
+  const fixture = await withFixtureDb();
+  try {
+    fixture.db.ensureOpen();
+    const policy = buildSemanticEligibilitySql({ repository: "repo/a" });
+    const plan = fixture.db.db.prepare(`EXPLAIN QUERY PLAN SELECT sm.id FROM semantic_memory sm WHERE ${policy.sql} LIMIT 8`).all(...policy.params);
+    const suppressionSteps = plan.filter((row) => row.detail.includes("policy_ms"));
+    assert.equal(suppressionSteps.length, 3);
+    assert.ok(suppressionSteps.every((row) => /SEARCH policy_ms USING/.test(row.detail)), JSON.stringify(suppressionSteps));
+  } finally { fixture.cleanup(); }
 });

@@ -491,13 +491,23 @@ The dashboard is also the quickest way to inspect a memory's evidence links,
 source role, confidence basis, scope, expiry, suppression, and correction
 timeline. Its overview reports native capture checkpoints and embedding
 coverage, including resumable sessions and recent lexical fallback reasons.
-Resume actions and administration actions are copy-only previews; the browser
-never executes them or writes to the database.
+Resume actions and administration actions are copy-only commands; the browser
+never executes them or writes to the database. Running a copied `capture
+--resume` command resumes capture and can write newly captured evidence.
 
-For native capture that reports pending bytes, rerun the displayed command from
-the Lore checkout after reviewing the source path and workspace. Direct
-administration commands default to a read-only preview and accept JSON on
-stdin:
+For native capture that reports pending bytes or pending branch/cleanup work,
+review the displayed source path and workspace, then rerun the displayed
+command from the Lore checkout. The bounded resume pass reads at most 4 MiB
+with a 250 ms cooperative read budget per invocation, retains at most a 1 MiB incomplete record, and reports
+oversized-record skips through categorical health. Its JSON stdin is
+`{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}`:
+
+```sh
+printf '%s\n' '{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}' | node lore-cli.mjs capture --resume --client codex --session '<native-session-id>'
+```
+
+Direct administration commands default to a read-only preview and accept JSON
+on stdin:
 
 ```sh
 printf '%s\n' '{"memoryId":"<id>","content":"<replacement>","reason":"<why>"}' | node lore-cli.mjs tool memory_correct
@@ -507,6 +517,35 @@ printf '%s\n' '{"memoryIds":["<id>"]}' | node lore-cli.mjs tool memory_purge
 
 Review the preview's `planFingerprint`, affected derived records, retained
 source and backup consequences, and unresolved items before an explicit apply.
+For correction, `repository` changes the replacement destination; omit it to
+keep the old repository, or set `scope: "global"` and `repository: null` for
+an explicit global replacement. For repair, apply only the actionable source
+re-extraction candidates or `mapping:<legacy>-><canonical>` IDs returned by the
+preview. Missing or oversized sources remain unresolved. Source-backed repair
+scans at most 32 MiB and 10,000 turns; unavailable or oversized legacy sources
+remain unresolved.
+
+For example, a reviewed correction apply is:
+
+```sh
+printf '%s\n' '{"action":"apply","memoryId":"<id>","content":"<replacement>","reason":"<why>","planFingerprint":"<preview-fingerprint>"}' | node lore-cli.mjs tool memory_correct
+```
+
+Repair mappings and candidates must be selected explicitly:
+
+```sh
+printf '%s\n' '{"action":"apply","repositoryMappings":[{"legacy":"<legacy>","canonical":"<canonical>"}],"selectedCandidateIds":["mapping:<legacy>-><canonical>"],"planFingerprint":"<preview-fingerprint>"}' | node lore-cli.mjs tool memory_repair
+```
+
+Purge aggregate candidates use typed IDs such as
+`aggregate:episode_digest:<json-primary-key>`. If the initial preview reports
+residual aggregates, run a new preview with `includeDependentAggregates: true`,
+then use that new fingerprint and select every residual aggregate ID it reports:
+
+```sh
+printf '%s\n' '{"action":"apply","memoryIds":["<id>"],"includeDependentAggregates":true,"selectedCandidateIds":["aggregate:<table>:<json-primary-key>"],"planFingerprint":"<preview-fingerprint>"}' | node lore-cli.mjs tool memory_purge
+```
+
 Purge removes selected derived records and keeps raw sources, snapshots, and
 non-plaintext suppression; it is not secure erasure.
 

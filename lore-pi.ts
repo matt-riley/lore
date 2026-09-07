@@ -426,7 +426,7 @@ export default function (pi: ExtensionAPI) {
     label: "Lore Save",
     description:
       "Persist a memory (decision, pattern, preference, gotcha) into the local lore store so future sessions recall it. " +
-      "Use a recallable type: user_preference, commitment, recurring_mistake, rejected_approach, blocker, or open_loop.",
+      "Use a recallable type: user_preference, commitment, recurring_mistake, rejected_approach, blocker, open_loop, or decision.",
     parameters: Type.Object({
       content: Type.String({ description: "Memory content to persist" }),
       type: Type.Optional(

@@ -48,6 +48,24 @@ test("ingestion validates the native identity on the same source read", async ()
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
+test("ingestion rejects an identity-less replacement after a source reset", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "lore-capture-reset-identity-"));
+  try {
+    const file = path.join(home, "transcript.jsonl");
+    await writeFile(file, [
+      { type: "session_meta", payload: { id: "native-id" } },
+      { type: "response_item", payload: { type: "message", role: "user", content: "initial" } },
+    ].map(JSON.stringify).join("\n") + "\n");
+    const db = fakeDb();
+    const args = { db, client: "codex", sessionId: "codex:native-id", nativeId: "native-id", transcriptPath: file, cwd: home };
+    await ingestCliTranscript(args);
+    await rm(file);
+    await writeFile(file, `${JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: "replacement" } })}\n`);
+    await assert.rejects(ingestCliTranscript(args), (error) => error.code === "SOURCE_SESSION_ID_MISSING");
+    assert.equal(db.getIngestionCheckpoint("codex", "codex:native-id").adapterState.nativeSessionId, "native-id");
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
 function fakeDb() {
   let checkpoint = null;
   return {

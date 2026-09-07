@@ -76,6 +76,28 @@ test("Claude branch retirement reaches evidence older than the rolling turn wind
   });
 });
 
+test("Claude branch restoration after source rotation requires a current node revision", async () => {
+  await fixture("claude", async ({ db, file, run, active }) => {
+    const original = claude("u", null, "user", "For this repository, I prefer focused unit tests.")
+      + claude("a", "u", "assistant", "We decided to use PostgreSQL because we need concurrent writers.");
+    await writeFile(file, original);
+    while ((await run()).pending) {}
+    await appendFile(file, claude("b", "u", "assistant", "We decided to use SQLite because we need simple embedded storage."));
+    while ((await run()).pending) {}
+    assert.equal(active().some((text) => text.includes("PostgreSQL")), false);
+    await rm(file);
+    await writeFile(file, original + claude("b", "u", "assistant", "We decided to use SQLite because we need simple embedded storage."));
+    while ((await run()).pending) {}
+    await appendFile(file, claude("c", "a", "user", "Continue from that choice."));
+    while ((await run()).pending) {}
+    assert.ok(active().some((text) => text.includes("PostgreSQL")), "current-generation node evidence permits branch restoration after rotation");
+    assert.equal(active().some((text) => text.includes("SQLite")), false);
+    const evidence = db.db.prepare("SELECT se.metadata_json FROM session_evidence se JOIN memory_evidence me ON me.evidence_key=se.evidence_key JOIN semantic_memory sm ON sm.id=me.memory_id WHERE sm.content LIKE '%PostgreSQL%' LIMIT 1").get();
+    assert.ok(evidence, "restored PostgreSQL evidence remains in the ledger");
+    assert.equal(typeof JSON.parse(evidence.metadata_json).captureNodeRevision, "string");
+  });
+});
+
 
 test("capture failure rolls source evidence and offset back together before retry", async () => {
   await fixture("codex", async ({ db, file, run, active }) => {

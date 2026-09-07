@@ -98,7 +98,7 @@ test("native correction APPLY returns a manual replacement and purge APPLY rejec
     const result = JSON.parse(applied.stdout);
     assert.equal(result.replacement.repository, "example/destination");
     assert.equal(result.replacement.scope_source, "manual");
-    assert.equal(result.replacement.expires_at, request.expiresAt);
+    assert.equal(result.replacement.expires_at, new Date(request.expiresAt).toISOString());
     const purge = { memoryIds: [result.replacementId], includeDependentAggregates: true };
     const purgePreview = f.run("memory_purge", purge);
     assert.equal(purgePreview.status, 0, purgePreview.stderr);

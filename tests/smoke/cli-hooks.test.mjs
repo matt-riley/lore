@@ -29,11 +29,12 @@ test("native hooks capture, recall across clients, refresh once, preserve source
     const transcript = path.join(home, "transcript.jsonl");
     for (const client of Object.keys(LORE_CLIENT_HOOKS)) {
       const messages = client === "codex" ? [
+        { type: "session_meta", payload: { id: "same-id" } },
         { type: "response_item", timestamp: "2026-09-06T12:00:00Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "quartzanchor: remember that I prefer focused tests." }] } },
         { type: "response_item", timestamp: "2026-09-06T12:01:00Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "We decided to run focused tests." }] } },
       ] : client === "claude" ? [
-        { uuid: "a", parentUuid: null, type: "user", timestamp: "2026-09-06T12:00:00Z", message: { role: "user", content: "quartzanchor: remember that I prefer focused tests." } },
-        { uuid: "b", parentUuid: "a", type: "assistant", timestamp: "2026-09-06T12:01:00Z", message: { role: "assistant", content: [{ type: "text", text: "We decided to run focused tests." }] } },
+        { sessionId: "same-id", uuid: "a", parentUuid: null, type: "user", timestamp: "2026-09-06T12:00:00Z", message: { role: "user", content: "quartzanchor: remember that I prefer focused tests." } },
+        { sessionId: "same-id", uuid: "b", parentUuid: "a", type: "assistant", timestamp: "2026-09-06T12:01:00Z", message: { role: "assistant", content: [{ type: "text", text: "We decided to run focused tests." }] } },
       ] : [
         { step_index: 0, type: "USER_INPUT", source: "USER_EXPLICIT", status: "DONE", created_at: "2026-09-06T12:00:00Z", content: "quartzanchor: remember that I prefer focused tests." },
         { step_index: 1, type: "PLANNER_RESPONSE", source: "MODEL", status: "DONE", created_at: "2026-09-06T12:01:00Z", content: "We decided to run focused tests." },
@@ -153,5 +154,32 @@ test("explicit Pi capture resumes its bare session checkpoint and reports direct
       assert.ok(db.prepare("SELECT id FROM semantic_memory WHERE content LIKE '%jadeanchor%'").get());
     } finally { db.close(); }
     assert.notEqual(run(path.join(home, "missing.jsonl")).status, 0);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("normal capture hooks reject absent and foreign native transcript identities", { skip: !FTS5_AVAILABLE }, () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-hook-identities-"));
+  const env = { ...process.env, LORE_HOME: home, LORE_CONFIG: path.join(home, "lore.json"), LORE_ENABLED: "true", LORE_REPOSITORY: "fixture/repo" };
+  writeFileSync(env.LORE_CONFIG, JSON.stringify({ enabled: true }));
+  const transcript = path.join(home, "source.jsonl");
+  try {
+    for (const client of ["codex", "claude"]) {
+      for (const identity of [null, "foreign", "expected"]) {
+        const message = client === "codex"
+          ? { type: "response_item", payload: { type: "message", role: "user", content: "For this repository, prefer diamond fixtures." } }
+          : { type: "user", uuid: "u", parentUuid: null, ...(identity ? { sessionId: identity } : {}), message: { role: "user", content: "For this repository, prefer diamond fixtures." } };
+        const records = client === "codex" && identity ? [{ type: "session_meta", payload: { id: identity } }, message] : [message];
+        writeFileSync(transcript, records.map(JSON.stringify).join("\n") + "\n");
+        for (const event of LORE_CLIENT_HOOKS[client].filter((name) => ["Stop", "SessionEnd", "PreCompact"].includes(name))) {
+          const result = spawnSync(process.execPath, [entry, "hook", client, event], { env, input: JSON.stringify({ session_id: "expected", cwd: home, transcript_path: transcript }), encoding: "utf8", timeout: 10000 });
+          assert.equal(result.status, 0, result.stderr);
+          const db = new DatabaseSync(path.join(home, "lore.db"), { readOnly: true });
+          try {
+            const count = db.prepare("SELECT COUNT(*) AS n FROM semantic_memory WHERE source_session_id=?").get(`${client}:expected`).n;
+            assert.equal(count > 0, identity === "expected", `${client}/${event}/${identity}`);
+          } finally { db.close(); }
+        }
+      }
+    }
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

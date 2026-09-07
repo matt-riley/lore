@@ -1,5 +1,6 @@
 const state = {
   tab: "overview",
+  loreCliPath: null,
   scope: {
     repository: null,
   },
@@ -1014,7 +1015,10 @@ function quoteShell(value) {
 }
 
 function buildPreviewCommand(tool, payload) {
-  return `printf '%s\\n' ${quoteShell(JSON.stringify({ action: "preview", ...payload }))} | node '/absolute/path/to/lore/lore-cli.mjs' tool ${tool}`
+  if (!state.loreCliPath) {
+    return null
+  }
+  return `printf '%s\\n' ${quoteShell(JSON.stringify({ action: "preview", ...payload }))} | node ${quoteShell(state.loreCliPath)} tool ${tool}`
 }
 
 function renderAdministrationPreviewSection(focus) {
@@ -1024,6 +1028,9 @@ function renderAdministrationPreviewSection(focus) {
     ["Purge", "memory_purge", { memoryIds: [focus.id] }],
   ].map(([label, tool, payload]) => {
     const command = buildPreviewCommand(tool, payload)
+    if (!command) {
+      return `<article class="list-item admin-command-item"><strong>${escapeHtml(label)} preview</strong><div class="small">CLI path unavailable from the dashboard health response.</div></article>`
+    }
     return `
       <article class="list-item admin-command-item">
         <div class="item-header-row"><strong>${escapeHtml(label)} preview</strong><button type="button" class="action-btn copy-command" data-copy-kind="preview" data-copy-command="${escapeHtml(command)}" aria-label="Copy ${escapeHtml(label.toLowerCase())} preview command">Copy preview command</button></div>
@@ -1279,6 +1286,7 @@ async function refreshAll() {
       fetchJson("/api/maintenance"),
       fetchJson("/api/episodes"),
     ])
+    state.loreCliPath = typeof healthResponse.loreCliPath === "string" ? healthResponse.loreCliPath : null
     setScope(healthResponse.repository ?? null)
     renderOverview(overviewResponse.data)
     renderMaintenance(maintenanceResponse.data)

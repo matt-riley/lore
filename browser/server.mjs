@@ -1391,7 +1391,7 @@ function buildBrowserApiResponse({ db, url, host, normalizedRepository }) {
   if (url.pathname === "/api/health") {
     return {
       statusCode: 200,
-      payload: buildBrowserApiSuccessPayload({}, host, normalizedRepository, dbPath),
+      payload: buildBrowserApiSuccessPayload({ loreCliPath: LORE_CLI_PATH }, host, normalizedRepository, dbPath),
     }
   }
   const factory = dataFactories[url.pathname]

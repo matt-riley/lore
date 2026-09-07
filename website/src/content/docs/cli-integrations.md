@@ -100,7 +100,7 @@ printf '%s\n' '{"prompt":"What is the Lore verification note?"}' | node /absolut
 
 Then start a fresh client session in that project and ask about the verification note. Relevant context should arrive automatically through the prompt hook. Complete a short conversation, then check `memory_status` again to verify session capture. Use synthetic, non-sensitive content for this check.
 
-Explicit operations are **shell-invoked commands**, not registered model tools. Injected context explains how the agent can invoke them through its normal shell permissions. Available names are `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, and `memory_status`. Commands accept JSON on stdin and return a nonzero exit status on failure. See [Tools](/guides/tools/#native-cli-commands).
+Explicit operations are **shell-invoked commands**, not registered model tools. Injected context explains how the agent can invoke them through its normal shell permissions. Available names are `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, `memory_status`, `memory_correct`, `memory_repair`, and `memory_purge`. Commands accept JSON on stdin and return a nonzero exit status on failure. See [Tools](/guides/tools/#native-cli-commands).
 
 ## What happens during a session
 

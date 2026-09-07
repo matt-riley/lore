@@ -272,3 +272,45 @@ test("suppression eligibility uses indexed lookups before limiting candidates", 
     assert.ok(suppressionSteps.every((row) => /SEARCH policy_ms USING/.test(row.detail)), JSON.stringify(suppressionSteps));
   } finally { fixture.cleanup(); }
 });
+
+
+test("approved legacy repository aliases remain visible without migrating or admitting unmapped memories", async () => {
+  const fixture = await withFixtureDb({ configOverrides: { localInference: { enabled: true, embeddings: { enabled: true, model: "test" } } } });
+  const canonical = "github.com/owner/repo";
+  const date = "2026-09-07";
+  try {
+    for (const [id, repository] of [["legacy", "owner/repo"], ["unmapped", "other/repo"]]) {
+      fixture.db.insertSemanticMemory({ id, type: "user_preference", content: `Prefer ${id} kiwi checkout helpers.`, scope: "repo", repository });
+      fixture.db.upsertEpisodeDigest({ id: `episode-${id}`, sessionId: `session-${id}`, repository,
+        summary: `Implemented ${id} kiwi checkout helpers with bounded retry handling.`, actions: ["Implemented checkout helpers"],
+        decisions: ["Use bounded retries"], learnings: [], filesChanged: ["checkout.mjs"], refs: [],
+        significance: 8, themes: ["checkout"], openItems: [], dateKey: date });
+      fixture.db.refreshDaySummary({ date, repository });
+    }
+    assert.deepEqual(fixture.db.searchSemantic({ query: "kiwi", repository: canonical }), []);
+    fixture.db.setRepositoryMapping({ legacy: "owner/repo", canonical });
+    const lexical = fixture.db.searchSemantic({ query: "kiwi", repository: canonical });
+    assert.deepEqual(lexical.map((row) => row.id), ["legacy"]);
+    assert.equal(lexical[0].repository, canonical);
+    assert.equal(lexical[0].sourceRepository, "owner/repo");
+    const vector = await semanticSearch({ db: fixture.db, config: fixture.config, repository: canonical, query: "kiwi",
+      fetchImpl: async (_url, options) => ({ ok: true, status: 200,
+        json: async () => ({ data: JSON.parse(options.body).input.map((_, index) => ({ index, embedding: [1, 0] })) }) }) });
+    assert.deepEqual(vector.rows.map((row) => row.id), ["legacy"]);
+    assert.deepEqual(fixture.db.searchEpisodes({ query: "kiwi", repository: canonical }).map((row) => row.id), ["episode-legacy"]);
+    assert.deepEqual(fixture.db.findRelevantEpisodesByDateDetailed({ date, repository: canonical }).episodes.map((row) => row.id), ["episode-legacy"]);
+    assert.equal(fixture.db.getDaySummary({ date, repository: canonical }).repository, canonical);
+    for (const repository of [null, "github.com/other/repo", "gitlab.com/owner/repo"]) {
+      assert.deepEqual(fixture.db.searchSemantic({ query: "kiwi", repository }), []);
+      assert.deepEqual(fixture.db.listSemanticMemoriesForEmbedding({ repository }), []);
+      assert.deepEqual(fixture.db.searchEpisodes({ query: "kiwi", repository }), []);
+      assert.deepEqual(fixture.db.getDaySummaries({ date, repository }), []);
+    }
+    assert.equal(fixture.db.db.prepare("SELECT repository FROM semantic_memory WHERE id = ?").get("legacy").repository, "owner/repo");
+    fixture.db.forgetMemory({ id: "legacy" });
+    assert.deepEqual(fixture.db.searchSemantic({ query: "kiwi", repository: canonical }), []);
+    assert.deepEqual(fixture.db.listSemanticMemoriesForEmbedding({ repository: canonical }), []);
+  } finally {
+    fixture.cleanup();
+  }
+});

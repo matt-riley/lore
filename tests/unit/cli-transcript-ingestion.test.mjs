@@ -221,3 +221,19 @@ test("repeated assistant text remains bounded and excluded Claude records are re
     assert.equal(excluded.status, "captured");
   } finally { await rm(home, { recursive: true, force: true }); }
 });
+
+test("large revisions to earlier Antigravity steps are captured before window eviction", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "lore-step-eviction-"));
+  try {
+    const file = path.join(home, "t.jsonl");
+    const line = (step, content) => JSON.stringify({ step_index: step, type: "USER_INPUT", source: "USER_EXPLICIT", status: "DONE", content }) + "\n";
+    await writeFile(file, line(0, "first") + line(1, "second"));
+    const db = fakeDb(); const args = { db, client: "antigravity", sessionId: "a", transcriptPath: file };
+    await ingestCliTranscript(args);
+    const revised = "background ".repeat(30_000) + "For this repository, I prefer focused unit tests.";
+    await writeFile(file, await readFile(file, "utf8") + line(0, revised));
+    const captured = [];
+    await ingestCliTranscript({ ...args, capture: (a) => captured.push(a) });
+    assert.ok(captured.at(-1).turns.some((turn) => turn.user_message === revised));
+  } finally { await rm(home, { recursive: true, force: true }); }
+});

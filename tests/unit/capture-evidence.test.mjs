@@ -88,3 +88,13 @@ test("capture failure rolls source evidence and offset back together before retr
     assert.ok(active().some((text) => text.includes("focused unit tests")));
   });
 });
+
+
+test("accepted byte windows retain every long preference source", async () => {
+  await fixture("codex", async ({ db, file, run }) => {
+    await writeFile(file, Array.from({ length: 8 }, (_, i) => codex("Ordinary background sentence. ".repeat(3000)
+      + `For this repository, I prefer focused unit tests ${i}.`)).join(""));
+    while ((await run()).pending) {}
+    assert.equal(db.db.prepare("SELECT count(DISTINCT source_record_id) n FROM session_evidence WHERE source_kind != 'capture_node'").get().n, 8);
+  });
+});

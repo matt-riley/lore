@@ -142,6 +142,18 @@ test("Pi and repository selectors produce real actionable source repairs with st
   } finally { f.cleanup(); }
 });
 
+test("repair memory selectors intersect repository scope without broadening source sessions", async () => {
+  const f = await withFixtureDb();
+  try {
+    transcript(f.db, f.config, "selected-session", [user("For this repository, I prefer small pure functions.")]);
+    transcript(f.db, f.config, "other-session", [user("For this repository, I prefer descriptive names.")]);
+    save(f.db, "selected", "Old false output", { sourceSessionId: "selected-session" });
+    const plan = memoryRepair(f.db, { memoryIds: ["selected"], repository: repo });
+    assert.equal(plan.unresolvedCandidates.length, 0, JSON.stringify(plan.unresolvedCandidates));
+    assert.deepEqual(plan.repairCandidates.map((candidate) => candidate.sessionId), ["selected-session"]);
+  } finally { f.cleanup(); }
+});
+
 test("source changes and incomplete records block repair without snapshot mutation", async () => {
   const f = await withFixtureDb();
   try {

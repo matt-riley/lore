@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { describe, test } from "node:test";
 
 import { extractSessionMemories } from "../../lib/sessions/rule-extractor.mjs";
@@ -150,10 +151,35 @@ describe("conservative rule extraction", () => {
         { user_message: "Please check the failing endpoint and attach the logs." },
         { user_message: "Please run the reproduction and report the result." },
         { user_message: "Please preserve the failing response for debugging." },
+        { user_message: "Please use the captured request to reproduce this bug." },
+        { user_message: "Please keep this bug report updated." },
+        { user_message: "Please write the failing response into the issue." },
+        { user_message: "Please make the failing endpoint reproducible." },
+        { user_message: "Please ask for the failing logs." },
+        { user_message: "Please do not include the failing request in the bug report." },
+        { user_message: "Please avoid retrying the failing payment request for this incident." },
+        { user_message: "In future, always include the failing request in the bug report." },
+        { user_message: "As a policy, never include the failing request in the bug report." },
       ],
     });
 
     assert.deepEqual(extraction.semanticMemories, []);
+  });
+
+  test("keeps standing safety constraints despite incident request guards", () => {
+    const extraction = extract({
+      turns: [
+        { user_message: "Never expose credentials in logs." },
+        { user_message: "As a policy, never expose credentials in logs." },
+        { user_message: "In future, never expose credentials in logs." },
+      ],
+    });
+
+    assert.deepEqual(semantic(extraction, "rejected_approach").map((memory) => memory.content), [
+      "Never expose credentials in logs.",
+      "As a policy, never expose credentials in logs.",
+      "In future, never expose credentials in logs.",
+    ]);
   });
 
   test("does not infer a durable assistant goal from one ordinary incident", () => {
@@ -333,6 +359,53 @@ describe("conservative rule extraction", () => {
     assert.equal(decisions[0].content, "Decision: Redis for catalog invalidation.");
     assert.equal(decisions[1].metadata.decisionStatus, "reversal");
     assert.deepEqual(extraction.retiredEvidenceKeys, [decisions[0].evidence.key]);
+  });
+
+  test("does not retire an unrelated decision after an adjacent contextual reversal", () => {
+    const extraction = extract({
+      turns: [
+        { user_message: "We decided to use Redis for billing." },
+        { user_message: "After review, we chose PostgreSQL notifications instead." },
+      ],
+    });
+
+    const decisions = semantic(extraction, "decision");
+    assert.equal(decisions.length, 2);
+    assert.equal(decisions[1].metadata.decisionStatus, "reversal");
+    assert.deepEqual(extraction.retiredEvidenceKeys, []);
+  });
+
+  test("attributes repeated failure goals to the selected assistant evidence", () => {
+    const extraction = extract({
+      sessionId: "failure-evidence",
+      turns: [
+        {
+          source_record_id: "assistant-failure-1",
+          source_revision: "assistant-revision-1",
+          user_message: "Can you help with the build?",
+          assistant_response: "The build failed.",
+        },
+        {
+          source_record_id: "assistant-failure-2",
+          user_message: "Please continue.",
+          assistant_response: "The build failed again.",
+        },
+      ],
+    });
+
+    const goal = semantic(extraction, "assistant_goal")[0];
+    assert.ok(goal);
+    assert.equal(goal.sourceRecordId, "assistant-failure-2");
+    assert.equal(goal.metadata.sourceRole, "assistant");
+    assert.deepEqual(goal.metadata.sourceAttribution, {
+      sessionId: "failure-evidence",
+      sourceRecordId: "assistant-failure-2",
+      sourceRole: "assistant",
+    });
+    assert.equal(goal.evidence.sourceRecordId, "assistant-failure-2");
+    assert.equal(goal.evidence.revision, createHash("sha256")
+      .update(JSON.stringify({ role: "assistant", text: "The build failed again." }))
+      .digest("hex"));
   });
 
   test("extracts a completed decision after contextual wording", () => {

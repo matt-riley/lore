@@ -4,7 +4,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { buildMaintenancePlan } from "../lib/maintenance/maintenance-scheduler.mjs"
-import { embeddingProviderIdentity, validatedCachedEmbeddingVector } from "../lib/memory/semantic-search.mjs"
+import { embeddingProviderIdentity, semanticSearchEnabled, validatedCachedEmbeddingVector } from "../lib/memory/semantic-search.mjs"
 import { clampInteger } from "../lib/utils/numeric-utils.mjs"
 import { parseJsonArray } from "../lib/utils/json-array-utils.mjs"
 import { parseJsonObject } from "../lib/utils/json-object-utils.mjs"
@@ -12,6 +12,7 @@ import { normalizeRepository } from "../lib/utils/repository-utils.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const STATIC_ROOT = __dirname
+const LORE_CLI_PATH = path.resolve(__dirname, "..", "lore-cli.mjs")
 
 const MEMORY_ROW_SELECT = `
   SELECT
@@ -295,7 +296,7 @@ function buildResumeCommand({ client, sessionId, sourceCwd, sourcePath }) {
     ? String(sessionId).slice(String(client).length + 1)
     : sessionId
   const input = JSON.stringify({ cwd: sourceCwd, transcriptPath: sourcePath })
-  return `printf '%s\\n' ${quoteShell(input)} | node lore-cli.mjs capture --resume --client ${quoteShell(client)} --session ${quoteShell(nativeSessionId)}`
+  return `printf '%s\\n' ${quoteShell(input)} | node ${quoteShell(LORE_CLI_PATH)} capture --resume --client ${quoteShell(client)} --session ${quoteShell(nativeSessionId)}`
 }
 
 function mapCaptureHealthRow(row) {
@@ -365,7 +366,7 @@ function getTraceFallbackDiagnostics(traces) {
 function queryIndexingCoverage({ db, repository, traces }) {
   const inference = db?.config?.localInference ?? db?.config ?? {}
   const embeddingConfig = inference?.embeddings ?? {}
-  const embeddingsEnabled = inference?.enabled === true && embeddingConfig.enabled === true
+  const embeddingsEnabled = semanticSearchEnabled(inference)
   if (typeof db?.countSemanticMemoriesForEmbedding !== "function"
     || typeof db?.listSemanticMemoriesForEmbedding !== "function") {
     return {

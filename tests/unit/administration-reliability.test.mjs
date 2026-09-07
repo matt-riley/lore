@@ -154,6 +154,27 @@ test("repair memory selectors intersect repository scope without broadening sour
   } finally { f.cleanup(); }
 });
 
+test("repair rejects a selected session whose checkpoint belongs to another repository", async () => {
+  const f = await withFixtureDb();
+  try {
+    transcript(f.db, f.config, "foreign-session", [user("For this repository, I prefer descriptive names.")]);
+    f.db.db.prepare("UPDATE ingestion_checkpoint SET repository='foreign/repo' WHERE session_id='foreign-session'").run();
+    const plan = memoryRepair(f.db, { sessionIds: ["foreign-session"], repository: repo });
+    assert.ok(plan.unresolvedCandidates.some((item) => item.code === "FOREIGN_TARGET"), JSON.stringify(plan.unresolvedCandidates));
+  } finally { f.cleanup(); }
+});
+
+test("repair rejects a memory selector whose source checkpoint belongs to another repository", async () => {
+  const f = await withFixtureDb();
+  try {
+    transcript(f.db, f.config, "selected-source", [user("For this repository, I prefer descriptive names.")]);
+    save(f.db, "selected-source-memory", "Old false output", { sourceSessionId: "selected-source" });
+    f.db.db.prepare("UPDATE ingestion_checkpoint SET repository='foreign/repo' WHERE session_id='selected-source'").run();
+    const plan = memoryRepair(f.db, { memoryIds: ["selected-source-memory"], repository: repo });
+    assert.ok(plan.unresolvedCandidates.some((item) => item.code === "FOREIGN_TARGET"), JSON.stringify(plan.unresolvedCandidates));
+  } finally { f.cleanup(); }
+});
+
 test("source changes and incomplete records block repair without snapshot mutation", async () => {
   const f = await withFixtureDb();
   try {

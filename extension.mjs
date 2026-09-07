@@ -731,6 +731,7 @@ async function ensureRuntime(session) {
         ...identity,
         mappings: runtime.db.getRepositoryMappings(),
       }),
+      identityResolverCacheVersion: () => JSON.stringify(runtime.db.getRepositoryMappings()),
     });
     runtime.sessionStore.initialize();
     runtime.traceRecorder = createTraceRecorder(runtime.config);

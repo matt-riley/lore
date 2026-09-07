@@ -117,3 +117,28 @@ test("revised canonical goals preserve independently supported prior wording", a
     assert.equal(db.db.prepare("SELECT content FROM semantic_memory WHERE id=?").get(newId).content, "Keep citrus work bounded.");
   } finally { cleanup(); }
 });
+
+test("forgetting prior evidence does not suppress its revised replacement", async () => {
+  const { db, cleanup } = await withFixtureDb();
+  try {
+    const [old] = reconcile(db, [generated("Prefer kiwi fixtures.", "k"), generated("Prefer kiwi fixtures.", "independent")]);
+    reconcile(db, [generated("Prefer citrus fixtures.", "k", "b")]);
+    db.forgetMemory({ id: old });
+    const [replacement] = reconcile(db, [generated("Prefer citrus fixtures.", "new-citrus")]);
+    assert.ok(replacement);
+    assert.equal(reconcile(db, [generated("Prefer kiwi fixtures.", "new-kiwi")])[0], null);
+  } finally { cleanup(); }
+});
+
+test("revising retired canonical evidence restores the revised wording", async () => {
+  const { db, cleanup } = await withFixtureDb();
+  const goal = (content, revision) => ({ ...generated(content, "goal", revision), type: "assistant_goal", metadata: { source: "rule_extractor", goal: "fixture-goal" } });
+  try {
+    const [old] = reconcile(db, [goal("Keep kiwi work bounded.", "a")]);
+    reconcile(db, [], ["goal"]);
+    const [current] = reconcile(db, [goal("Keep citrus work bounded.", "b")]);
+    assert.notEqual(current, old);
+    assert.equal(db.searchSemantic({ query: "kiwi", repository: repo }).length, 0);
+    assert.equal(db.searchSemantic({ query: "citrus", repository: repo })[0]?.id, current);
+  } finally { cleanup(); }
+});

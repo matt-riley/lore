@@ -55,4 +55,9 @@ test("trace contains only rendered evidence and cannot claim hidden decisions or
     lookups: { daySummary: { includedRows: [{ id: "day", summary: "- Rendered day summary." }] } },
   }, "## Relevant Day Summary\n\n- Rendered day summary.");
   assert.deepEqual(daySummary.lookups.daySummary.includedRows.map((row) => row.id), ["day"]);
+
+  const parenthetical = filterTraceIncludedRows({
+    lookups: { semantic: { includedRows: [{ id: "partial-parenthetical", content: "Use PostgreSQL" }] } },
+  }, "## Evidence\n\n- Use PostgreSQL (for writes).");
+  assert.deepEqual(parenthetical.lookups.semantic.includedRows, []);
 });

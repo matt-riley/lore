@@ -302,7 +302,9 @@ export async function measureMockEmbeddingPaths(size) {
       deadlineStatus: cold.enabled && warm.enabled ? "mocked endpoint completed; no network claim" : "mocked endpoint/cache probe failed",
       passed: cold.enabled && warm.enabled && cold.rows.length > 0 && warm.rows.length > 0
         && delayed.enabled === false && /timed out|deadline|aborted/i.test(delayed.error ?? "")
-        && partial.enabled && Number(partialCacheRows) > 0 && Number(partialCacheRows) < 24,
+        && partial.enabled && Number(partialCacheRows) > 0 && Number(partialCacheRows) < 24
+        && traversal.enabled && traversal.rows.length > 0
+        && (!traversal.error || /timed out|deadline|aborted/i.test(traversal.error)),
       deadlineProbe: { enabled: delayed.enabled, failedAsExpected: delayed.enabled === false && /timed out|deadline|aborted/i.test(delayed.error ?? ""), error: delayed.error ?? null },
       partialProbe: { enabled: partial.enabled, indexedCandidates: Number(partialCacheRows), totalCandidates: 24, partial: Number(partialCacheRows) > 0 && Number(partialCacheRows) < 24 },
     };

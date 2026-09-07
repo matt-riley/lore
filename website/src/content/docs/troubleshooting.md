@@ -40,7 +40,12 @@ For Codex CLI, Claude Code, and Antigravity CLI, check the [installation guide](
 
 Run `memory_status` and a synthetic `lore_recall` through `lore-cli.mjs tool` from the project directory. If direct recall works but automatic recall does not, inspect the host's hook diagnostics. Lore fails open, so the agent continuing normally is not proof that hooks ran.
 
-For missing capture, confirm the host persists and supplies the active transcript. Malformed or oversized transcripts (over 32 MiB) are not imported; an unfinished last JSONL record waits for a later capture. The verified host versions and unsupported features are listed in [Compatibility and current limits](/guides/cli-integrations/#compatibility-and-current-limits).
+For missing hook capture, confirm the host persists and supplies the active
+transcript. Hook-provided snapshots over 32 MiB are not imported; use the
+native `capture --resume` command for larger transcripts, which reads them in
+bounded passes. An unfinished last JSONL record waits for a later capture. The
+verified host versions and unsupported features are listed in [Compatibility
+and current limits](/guides/cli-integrations/#compatibility-and-current-limits).
 
 ## A database or schema error appears
 
@@ -67,10 +72,15 @@ The browser dashboard is experimental, read-only, unauthenticated, and loopback-
 When it loads, open a memory from the **Memories** table to inspect source
 evidence, role attribution, confidence basis, scope, expiry, suppression, and
 the correction timeline. The overview's **Capture health** table shows pending
-bytes and a copy-only resume preview when a native checkpoint includes both
-`sourcePath` and `sourceCwd`. **Embedding coverage** reports the active indexed
-portion and recent lexical fallback diagnostics. No dashboard control executes
-a command or writes to Lore.
+bytes, pending branch or cleanup work, and a copy-only resume command when a
+native checkpoint includes both `sourcePath` and `sourceCwd`. **Embedding
+coverage** reports a bounded sample of eligible active rows and recent lexical
+fallback diagnostics, so it does not claim that every non-empty cache row is
+valid. No dashboard control executes a command or writes to Lore. Running a
+copied `capture --resume` command performs bounded capture and may write
+evidence; it accepts
+`{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}` on
+stdin.
 
 ## Still stuck?
 

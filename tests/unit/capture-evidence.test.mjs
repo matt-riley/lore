@@ -69,6 +69,10 @@ test("Claude branch retirement reaches evidence older than the rolling turn wind
     while ((await run()).pending) {}
     assert.equal(active().some((text) => text.includes("focused unit tests")), false);
     assert.ok(active().some((text) => text.includes("small pure functions")));
+    await appendFile(file, claude("resumed", "u200", "user", "Continue this earlier branch."));
+    while ((await run()).pending) {}
+    assert.ok(active().some((text) => text.includes("focused unit tests")), "reactivation reaches earlier ledger pages without retained text");
+    assert.equal(active().some((text) => text.includes("SQLite")), false);
   });
 });
 
@@ -96,5 +100,28 @@ test("accepted byte windows retain every long preference source", async () => {
       + `For this repository, I prefer focused unit tests ${i}.`)).join(""));
     while ((await run()).pending) {}
     assert.equal(db.db.prepare("SELECT count(DISTINCT source_record_id) n FROM session_evidence WHERE source_kind != 'capture_node'").get().n, 8);
+  });
+});
+
+test("returning to a retained Claude branch restores its source evidence without reviving forgotten memory", async () => {
+  await fixture("claude", async ({ db, file, run, active }) => {
+    await writeFile(file, claude("u", null, "user", "For this repository, I prefer focused unit tests.")
+      + claude("a", "u", "assistant", "We decided to use PostgreSQL because we need concurrent writers."));
+    while ((await run()).pending) {}
+    await appendFile(file, claude("b", "u", "assistant", "We decided to use SQLite because we need simple embedded storage."));
+    while ((await run()).pending) {}
+    assert.equal(active().some((text) => text.includes("PostgreSQL")), false);
+    await appendFile(file, claude("c", "a", "user", "Thank you for the database choice."));
+    while ((await run()).pending) {}
+    assert.ok(active().some((text) => text.includes("PostgreSQL")));
+    assert.equal(active().some((text) => text.includes("SQLite")), false);
+    const postgres = db.db.prepare("SELECT id FROM semantic_memory WHERE content LIKE '%PostgreSQL%' AND superseded_by IS NULL").get();
+    assert.ok(postgres);
+    db.forgetMemory({ id: postgres.id });
+    await appendFile(file, claude("d", "b", "user", "Thanks again."));
+    while ((await run()).pending) {}
+    await appendFile(file, claude("e", "c", "user", "Continue from that choice."));
+    while ((await run()).pending) {}
+    assert.equal(db.db.prepare("SELECT count(*) n FROM semantic_memory WHERE content LIKE '%PostgreSQL%' AND superseded_by IS NULL").get().n, 0);
   });
 });

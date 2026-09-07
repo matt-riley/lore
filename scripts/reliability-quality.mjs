@@ -15,6 +15,7 @@ export const QUALITY_GATES = Object.freeze({
   extractionPrecision: 0.95,
   explicitPropositionRecall: 0.9,
   retentionRecall: 0.9,
+  minIndependentSemanticScenarios: 120,
   maxFalseGlobalPromotions: 0,
   maxCriticalFailures: 0,
   maxNegativeFalsePositives: 0,
@@ -83,6 +84,14 @@ function candidateMemories(extraction) {
   return [...semantic, ...decisions];
 }
 
+export function normalizeRecallEvidence(rows) {
+  return rows.flatMap((row) => {
+    if (row?.type) return [row];
+    const decisions = Array.isArray(row?.decisions) ? row.decisions : [];
+    return decisions.map((content) => ({ ...row, type: "decision", content, evidenceKind: "episode_decision" }));
+  });
+}
+
 export function evaluateCandidateMemories({ scenario, extraction }) {
   const candidates = candidateMemories(extraction);
   const matched = scenario.expected.filter((proposition) => candidates.some((memory) => matchesProposition(memory, { ...proposition, repository: scenario.repository })));
@@ -120,11 +129,19 @@ export function evaluatePersistedRows({ scenario, rows }) {
 }
 
 export function evaluateForeignRows({ rows, foreignEvidence }) {
-  return rows.filter((row) => foreignEvidence.some((proposition) => matchesProposition(row, proposition)));
+  return rows.filter((row) => normalizeRecallEvidence([row]).some((evidence) => foreignEvidence.some((proposition) => matchesProposition(evidence, proposition))));
+}
+
+export function evaluateNegativeQueryEvidence({ rows, scenarioRows }) {
+  const evidenceIds = new Set(scenarioRows.flatMap((row) => [row?.id, row?.memoryId, row?.evidenceId]).filter(Boolean));
+  const sessionIds = new Set(scenarioRows.flatMap((row) => [row?.source_session_id, row?.session_id, row?.sessionId, row?.sourceSessionId]).filter(Boolean));
+  return rows.filter((row) => [row?.id, row?.memoryId, row?.evidenceId].some((id) => id && evidenceIds.has(id))
+    || [row?.source_session_id, row?.session_id, row?.sessionId, row?.sourceSessionId].some((id) => id && sessionIds.has(id)));
 }
 
 function findExpectedRecall(scenario, rows) {
-  return scenario.expected.filter((proposition) => rows.some((row) => matchesProposition(row, { ...proposition, repository: scenario.repository })));
+  const evidence = normalizeRecallEvidence(rows);
+  return scenario.expected.filter((proposition) => evidence.some((row) => matchesProposition(row, { ...proposition, repository: scenario.repository })));
 }
 
 function createForeignScenario(scenario) {
@@ -238,9 +255,15 @@ async function runScenario(scenario) {
     if (scenario.negativeQuery) {
       const negativeRecall = recallMemory({ db: fixture.db, prompt: scenario.negativeQuery, repository: scenario.repository, limit: 12 });
       const negativeRows = includedRows(negativeRecall);
-      const negativeSemanticRows = negativeRows.filter((row) => scenario.expected.some((proposition) => matchesProposition(row, { ...proposition, repository: scenario.repository })) || (scenario.forbidden ?? []).some((forbidden) => matchesForbidden(row, forbidden)));
-      const negativeRenderedOutput = (scenario.forbidden ?? []).filter((forbidden) => matchesForbidden({ content: negativeRecall.text }, forbidden));
-      negativeQueryResult = { prompt: scenario.negativeQuery, semanticRows: negativeSemanticRows.length, renderedOutput: negativeRenderedOutput.length };
+      const scenarioRows = fixture.db.db.prepare("SELECT id, source_session_id, type, content, scope, repository FROM semantic_memory WHERE source_session_id = ? UNION ALL SELECT id, session_id AS source_session_id, 'episode' AS type, summary AS content, scope, repository FROM episode_digest WHERE session_id = ?").all(scenario.sessionId, scenario.sessionId);
+      if (foreign) {
+        const foreignRows = fixture.db.db.prepare("SELECT id, source_session_id, type, content, scope, repository FROM semantic_memory WHERE source_session_id = ? UNION ALL SELECT id, session_id AS source_session_id, 'episode' AS type, summary AS content, scope, repository FROM episode_digest WHERE session_id = ?").all(foreign.sessionId, foreign.sessionId);
+        scenarioRows.push(...foreignRows);
+      }
+      const negativeSemanticRows = evaluateNegativeQueryEvidence({ rows: negativeRows, scenarioRows });
+      const scenarioEvidence = candidateMemories(extraction).map((memory) => ({ type: memory.type, anchors: [...words(memory.content)], scope: undefined, repository: undefined })).concat(foreignEvidence);
+      const negativeRenderedOutput = scenarioEvidence.filter((proposition) => matchesProposition({ type: proposition.type, content: negativeRecall.text }, proposition));
+      negativeQueryResult = { prompt: scenario.negativeQuery, semanticRows: negativeSemanticRows.length, semanticRowIds: negativeSemanticRows.map((row) => row.id), renderedOutput: negativeRenderedOutput.length };
     }
     return {
       id: scenario.scenarioId,
@@ -280,6 +303,7 @@ export async function runQualityEvaluation({ scenarios = RELIABILITY_CORPUS } = 
   const recallExpectedCount = cases.reduce((sum, item) => sum + item.recallExpectedCount, 0);
   const metrics = {
     scenarioCount: cases.length,
+    independentSemanticScenarioCount: new Set(scenarios.filter((scenario) => scenario.id.startsWith("independent-")).map((scenario) => scenario.id)).size,
     clients: Object.fromEntries(RELIABILITY_CLIENTS.map((client) => [client, cases.filter((item) => item.client === client).length])),
     extractionPrecision: candidateCount ? truePositiveCount / candidateCount : 1,
     explicitPropositionRecall: expectedCount ? matchedExpected / expectedCount : 1,
@@ -296,6 +320,7 @@ export async function runQualityEvaluation({ scenarios = RELIABILITY_CORPUS } = 
   const passed = metrics.extractionPrecision >= QUALITY_GATES.extractionPrecision
     && metrics.explicitPropositionRecall >= QUALITY_GATES.explicitPropositionRecall
     && metrics.retentionRecall >= QUALITY_GATES.retentionRecall
+    && metrics.independentSemanticScenarioCount >= QUALITY_GATES.minIndependentSemanticScenarios
     && metrics.falseGlobalPromotions <= QUALITY_GATES.maxFalseGlobalPromotions
     && metrics.negativeFalsePositives <= QUALITY_GATES.maxNegativeFalsePositives
     && metrics.negativeQueryFailures.length === 0
@@ -310,6 +335,7 @@ export function renderQualityReport(result) {
   return [
     `passed: ${result.passed}`,
     `scenarios: ${metrics.scenarioCount}`,
+    `independent semantic scenarios: ${metrics.independentSemanticScenarioCount}`,
     `clients: ${Object.entries(metrics.clients).map(([client, count]) => `${client}=${count}`).join(", ")}`,
     `extraction precision: ${(metrics.extractionPrecision * 100).toFixed(2)}%`,
     `explicit proposition recall: ${(metrics.explicitPropositionRecall * 100).toFixed(2)}%`,

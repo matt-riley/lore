@@ -86,6 +86,21 @@ function runNativeHook(home, env, client, event, args) {
   return { elapsedMs: performance.now() - started, ok: result.status === 0, stderr: result.stderr?.slice(0, 500) ?? "" };
 }
 
+function numericCheckpointValue(checkpoint, key) {
+  const value = Number(checkpoint?.[key]);
+  return Number.isFinite(value) ? value : null;
+}
+
+export function checkpointDeltaWork(before, after) {
+  const beforeOffset = numericCheckpointValue(before, "offset");
+  const afterOffset = numericCheckpointValue(after, "offset");
+  if (beforeOffset !== null && afterOffset !== null) return afterOffset - beforeOffset;
+  const beforeRevision = numericCheckpointValue(before, "revision");
+  const afterRevision = numericCheckpointValue(after, "revision");
+  if (beforeRevision !== null && afterRevision !== null) return afterRevision - beforeRevision;
+  return null;
+}
+
 function measureNativeCapture(home, env) {
   const transcriptPath = path.join(home, "capture.jsonl");
   const entries = [
@@ -102,9 +117,17 @@ function measureNativeCapture(home, env) {
     const rows = db.db.prepare("SELECT id, type, content, source_session_id, source_turn_index, superseded_by FROM semantic_memory WHERE source_session_id = ? AND superseded_by IS NULL ORDER BY source_turn_index, id").all("codex:benchmark-capture");
     const episode = db.db.prepare("SELECT id, session_id, source, summary FROM episode_digest WHERE session_id = ?").get("codex:benchmark-capture") ?? null;
     const checkpointSupport = typeof db.getIngestionCheckpoint === "function";
-    const checkpoint = checkpointSupport ? db.getIngestionCheckpoint("codex", "benchmark-capture") : null;
+    let checkpoint = null;
+    let checkpointError = null;
+    if (checkpointSupport) {
+      try {
+        checkpoint = db.getIngestionCheckpoint("codex", "benchmark-capture");
+      } catch (error) {
+        checkpointError = error.message;
+      }
+    }
     db.close();
-    return { rows, episode, checkpointSupport, checkpoint };
+    return { rows, episode, checkpointSupport, checkpoint, checkpointError };
   };
   const coldState = readCaptureState();
   entries.push(
@@ -118,8 +141,12 @@ function measureNativeCapture(home, env) {
   const refreshTurnCount = new Set(refreshState.rows.map((row) => row.source_turn_index).filter((value) => value != null)).size;
   const persistedExpected = coldState.rows.some((row) => row.content.includes("capture evidence"))
     && refreshState.rows.some((row) => row.content.includes("refresh delta"));
+  const checkpointDelta = checkpointDeltaWork(coldState.checkpoint, refreshState.checkpoint);
+  const checkpointReady = !refreshState.checkpointSupport
+    || (coldState.checkpointError === null && refreshState.checkpointError === null
+      && coldState.checkpoint !== null && refreshState.checkpoint !== null && checkpointDelta !== null && checkpointDelta > 0);
   return {
-    nativeHook: cold.ok && refresh.ok && persistedExpected ? "passed" : "failed",
+    nativeHook: cold.ok && refresh.ok && persistedExpected && checkpointReady ? "passed" : "failed",
     coldMs: cold.elapsedMs,
     refreshMs: refresh.elapsedMs,
     coldPersistedRows: coldState.rows.length,
@@ -127,7 +154,9 @@ function measureNativeCapture(home, env) {
     coldPersistedTurns: coldTurnCount,
     refreshPersistedTurns: refreshTurnCount,
     captureDeltaTurns: Math.max(0, refreshTurnCount - coldTurnCount),
+    captureDeltaWork: refreshState.checkpointSupport ? checkpointDelta : null,
     persistedExpected,
+    checkpointReady,
     episode: refreshState.episode,
     checkpointSupport: refreshState.checkpointSupport,
     checkpoint: refreshState.checkpoint,
@@ -272,7 +301,7 @@ export function renderBenchmarkReport(result) {
   return [
     `passed: ${result.passed}`,
     `environment: ${result.environment.node} ${result.environment.platform}/${result.environment.architecture}`,
-    ...result.performance.map((item) => `${item.size}: native=${item.nativeCli}, startup p95=${item.startupP95Ms?.toFixed(2)}ms, prompt p95=${item.promptP95Ms?.toFixed(2)}ms, diskCold=${item.diskCold}, capture=${item.capture.nativeHook} cold=${item.capture.coldMs.toFixed(2)}ms refresh=${item.capture.refreshMs.toFixed(2)}ms deltaTurns=${item.capture.captureDeltaTurns}`),
+    ...result.performance.map((item) => `${item.size}: native=${item.nativeCli}, startup p95=${item.startupP95Ms?.toFixed(2)}ms, prompt p95=${item.promptP95Ms?.toFixed(2)}ms, diskCold=${item.diskCold}, capture=${item.capture.nativeHook} cold=${item.capture.coldMs.toFixed(2)}ms refresh=${item.capture.refreshMs.toFixed(2)}ms deltaTurns=${item.capture.captureDeltaTurns} deltaWork=${item.capture.captureDeltaWork ?? "unsupported"}`),
     ...Object.entries(result.embedding).map(([size, value]) => `${size}: semanticSearch mocked coldInputs=${value.cold.inputCounts.join(",")}, warmInputs=${value.warm.inputCounts.join(",")}, cache=${value.warm.cacheRowsAfter}/${value.partialCoverage.totalCandidates}, deadline=${value.deadlineStatus}`),
   ].join("\n");
 }

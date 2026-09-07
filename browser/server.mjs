@@ -346,14 +346,14 @@ function getTraceFallbackDiagnostics(traces) {
   const diagnostics = []
   for (const trace of traces) {
     const source = trace && typeof trace === "object" ? trace : {}
-    const text = JSON.stringify(source)
-    if (/"fallback"\s*:\s*true/i.test(text)) {
+    const flags = source.trace && typeof source.trace === "object" ? source.trace : {}
+    if (flags.fallback === true) {
       diagnostics.push({ reason: "deterministic_fallback", at: source.createdAt ?? source.created_at ?? null })
     }
-    if (/"partialCoverage"\s*:\s*true/i.test(text)) {
+    if (flags.partialCoverage === true) {
       diagnostics.push({ reason: "partial_embedding_coverage", at: source.createdAt ?? source.created_at ?? null })
     }
-    if (/"deadline"\s*:\s*true/i.test(text)) {
+    if (flags.deadline === true) {
       diagnostics.push({ reason: "embedding_deadline", at: source.createdAt ?? source.created_at ?? null })
     }
   }

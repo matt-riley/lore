@@ -116,3 +116,22 @@ test("installer dry runs, preserves other hooks/settings, is idempotent, and rem
     }
   } finally { rmSync(project, { recursive: true, force: true }); }
 });
+
+test("hook installer directs universal setup requests to the five-client installer without writes", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-installer-help-"));
+  try {
+    for (const args of [[], ["--help"], ["-h"], ["copilot"], ["pi"], ["all"], ["--clients", "all"]]) {
+      const result = spawnSync(process.execPath, [installer, ...args], {
+        cwd: home, env: { ...process.env, HOME: home }, encoding: "utf8", timeout: 5000,
+      });
+      assert.equal(result.status, args.length === 0 || ["--help", "-h"].includes(args[0]) ? 0 : 1);
+      const output = result.stdout + result.stderr;
+      assert.match(output, /npm run setup/);
+      assert.match(output, /--clients all --dry-run/);
+      assert.match(output, /Copilot.*Pi.*Codex.*Claude.*Antigravity/);
+      assert.equal(existsSync(path.join(home, ".codex")), false);
+      assert.equal(existsSync(path.join(home, ".claude")), false);
+      assert.equal(existsSync(path.join(home, ".gemini")), false);
+    }
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

@@ -505,7 +505,7 @@ Useful commands:
 | `npm run validate-schema` | Validate config/schema parity |
 | `npm run lint` | Lint runtime, adapters, browser, and scripts |
 | `npm run dev-install` | Copy a dev checkout into `~/.copilot/extensions/lore` |
-| `npm run install-hooks -- <client> [--global] [--write]` | Preview or install native Codex, Claude Code, or Antigravity lifecycle hooks |
+| `npm run install-hooks -- <client> [--global] [--write]` | Advanced native-hook helper for Codex, Claude Code, or Antigravity; use `npm run setup` for all five clients |
 | `npm run migrate-home -- --from <old> --to <new>` | Explicitly copy a Lore home without overwriting the destination |
 | `npm run maintenance` | Run the maintenance script |
 | `npm run browser` | Start the local browser dashboard |

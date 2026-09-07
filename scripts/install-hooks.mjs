@@ -6,8 +6,24 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { buildCliHookConfig, mergeCliHookConfig } from "../lib/clients/cli-hook-config.mjs";
 
-try {
+const help = `Install Lore for Copilot, Pi, Codex, Claude Code, or Antigravity:
+  npm run setup
+  npm run setup -- --clients all --dry-run
+
+This advanced helper only manages native lifecycle hooks:
+  npm run install-hooks -- <codex|claude|antigravity> [--project PATH | --global] [--write] [--remove]
+It previews by default; --write applies changes. Antigravity requires --global.
+Use npm run setup for automatic client detection and Copilot/Pi installation.`;
+
+async function main() {
   const [client, ...args] = process.argv.slice(2);
+  if (!client || client === "--help" || client === "-h") {
+    console.log(help);
+    return;
+  }
+  if (!["codex", "claude", "antigravity"].includes(client)) {
+    throw new Error(`This command only manages native hooks.\n\n${help}`);
+  }
   const options = { write: false, remove: false, global: false, project: process.cwd() };
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === "--write") options.write = true;
@@ -58,6 +74,10 @@ try {
     } finally { await unlink(temporary).catch((error) => { if (error.code !== "ENOENT") throw error; }); }
     console.log(`${options.remove ? "Removed" : "Installed"} Lore hooks: ${target}`);
   }
+}
+
+try {
+  await main();
 } catch (error) {
   console.error(`lore install-hooks: ${error.message}`);
   process.exitCode = 1;

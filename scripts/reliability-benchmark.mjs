@@ -95,18 +95,42 @@ function measureNativeCapture(home, env) {
   writeFileSync(transcriptPath, `${entries.map(JSON.stringify).join("\n")}\n`, "utf8");
   const payload = { session_id: "benchmark-capture", cwd: home, transcript_path: transcriptPath };
   const cold = runNativeHook(home, env, "codex", "Stop", payload);
+  const config = buildFixtureConfig(home, { enabled: true });
+  const readCaptureState = () => {
+    const db = new LoreDb(config);
+    db.initialize();
+    const rows = db.db.prepare("SELECT id, type, content, source_session_id, source_turn_index, superseded_by FROM semantic_memory WHERE source_session_id = ? AND superseded_by IS NULL ORDER BY source_turn_index, id").all("codex:benchmark-capture");
+    const episode = db.db.prepare("SELECT id, session_id, source, summary FROM episode_digest WHERE session_id = ?").get("codex:benchmark-capture") ?? null;
+    const checkpointSupport = typeof db.getIngestionCheckpoint === "function";
+    const checkpoint = checkpointSupport ? db.getIngestionCheckpoint("codex", "benchmark-capture") : null;
+    db.close();
+    return { rows, episode, checkpointSupport, checkpoint };
+  };
+  const coldState = readCaptureState();
   entries.push(
-    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Also retain the refresh delta for the source record." }] } },
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Prefer retaining the refresh delta for the source record." }] } },
     { type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "The refreshed capture includes one additional source record." }] } },
   );
   writeFileSync(transcriptPath, `${entries.map(JSON.stringify).join("\n")}\n`, "utf8");
   const refresh = runNativeHook(home, env, "codex", "Stop", payload);
+  const refreshState = readCaptureState();
+  const coldTurnCount = new Set(coldState.rows.map((row) => row.source_turn_index).filter((value) => value != null)).size;
+  const refreshTurnCount = new Set(refreshState.rows.map((row) => row.source_turn_index).filter((value) => value != null)).size;
+  const persistedExpected = coldState.rows.some((row) => row.content.includes("capture evidence"))
+    && refreshState.rows.some((row) => row.content.includes("refresh delta"));
   return {
-    nativeHook: cold.ok && refresh.ok ? "passed" : "failed",
+    nativeHook: cold.ok && refresh.ok && persistedExpected ? "passed" : "failed",
     coldMs: cold.elapsedMs,
     refreshMs: refresh.elapsedMs,
-    captureDeltaTurns: 1,
-    transcriptTurnsAfterRefresh: 2,
+    coldPersistedRows: coldState.rows.length,
+    refreshPersistedRows: refreshState.rows.length,
+    coldPersistedTurns: coldTurnCount,
+    refreshPersistedTurns: refreshTurnCount,
+    captureDeltaTurns: Math.max(0, refreshTurnCount - coldTurnCount),
+    persistedExpected,
+    episode: refreshState.episode,
+    checkpointSupport: refreshState.checkpointSupport,
+    checkpoint: refreshState.checkpoint,
     error: cold.stderr || refresh.stderr || null,
   };
 }
@@ -177,6 +201,37 @@ export async function measureMockEmbeddingPaths(size) {
     const warmDurationMs = performance.now() - warmStarted;
     const warmRequests = requests.splice(0);
     const cacheRows = db.db.prepare("SELECT COUNT(*) AS count FROM memory_embedding WHERE memory_id LIKE 'semantic-probe-%'").get().count;
+    db.db.prepare("DELETE FROM memory_embedding WHERE memory_id LIKE 'semantic-probe-%'").run();
+    const delayed = await semanticSearch({
+      db,
+      query: "semantic probe deadline",
+      repository: "quality/native",
+      types: ["semantic_probe"],
+      limit: 6,
+      fetchImpl: async (_url, options) => {
+        const input = JSON.parse(options.body).input ?? [];
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return new Response(JSON.stringify({ data: input.map((text, index) => ({ index, embedding: mockVector(text) })) }), { status: 200 });
+      },
+      config,
+      deadlineMs: 1,
+    });
+    db.db.prepare("DELETE FROM memory_embedding WHERE memory_id LIKE 'semantic-probe-%'").run();
+    const partial = await semanticSearch({
+      db,
+      query: "semantic probe partial",
+      repository: "quality/native",
+      types: ["semantic_probe"],
+      limit: 6,
+      fetchImpl: async (_url, options) => {
+        const input = JSON.parse(options.body).input ?? [];
+        const count = input.length > 1 ? Math.min(4, input.length) : input.length;
+        return new Response(JSON.stringify({ data: input.slice(0, count).map((text, index) => ({ index, embedding: mockVector(text) })) }), { status: 200 });
+      },
+      config,
+      deadlineMs: 1_000,
+    });
+    const partialCacheRows = db.db.prepare("SELECT COUNT(*) AS count FROM memory_embedding WHERE memory_id LIKE 'semantic-probe-%' AND vector <> '[]'").get().count;
     return {
       mockedEndpoint: true,
       productionPath: "semanticSearch + memory_embedding",
@@ -189,6 +244,8 @@ export async function measureMockEmbeddingPaths(size) {
       partialCoverage: { indexedCandidates: Number(cacheRows), totalCandidates: 24, complete: Number(cacheRows) === 24 },
       deadlineMs: 1_000,
       deadlineStatus: "mocked endpoint completed within deadline; no network claim",
+      deadlineProbe: { enabled: delayed.enabled, failedAsExpected: delayed.enabled === false && /timed out|deadline|aborted/i.test(delayed.error ?? ""), error: delayed.error ?? null },
+      partialProbe: { enabled: partial.enabled, indexedCandidates: Number(partialCacheRows), totalCandidates: 24, partial: Number(partialCacheRows) > 0 && Number(partialCacheRows) < 24 },
     };
   } finally {
     db.close();

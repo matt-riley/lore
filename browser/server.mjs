@@ -277,6 +277,204 @@ function getMemoryById(db, id) {
   return row ? mapMemoryRow(row) : null
 }
 
+function tableExists(db, table) {
+  const statement = db?.prepare?.("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+  return Boolean(statement?.get?.(table))
+}
+
+function quoteShell(value) {
+  return `'${String(value ?? "").replaceAll("'", "'\"'\"'")}'`
+}
+
+function buildResumeCommand({ client, sessionId, sourceCwd, sourcePath }) {
+  if (!client || !sessionId || !sourceCwd || !sourcePath) {
+    return null
+  }
+  const nativeSessionId = String(sessionId).startsWith(`${client}:`)
+    ? String(sessionId).slice(String(client).length + 1)
+    : sessionId
+  const input = JSON.stringify({ cwd: sourceCwd, transcriptPath: sourcePath })
+  return `printf '%s\\n' ${quoteShell(input)} | node lore-cli.mjs capture --resume --client ${quoteShell(client)} --session ${quoteShell(nativeSessionId)}`
+}
+
+function mapCaptureHealthRow(row) {
+  const adapterState = row?.adapterState && typeof row.adapterState === "object" ? row.adapterState : {}
+  const sourcePath = typeof adapterState.sourcePath === "string" ? adapterState.sourcePath : null
+  const sourceCwd = typeof adapterState.sourceCwd === "string" ? adapterState.sourceCwd : null
+  return {
+    client: row?.client ?? null,
+    sessionId: row?.sessionId ?? null,
+    repository: row?.repository ?? null,
+    offset: Number.isFinite(row?.offset) ? row.offset : 0,
+    pendingBytes: Number.isFinite(row?.health?.pendingBytes) ? row.health.pendingBytes : 0,
+    failureCode: row?.health?.failureCode ?? null,
+    lastSuccessAt: row?.health?.lastSuccessAt ?? null,
+    updatedAt: row?.updatedAt ?? null,
+    sourcePath,
+    sourceCwd,
+    resumeCommand: buildResumeCommand({
+      client: row?.client,
+      sessionId: row?.sessionId,
+      sourceCwd,
+      sourcePath,
+    }),
+  }
+}
+
+function listCaptureHealth({ db, repository }) {
+  if (typeof db?.listCaptureHealth !== "function") {
+    return []
+  }
+  return db.listCaptureHealth({ repository }).map(mapCaptureHealthRow)
+}
+
+function getTraceFallbackDiagnostics(traces) {
+  const diagnostics = []
+  for (const trace of traces) {
+    const source = trace && typeof trace === "object" ? trace : {}
+    const text = JSON.stringify(source)
+    if (/"fallback"\\s*:\\s*true/i.test(text)) {
+      diagnostics.push({ reason: "deterministic_fallback", at: source.createdAt ?? source.created_at ?? null })
+    }
+    if (/"partialCoverage"\\s*:\\s*true/i.test(text)) {
+      diagnostics.push({ reason: "partial_embedding_coverage", at: source.createdAt ?? source.created_at ?? null })
+    }
+    if (/"deadline"\\s*:\\s*true/i.test(text)) {
+      diagnostics.push({ reason: "embedding_deadline", at: source.createdAt ?? source.created_at ?? null })
+    }
+  }
+  const counts = new Map()
+  for (const item of diagnostics) counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1)
+  return [...counts.entries()].map(([reason, count]) => ({ reason, count }))
+}
+
+function queryIndexingCoverage({ db, repository, traces }) {
+  const embeddingsEnabled = db?.config?.embeddings?.enabled === true
+    || db?.config?.localInference?.embeddings?.enabled === true
+  if (!db?.db?.prepare) {
+    return {
+      enabled: embeddingsEnabled,
+      totalActive: 0,
+      indexed: 0,
+      pending: 0,
+      coveragePercent: 0,
+      fallbackDiagnostics: getTraceFallbackDiagnostics(traces),
+    }
+  }
+  const active = db.db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM semantic_memory
+    WHERE superseded_by IS NULL
+      AND (? IS NULL OR repository = ? OR (scope = 'global' AND repository IS NULL))
+  `).get(repository, repository)?.count ?? 0
+  const indexed = tableExists(db.db, "memory_embedding")
+    ? db.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM semantic_memory sm
+      JOIN memory_embedding me ON me.memory_id = sm.id
+      WHERE sm.superseded_by IS NULL
+        AND (? IS NULL OR sm.repository = ? OR (sm.scope = 'global' AND sm.repository IS NULL))
+        AND me.vector IS NOT NULL AND me.vector != ''
+    `).get(repository, repository)?.count ?? 0
+    : 0
+  const totalActive = Number(active) || 0
+  const indexedCount = Math.min(totalActive, Number(indexed) || 0)
+  return {
+    enabled: embeddingsEnabled,
+    totalActive,
+    indexed: indexedCount,
+    pending: Math.max(0, totalActive - indexedCount),
+    coveragePercent: totalActive > 0 ? Math.round((indexedCount / totalActive) * 100) : 100,
+    fallbackDiagnostics: getTraceFallbackDiagnostics(traces),
+  }
+}
+
+function buildMemoryLifecycle({ db, memory }) {
+  const evidence = typeof db?.listSemanticEvidence === "function" ? db.listSemanticEvidence(memory.id) : []
+  const mappedEvidence = evidence.map((item) => {
+    const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : {}
+    const attribution = metadata.sourceAttribution && typeof metadata.sourceAttribution === "object"
+      ? metadata.sourceAttribution
+      : {}
+    return {
+      key: item.key,
+      sessionId: item.sessionId,
+      repository: item.repository,
+      sourceIdentity: item.sourceIdentity,
+      sourceRecordId: item.sourceRecordId ?? attribution.sourceRecordId ?? attribution.recordId ?? null,
+      sourceRole: metadata.sourceRole ?? attribution.sourceRole ?? attribution.role ?? memory.metadata?.sourceRole ?? null,
+      sourceKind: item.sourceKind,
+      confidenceBasis: metadata.confidenceBasis ?? memory.metadata?.confidenceBasis ?? null,
+      revision: item.revision,
+      contentHash: item.contentHash,
+      capturedAt: item.capturedAt,
+      retiredAt: item.retiredAt,
+      linkedAt: item.linkedAt,
+      linkRetiredAt: item.linkRetiredAt,
+    }
+  })
+  const suppressions = tableExists(db?.db, "memory_suppression")
+    ? db.db.prepare(`
+      SELECT suppression_key, actor, reason, created_at, superseded_at, repair_candidate
+      FROM memory_suppression WHERE memory_id = ? ORDER BY created_at ASC
+    `).all(memory.id).map((row) => ({
+      key: row.suppression_key,
+      actor: row.actor,
+      reason: row.reason,
+      createdAt: row.created_at,
+      supersededAt: row.superseded_at,
+      repairCandidate: Boolean(row.repair_candidate),
+    }))
+    : []
+  const activeSuppressions = suppressions.filter((item) => !item.supersededAt)
+  const correction = memory.metadata?.correctionProvenance && typeof memory.metadata.correctionProvenance === "object"
+    ? memory.metadata.correctionProvenance
+    : null
+  const expiresAt = memory.expiresAt ?? null
+  const expiryState = expiresAt === null
+    ? "none"
+    : Number.isNaN(new Date(expiresAt).getTime())
+      ? "invalid"
+      : new Date(expiresAt).getTime() <= Date.now() ? "expired" : "active"
+  const timeline = [
+    memory.createdAt ? { at: memory.createdAt, kind: "created", label: "Memory created" } : null,
+    ...mappedEvidence.map((item) => item.capturedAt ? {
+      at: item.capturedAt,
+      kind: item.retiredAt ? "evidence_retired" : "evidence",
+      label: item.retiredAt ? "Evidence retired" : "Evidence captured",
+      sourceRole: item.sourceRole,
+      sourceRecordId: item.sourceRecordId,
+    } : null),
+    ...suppressions.map((item) => ({
+      at: item.createdAt,
+      kind: item.supersededAt ? "suppression_superseded" : "suppression",
+      label: item.supersededAt ? "Suppression superseded" : "Suppression recorded",
+      actor: item.actor,
+      reason: item.reason,
+    })),
+    correction ? {
+      at: memory.updatedAt ?? memory.createdAt,
+      kind: "correction",
+      label: "Correction recorded",
+      sourceMemoryId: correction.sourceMemoryId ?? null,
+    } : null,
+    expiresAt && expiryState !== "invalid" ? { at: expiresAt, kind: "expiry", label: "Expiry boundary" } : null,
+    memory.updatedAt && memory.updatedAt !== memory.createdAt ? { at: memory.updatedAt, kind: "updated", label: "Memory updated" } : null,
+  ].filter(Boolean).sort((a, b) => String(a.at).localeCompare(String(b.at)))
+  return {
+    evidence: mappedEvidence,
+    suppressions,
+    state: {
+      memory: memory.supersededBy ? "superseded" : "active",
+      suppression: activeSuppressions.length > 0 ? "suppressed" : "none",
+      expiry: expiryState,
+      correction: correction ? "corrected" : "none",
+      activeSuppressionCount: activeSuppressions.length,
+    },
+    timeline,
+  }
+}
+
 function getEpisodeBySessionId(db, sessionId) {
   const row = db.db.prepare(`${EPISODE_ROW_SELECT} WHERE session_id = ?`).get(sessionId)
   return row ? mapEpisodeRow(row) : null
@@ -750,6 +948,7 @@ function buildMemoryDrilldown({ db, id, entityType }) {
   const focus = buildMemoryFocus(memory, entityType)
   const provenance = buildMemoryProvenance({ db, memory })
   const relations = buildMemoryRelations({ db, memory })
+  const lifecycle = buildMemoryLifecycle({ db, memory })
   const centerNode = buildMemoryNode(memory, {
     column: "center",
     entityType,
@@ -773,6 +972,7 @@ function buildMemoryDrilldown({ db, id, entityType }) {
     },
     canonicalCluster: relations.canonicalCluster,
     linkedImprovements: relations.linkedImprovements,
+    lifecycle,
     graph: graph.toJSON(),
   }
 }
@@ -917,6 +1117,9 @@ function queryOverview({ db, repository, traceLimit = 40, maintenanceLimit = 10 
 
   const maintenancePlan = getStatusMaintenancePlan({ db, repository })
 
+  const captureHealth = listCaptureHealth({ db, repository })
+  const indexing = queryIndexingCoverage({ db, repository, traces })
+
   const recentRuns = db.listMaintenanceRuns({
     limit: clampInteger(maintenanceLimit, 10, { min: 1, max: 50 }),
   })
@@ -933,6 +1136,8 @@ function queryOverview({ db, repository, traceLimit = 40, maintenanceLimit = 10 
     },
     latencyTrend: computeLatencyTrend(traces),
     recentTraceSamples: traces.slice(0, 10),
+    captureHealth,
+    indexing,
   }
 }
 

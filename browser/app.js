@@ -194,7 +194,61 @@ function normalizeOverviewData(data) {
     activityRows: asArray(data?.activity),
     workstreams: asArray(data?.activeWorkstreams),
     dueTasks: data?.maintenance?.dueTasks ?? [],
+    captureHealth: asArray(data?.captureHealth),
+    indexing: data?.indexing ?? {},
   }
+}
+
+function renderCaptureHealth(health) {
+  return `
+    <section class="card section-card health-section">
+      <div class="section-head">
+        <div>
+          <h2>Capture health</h2>
+          <div class="small">Last successful capture, pending bytes, and resumable native sessions.</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>client / session</th><th>last success</th><th>pending</th><th>status</th><th>resume</th></tr></thead>
+          <tbody>
+            ${health.map((row) => `
+              <tr>
+                <td><strong>${escapeHtml(row.client ?? "unknown")}</strong><div class="small">${escapeHtml(row.sessionId ?? "unknown session")}</div><div class="small">repo=${escapeHtml(row.repository ?? "global")}</div></td>
+                <td>${escapeHtml(formatTime(row.lastSuccessAt))}</td>
+                <td>${escapeHtml(row.pendingBytes ?? 0)} bytes</td>
+                <td>${row.failureCode ? `<span class="tag warn">${escapeHtml(row.failureCode)}</span>` : '<span class="tag ok">healthy</span>'}<div class="small">offset=${escapeHtml(row.offset ?? 0)}</div></td>
+                <td>${row.resumeCommand ? `<button type="button" class="action-btn copy-command" data-copy-command="${escapeHtml(row.resumeCommand)}" aria-label="Copy resume command">Copy preview command</button><div class="small copy-feedback" aria-live="polite"></div>` : '<span class="small">No resumable source</span>'}</td>
+              </tr>
+            `).join("") || '<tr><td colspan="5" class="row-muted">No capture checkpoints recorded.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `
+}
+
+function renderIndexingCoverage(indexing) {
+  const diagnostics = asArray(indexing.fallbackDiagnostics)
+  const status = indexing.enabled === false ? "disabled" : `${indexing.coveragePercent ?? 0}% covered`
+  return `
+    <section class="card section-card health-section">
+      <div class="section-head">
+        <div>
+          <h2>Embedding coverage</h2>
+          <div class="small">Cached vectors augment lexical retrieval. Coverage is derived from active memories.</div>
+        </div>
+        <span class="tag ${indexing.enabled === false ? "warn" : "ok"}">${escapeHtml(status)}</span>
+      </div>
+      ${renderMetricGrid([
+        ["Active memories", indexing.totalActive ?? 0],
+        ["Indexed", indexing.indexed ?? 0],
+        ["Pending", indexing.pending ?? 0],
+      ])}
+      <div class="small coverage-note">${indexing.enabled === false ? "Embeddings are disabled in configuration; lexical retrieval remains available." : "Indexing is bounded and incremental; pending rows can be processed during maintenance."}</div>
+      ${diagnostics.length > 0 ? `<div class="list compact-list coverage-diagnostics"><strong>Recent fallback diagnostics</strong>${diagnostics.map((row) => `<div class="list-item"><span>${escapeHtml(row.reason)}</span><span class="small">count=${escapeHtml(row.count)}</span></div>`).join("")}</div>` : '<div class="small">No fallback diagnostics in the recent trace sample.</div>'}
+    </section>
+  `
 }
 
 function renderOverview(data) {
@@ -204,6 +258,8 @@ function renderOverview(data) {
     activityRows,
     workstreams,
     dueTasks,
+    captureHealth,
+    indexing,
   } = normalizeOverviewData(data)
 
   views.overview.innerHTML = `
@@ -219,6 +275,10 @@ function renderOverview(data) {
     ])}
 
     ${renderActivityTable(activityRows)}
+    <div class="health-grid">
+      ${renderCaptureHealth(captureHealth)}
+      ${renderIndexingCoverage(indexing)}
+    </div>
     ${renderWorkstreamsList(workstreams)}
   `
 }
@@ -900,12 +960,89 @@ function renderMemoryMetadataSection(metadata) {
   `
 }
 
-function buildMemoryDetailSections({ focus, provenance, lineage, cluster, improvements }) {
+function renderMemoryLifecycleSection(lifecycle = {}) {
+  const state = lifecycle.state ?? {}
+  const evidence = ensureArray(lifecycle.evidence)
+  const suppressions = ensureArray(lifecycle.suppressions)
+  const timeline = ensureArray(lifecycle.timeline)
+  const stateText = [
+    `memory=${state.memory ?? "unknown"}`,
+    `suppression=${state.suppression ?? "none"}`,
+    `expiry=${state.expiry ?? "none"}`,
+    `correction=${state.correction ?? "none"}`,
+  ].join(" · ")
+  const evidenceHtml = evidence.map((item) => `
+    <article class="list-item provenance-item">
+      <div class="item-header-row"><strong>${escapeHtml(item.sourceKind ?? "evidence")}</strong><span class="tag ${item.retiredAt || item.linkRetiredAt ? "warn" : "ok"}">${item.retiredAt || item.linkRetiredAt ? "retired" : "active"}</span></div>
+      <div class="small">role=${escapeHtml(item.sourceRole ?? "unattributed")} · confidence basis=${escapeHtml(item.confidenceBasis ?? "not recorded")}</div>
+      <div class="small">source ref=${escapeHtml(item.sourceRecordId ?? "not recorded")} · session=${escapeHtml(item.sessionId ?? "not recorded")}</div>
+      <div class="small">evidence key=${escapeHtml(item.key ?? "not recorded")}</div>
+      <div class="small">captured=${escapeHtml(formatTime(item.capturedAt))} · revision=${escapeHtml(item.revision ?? "not recorded")}</div>
+    </article>
+  `).join("")
+  const suppressionHtml = suppressions.map((item) => `
+    <article class="list-item provenance-item">
+      <div class="item-header-row"><strong>Suppression</strong><span class="tag ${item.supersededAt ? "ok" : "warn"}">${item.supersededAt ? "superseded" : "active"}</span></div>
+      <div class="small">actor=${escapeHtml(item.actor ?? "unknown")} · reason=${escapeHtml(item.reason ?? "not recorded")}</div>
+      <div class="small">recorded=${escapeHtml(formatTime(item.createdAt))}</div>
+    </article>
+  `).join("")
+  const timelineHtml = timeline.map((item) => `
+    <li><strong>${escapeHtml(item.label ?? item.kind ?? "event")}</strong><span class="small">${escapeHtml(formatTime(item.at))}</span>${item.sourceRole || item.sourceRecordId ? `<div class="small">${escapeHtml([item.sourceRole ? `role=${item.sourceRole}` : null, item.sourceRecordId ? `source ref=${item.sourceRecordId}` : null].filter(Boolean).join(" · "))}</div>` : ""}</li>
+  `).join("")
+  return `
+    <section class="card section-card lifecycle-section">
+      <div class="section-head"><div><h2>Evidence & lifecycle</h2><div class="small">Attributed source records and state history. Confidence basis is descriptive, not a probability.</div></div><span class="tag">${escapeHtml(stateText)}</span></div>
+      <div class="lifecycle-grid">
+        <div><h3>Source evidence</h3><div class="list compact-list">${evidenceHtml || renderEmptyBlock("No evidence links recorded.")}</div></div>
+        <div><h3>Suppression state</h3><div class="list compact-list">${suppressionHtml || renderEmptyBlock("No suppression recorded.")}</div></div>
+      </div>
+      <h3>Timeline</h3>
+      <ol class="timeline">${timelineHtml || '<li class="row-muted">No lifecycle events recorded.</li>'}</ol>
+    </section>
+  `
+}
+
+function quoteShell(value) {
+  return `'${String(value ?? "").replaceAll("'", "'\"'\"'")}'`
+}
+
+function buildPreviewCommand(tool, payload) {
+  return `printf '%s\\n' ${quoteShell(JSON.stringify({ action: "preview", ...payload }))} | node lore-cli.mjs tool ${tool}`
+}
+
+function renderAdministrationPreviewSection(focus) {
+  const commands = [
+    ["Correct", "memory_correct", { memoryId: focus.id, repository: focus.repository ?? undefined, content: "<replacement>", reason: "<reason>" }],
+    ["Repair", "memory_repair", { memoryIds: [focus.id], repository: focus.repository ?? undefined }],
+    ["Purge", "memory_purge", { memoryIds: [focus.id] }],
+  ].map(([label, tool, payload]) => {
+    const command = buildPreviewCommand(tool, payload)
+    return `
+      <article class="list-item admin-command-item">
+        <div class="item-header-row"><strong>${escapeHtml(label)} preview</strong><button type="button" class="action-btn copy-command" data-copy-command="${escapeHtml(command)}" aria-label="Copy ${escapeHtml(label.toLowerCase())} preview command">Copy command</button></div>
+        <code class="command-preview">${escapeHtml(command)}</code>
+        <div class="small copy-feedback" aria-live="polite"></div>
+      </article>
+    `
+  }).join("")
+  return `
+    <section class="card section-card administration-section">
+      <div class="section-head"><div><h2>Administration previews</h2><div class="small">Copy-only shell commands. Review the report fingerprint before any explicit apply.</div></div><span class="tag warn">preview only</span></div>
+      <div class="list compact-list">${commands}</div>
+      <div class="small">Purge removes selected derived records while retaining raw sources and recovery snapshots; it is not secure erasure.</div>
+    </section>
+  `
+}
+
+function buildMemoryDetailSections({ focus, provenance, lineage, cluster, improvements, lifecycle }) {
   return joinRenderedParts([
     renderSectionList("Provenance & day grouping", buildMemoryProvenanceItems(provenance), "No provenance rows for this memory.", "Session provenance and neighboring episodes on the same day."),
     renderSectionList("Lineage", buildMemoryLineageItems(lineage), "No supersession links for this memory.", "Navigate reinforced and superseded memories from here."),
     renderSectionList("Canonical cluster", buildMemoryClusterItems(cluster, focus.id), "This memory is not part of a canonical cluster.", "Cluster members share the same canonical key."),
     renderSectionList("Linked improvements", improvements.map(renderImprovementRelationItem).join(""), "No improvement artifacts linked to this memory.", "Read-only improvement backlog linkage."),
+    renderMemoryLifecycleSection(lifecycle),
+    renderAdministrationPreviewSection(focus),
     renderMemoryMetadataSection(focus.metadata),
   ])
 }
@@ -1004,6 +1141,7 @@ function renderMemoryDrilldown(data) {
   const lineage = ensureDefaultValue(data?.lineage)
   const cluster = data?.canonicalCluster
   const improvements = ensureArray(data?.linkedImprovements)
+  const lifecycle = ensureDefaultValue(data?.lifecycle)
 
   views.drilldown.innerHTML = renderDrilldownShell({
     title: focus.title,
@@ -1013,7 +1151,7 @@ function renderMemoryDrilldown(data) {
     summaryCards: buildMemorySummaryCards(focus),
     graphDescription: `Read-only graph centered on the selected ${focus.entityType}.`,
     graph: data.graph,
-    detailSections: buildMemoryDetailSections({ focus, provenance, lineage, cluster, improvements }),
+    detailSections: buildMemoryDetailSections({ focus, provenance, lineage, cluster, improvements, lifecycle }),
   })
 
   queueGraphDraw()
@@ -1100,7 +1238,15 @@ async function syncDrilldownFromHash({ activateIfPresent = false } = {}) {
     renderDrilldownEmpty()
     return
   }
-  await loadDrilldown(route.entity, route.id, { activate: activateIfPresent })
+  try {
+    await loadDrilldown(route.entity, route.id, { activate: activateIfPresent })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    renderDrilldownEmpty(`This ${route.entity} is no longer available. The rest of the dashboard remains available; refresh the source view to choose another record.`)
+    setStatus("record unavailable", false)
+    if (activateIfPresent) activateTab("drilldown")
+    console.warn(message)
+  }
 }
 
 async function navigateToDrilldown(entity, id) {
@@ -1151,6 +1297,30 @@ document.getElementById("tabs").addEventListener("click", (event) => {
 })
 
 document.body.addEventListener("click", (event) => {
+  const copyButton = event.target.closest("[data-copy-command]")
+  if (copyButton) {
+    const command = copyButton.dataset.copyCommand
+    const feedback = copyButton.parentElement?.querySelector?.(".copy-feedback")
+    if (!command) {
+      return
+    }
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      if (feedback) feedback.textContent = "Clipboard unavailable; select the command from the page source."
+      return
+    }
+    void navigator.clipboard.writeText(command).then(() => {
+      if (feedback) feedback.textContent = "Copied preview command"
+      copyButton.textContent = "Copied"
+      window.setTimeout(() => {
+        copyButton.textContent = "Copy preview command"
+        if (feedback) feedback.textContent = ""
+      }, 1600)
+    }).catch(() => {
+      if (feedback) feedback.textContent = "Copy failed; command remains available in the page."
+    })
+    return
+  }
+
   const clearButton = event.target.closest("[data-clear-drilldown]")
   if (clearButton) {
     clearDrilldownSelection()

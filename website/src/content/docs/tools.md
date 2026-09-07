@@ -76,6 +76,24 @@ These are the supported Copilot CLI tools to build everyday workflows around. Pi
 
 Some experimental tools require rollout flags such as `evolutionLedger`, `loreDoctor`, or `refreshableObservations`. They do not receive the same stability promise as the core.
 
+## Read-only administration previews
+
+The native CLI also registers `memory_correct`, `memory_repair`, and
+`memory_purge`. Each command defaults to a read-only preview and accepts a JSON
+object on stdin. A preview reports its affected derived records and a
+`planFingerprint`; applying a plan requires that exact fingerprint and explicit
+selection of any repair or aggregate candidates.
+
+```sh
+printf '%s\n' '{"memoryId":"<id>","content":"<replacement>","reason":"<why>"}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_correct
+printf '%s\n' '{"sessionIds":["<session-id>"]}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_repair
+printf '%s\n' '{"memoryIds":["<id>"]}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_purge
+```
+
+The browser dashboard only generates these preview commands for copying. It
+does not execute them and has no write endpoint. Purge retains raw sources,
+backups, snapshots, and non-plaintext suppression, so it is not secure erasure.
+
 ## Native CLI commands
 
 [Codex CLI, Claude Code, and Antigravity CLI](/guides/cli-integrations/) use experimental native lifecycle hooks for automatic recall and capture. Explicit memory operations run through the shell, not MCP or registered model tools:

@@ -108,11 +108,26 @@ printf '%s\n' '{}' | node /absolute/lore/lore-cli.mjs tool memory_status
 ```
 
 Available operations are `lore_recall`, `lore_retain`, `lore_onboard`,
-`memory_search`, `memory_save`, `memory_forget`, and `memory_status`, declared in
+`memory_search`, `memory_save`, `memory_forget`, `memory_status`,
+`memory_correct`, `memory_repair`, and `memory_purge`, declared in
 the capability manifest. These are shell-invoked commands, not registered model
 tools. They return a nonzero exit status for failures. Supply an explicit
 `repository` if invoking from a directory other than your project. For global
 preferences use `lore_retain` with `scope: "global"`.
+
+The CLI also exposes the reliability administration commands
+`memory_correct`, `memory_repair`, and `memory_purge`. They default to a
+read-only preview and accept JSON on stdin:
+
+```sh
+printf '%s\n' '{"memoryId":"<id>","content":"<replacement>","reason":"<why>"}' | node /absolute/lore/lore-cli.mjs tool memory_correct
+printf '%s\n' '{"sessionIds":["<session-id>"]}' | node /absolute/lore/lore-cli.mjs tool memory_repair
+printf '%s\n' '{"memoryIds":["<id>"]}' | node /absolute/lore/lore-cli.mjs tool memory_purge
+```
+
+Review the preview fingerprint and retained source or backup consequences before
+an explicit apply. Purge is a derived-record cleanup operation and is not
+secure erasure.
 
 ## Compatibility and boundaries
 

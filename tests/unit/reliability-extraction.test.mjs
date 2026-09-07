@@ -143,6 +143,30 @@ describe("conservative rule extraction", () => {
     ]);
   });
 
+  test("does not retain one-off incident actions as durable memories", () => {
+    const extraction = extract({
+      turns: [
+        { user_message: "Please include the failing request in the bug report." },
+        { user_message: "Please check the failing endpoint and attach the logs." },
+        { user_message: "Please run the reproduction and report the result." },
+        { user_message: "Please preserve the failing response for debugging." },
+      ],
+    });
+
+    assert.deepEqual(extraction.semanticMemories, []);
+  });
+
+  test("does not infer a durable assistant goal from one ordinary incident", () => {
+    const extraction = extract({
+      turns: [{
+        user_message: "The API returned a 502 after the proxy upgrade. Please inspect the timeout and include the failing request in the bug report.",
+        assistant_response: "I will inspect the proxy timeout and reproduce the failing request before proposing a change.",
+      }],
+    });
+
+    assert.deepEqual(extraction.semanticMemories, []);
+  });
+
   test("does not promote preferences with trailing or parenthetical conditions", () => {
     const extraction = extract({
       turns: [{
@@ -228,6 +252,20 @@ describe("conservative rule extraction", () => {
     assert.equal(decisions.some((memory) => /What database/.test(memory.content)), false);
   });
 
+  test("rejects uncertain, open, hypothetical, and questionary decision claims", () => {
+    const extraction = extract({
+      turns: [
+        { user_message: "I asked whether we chose PostgreSQL, but we have not decided." },
+        { assistant_response: "People asked why we chose PostgreSQL, but the decision is still open." },
+        { user_message: "It is unclear whether we chose PostgreSQL or SQLite." },
+        { user_message: "We chose PostgreSQL for billing, but this is only a hypothetical example." },
+        { assistant_response: "I think we chose PostgreSQL, but I have not verified it." },
+      ],
+    });
+
+    assert.deepEqual(semantic(extraction, "decision"), []);
+  });
+
   test("keeps a later decision reversal as evidence instead of a global instruction", () => {
     const extraction = extract({
       turns: [
@@ -279,6 +317,22 @@ describe("conservative rule extraction", () => {
       decisions[0].evidence.key,
       decisions[2].evidence.key,
     ]);
+  });
+
+  test("extracts initially chosen decisions and retires a linked contextual reversal", () => {
+    const extraction = extract({
+      sessionId: "catalog-reversal",
+      turns: [
+        { user_message: "We initially chose Redis for catalog invalidation." },
+        { user_message: "The decision changed after the durability review: use PostgreSQL notifications instead, because losing invalidations is unacceptable." },
+      ],
+    });
+
+    const decisions = semantic(extraction, "decision");
+    assert.equal(decisions.length, 2);
+    assert.equal(decisions[0].content, "Decision: Redis for catalog invalidation.");
+    assert.equal(decisions[1].metadata.decisionStatus, "reversal");
+    assert.deepEqual(extraction.retiredEvidenceKeys, [decisions[0].evidence.key]);
   });
 
   test("extracts a completed decision after contextual wording", () => {

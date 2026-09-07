@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import net from "node:net";
 import { describe, test } from "node:test";
 
 import { isAllowedHostHeader, startLoreBrowserServer } from "../../browser/server.mjs";
@@ -84,7 +83,7 @@ describe("browser dashboard security hardening", () => {
         assert.equal(response.headers["referrer-policy"], "no-referrer");
         assert.equal(
           response.headers["content-security-policy"],
-          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
         );
       } finally {
         server.closeAllConnections();
@@ -189,7 +188,7 @@ describe("browser dashboard security hardening", () => {
         assert.equal(response.headers["referrer-policy"], "no-referrer");
         assert.equal(
           response.headers["content-security-policy"],
-          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
         );
       } finally {
         server.closeAllConnections();
@@ -228,7 +227,7 @@ describe("browser dashboard security hardening", () => {
         assert.equal(response.headers["referrer-policy"], "no-referrer");
         assert.equal(
           response.headers["content-security-policy"],
-          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
         );
       } finally {
         server.closeAllConnections();

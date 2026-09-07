@@ -158,7 +158,7 @@ test("dashboard server rejects invalid and rebinding host headers with 403", () 
     assert.equal(res.headers["x-content-type-options"], "nosniff");
     assert.equal(res.headers["x-frame-options"], "DENY");
     assert.equal(res.headers["referrer-policy"], "no-referrer");
-    assert.equal(res.headers["content-security-policy"], "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'");
+    assert.equal(res.headers["content-security-policy"], "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'");
   }
 });
 
@@ -345,7 +345,7 @@ test("dashboard server includes security headers in static and api responses", (
     assert.equal(res.headers["referrer-policy"], "no-referrer", `${key} Referrer-Policy`);
     assert.equal(
       res.headers["content-security-policy"],
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
       `${key} Content-Security-Policy`
     );
   }

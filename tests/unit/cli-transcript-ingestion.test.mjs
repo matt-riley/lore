@@ -11,6 +11,10 @@ function fakeDb() {
     getIngestionCheckpoint() { return checkpoint; },
     withSemanticMemoryTransaction(callback) { return callback(); },
     saveIngestionCheckpoint(_client, _sessionId, state) {
+      if (this.bumpBeforeSave) {
+        this.bumpBeforeSave = false;
+        this.bumpCheckpoint();
+      }
       const expected = state.expectedCheckpointRevision ?? 0;
       if (expected !== (checkpoint?.checkpointRevision ?? 0)) {
         const error = new Error("stale");
@@ -24,6 +28,9 @@ function fakeDb() {
         health: state.health,
       };
       return checkpoint;
+    },
+    bumpCheckpoint() {
+      checkpoint = { ...checkpoint, checkpointRevision: (checkpoint?.checkpointRevision ?? 0) + 1 };
     },
   };
 }
@@ -114,6 +121,24 @@ test("Claude branch replacement reports abandoned source records", async () => {
     await ingestCliTranscript({ db, client: "claude", sessionId: "claude:branch", transcriptPath: file, cwd: home, repository: "fixture/repo", capture: (a) => captures.push(a) });
     assert.deepEqual(captures.at(-1).retiredSourceRecordIds.length > 0, true);
     assert.equal(captures.at(-1).turns.at(-1).assistant_response, "new answer");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("stale checkpoint writers do not invoke capture", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "lore-ingestion-stale-"));
+  try {
+    const file = path.join(home, "transcript.jsonl");
+    await writeFile(file, `${JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: "one" } })}\n`);
+    const db = fakeDb();
+    await ingestCliTranscript({ db, client: "codex", sessionId: "codex:stale", transcriptPath: file, cwd: home, repository: "fixture/repo" });
+    await writeFile(file, await readFile(file, "utf8") + `${JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: "two" } })}\n`);
+    db.bumpBeforeSave = true;
+    let captured = false;
+    const result = await ingestCliTranscript({ db, client: "codex", sessionId: "codex:stale", transcriptPath: file, cwd: home, repository: "fixture/repo", capture: () => { captured = true; } });
+    assert.equal(result.status, "stale");
+    assert.equal(captured, false);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

@@ -200,10 +200,11 @@ async function recallWithFallback(
   query: string,
   repository: string | null,
   limit = 6,
-  opts: { semantic?: boolean; expansion?: boolean } = {},
+  opts: { semantic?: boolean; expansion?: boolean; typedFallback?: boolean } = {},
 ): Promise<string> {
   const terms = contentTerms(query);
   const deterministicQuery = terms.length > 0 ? terms.join(" ") : null;
+  let retrievalQuery = deterministicQuery;
 
   const runRecall = (retrievalQuery: string | null) =>
     request<{ text: string; includedRows: number; memoryCount: number }>("recall", {
@@ -235,6 +236,7 @@ async function recallWithFallback(
           4000,
         );
         if (expanded?.used && expanded.query && expanded.query !== deterministicQuery) {
+          retrievalQuery = expanded.query;
           recall = await runRecall(expanded.query);
           text = recall.text.trim();
         }
@@ -244,11 +246,35 @@ async function recallWithFallback(
     }
   }
 
+  // Explicit Pi searches retain the typed fallback contract used by the
+  // native memory_search tool. This keeps a lexical miss useful even when
+  // semantic search is unavailable or has no matching vector.
+  if (opts.typedFallback && recall.includedRows === 0) {
+    try {
+      const rows = await request<Array<{ type: string; content: string }>>("search", {
+        query: retrievalQuery || query,
+        repository,
+        types: ["user_preference", "commitment", "recurring_mistake", "rejected_approach", "blocker", "open_loop", "decision"],
+        includeTypedFallback: true,
+        limit,
+      });
+      if (rows.length > 0) {
+        text += ["", "## Related memories", ...rows.map((row) => `- [${row.type}] ${row.content}`)].join("\n");
+      }
+    } catch {
+      // Explicit recall remains fail-open when the typed fallback is unavailable.
+    }
+  }
+
   return text.trim();
 }
 
 async function explicitSearch(rt: LoreRuntime, query: string, repository: string | null, limit = 6): Promise<string> {
-  return await recallWithFallback(rt, query, repository, limit, { semantic: true, expansion: true }) || "(no memories found)";
+  return await recallWithFallback(rt, query, repository, limit, {
+    semantic: true,
+    expansion: true,
+    typedFallback: true,
+  }) || "(no memories found)";
 }
 
 export default function (pi: ExtensionAPI) {

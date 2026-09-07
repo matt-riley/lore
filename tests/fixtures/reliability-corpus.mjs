@@ -5,6 +5,13 @@ import path from "node:path";
 import { readPiSessionFile } from "../../pi-session-reader.mjs";
 
 const CLIENTS = Object.freeze(["copilot", "pi", "codex", "claude", "antigravity"]);
+const CLIENT_CONTEXT = Object.freeze({
+  copilot: "The extension checkpoint was reopened from its SQLite turn rows.",
+  pi: "The archive replay came from Pi's append-only JSONL messages after compaction.",
+  codex: "The evidence arrived as a Codex response item on the completed turn.",
+  claude: "The active Claude parent branch carried this message after an abandoned branch.",
+  antigravity: "The completed Antigravity planner step carried this evidence into the transcript.",
+});
 
 const CASES = Object.freeze([
   {
@@ -301,7 +308,7 @@ function materializeTurns(blueprint, client) {
     }))
     : [];
   const turns = [
-    { user_message: blueprint.user, assistant_response: blueprint.assistant },
+    { user_message: `${blueprint.user} ${CLIENT_CONTEXT[client]}`, assistant_response: `${blueprint.assistant} ${CLIENT_CONTEXT[client]}` },
     ...tail,
   ];
   if (blueprint.correction) turns.splice(1, 0, { user_message: blueprint.correction.user, assistant_response: blueprint.correction.assistant });

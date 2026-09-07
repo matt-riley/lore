@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import {
   QUALITY_GATES,
   evaluateCandidateMemories,
+  evaluateForeignRows,
   matchesProposition,
   runQualityEvaluation,
 } from "../../scripts/reliability-quality.mjs";
@@ -32,9 +33,10 @@ describe("independent reliability quality corpus", () => {
     for (const client of RELIABILITY_CLIENTS) {
       const scenario = RELIABILITY_CORPUS.find((item) => item.client === client && item.id === "repo-preference");
       assert.ok(scenario.transcript.turns.length > 0);
-      assert.equal(scenario.transcript.turns[0].user_message, scenario.user);
+      assert.match(scenario.transcript.turns[0].user_message, new RegExp(scenario.user.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")));
     }
     assert.equal(RELIABILITY_CORPUS.find((item) => item.client === "pi" && item.id === "repo-preference").transcript.files.length, 1);
+    assert.ok(new Set(RELIABILITY_CORPUS.map((scenario) => `${scenario.transcript.turns[0]?.user_message}\n${scenario.transcript.turns[0]?.assistant_response}`)).size >= 120);
   });
 
   test("matches propositions by type, scope, and anchor evidence rather than a keyword", () => {
@@ -67,6 +69,14 @@ describe("independent reliability quality corpus", () => {
     assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "A policy was recorded.", history: "We prefer bounded queues and keep the identifier." }, proposition), false);
   });
 
+  test("detects a foreign global row even when its repository is null", () => {
+    const foreignRows = evaluateForeignRows({
+      rows: [{ id: "foreign", type: "user_preference", scope: "global", repository: null, content: "For beta prefer local wall-clock timestamps in display reports." }],
+      foreignEvidence: [{ type: "user_preference", anchors: ["beta", "prefer", "local", "wall-clock", "timestamps", "display", "reports"] }],
+    });
+    assert.equal(foreignRows.length, 1);
+  });
+
   test("contains distinct positive and negative intent expectations", () => {
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.expected.length > 0));
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.expected.length === 0));
@@ -93,6 +103,8 @@ describe("independent reliability quality corpus", () => {
     assert.deepEqual(result.warm.inputCounts, [1]);
     assert.equal(result.warm.queryEmbeddings, 1);
     assert.equal(result.partialCoverage.complete, true);
+    assert.equal(result.deadlineProbe.failedAsExpected, true);
+    assert.equal(result.partialProbe.partial, true);
   });
 
   test("native benchmark runs through an isolated synthetic home", async () => {
@@ -105,6 +117,18 @@ describe("independent reliability quality corpus", () => {
     assert.equal(result.performance[0].diskCold, false);
     assert.ok(Number.isFinite(result.performance[0].startupP95Ms));
     assert.ok(Number.isFinite(result.performance[0].promptP95Ms));
+    assert.equal(result.performance[0].capture.nativeHook, "passed");
+    assert.equal(result.performance[0].capture.persistedExpected, true);
+    assert.ok(result.performance[0].capture.coldPersistedRows > 0);
+    assert.equal(result.performance[0].capture.captureDeltaTurns, result.performance[0].capture.refreshPersistedTurns - result.performance[0].capture.coldPersistedTurns);
+  });
+
+  test("suppressed propositions do not reduce the positive retention denominator", async () => {
+    const scenario = RELIABILITY_CORPUS.find((item) => item.client === "copilot" && item.id === "suppression");
+    const result = await runQualityEvaluation({ scenarios: [scenario] });
+    assert.equal(result.metrics.retentionRecall, 1);
+    assert.equal(result.metrics.scenarioCount, 1);
+    assert.ok(result.metrics.criticalFailures.includes("copilot:suppression"));
   });
 
   test("full production pipeline meets the frozen quality gates", async () => {

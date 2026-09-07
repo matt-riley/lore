@@ -503,16 +503,16 @@ oversized-record skips through categorical health. Its JSON stdin is
 `{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}`:
 
 ```sh
-printf '%s\n' '{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}' | node lore-cli.mjs capture --resume --client codex --session '<native-session-id>'
+printf '%s\n' '{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}' | node /absolute/path/to/lore/lore-cli.mjs capture --resume --client codex --session '<native-session-id>'
 ```
 
 Direct administration commands default to a read-only preview and accept JSON
 on stdin:
 
 ```sh
-printf '%s\n' '{"memoryId":"<id>","content":"<replacement>","reason":"<why>"}' | node lore-cli.mjs tool memory_correct
-printf '%s\n' '{"memoryIds":["<id>"]}' | node lore-cli.mjs tool memory_repair
-printf '%s\n' '{"memoryIds":["<id>"]}' | node lore-cli.mjs tool memory_purge
+printf '%s\n' '{"memoryId":"<id>","content":"<replacement>","reason":"<why>"}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_correct
+printf '%s\n' '{"memoryIds":["<id>"]}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_repair
+printf '%s\n' '{"memoryIds":["<id>"]}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_purge
 ```
 
 Review the preview's `planFingerprint`, affected derived records, retained
@@ -528,13 +528,13 @@ remain unresolved.
 For example, a reviewed correction apply is:
 
 ```sh
-printf '%s\n' '{"action":"apply","memoryId":"<id>","content":"<replacement>","reason":"<why>","planFingerprint":"<preview-fingerprint>"}' | node lore-cli.mjs tool memory_correct
+printf '%s\n' '{"action":"apply","memoryId":"<id>","content":"<replacement>","reason":"<why>","planFingerprint":"<preview-fingerprint>"}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_correct
 ```
 
 Repair mappings and candidates must be selected explicitly:
 
 ```sh
-printf '%s\n' '{"action":"apply","repositoryMappings":[{"legacy":"<legacy>","canonical":"<canonical>"}],"selectedCandidateIds":["mapping:<legacy>-><canonical>"],"planFingerprint":"<preview-fingerprint>"}' | node lore-cli.mjs tool memory_repair
+printf '%s\n' '{"action":"apply","repositoryMappings":[{"legacy":"<legacy>","canonical":"<canonical>"}],"selectedCandidateIds":["mapping:<legacy>-><canonical>"],"planFingerprint":"<preview-fingerprint>"}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_repair
 ```
 
 Purge aggregate candidates use typed IDs such as
@@ -543,7 +543,7 @@ residual aggregates, run a new preview with `includeDependentAggregates: true`,
 then use that new fingerprint and select every residual aggregate ID it reports:
 
 ```sh
-printf '%s\n' '{"action":"apply","memoryIds":["<id>"],"includeDependentAggregates":true,"selectedCandidateIds":["aggregate:<table>:<json-primary-key>"],"planFingerprint":"<preview-fingerprint>"}' | node lore-cli.mjs tool memory_purge
+printf '%s\n' '{"action":"apply","memoryIds":["<id>"],"includeDependentAggregates":true,"selectedCandidateIds":["aggregate:<table>:<json-primary-key>"],"planFingerprint":"<preview-fingerprint>"}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_purge
 ```
 
 Purge removes selected derived records and keeps raw sources, snapshots, and

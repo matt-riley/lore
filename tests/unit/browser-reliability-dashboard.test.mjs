@@ -214,7 +214,7 @@ describe("reliability dashboard renderers", () => {
     db.ensureMemoryEmbeddingTable();
     db.db.prepare(`INSERT OR REPLACE INTO memory_embedding (memory_id, content_hash, provider, model, dimensions, vector, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(activeId, embeddingContentHash("Use the active fixture memory."), "http://127.0.0.1:12434/v1", "fixture-model", 2, "[1,0]", "2026-09-07T08:00:00.000Z");
-    db.writeRetrievalTraceSample({
+    db.insertRetrievalTraceSample({
       id: "trace-coverage",
       repository: "owner/repo",
       scopeType: "repo",
@@ -225,12 +225,12 @@ describe("reliability dashboard renderers", () => {
       latencyMs: 1,
       promptPreview: "fixture",
       sectionTitles: [],
-      promptNeed: JSON.stringify({}),
-      eligibility: JSON.stringify({}),
-      lookups: JSON.stringify({}),
-      omissions: JSON.stringify([]),
-      output: JSON.stringify({}),
-      trace: JSON.stringify({ fallback: true, partialCoverage: true, deadline: true }),
+      promptNeed: {},
+      eligibility: {},
+      lookups: {},
+      omissions: [],
+      output: {},
+      trace: { fallback: true, partialCoverage: true, deadline: true },
       recordedAt: "2026-09-07T08:00:00.000Z",
     });
     const { server } = startLoreBrowserServer({ db, host: "127.0.0.1", port: 0, repository: "owner/repo" });

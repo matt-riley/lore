@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ingestCliTranscript } from "../../lib/clients/cli-transcript-ingestion.mjs";
@@ -61,3 +61,60 @@ test("ingestion resumes bounded records and persists only normalized conversatio
   }
 });
 
+test("large excluded prefixes stay bounded and unchanged turns keep their revision", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "lore-ingestion-large-"));
+  try {
+    const file = path.join(home, "transcript.jsonl");
+    const excluded = `${JSON.stringify({ type: "response_item", payload: { type: "reasoning", summary: "x".repeat(1024) } })}\n`;
+    await writeFile(file, excluded.repeat(33_000) + [
+      { type: "response_item", payload: { type: "message", role: "user", content: "first" } },
+      { type: "response_item", payload: { type: "message", role: "assistant", content: "done" } },
+    ].map(JSON.stringify).join("\n") + "\n");
+    const db = fakeDb();
+    const captures = [];
+    let result;
+    do {
+      result = await ingestCliTranscript({
+        db, client: "codex", sessionId: "codex:large", transcriptPath: file, cwd: home,
+        repository: "fixture/repo", capture: (artifacts) => captures.push(artifacts),
+      });
+      assert.equal(result.checkpoint.offset <= result.checkpoint.adapterState.readerCheckpoint.sourceSize, true);
+    } while (result.pending);
+    const firstRevision = captures.at(-1).turns[0].source_revision;
+    await writeFile(file, await readFile(file, "utf8")
+      + `${JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: "second" } })}\n`);
+    const next = await ingestCliTranscript({
+      db, client: "codex", sessionId: "codex:large", transcriptPath: file, cwd: home,
+      repository: "fixture/repo", capture: (artifacts) => captures.push(artifacts),
+    });
+    assert.equal(next.pending, false);
+    assert.equal(captures.at(-1).turns[0].source_revision, firstRevision);
+    assert.equal(captures.at(-1).turns.at(-1).user_message, "second");
+    assert.equal(db.getIngestionCheckpoint("codex", "codex:large").adapterState.processedRecordIds.length <= 4_096, true);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("Claude branch replacement reports abandoned source records", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "lore-ingestion-branch-"));
+  try {
+    const file = path.join(home, "transcript.jsonl");
+    await writeFile(file, [
+      { uuid: "u", parentUuid: null, type: "user", message: { role: "user", content: "question" } },
+      { uuid: "a", parentUuid: "u", type: "assistant", message: { role: "assistant", content: "old answer" } },
+    ].map(JSON.stringify).join("\n") + "\n");
+    const db = fakeDb();
+    const captures = [];
+    await ingestCliTranscript({ db, client: "claude", sessionId: "claude:branch", transcriptPath: file, cwd: home, repository: "fixture/repo", capture: (a) => captures.push(a) });
+    await writeFile(file, [
+      { uuid: "u", parentUuid: null, type: "user", message: { role: "user", content: "question" } },
+      { uuid: "b", parentUuid: "u", type: "assistant", message: { role: "assistant", content: "new answer" } },
+    ].map(JSON.stringify).join("\n") + "\n");
+    await ingestCliTranscript({ db, client: "claude", sessionId: "claude:branch", transcriptPath: file, cwd: home, repository: "fixture/repo", capture: (a) => captures.push(a) });
+    assert.deepEqual(captures.at(-1).retiredSourceRecordIds.length > 0, true);
+    assert.equal(captures.at(-1).turns.at(-1).assistant_response, "new answer");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

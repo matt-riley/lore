@@ -30,6 +30,7 @@ import { LoreDb } from "./lib/db/db.mjs";
 import { seedOnboardingMemories } from "./lib/memory/onboarding.mjs";
 import { recallMemory, retainMemory } from "./lib/memory/memory-operations.mjs";
 import { applySessionExtraction } from "./lib/sessions/backfill.mjs";
+import { extractSessionMemories } from "./lib/sessions/rule-extractor.mjs";
 import { buildErrorTelemetryRecord, buildPostToolUseObservation } from "./lib/lifecycle/passive-hooks.mjs";
 import {
   readErrorTelemetryEnabled,
@@ -143,12 +144,29 @@ async function extractPiSession(filePath, repository) {
     capture: (artifacts) => {
       if (!artifacts.turns.length) return;
       const workspace = { workspace: { repository: parsed.repository, branch: null, updated_at: artifacts.session.updated_at } };
-      const extraction = applySessionExtraction({
+      const extraction = extractSessionMemories({
+        sessionId: parsed.sessionId,
+        repository: parsed.repository,
+        sessionArtifacts: artifacts,
+        workspace,
+        config: db.config,
+      });
+      const retiredIds = Array.isArray(artifacts.retiredSourceRecordIds) ? artifacts.retiredSourceRecordIds : [];
+      if (retiredIds.length > 0) {
+        const placeholders = retiredIds.map(() => "?").join(", ");
+        const oldEvidence = db.db.prepare(`
+          SELECT evidence_key FROM session_evidence
+          WHERE session_id = ? AND source_record_id IN (${placeholders})
+        `).all(parsed.sessionId, ...retiredIds).map((row) => row.evidence_key);
+        extraction.retiredEvidenceKeys = [...new Set([...(extraction.retiredEvidenceKeys ?? []), ...oldEvidence])];
+      }
+      applySessionExtraction({
         db,
         sessionId: parsed.sessionId,
         repository: parsed.repository,
         sessionArtifacts: artifacts,
         workspace,
+        extraction,
       });
       extractionResult = { extracted: true, episodeId: extraction.episodeDigest.id, memoryCount: extraction.semanticMemories.length };
     },

@@ -233,6 +233,17 @@ describe("reliability dashboard renderers", () => {
       trace: { fallback: true, partialCoverage: true, deadline: true },
       recordedAt: "2026-09-07T08:00:00.000Z",
     });
+    db.insertRetrievalTraceSample({
+      id: "trace-prompt-lookalike",
+      repository: "owner/repo",
+      scopeType: "repo",
+      hook: "test",
+      route: "lexical",
+      routeReason: "primary",
+      promptPreview: 'The prompt contains "fallback": true, "partialCoverage": true, and "deadline": true.',
+      trace: {},
+      recordedAt: "2026-09-07T08:01:00.000Z",
+    });
     const { server } = startLoreBrowserServer({ db, host: "127.0.0.1", port: 0, repository: "owner/repo" });
     await new Promise((resolve) => server.once("listening", resolve));
     try {

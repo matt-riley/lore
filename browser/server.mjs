@@ -4,6 +4,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { buildMaintenancePlan } from "../lib/maintenance/maintenance-scheduler.mjs"
+import { embeddingProviderIdentity, validatedCachedEmbeddingVector } from "../lib/memory/semantic-search.mjs"
 import { clampInteger } from "../lib/utils/numeric-utils.mjs"
 import { parseJsonArray } from "../lib/utils/json-array-utils.mjs"
 import { parseJsonObject } from "../lib/utils/json-object-utils.mjs"
@@ -301,17 +302,30 @@ function mapCaptureHealthRow(row) {
   const adapterState = row?.adapterState && typeof row.adapterState === "object" ? row.adapterState : {}
   const sourcePath = typeof adapterState.sourcePath === "string" ? adapterState.sourcePath : null
   const sourceCwd = typeof adapterState.sourceCwd === "string" ? adapterState.sourceCwd : null
+  const pendingBytesValue = Number(row?.health?.pendingBytes)
+  const pendingBytes = Number.isFinite(pendingBytesValue) && pendingBytesValue >= 0 ? pendingBytesValue : 0
+  const pendingWork = {
+    branch: Boolean(adapterState.branchWork),
+    cleanup: Boolean(adapterState.cleanupCursor),
+  }
+  const hasPendingWork = pendingBytes > 0 || pendingWork.branch || pendingWork.cleanup
+  const failureCode = row?.health?.failureCode ?? null
   return {
     client: row?.client ?? null,
     sessionId: row?.sessionId ?? null,
     repository: row?.repository ?? null,
-    offset: Number.isFinite(row?.offset) ? row.offset : 0,
-    pendingBytes: Number.isFinite(row?.health?.pendingBytes) ? row.health.pendingBytes : 0,
-    failureCode: row?.health?.failureCode ?? null,
+    originLabel: row?.repository || "unknown origin",
+    offset: Number.isFinite(Number(row?.offset)) ? Number(row.offset) : 0,
+    pendingBytes,
+    pendingWork,
+    hasPendingWork,
+    status: failureCode ? "failed" : hasPendingWork ? "pending" : "healthy",
+    failureCode,
     lastSuccessAt: row?.health?.lastSuccessAt ?? null,
     updatedAt: row?.updatedAt ?? null,
     sourcePath,
     sourceCwd,
+    resumeEligible: Boolean(sourcePath && sourceCwd),
     resumeCommand: buildResumeCommand({
       client: row?.client,
       sessionId: row?.sessionId,
@@ -333,13 +347,13 @@ function getTraceFallbackDiagnostics(traces) {
   for (const trace of traces) {
     const source = trace && typeof trace === "object" ? trace : {}
     const text = JSON.stringify(source)
-    if (/"fallback"\\s*:\\s*true/i.test(text)) {
+    if (/"fallback"\s*:\s*true/i.test(text)) {
       diagnostics.push({ reason: "deterministic_fallback", at: source.createdAt ?? source.created_at ?? null })
     }
-    if (/"partialCoverage"\\s*:\\s*true/i.test(text)) {
+    if (/"partialCoverage"\s*:\s*true/i.test(text)) {
       diagnostics.push({ reason: "partial_embedding_coverage", at: source.createdAt ?? source.created_at ?? null })
     }
-    if (/"deadline"\\s*:\\s*true/i.test(text)) {
+    if (/"deadline"\s*:\s*true/i.test(text)) {
       diagnostics.push({ reason: "embedding_deadline", at: source.createdAt ?? source.created_at ?? null })
     }
   }
@@ -349,42 +363,48 @@ function getTraceFallbackDiagnostics(traces) {
 }
 
 function queryIndexingCoverage({ db, repository, traces }) {
-  const embeddingsEnabled = db?.config?.embeddings?.enabled === true
-    || db?.config?.localInference?.embeddings?.enabled === true
-  if (!db?.db?.prepare) {
+  const inference = db?.config?.localInference ?? db?.config ?? {}
+  const embeddingConfig = inference?.embeddings ?? {}
+  const embeddingsEnabled = inference?.enabled === true && embeddingConfig.enabled === true
+  if (typeof db?.countSemanticMemoriesForEmbedding !== "function"
+    || typeof db?.listSemanticMemoriesForEmbedding !== "function") {
     return {
       enabled: embeddingsEnabled,
       totalActive: 0,
       indexed: 0,
       pending: 0,
       coveragePercent: 0,
+      sampleSize: 0,
+      indexedSample: 0,
+      coverageBasis: "bounded eligible sample",
       fallbackDiagnostics: getTraceFallbackDiagnostics(traces),
     }
   }
-  const active = db.db.prepare(`
-    SELECT COUNT(*) AS count
-    FROM semantic_memory
-    WHERE superseded_by IS NULL
-      AND (? IS NULL OR repository = ? OR (scope = 'global' AND repository IS NULL))
-  `).get(repository, repository)?.count ?? 0
-  const indexed = tableExists(db.db, "memory_embedding")
-    ? db.db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM semantic_memory sm
-      JOIN memory_embedding me ON me.memory_id = sm.id
-      WHERE sm.superseded_by IS NULL
-        AND (? IS NULL OR sm.repository = ? OR (sm.scope = 'global' AND sm.repository IS NULL))
-        AND me.vector IS NOT NULL AND me.vector != ''
-    `).get(repository, repository)?.count ?? 0
-    : 0
-  const totalActive = Number(active) || 0
-  const indexedCount = Math.min(totalActive, Number(indexed) || 0)
+  const totalActive = db.countSemanticMemoriesForEmbedding({ repository })
+  const candidates = db.listSemanticMemoriesForEmbedding({ repository, limit: 256, offset: 0 })
+  const provider = embeddingProviderIdentity(inference)
+  const model = typeof embeddingConfig.model === "string" ? embeddingConfig.model.trim() : ""
+  const configuredDimensions = Number.isInteger(Number(embeddingConfig.dimensions)) && Number(embeddingConfig.dimensions) > 0
+    ? Number(embeddingConfig.dimensions)
+    : null
+  const indexedSample = candidates.filter((row) => validatedCachedEmbeddingVector(row, {
+    content: row.content,
+    provider,
+    model,
+    dimensions: configuredDimensions ?? Number(row.dimensions),
+  }) !== null).length
+  const sampleSize = candidates.length
+  const coveragePercent = sampleSize > 0 ? Math.round((indexedSample / sampleSize) * 100) : totalActive > 0 ? 0 : 100
   return {
     enabled: embeddingsEnabled,
     totalActive,
-    indexed: indexedCount,
-    pending: Math.max(0, totalActive - indexedCount),
-    coveragePercent: totalActive > 0 ? Math.round((indexedCount / totalActive) * 100) : 100,
+    indexed: indexedSample,
+    pending: sampleSize < totalActive ? null : Math.max(0, totalActive - indexedSample),
+    sampleSize,
+    indexedSample,
+    coveragePercent,
+    coverageBasis: "bounded eligible sample",
+    dimensionsBasis: configuredDimensions === null ? "stored vector dimensions" : "configured dimensions",
     fallbackDiagnostics: getTraceFallbackDiagnostics(traces),
   }
 }
@@ -438,20 +458,45 @@ function buildMemoryLifecycle({ db, memory }) {
       : new Date(expiresAt).getTime() <= Date.now() ? "expired" : "active"
   const timeline = [
     memory.createdAt ? { at: memory.createdAt, kind: "created", label: "Memory created" } : null,
-    ...mappedEvidence.map((item) => item.capturedAt ? {
-      at: item.capturedAt,
-      kind: item.retiredAt ? "evidence_retired" : "evidence",
-      label: item.retiredAt ? "Evidence retired" : "Evidence captured",
-      sourceRole: item.sourceRole,
-      sourceRecordId: item.sourceRecordId,
-    } : null),
-    ...suppressions.map((item) => ({
-      at: item.createdAt,
-      kind: item.supersededAt ? "suppression_superseded" : "suppression",
-      label: item.supersededAt ? "Suppression superseded" : "Suppression recorded",
-      actor: item.actor,
-      reason: item.reason,
-    })),
+    ...mappedEvidence.flatMap((item) => [
+      item.capturedAt ? {
+        at: item.capturedAt,
+        kind: "evidence",
+        label: "Evidence captured",
+        sourceRole: item.sourceRole,
+        sourceRecordId: item.sourceRecordId,
+      } : null,
+      item.retiredAt ? {
+        at: item.retiredAt,
+        kind: "evidence_retired",
+        label: "Evidence retired",
+        sourceRole: item.sourceRole,
+        sourceRecordId: item.sourceRecordId,
+      } : null,
+      item.linkRetiredAt ? {
+        at: item.linkRetiredAt,
+        kind: "evidence_link_retired",
+        label: "Evidence link retired",
+        sourceRole: item.sourceRole,
+        sourceRecordId: item.sourceRecordId,
+      } : null,
+    ]),
+    ...suppressions.flatMap((item) => [
+      item.createdAt ? {
+        at: item.createdAt,
+        kind: "suppression",
+        label: "Suppression recorded",
+        actor: item.actor,
+        reason: item.reason,
+      } : null,
+      item.supersededAt ? {
+        at: item.supersededAt,
+        kind: "suppression_superseded",
+        label: "Suppression superseded",
+        actor: item.actor,
+        reason: item.reason,
+      } : null,
+    ]),
     correction ? {
       at: memory.updatedAt ?? memory.createdAt,
       kind: "correction",

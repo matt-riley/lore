@@ -91,8 +91,24 @@ printf '%s\n' '{"memoryIds":["<id>"]}' | node /absolute/path/to/lore/lore-cli.mj
 ```
 
 The browser dashboard only generates these preview commands for copying. It
-does not execute them and has no write endpoint. Purge retains raw sources,
-backups, snapshots, and non-plaintext suppression, so it is not secure erasure.
+does not execute them and has no write endpoint. Apply requires the same
+selector and payload, the preview `planFingerprint`, and explicit actionable
+candidate IDs. Repair candidates are limited to source re-extraction and
+repository mappings. Source-backed repair scans at most 32 MiB and 10,000
+turns; unavailable or oversized legacy sources remain unresolved. Purge
+aggregate candidates use typed IDs such as
+`aggregate:episode_digest:<json-primary-key>`. If the initial preview reports
+residual aggregates, run a new preview with `includeDependentAggregates: true`,
+then use that new fingerprint and select every residual aggregate it reports. A correction can set `repository` for the replacement
+destination, or explicitly use `scope: "global", repository: null` for a global
+replacement. Purge retains raw sources, backups, snapshots, and non-plaintext
+suppression, so it is not secure erasure.
+
+The native capture resume command is separate from administration previews. The
+dashboard only copies it; running it performs capture and may write evidence.
+Each pass reads at most 4 MiB with a 250 ms cooperative read budget, retains at most a 1 MiB incomplete
+record, and reports skipped oversized records through categorical health. Its
+stdin is `{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}`.
 
 ## Native CLI commands
 

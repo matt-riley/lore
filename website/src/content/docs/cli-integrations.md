@@ -102,6 +102,16 @@ Then start a fresh client session in that project and ask about the verification
 
 Explicit operations are **shell-invoked commands**, not registered model tools. Injected context explains how the agent can invoke them through its normal shell permissions. Available names are `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, `memory_status`, `memory_correct`, `memory_repair`, and `memory_purge`. Commands accept JSON on stdin and return a nonzero exit status on failure. See [Tools](/guides/tools/#native-cli-commands).
 
+The bounded native capture resume command is separate from these administration
+previews. The dashboard only copies it; running it performs capture and may
+write evidence. Each pass reads at most 4 MiB with a 250 ms cooperative read budget, retains at most a 1
+MiB incomplete record, and reports skipped oversized records through
+categorical health:
+
+```sh
+printf '%s\n' '{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}' | node /absolute/path/to/lore/lore-cli.mjs capture --resume --client codex --session '<native-session-id>'
+```
+
 ## What happens during a session
 
 | Purpose | Codex CLI | Claude Code | Antigravity CLI |
@@ -125,7 +135,12 @@ For direct commands run outside your project, pass an explicit `repository` argu
 
 Only the supplied active-session transcript is read; these adapters do not scan archives or import unrelated sessions. Thinking, reasoning, tool output, injected Lore context, and Antigravity prompt metadata are excluded from extraction. Hosts that disable transcript persistence cannot provide automatic capture.
 
-Hook input is limited to 1 MiB and transcript snapshots to 32 MiB. Malformed or oversized input is not imported; an unfinished final JSONL record is deferred. Hooks have a 10-second timeout, except Codex `SessionEnd` at 3 seconds; `Stop` is its normal capture point.
+Hook input is limited to 1 MiB and hook-provided transcript snapshots to 32
+MiB. Malformed or oversized hook input is not imported; the separate native
+`capture --resume` command handles larger transcripts incrementally within its
+per-pass bounds. An unfinished final JSONL record is deferred. Hooks have a
+10-second timeout, except Codex `SessionEnd` at 3 seconds; `Stop` is its normal
+capture point.
 
 Memory storage stays local, but context injected into a conversation goes to the host's configured model. See [Privacy](/guides/privacy/) before using sensitive material.
 

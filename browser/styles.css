@@ -253,6 +253,16 @@ main {
   gap: 1rem;
 }
 
+.drilldown-shell > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.drilldown-header p,
+.drilldown-header .small {
+  overflow-wrap: anywhere;
+}
+
 .drilldown-header h2 {
   margin: 0;
 }
@@ -308,6 +318,14 @@ main {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
+.detail-grid > * {
+  min-width: 0;
+}
+
+.item-header-row > * {
+  min-width: 0;
+}
+
 .section-card h2 {
   margin: 0;
   font-size: 0.98rem;
@@ -322,6 +340,11 @@ main {
   margin-bottom: 0.15rem;
 }
 
+.relation-item {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .kv-list {
   display: grid;
   gap: 0.55rem;
@@ -332,6 +355,11 @@ main {
   gap: 0.2rem;
   border-bottom: 1px solid var(--border);
   padding-bottom: 0.45rem;
+}
+
+.kv-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .lifecycle-section h3 {
@@ -467,7 +495,11 @@ main {
 
 .graph-lines {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: auto;
+  bottom: auto;
+  max-width: 100%;
   pointer-events: none;
 }
 
@@ -538,6 +570,19 @@ main {
 
   .health-section .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-head {
+    flex-wrap: wrap;
+  }
+
+  .lifecycle-section .tag {
+    white-space: normal;
+    text-align: right;
   }
 
   .table {

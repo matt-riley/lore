@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { withFixtureDb } from "../helpers/fixture-db.mjs";
+import { expandPromptSearchTerms, extractMeaningfulPromptTerms, scorePromptFallbackRows } from "../../lib/context/prompt-search-query.mjs";
 
 test("prompt recall drops conversational scaffolding while preserving scope and exclusions", async () => {
   const f = await withFixtureDb();
@@ -123,4 +124,28 @@ test("prompt fallback augments a partial strict match with other scored proposit
     });
     assert.deepEqual(new Set(result.memories.map((row) => row.id)), new Set([first, second]));
   } finally { f.cleanup(); }
+});
+
+test("prompt terms retain meaningful uppercase acronyms", () => {
+  const terms = extractMeaningfulPromptTerms("How does the CSV importer handle TLS encoding errors?");
+  assert.ok(terms.includes("csv"));
+  assert.ok(terms.includes("tls"));
+});
+
+test("prompt fallback splits compound terms like the FTS tokenizer", () => {
+  const terms = expandPromptSearchTerms(["rate-limit"], { maxTerms: 1, maxVariants: 8 });
+  assert.deepEqual(terms.slice(0, 3), ["rate-limit", "rate", "limit"]);
+  const rows = scorePromptFallbackRows([
+    { id: "rate-limit", content: "Key rate limits by account rather than IP." },
+  ], ["rate-limit"]);
+  assert.deepEqual(rows.map((row) => row.id), ["rate-limit"]);
+});
+
+test("prompt fallback recognizes safe paginate and pagination morphology", () => {
+  const terms = expandPromptSearchTerms(["pagination"], { maxTerms: 1, maxVariants: 8 });
+  assert.ok(terms.includes("paginate"));
+  const rows = scorePromptFallbackRows([
+    { id: "paginate", content: "The list endpoint should paginate with an opaque cursor." },
+  ], ["pagination"]);
+  assert.deepEqual(rows.map((row) => row.id), ["paginate"]);
 });

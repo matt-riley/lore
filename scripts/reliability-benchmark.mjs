@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LoreDb } from "../lib/db/db.mjs";
 import { buildFixtureConfig } from "../tests/helpers/fixture-config.mjs";
-import { semanticSearch } from "../lib/memory/semantic-search.mjs";
+import { semanticSearch, embeddingContentHash } from "../lib/memory/semantic-search.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(ROOT, "lore-cli.mjs");
@@ -121,7 +121,7 @@ function measureNativeCapture(home, env) {
     let checkpointError = null;
     if (checkpointSupport) {
       try {
-        checkpoint = db.getIngestionCheckpoint("codex", "benchmark-capture");
+        checkpoint = db.getIngestionCheckpoint("codex", "codex:benchmark-capture");
       } catch (error) {
         checkpointError = error.message;
       }
@@ -225,6 +225,7 @@ export async function measureMockEmbeddingPaths(size) {
     const cold = await semanticSearch({ db, query: "semantic probe cache", repository: "quality/native", types: ["semantic_probe"], limit: 6, fetchImpl, config, deadlineMs: 1_000 });
     const coldDurationMs = performance.now() - coldStarted;
     const coldRequests = requests.splice(0);
+    const coldCacheRows = db.db.prepare("SELECT COUNT(*) AS count FROM memory_embedding WHERE memory_id LIKE 'semantic-probe-%'").get().count;
     const warmStarted = performance.now();
     const warm = await semanticSearch({ db, query: "semantic probe cache", repository: "quality/native", types: ["semantic_probe"], limit: 6, fetchImpl, config, deadlineMs: 1_000 });
     const warmDurationMs = performance.now() - warmStarted;
@@ -261,18 +262,47 @@ export async function measureMockEmbeddingPaths(size) {
       deadlineMs: 1_000,
     });
     const partialCacheRows = db.db.prepare("SELECT COUNT(*) AS count FROM memory_embedding WHERE memory_id LIKE 'semantic-probe-%' AND vector <> '[]'").get().count;
+    // Measure traversal of the entire eligible corpus separately from the
+    // 24-candidate endpoint/cache behavior probe. Cache fixture preparation is
+    // outside the timed production search and never calls a real provider.
+    const exemplar = db.db.prepare("SELECT provider, model, dimensions FROM memory_embedding WHERE vector <> '[]' LIMIT 1").get();
+    const cache = db.db.prepare("INSERT OR REPLACE INTO memory_embedding (memory_id, content_hash, provider, model, dimensions, vector, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    db.db.exec("BEGIN");
+    for (const row of db.db.prepare("SELECT id, content FROM semantic_memory WHERE type = 'user_preference'").iterate()) {
+      cache.run(row.id, embeddingContentHash(row.content), exemplar.provider, exemplar.model, exemplar.dimensions,
+        JSON.stringify(mockVector(row.content)), "2026-09-07T12:00:00Z");
+    }
+    db.db.exec("COMMIT");
+    requests.splice(0);
+    const traversalStarted = performance.now();
+    const traversal = await semanticSearch({ db, query: "rollback evidence", repository: "quality/native",
+      types: ["user_preference"], limit: 6, fetchImpl, config, deadlineMs: 1_000 });
+    const corpusTraversal = {
+      eligibleCandidates: size,
+      durationMs: performance.now() - traversalStarted,
+      enabled: traversal.enabled,
+      resultCount: traversal.rows.length,
+      inputCounts: requests.splice(0),
+      diagnostics: traversal.diagnostics ?? null,
+      error: traversal.error ?? null,
+      deadlineMs: 1_000,
+    };
     return {
+      corpusTraversal,
       mockedEndpoint: true,
       productionPath: "semanticSearch + memory_embedding",
       diskCold: false,
       fixtureRows: size,
       candidateCount: 24,
-      cold: { enabled: cold.enabled, durationMs: coldDurationMs, endpointCalls: coldRequests.length, inputCounts: coldRequests, resultCount: cold.rows.length, cacheRowsAfter: Math.min(24, Number(cacheRows)) },
+      cold: { enabled: cold.enabled, durationMs: coldDurationMs, endpointCalls: coldRequests.length, inputCounts: coldRequests, resultCount: cold.rows.length, cacheRowsAfter: Number(coldCacheRows) },
       warm: { enabled: warm.enabled, durationMs: warmDurationMs, endpointCalls: warmRequests.length, inputCounts: warmRequests, queryEmbeddings: warmRequests[0] === 1 ? 1 : 0, resultCount: warm.rows.length, cacheRowsAfter: Number(cacheRows) },
       captureDeltaWork: null,
       partialCoverage: { indexedCandidates: Number(cacheRows), totalCandidates: 24, complete: Number(cacheRows) === 24 },
       deadlineMs: 1_000,
-      deadlineStatus: "mocked endpoint completed within deadline; no network claim",
+      deadlineStatus: cold.enabled && warm.enabled ? "mocked endpoint completed; no network claim" : "mocked endpoint/cache probe failed",
+      passed: cold.enabled && warm.enabled && cold.rows.length > 0 && warm.rows.length > 0
+        && delayed.enabled === false && /timed out|deadline|aborted/i.test(delayed.error ?? "")
+        && partial.enabled && Number(partialCacheRows) > 0 && Number(partialCacheRows) < 24,
       deadlineProbe: { enabled: delayed.enabled, failedAsExpected: delayed.enabled === false && /timed out|deadline|aborted/i.test(delayed.error ?? ""), error: delayed.error ?? null },
       partialProbe: { enabled: partial.enabled, indexedCandidates: Number(partialCacheRows), totalCandidates: 24, partial: Number(partialCacheRows) > 0 && Number(partialCacheRows) < 24 },
     };
@@ -284,7 +314,10 @@ export async function measureMockEmbeddingPaths(size) {
 
 export async function runReliabilityBenchmark({ sizes = DEFAULT_SIZES, warmups = 2, repeats = 8 } = {}) {
   const performanceResults = sizes.map((size) => measureNativeSize(size, { warmups, repeats }));
-  const embedding = Object.fromEntries(await Promise.all(sizes.map(async (size) => [String(size), await measureMockEmbeddingPaths(size)])));
+  // Fixture creation is synchronous: parallel setup would block another
+  // probe's event loop and contaminate its measured provider deadline.
+  const embedding = {};
+  for (const size of sizes) embedding[String(size)] = await measureMockEmbeddingPaths(size);
   return {
     generatedAt: new Date().toISOString(),
     environment: { node: process.version, platform: platform(), architecture: arch(), cpu: cpus()[0]?.model },
@@ -293,7 +326,7 @@ export async function runReliabilityBenchmark({ sizes = DEFAULT_SIZES, warmups =
     repeats,
     performance: performanceResults,
     embedding,
-    passed: performanceResults.every((item) => item.passed),
+    passed: performanceResults.every((item) => item.passed) && Object.values(embedding).every((item) => item.passed),
   };
 }
 

@@ -89,6 +89,14 @@ events map to shared behavior through the adapters above.
 | `memory_explain` | 🟢 Supported | Explains what context would be injected for a given prompt and why. |
 | `memory_validate` | 🟢 Supported | Validates DB integrity and schema parity. |
 
+### Memory administration
+
+| Tool | Status | Notes |
+|---|---|---|
+| `memory_correct` | 🟢 Supported | Defaults to a read-only preview. Applying requires the exact preview planFingerprint; creates a validated snapshot and retains suppression and source boundaries. |
+| `memory_repair` | 🟡 Experimental | Deterministic and bounded. Missing source and ambiguous provenance remain unresolved; applying requires the exact preview planFingerprint. |
+| `memory_purge` | 🟡 Experimental | Requires explicit memoryIds or repository selection. Applying requires the exact preview planFingerprint and creates a validated recovery snapshot; this is not secure erasure. |
+
 ### Skill management and diagnostics
 
 | Tool | Status | Notes |

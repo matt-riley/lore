@@ -448,14 +448,14 @@ export default function (pi: ExtensionAPI) {
         scope: params.scope,
         sourceSessionId: ctx.sessionManager.getSessionId() ?? null,
         tags: [type, "manual"],
-        metadata: { source: "pi" },
+        metadata: { source: "pi:command" },
       });
       if (result?.id) {
         memoryVersion++; // force ambient recall to refresh on the next prompt
       }
       const text = result?.id
         ? `Saved memory ${result.id} (${type})`
-        : "Save skipped: empty after sanitization.";
+        : "Save skipped: content was empty after sanitization.";
       return { content: [{ type: "text", text }], details: {} };
     },
   });

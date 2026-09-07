@@ -33,7 +33,8 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 Codex, Claude Code, and Antigravity use `lore-cli.mjs`, not MCP. Native hooks provide automatic recall
 and transcript capture. The direct shell commands are `lore_recall`,
 `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`,
-and `memory_status`. The canonical lists are `LORE_CLIENT_HOOKS` and
+`memory_status`, `memory_correct`, `memory_repair`, and `memory_purge`. The
+canonical lists are `LORE_CLIENT_HOOKS` and
 `LORE_CLI_TOOL_NAMES` in `lib/capabilities/capability-manifest.mjs`.
 See [installation, verification, and boundaries](cli-integrations.md).
 

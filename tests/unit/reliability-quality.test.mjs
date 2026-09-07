@@ -163,6 +163,11 @@ describe("independent reliability quality corpus", () => {
     assert.equal(result.partialCoverage.complete, true);
     assert.equal(result.deadlineProbe.failedAsExpected, true);
     assert.equal(result.partialProbe.partial, true);
+    assert.equal(result.cold.cacheRowsAfter, 24);
+    assert.equal(result.passed, true);
+    assert.equal(result.corpusTraversal.eligibleCandidates, 100);
+    assert.equal(result.corpusTraversal.enabled, true);
+    assert.deepEqual(result.corpusTraversal.inputCounts, [1], "full-corpus warm scoring embeds only the query");
   });
 
   test("native benchmark runs through an isolated synthetic home", async () => {

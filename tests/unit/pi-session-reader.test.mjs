@@ -56,3 +56,19 @@ test("bounded Pi header uses explicit environment identity and rejects relative 
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("archived Pi headers can ignore the active workspace environment identity", async () => {
+  const { readPiSessionHeader } = await import("../../pi-session-reader.mjs");
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-header-"));
+  const previous = process.env.LORE_REPOSITORY;
+  try {
+    const file = path.join(home, "t.jsonl");
+    writeFileSync(file, JSON.stringify({ type: "session", id: "archived", cwd: home }) + "\n");
+    process.env.LORE_REPOSITORY = "active/repository";
+    assert.equal((await readPiSessionHeader(file, { repository: "archived/repository", useEnvironmentRepository: false })).repository, "archived/repository");
+  } finally {
+    if (previous === undefined) delete process.env.LORE_REPOSITORY;
+    else process.env.LORE_REPOSITORY = previous;
+    rmSync(home, { recursive: true, force: true });
+  }
+});

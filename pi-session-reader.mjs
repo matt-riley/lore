@@ -43,7 +43,7 @@ function textOf(content) {
  *            sessionArtifacts: { session: object, checkpoints: object[],
  *            files: object[], refs: [], turns: object[] } }}
  */
-export function readPiSessionFile(filePath, { repository = null, legacy = null, mappings = [] } = {}) {
+export function readPiSessionFile(filePath, { repository = null, legacy = null, mappings = [], useEnvironmentRepository = true } = {}) {
   const raw = readFileSync(filePath, "utf8");
   const lines = raw.split("\n").filter((line) => line.trim().length > 0);
 
@@ -147,7 +147,8 @@ export function readPiSessionFile(filePath, { repository = null, legacy = null, 
 
   const cwd = header?.cwd ?? null;
   const sessionId = header?.id ?? null;
-  const effectiveRepository = resolveRepositoryIdentity({ cwd, explicit: process.env.LORE_REPOSITORY?.trim() || repository, legacy, mappings });
+  const explicitRepository = useEnvironmentRepository ? process.env.LORE_REPOSITORY?.trim() || repository : repository;
+  const effectiveRepository = resolveRepositoryIdentity({ cwd, explicit: explicitRepository, legacy, mappings });
   const createdAt = header?.timestamp ?? lastTimestamp ?? statSync(filePath).mtime.toISOString();
   const updatedAt = lastTimestamp ?? createdAt;
 
@@ -174,7 +175,7 @@ export function readPiSessionFile(filePath, { repository = null, legacy = null, 
 }
 
 /** Read only Pi's small session header for bounded/resumable capture. */
-export async function readPiSessionHeader(filePath, { repository = null, legacy = null, mappings = [] } = {}) {
+export async function readPiSessionHeader(filePath, { repository = null, legacy = null, mappings = [], useEnvironmentRepository = true } = {}) {
   const result = await readJsonlDelta(filePath, { maxBytes: 64 * 1024, maxRecordBytes: 64 * 1024, maxRecords: 1 });
   const header = result.records[0]?.value;
   if (header?.type !== "session" || typeof header.id !== "string" || !header.id.trim() || header.id.length > 256) {
@@ -184,7 +185,12 @@ export async function readPiSessionHeader(filePath, { repository = null, legacy 
   return {
     sessionId: header.id,
     cwd,
-    repository: resolveRepositoryIdentity({ cwd, explicit: process.env.LORE_REPOSITORY?.trim() || repository, legacy, mappings }),
+    repository: resolveRepositoryIdentity({
+      cwd,
+      explicit: useEnvironmentRepository ? process.env.LORE_REPOSITORY?.trim() || repository : repository,
+      legacy,
+      mappings,
+    }),
     createdAt: header.timestamp ?? null,
   };
 }

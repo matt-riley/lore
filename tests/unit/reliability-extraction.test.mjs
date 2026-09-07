@@ -569,6 +569,74 @@ describe("extraction evidence", () => {
     assert.equal(firstPreference.evidence.key, secondPreference.evidence.key);
   });
 
+  test("attributes each assistant decision to its own source record", () => {
+    const extraction = extract({ turns: [{
+      source_record_id: "user-1",
+      source_revision: "user-revision",
+      user_message: "What did we choose?",
+      assistant_response: "We chose Redis for billing. We chose Avro for serialization.",
+      assistant_source_records: [
+        { source_record_id: "assistant-1", source_revision: "assistant-revision-1", text: "We chose Redis for billing." },
+        { source_record_id: "assistant-2", source_revision: "assistant-revision-2", text: "We chose Avro for serialization." },
+      ],
+    }] });
+    const decisions = semantic(extraction, "decision");
+    assert.equal(decisions.length, 2);
+    assert.deepEqual(decisions.map((memory) => memory.evidence.sourceRecordId), ["assistant-1", "assistant-2"]);
+    assert.deepEqual(decisions.map((memory) => memory.evidence.revision), ["assistant-revision-1", "assistant-revision-2"]);
+    assert.deepEqual(decisions.map((memory) => memory.metadata.sourceAttribution.sourceRecordId), ["assistant-1", "assistant-2"]);
+    assert.ok(decisions.every((memory) => memory.metadata.sourceAttribution.sourceRole === "assistant"));
+    assert.ok(decisions.every((memory) => memory.metadata.verificationStatus === "unverified_assistant_claim"));
+  });
+
+  test("assistant record fallback revisions track only that record's text", () => {
+    const turn = {
+      source_record_id: "user-1",
+      source_revision: "aggregate-revision",
+      user_message: "What did we choose?",
+      assistant_response: "Combined assistant text is a compatibility field.",
+      assistant_source_records: [{ source_record_id: "assistant-1", text: "We chose Avro for serialization. Context A." }],
+    };
+    const first = semantic(extract({ turns: [turn] }), "decision")[0];
+    const changedUser = semantic(extract({ turns: [{ ...turn, user_message: "Different user context", source_revision: "aggregate-revision-2" }] }), "decision")[0];
+    const changedAssistant = semantic(extract({ turns: [{ ...turn, assistant_source_records: [{ source_record_id: "assistant-1", text: "We chose Avro for serialization. Context B." }] }] }), "decision")[0];
+    assert.ok(first);
+    assert.equal(first.evidence.key, changedUser.evidence.key);
+    assert.equal(first.evidence.revision, changedUser.evidence.revision);
+    assert.equal(first.evidence.key, changedAssistant.evidence.key);
+    assert.notEqual(first.evidence.revision, changedAssistant.evidence.revision);
+    assert.equal(first.evidence.revision, createHash("sha256")
+      .update(JSON.stringify({ role: "assistant", text: "We chose Avro for serialization. Context A." }))
+      .digest("hex"));
+  });
+
+  test("authoritative assistant records cannot replay stale combined text", () => {
+    const extraction = extract({ turns: [{
+      user_message: "What did we choose?",
+      assistant_response: "We chose Redis for billing.",
+      assistant_source_records: [],
+    }] });
+    assert.deepEqual(extraction.semanticMemories, []);
+  });
+
+  test("inferred repair goals use the actual assistant failure record", () => {
+    const extraction = extract({ turns: [1, 2].map((index) => ({
+      source_record_id: `user-${index}`,
+      source_revision: `user-revision-${index}`,
+      user_message: "Please continue.",
+      assistant_response: "Combined compatibility response.",
+      assistant_source_records: [
+        { source_record_id: `assistant-${index}`, source_revision: `assistant-revision-${index}`, text: `The build failed${index === 2 ? " again" : ""}.` },
+        { source_record_id: `assistant-note-${index}`, text: "I will investigate." },
+      ],
+    })) });
+    const goal = semantic(extraction, "assistant_goal")[0];
+    assert.ok(goal);
+    assert.equal(goal.evidence.sourceRecordId, "assistant-2");
+    assert.equal(goal.evidence.revision, "assistant-revision-2");
+    assert.equal(goal.metadata.sourceAttribution.sourceRole, "assistant");
+  });
+
   test("local inference enhancement preserves extraction retirement keys", async () => {
     const extraction = {
       episodeDigest: {

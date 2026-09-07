@@ -31,6 +31,23 @@ test("explicit capture validates native transcript identities before ingestion",
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
+test("ingestion validates the native identity on the same source read", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "lore-capture-bound-identity-"));
+  try {
+    const file = path.join(home, "transcript.jsonl");
+    await writeFile(file, [
+      { type: "session_meta", payload: { id: "wrong-id" } },
+      { type: "response_item", payload: { type: "message", role: "user", content: "should not capture" } },
+    ].map(JSON.stringify).join("\n") + "\n");
+    const db = fakeDb();
+    await assert.rejects(
+      ingestCliTranscript({ db, client: "codex", sessionId: "codex:right-id", nativeId: "right-id", transcriptPath: file, cwd: home }),
+      (error) => error.code === "SOURCE_SESSION_MISMATCH",
+    );
+    assert.equal(db.getIngestionCheckpoint(), null);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
 function fakeDb() {
   let checkpoint = null;
   return {

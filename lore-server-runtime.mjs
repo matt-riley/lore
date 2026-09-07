@@ -128,17 +128,25 @@ function alreadyExtracted(sessionId, source = null) {
   if (checkpoint) {
     const reader = checkpoint.adapterState?.readerCheckpoint;
     if (checkpoint.health.pendingBytes > 0 || checkpoint.adapterState?.cleanupCursor != null || checkpoint.adapterState?.branchWork) return false;
-    return !source || (reader?.sourceSize === source.size && reader?.sourceMtimeMs === source.mtimeMs);
+    if (!source) return true;
+    const sourceIdentity = source.sourceIdentity ?? (source.dev !== undefined && source.ino !== undefined ? `${source.dev}:${source.ino}` : null);
+    const recordedIdentity = reader?.sourceIdentity ?? checkpoint.sourceIdentity ?? null;
+    const sourceSize = source.sourceSize ?? source.size;
+    const sourceMtimeMs = source.sourceMtimeMs ?? source.mtimeMs;
+    return Boolean(sourceIdentity && recordedIdentity === sourceIdentity
+      && reader?.sourceSize === sourceSize && reader?.sourceMtimeMs === sourceMtimeMs);
   }
+  if (source) return false;
   // LoreDb wraps the raw node:sqlite handle as `db.db`; there is no public
   // episode-existence query, so reach into it for a cheap existence check.
   return !!db.db.prepare("SELECT session_id FROM episode_digest WHERE session_id = ?").get(sessionId);
 }
 
-async function extractPiSession(filePath, repository) {
+async function extractPiSession(filePath, repository, { useEnvironmentRepository = true } = {}) {
   const parsed = await readPiSessionHeader(filePath, {
     repository,
     mappings: db?.getRepositoryMappings?.() ?? [],
+    useEnvironmentRepository,
   });
   if (!parsed.sessionId) return { extracted: false, reason: "missing_session_id", sessionId: null };
   let extractionResult = null;
@@ -146,6 +154,7 @@ async function extractPiSession(filePath, repository) {
     db,
     client: "pi",
     sessionId: parsed.sessionId,
+    nativeId: parsed.sessionId,
     transcriptPath: filePath,
     cwd: parsed.cwd,
     repository: parsed.repository,
@@ -199,7 +208,7 @@ async function runArchiveQueue() {
       continue;
     }
     try {
-      const result = await extractPiSession(candidate.path, candidate.repository ?? null);
+      const result = await extractPiSession(candidate.path, candidate.repository ?? null, { useEnvironmentRepository: false });
       if (result.runnablePending) archiveQueue.push(candidate);
       if (result.extracted) {
         console.error(

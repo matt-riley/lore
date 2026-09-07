@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -115,6 +115,28 @@ test("normalizes non-string header timestamps before candidate ordering", async 
     const result = await scanner.scan({ maxCandidates: 2 });
     assert.equal(result.candidates.length, 2);
     assert.ok(result.candidates.every((candidate) => typeof candidate.timestamp === "string"));
+    await scanner.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("carries device and inode identity into archive candidates", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "lore-pi-archive-"));
+  try {
+    const file = path.join(root, "identity.jsonl");
+    writeFileSync(file, session("identity-session"));
+    const fileStats = statSync(file);
+    const scanner = new PiArchiveScanner({ rootDir: root, scanCap: 10, minAgeMs: 0, maxFileBytes: 1024 });
+    const result = await scanner.scan({ maxCandidates: 1 });
+    assert.deepEqual(result.candidates[0], {
+      path: file,
+      sessionId: "identity-session",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      sourceIdentity: `${fileStats.dev}:${fileStats.ino}`,
+      sourceSize: fileStats.size,
+      sourceMtimeMs: fileStats.mtimeMs,
+    });
     await scanner.close();
   } finally {
     rmSync(root, { recursive: true, force: true });

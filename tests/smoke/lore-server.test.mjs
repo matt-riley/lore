@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -163,4 +163,76 @@ test("Pi archive queue resumes a partial import beyond four MiB", { skip: SKIP_N
       assert.equal(db.prepare("SELECT pending_bytes FROM ingestion_checkpoint WHERE session_id='large'").get().pending_bytes, 0);
     } finally { db.close(); }
   } finally { server.proc.kill(); rmSync(home, { recursive: true, force: true }); }
+});
+
+test("legacy Pi archives bootstrap checkpoints after upgrade", { skip: SKIP_NO_FTS5 }, async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-legacy-"));
+  const sessions = path.join(home, "sessions"); mkdirSync(sessions);
+  const configPath = path.join(home, "lore.json"); const dbPath = path.join(home, "lore.db");
+  writeFileSync(configPath, JSON.stringify({ enabled: true, paths: { copilotHome: home, derivedStorePath: dbPath, piSessionDir: sessions } }));
+  makeSession(sessions, "legacy", home);
+  const first = startServer(home, configPath);
+  try {
+    assert.equal((await first.request("status")).ok, true);
+    assert.equal((await first.exit()).code, 0);
+  } finally { first.proc.kill(); }
+  const legacyDb = new DatabaseSync(dbPath);
+  try {
+    legacyDb.prepare("INSERT INTO episode_digest(id, session_id, summary, date_key, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)").run(
+      "legacy-episode", "legacy", "legacy import", "2026-01-01", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z",
+    );
+  } finally { legacyDb.close(); }
+  const second = startServer(home, configPath);
+  try {
+    assert.equal((await second.request("backfill", { max: 1 })).ok, true);
+    assert.equal((await second.exit()).code, 0);
+  } finally { second.proc.kill(); }
+  try {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      assert.ok(db.prepare("SELECT session_id FROM ingestion_checkpoint WHERE client='pi' AND session_id='legacy'").get());
+    } finally { db.close(); }
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("Pi archive replacement with preserved size and mtime is rescanned", { skip: SKIP_NO_FTS5 }, async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-rotate-"));
+  const sessions = path.join(home, "sessions"); mkdirSync(sessions);
+  const configPath = path.join(home, "lore.json"); const dbPath = path.join(home, "lore.db");
+  writeFileSync(configPath, JSON.stringify({ enabled: true, paths: { copilotHome: home, derivedStorePath: dbPath, piSessionDir: sessions } }));
+  const file = makeSession(sessions, "rotating", home);
+  const first = startServer(home, configPath);
+  try {
+    await first.request("status"); await first.request("backfill", { max: 1 });
+    assert.equal((await first.exit()).code, 0);
+  } finally { first.proc.kill(); }
+  const beforeDb = new DatabaseSync(dbPath, { readOnly: true });
+  let before;
+  try {
+    const row = beforeDb.prepare("SELECT adapter_state_json FROM ingestion_checkpoint WHERE client='pi' AND session_id='rotating'").get();
+    before = JSON.parse(row.adapter_state_json).readerCheckpoint;
+  } finally { beforeDb.close(); }
+  const original = readFileSync(file, "utf8");
+  const replacement = original.replace("Completed rotating", "Rewritten rotating");
+  assert.equal(Buffer.byteLength(replacement), Buffer.byteLength(original));
+  const replacementPath = `${file}.replacement`;
+  writeFileSync(replacementPath, replacement);
+  const old = new Date("2026-01-01T00:00:00.000Z");
+  utimesSync(replacementPath, old, old);
+  renameSync(replacementPath, file);
+  utimesSync(file, old, old);
+  assert.notEqual(`${statSync(file).dev}:${statSync(file).ino}`, before.sourceIdentity);
+  const second = startServer(home, configPath);
+  try {
+    await second.request("backfill", { max: 1 });
+    assert.equal((await second.exit()).code, 0);
+  } finally { second.proc.kill(); }
+  try {
+    const afterDb = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const row = afterDb.prepare("SELECT adapter_state_json FROM ingestion_checkpoint WHERE client='pi' AND session_id='rotating'").get();
+      const after = JSON.parse(row.adapter_state_json).readerCheckpoint;
+      assert.notEqual(after.sourceIdentity, before.sourceIdentity);
+    } finally { afterDb.close(); }
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });

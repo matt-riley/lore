@@ -23,9 +23,9 @@ describe("independent reliability quality corpus", () => {
     assert.ok(RELIABILITY_CORPUS.length >= 120);
     assert.deepEqual(
       Object.fromEntries(RELIABILITY_CLIENTS.map((client) => [client, RELIABILITY_CORPUS.filter((scenario) => scenario.client === client).length])),
-      { copilot: 27, pi: 27, codex: 27, claude: 27, antigravity: 27 },
+      { copilot: 28, pi: 28, codex: 28, claude: 28, antigravity: 28 },
     );
-    assert.equal(new Set(RELIABILITY_CORPUS.map((scenario) => scenario.scenarioId)).size, 135);
+    assert.equal(new Set(RELIABILITY_CORPUS.map((scenario) => scenario.scenarioId)).size, 140);
     assert.ok(RELIABILITY_CORPUS.some((scenario) => scenario.transcript.turns.length > 12));
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.family === "isolation"));
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.family === "suppression"));
@@ -42,6 +42,9 @@ describe("independent reliability quality corpus", () => {
     assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "Prefer bounded queues and keep the request identifier in logs." }, expected), true);
     assert.equal(matchesProposition({ type: "user_preference", scope: "global", repository: null, content: "I prefer queues." }, expected), false);
     assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "Prefer colorful dashboards." }, expected), false);
+    const timeout = { type: "user_preference", scope: "repo", repository: "acme/test", anchors: ["use", "45", "second", "timeout"] };
+    assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "Use a 45 second timeout." }, timeout), true);
+    assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "Use a 30 second timeout." }, timeout), false);
   });
 
   test("counts wrong evidence as a false positive even when it repeats a prompt keyword", () => {
@@ -58,6 +61,18 @@ describe("independent reliability quality corpus", () => {
     assert.equal(result.falsePositiveExamples[0].content, "I prefer dashboards.");
   });
 
+  test("does not treat metadata or quoted history as current proposition evidence", () => {
+    const proposition = { type: "user_preference", scope: "repo", repository: "acme/test", anchors: ["prefer", "bounded", "queues", "identifier"] };
+    assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "A policy was recorded.", metadata: { archivedQuote: "We prefer bounded queues and keep the identifier." } }, proposition), false);
+    assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "A policy was recorded.", history: "We prefer bounded queues and keep the identifier." }, proposition), false);
+  });
+
+  test("contains distinct positive and negative intent expectations", () => {
+    assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.expected.length > 0));
+    assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.expected.length === 0));
+    assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.id === "footer-link-do-not"));
+  });
+
   test("keeps the frozen gates explicit", () => {
     assert.deepEqual(QUALITY_GATES, {
       extractionPrecision: 0.95,
@@ -69,13 +84,15 @@ describe("independent reliability quality corpus", () => {
     });
   });
 
-  test("benchmark embedding paths expose cold, warm, and capture delta work", () => {
-    const result = measureMockEmbeddingPaths(100);
-    assert.equal(result.mocked, true);
+  test("benchmark embedding paths expose production cold and warm cache work", async () => {
+    const result = await measureMockEmbeddingPaths(100);
+    assert.equal(result.mockedEndpoint, true);
+    assert.match(result.productionPath, /semanticSearch/);
     assert.equal(result.diskCold, false);
-    assert.equal(result.cold.calls, 100);
-    assert.equal(result.warm.calls, 0);
-    assert.equal(result.captureDeltaWork, 100);
+    assert.deepEqual(result.cold.inputCounts, [1, 24]);
+    assert.deepEqual(result.warm.inputCounts, [1]);
+    assert.equal(result.warm.queryEmbeddings, 1);
+    assert.equal(result.partialCoverage.complete, true);
   });
 
   test("native benchmark runs through an isolated synthetic home", async () => {

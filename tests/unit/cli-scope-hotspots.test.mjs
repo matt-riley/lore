@@ -69,7 +69,7 @@ describe("classifySemanticMemory", () => {
     });
   });
 
-  test("keeps recurring mistakes global even when repository text is present", () => {
+  test("keeps inferred recurring mistakes scoped to their repository", () => {
     const classification = classifySemanticMemory({
       type: "recurring_mistake",
       repository: "owner/test-repo",
@@ -77,11 +77,9 @@ describe("classifySemanticMemory", () => {
     });
 
     assert.deepEqual(classification, {
-      scope: MEMORY_SCOPE.GLOBAL,
-      repository: null,
-      metadata: {
-        originRepository: "owner/test-repo",
-      },
+      scope: MEMORY_SCOPE.REPO,
+      repository: "owner/test-repo",
+      metadata: {},
     });
   });
 });

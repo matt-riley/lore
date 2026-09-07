@@ -40,12 +40,12 @@ describe("detectAssistantIdentityName", () => {
 // historical messages). Only explicit naming vocabulary counts here.
 describe("detectAssistantIdentityDeclaration", () => {
   test("matches explicit naming phrases", () => {
-    assert.equal(detectAssistantIdentityDeclaration("Shall I call you Coda from now on?"), "Coda");
+    assert.equal(detectAssistantIdentityDeclaration("Shall I call you Coda from now on?"), null);
     assert.equal(detectAssistantIdentityDeclaration("Ok, call yourself Nova please."), "Nova");
     assert.equal(detectAssistantIdentityDeclaration("Your name is Juno now."), "Juno");
     assert.equal(detectAssistantIdentityDeclaration("Please use the name Zed for this."), "Zed");
-    assert.equal(detectAssistantIdentityDeclaration("I used the name Axel in that doc."), "Axel");
-    assert.equal(detectAssistantIdentityDeclaration("Why I used the name Vega is a long story."), "Vega");
+    assert.equal(detectAssistantIdentityDeclaration("I used the name Axel in that doc."), null);
+    assert.equal(detectAssistantIdentityDeclaration("Why I used the name Vega is a long story."), null);
   });
 
   test("does not treat sentence-initial interjections as a name", () => {

@@ -393,3 +393,14 @@ test("complete repair rejects a replaced source with another known native sessio
   assert.throws(() => parse("claude", [{ type: "user", uuid: "u", sessionId: "other", message: { role: "user", content: "Hello" } }]), /SOURCE_SESSION_MISMATCH/);
   assert.doesNotThrow(() => parse("antigravity", [{ step_index: 0, status: "DONE", type: "USER_INPUT", source: "USER_EXPLICIT", content: "Hello" }]));
 });
+
+test("missing repository or global targets cannot report a successful no-op purge", async () => {
+  const f = await withFixtureDb();
+  try {
+    for (const request of [{ repository: "missing/repo" }, { scope: "global" }]) {
+      const plan = memoryPurge(f.db, request);
+      assert.ok(plan.unresolvedCandidates.some((row) => row.code === "TARGET_NOT_FOUND"));
+      assert.throws(() => apply(memoryPurge, f.db, request, plan), /unresolved/);
+    }
+  } finally { f.cleanup(); }
+});

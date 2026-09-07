@@ -206,7 +206,13 @@ async function runArchiveQueue() {
         );
       }
     } catch (error) {
-      console.error(`[lore-server] archive capture failed: ${error?.code ?? "capture_failed"}`);
+      const sessionId = String(candidate.sessionId ?? "unknown").slice(0, 8);
+      const filename = path.basename(candidate.path).replace(/[\r\n]/g, "");
+      const code = error?.code ?? "capture_failed";
+      const detail = error?.message
+        ? `: ${String(error.message).replace(/\s+/g, " ").slice(0, 240)}`
+        : "";
+      console.error(`[lore-server] archive capture failed session=${sessionId} file=${filename} code=${code}${detail}`);
     } finally {
       if (!archiveQueue.some((queued) => queued.path === candidate.path)) archiveQueuedPaths.delete(candidate.path);
     }

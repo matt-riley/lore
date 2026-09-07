@@ -82,3 +82,36 @@ test("native invalid administration action is rejected before creating a store",
     assert.equal(existsSync(path.join(f.home, "lore.db")), false);
   } finally { f.cleanup(); }
 });
+
+test("native correction APPLY returns a manual replacement and purge APPLY rejects stale replay", () => {
+  const f = fixture();
+  try {
+    const saved = f.run("memory_save", { content: "Prefer quartzanchor fixtures.", type: "user_preference" });
+    assert.equal(saved.status, 0, saved.stderr);
+    const memoryId = saved.stdout.trim().split(" ").at(-1);
+    const request = { memoryId, content: "Prefer reviewed quartzanchor fixtures.", scope: "transferable", repository: "example/destination", expiresAt: "2030-01-01T00:00:00Z" };
+    const preview = f.run("memory_correct", request);
+    assert.equal(preview.status, 0, preview.stderr);
+    const plan = JSON.parse(preview.stdout);
+    const applied = f.run("memory_correct", { ...request, action: "apply", planFingerprint: plan.planFingerprint });
+    assert.equal(applied.status, 0, applied.stderr);
+    const result = JSON.parse(applied.stdout);
+    assert.equal(result.replacement.repository, "example/destination");
+    assert.equal(result.replacement.scope_source, "manual");
+    assert.equal(result.replacement.expires_at, request.expiresAt);
+    const purge = { memoryIds: [result.replacementId], includeDependentAggregates: true };
+    const purgePreview = f.run("memory_purge", purge);
+    assert.equal(purgePreview.status, 0, purgePreview.stderr);
+    const purgePlan = JSON.parse(purgePreview.stdout);
+    const purgeInput = { ...purge, action: "apply", planFingerprint: purgePlan.planFingerprint, selectedCandidateIds: purgePlan.candidateIds };
+    // An empty aggregate closure does not require an artificial candidate ID.
+    if (!purgePlan.candidateIds.length) {
+      delete purgeInput.includeDependentAggregates;
+      const refreshed = JSON.parse(f.run("memory_purge", { memoryIds: purge.memoryIds }).stdout);
+      purgeInput.planFingerprint = refreshed.planFingerprint;
+    }
+    const removed = f.run("memory_purge", purgeInput);
+    assert.equal(removed.status, 0, removed.stderr);
+    assert.notEqual(f.run("memory_purge", purgeInput).status, 0);
+  } finally { f.cleanup(); }
+});

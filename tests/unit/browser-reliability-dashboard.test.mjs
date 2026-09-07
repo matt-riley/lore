@@ -215,8 +215,8 @@ describe("reliability dashboard renderers", () => {
     db.ensureMemoryEmbeddingTable();
     db.saveIngestionCheckpoint("codex", "session-1", {
       repository: "owner/repo",
-      adapterState: { sourcePath: "/tmp/transcript.jsonl", sourceCwd: "/tmp/project" },
-      health: { pendingBytes: 128 },
+      adapterState: { sourcePath: "/tmp/transcript.jsonl", sourceCwd: "/tmp/project", cleanupCursor: "" },
+      health: { pendingBytes: 0 },
     });
     db.db.prepare(`INSERT OR REPLACE INTO memory_embedding (memory_id, content_hash, provider, model, dimensions, vector, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(activeId, embeddingContentHash("Use the active fixture memory."), "http://127.0.0.1:12434/v1", "fixture-model", 2, "[1,0]", "2026-09-07T08:00:00.000Z");
@@ -263,6 +263,9 @@ describe("reliability dashboard renderers", () => {
       assert.equal(payload.data.indexing.dimensionsBasis, "stored vector dimensions");
       assert.equal(payload.data.captureHealth[0].resumeEligible, true);
       assert.match(payload.data.captureHealth[0].resumeCommand, /node ['"]?[^ ]*lore-cli\.mjs['"]? capture --resume/);
+      assert.equal(payload.data.captureHealth[0].pendingWork.cleanup, true);
+      assert.equal(payload.data.captureHealth[0].hasPendingWork, true);
+      assert.equal(payload.data.captureHealth[0].status, "pending");
       assert.deepEqual(payload.data.indexing.fallbackDiagnostics, [
         { reason: "deterministic_fallback", count: 1 },
         { reason: "partial_embedding_coverage", count: 1 },

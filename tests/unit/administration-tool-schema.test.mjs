@@ -39,3 +39,26 @@ for (const operation of ["purge", "repair"]) {
     } finally { f.cleanup(); }
   });
 }
+
+test("registered memory_correct accepts a global replacement with repository null", async () => {
+  const f = await withFixtureDb();
+  try {
+    const oldId = f.db.insertSemanticMemory({
+      type: "user_preference",
+      content: "Global old preference.",
+      scope: "global",
+      repository: null,
+    });
+    const tool = findTool(createMemoryTools({ getRuntime: async () => ({ initialized: true, db: f.db, config: f.config }) }), "memory_correct");
+    assert.deepEqual(tool.parameters.properties.repository.type, ["string", "null"]);
+    const plan = JSON.parse(await tool.handler({
+      memoryId: oldId,
+      content: "Global corrected preference.",
+      scope: "global",
+      repository: null,
+      reason: "Explicit global correction",
+    }, { sessionId: "caller" }));
+    assert.equal(plan.unresolvedCandidates.length, 0);
+    assert.equal(plan.replacement.repository, null);
+  } finally { f.cleanup(); }
+});

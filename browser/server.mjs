@@ -307,7 +307,7 @@ function mapCaptureHealthRow(row) {
   const pendingBytes = Number.isFinite(pendingBytesValue) && pendingBytesValue >= 0 ? pendingBytesValue : 0
   const pendingWork = {
     branch: Boolean(adapterState.branchWork),
-    cleanup: Boolean(adapterState.cleanupCursor),
+    cleanup: adapterState.cleanupCursor != null,
   }
   const hasPendingWork = pendingBytes > 0 || pendingWork.branch || pendingWork.cleanup
   const failureCode = row?.health?.failureCode ?? null

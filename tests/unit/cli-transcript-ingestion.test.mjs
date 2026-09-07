@@ -3,7 +3,33 @@ import { test } from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ingestCliTranscript } from "../../lib/clients/cli-transcript-ingestion.mjs";
+import { ingestCliTranscript, validateCliTranscriptIdentity } from "../../lib/clients/cli-transcript-ingestion.mjs";
+
+test("explicit capture validates native transcript identities before ingestion", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "lore-capture-identity-"));
+  try {
+    const cases = [
+      ["codex", "codex-id", { type: "session_meta", payload: { id: "codex-id" } }],
+      ["claude", "claude-id", { sessionId: "claude-id" }],
+      ["pi", "pi-id", { type: "session", id: "pi-id" }],
+    ];
+    for (const [client, nativeId, record] of cases) {
+      const file = path.join(home, `${client}.jsonl`);
+      await writeFile(file, `${JSON.stringify(record)}\n`);
+      assert.equal(await validateCliTranscriptIdentity(file, { client, nativeId }), nativeId);
+      await assert.rejects(
+        validateCliTranscriptIdentity(file, { client, nativeId: "different-id" }),
+        (error) => error.code === "SOURCE_SESSION_MISMATCH",
+      );
+    }
+    const missing = path.join(home, "missing-identity.jsonl");
+    await writeFile(missing, `${JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: "hello" } })}\n`);
+    await assert.rejects(
+      validateCliTranscriptIdentity(missing, { client: "codex", nativeId: "codex-id" }),
+      (error) => error.code === "SOURCE_SESSION_ID_MISSING",
+    );
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
 
 function fakeDb() {
   let checkpoint = null;

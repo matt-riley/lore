@@ -135,3 +135,23 @@ test("hook installer directs universal setup requests to the five-client install
     }
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+test("explicit Pi capture resumes its bare session checkpoint and reports direct errors", { skip: !FTS5_AVAILABLE }, () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-resume-"));
+  const env = { ...process.env, HOME: home, LORE_HOME: home, LORE_CONFIG: path.join(home, "lore.json"), LORE_REPOSITORY: "fixture/repo", LORE_ENABLED: "true" };
+  try {
+    writeFileSync(env.LORE_CONFIG, '{"enabled":true}'); const file = path.join(home, "t.jsonl");
+    writeFileSync(file, JSON.stringify({ type: "session", id: "native", cwd: home }) + "\n"
+      + Array.from({ length: 18 }, (_, i) => JSON.stringify({ type: "message", message: { role: "user", content: i === 17 ? "For this repository, I prefer jadeanchor focused unit tests." : `ordinary ${i}` } })).join("\n") + "\n");
+    const run = (transcriptPath) => spawnSync(process.execPath, [entry, "capture", "--resume", "--client", "pi", "--session", "native"], { env, input: JSON.stringify({ cwd: home, transcriptPath }), encoding: "utf8" });
+    let result; let passes = 0;
+    do { result = run(file); assert.equal(result.status, 0, result.stderr); passes += 1; } while (JSON.parse(result.stdout).pending);
+    assert.ok(passes > 1);
+    const db = new DatabaseSync(path.join(home, "lore.db"), { readOnly: true });
+    try {
+      assert.ok(db.prepare("SELECT session_id FROM ingestion_checkpoint WHERE client='pi' AND session_id='native'").get());
+      assert.ok(db.prepare("SELECT id FROM semantic_memory WHERE content LIKE '%jadeanchor%'").get());
+    } finally { db.close(); }
+    assert.notEqual(run(path.join(home, "missing.jsonl")).status, 0);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

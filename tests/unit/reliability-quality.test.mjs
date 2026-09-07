@@ -4,7 +4,9 @@ import {
   QUALITY_GATES,
   evaluateCandidateMemories,
   evaluateForeignRows,
+  evaluateNegativeQueryEvidence,
   matchesProposition,
+  normalizeRecallEvidence,
   runQualityEvaluation,
 } from "../../scripts/reliability-quality.mjs";
 import {
@@ -14,19 +16,20 @@ import {
 } from "../fixtures/reliability-corpus.mjs";
 import {
   isolatedEnvironment,
+  checkpointDeltaWork,
   measureMockEmbeddingPaths,
   runReliabilityBenchmark,
 } from "../../scripts/reliability-benchmark.mjs";
 
 describe("independent reliability quality corpus", () => {
-  test("freezes 24 distinct cases for every supported client", () => {
-    assert.ok(RELIABILITY_BLUEPRINTS.length >= 24);
-    assert.ok(RELIABILITY_CORPUS.length >= 120);
+  test("freezes independent semantic cases for every supported client", () => {
+    assert.ok(RELIABILITY_BLUEPRINTS.length >= 120);
+    assert.ok(RELIABILITY_CORPUS.length >= 600);
     assert.deepEqual(
       Object.fromEntries(RELIABILITY_CLIENTS.map((client) => [client, RELIABILITY_CORPUS.filter((scenario) => scenario.client === client).length])),
-      { copilot: 28, pi: 28, codex: 28, claude: 28, antigravity: 28 },
+      { copilot: 156, pi: 156, codex: 156, claude: 156, antigravity: 156 },
     );
-    assert.equal(new Set(RELIABILITY_CORPUS.map((scenario) => scenario.scenarioId)).size, 140);
+    assert.equal(new Set(RELIABILITY_CORPUS.map((scenario) => scenario.scenarioId)).size, 780);
     assert.ok(RELIABILITY_CORPUS.some((scenario) => scenario.transcript.turns.length > 12));
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.family === "isolation"));
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.family === "suppression"));
@@ -36,7 +39,8 @@ describe("independent reliability quality corpus", () => {
       assert.match(scenario.transcript.turns[0].user_message, new RegExp(scenario.user.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")));
     }
     assert.equal(RELIABILITY_CORPUS.find((item) => item.client === "pi" && item.id === "repo-preference").transcript.files.length, 1);
-    assert.ok(new Set(RELIABILITY_CORPUS.map((scenario) => `${scenario.transcript.turns[0]?.user_message}\n${scenario.transcript.turns[0]?.assistant_response}`)).size >= 120);
+    assert.ok(new Set(RELIABILITY_BLUEPRINTS.map((scenario) => `${scenario.user}\n${scenario.assistant}`)).size >= 120);
+    assert.equal(RELIABILITY_BLUEPRINTS.filter((scenario) => scenario.id.startsWith("independent-")).length, 128);
   });
 
   test("matches propositions by type, scope, and anchor evidence rather than a keyword", () => {
@@ -77,6 +81,27 @@ describe("independent reliability quality corpus", () => {
     assert.equal(foreignRows.length, 1);
   });
 
+  test("normalizes episodic decisions for positive recall and foreign isolation", () => {
+    const proposition = { type: "decision", scope: "repo", repository: "acme/test", anchors: ["chose", "PostgreSQL", "concurrent", "writers"] };
+    const episode = { id: "episode-1", sessionId: "local-session", scope: "repo", repository: "acme/test", decisions: ["We chose PostgreSQL for concurrent writers."] };
+    const foreignEpisode = { id: "episode-2", sessionId: "foreign-session", scope: "global", repository: null, decisions: ["We chose PostgreSQL for concurrent writers."] };
+    const normalized = normalizeRecallEvidence([episode]);
+    assert.equal(normalized.length, 1);
+    assert.equal(normalized[0].type, "decision");
+    assert.equal(matchesProposition(normalized[0], proposition), true);
+    assert.equal(evaluateForeignRows({ rows: [foreignEpisode], foreignEvidence: [{ type: "decision", anchors: ["chose", "PostgreSQL", "concurrent", "writers"] }] }).length, 1);
+  });
+
+  test("rejects every negative-query row sharing scenario evidence identity", () => {
+    const scenarioRows = [{ id: "semantic-1", source_session_id: "session-1" }, { id: "episode-1", source_session_id: "session-1" }];
+    const returned = [
+      { id: "semantic-1", source_session_id: "other", content: "unrelated text" },
+      { id: "other-id", source_session_id: "session-1", content: "unrelated text" },
+      { id: "other-id-2", source_session_id: "other", content: "unrelated text" },
+    ];
+    assert.deepEqual(evaluateNegativeQueryEvidence({ rows: returned, scenarioRows }).map((row) => row.id), ["semantic-1", "other-id"]);
+  });
+
   test("contains distinct positive and negative intent expectations", () => {
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.expected.length > 0));
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.expected.length === 0));
@@ -88,6 +113,7 @@ describe("independent reliability quality corpus", () => {
       extractionPrecision: 0.95,
       explicitPropositionRecall: 0.9,
       retentionRecall: 0.9,
+      minIndependentSemanticScenarios: 120,
       maxFalseGlobalPromotions: 0,
       maxCriticalFailures: 0,
       maxNegativeFalsePositives: 0,
@@ -119,8 +145,16 @@ describe("independent reliability quality corpus", () => {
     assert.ok(Number.isFinite(result.performance[0].promptP95Ms));
     assert.equal(result.performance[0].capture.nativeHook, "passed");
     assert.equal(result.performance[0].capture.persistedExpected, true);
+    assert.equal(result.performance[0].capture.checkpointSupport, false);
+    assert.equal(result.performance[0].capture.captureDeltaWork, null);
     assert.ok(result.performance[0].capture.coldPersistedRows > 0);
     assert.equal(result.performance[0].capture.captureDeltaTurns, result.performance[0].capture.refreshPersistedTurns - result.performance[0].capture.coldPersistedTurns);
+  });
+
+  test("uses checkpoint offsets as resumable capture work when supported", () => {
+    assert.equal(checkpointDeltaWork({ offset: 100 }, { offset: 160 }), 60);
+    assert.equal(checkpointDeltaWork({ revision: 3 }, { revision: 4 }), 1);
+    assert.equal(checkpointDeltaWork(null, { offset: 10 }), null);
   });
 
   test("suppressed propositions do not reduce the positive retention denominator", async () => {

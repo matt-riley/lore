@@ -355,7 +355,7 @@ const INDEPENDENT_SEEDS = Object.freeze([
   ["no-implicit-cast", "acme/types", "Do not implicitly cast external numbers to booleans; validate the declared wire type at the boundary.", "The boundary validator will reject wire-type mismatches instead of casting them.", "What type safety rule applies to external numbers?", "rejected_approach", "repo", "do not implicitly cast external numbers booleans wire type"],
   ["metrics-names", "acme/metrics", "Use stable metric names with a documented unit suffix so dashboards survive service renames.", "Metrics will use stable names and documented unit suffixes.", "How should service metrics be named?", "user_preference", "repo", "stable metric names documented unit suffix"],
   ["decision-s3", "acme/exports", "We chose object storage for exports because large files should not occupy the transactional database.", "Exports will use object storage while the database retains metadata and a pointer.", "Why did exports move to object storage?", "decision", "repo", "chose object storage exports large files transactional database"],
-  ["negative-corrected-old", "acme/correct", "Use a ten second timeout for this endpoint.", "The endpoint will use ten seconds.", "Actually, use twenty seconds because the upstream SLA changed.", "user_preference", "repo", "use twenty seconds timeout upstream SLA"],
+  ["negative-corrected-old", "acme/correct", "Use a ten second timeout for this endpoint.", "The endpoint will use ten seconds.", "What timeout applies after the upstream SLA correction?", "user_preference", "repo", "use twenty seconds timeout upstream SLA"],
   ["negative-hypothetical-cache", "acme/future", "If the service becomes multi-region, we might prefer active-active writes, but that is not a current decision.", "The service remains single-region while replication options are researched.", "What write topology is current?", "", "repo", "prefer active-active writes multi-region"],
   ["api-pagination", "acme/list", "Return an opaque cursor for pagination; clients should not infer ordering from numeric offsets.", "List responses will expose opaque cursors and a documented ordering field.", "How does the list API paginate?", "user_preference", "repo", "opaque cursor pagination numeric offsets ordering"],
   ["no-unbounded-input", "acme/parser", "Reject unbounded input fields before parsing so a malicious payload cannot consume memory.", "Parser limits will reject oversized fields before decoding the full payload.", "What protects the parser from oversized input?", "rejected_approach", "repo", "reject unbounded input fields before parsing memory"],
@@ -438,8 +438,16 @@ function buildIndependentBlueprints() {
     repository,
     user,
     assistant,
+    ...(id === "negative-corrected-old" ? {
+      correction: {
+        user: "Actually, that is wrong: use twenty seconds for the endpoint timeout because the upstream SLA changed.",
+        assistant: "The corrected endpoint timeout is twenty seconds.",
+      },
+    } : {}),
     expected: type ? [{ type, scope, anchors: anchorText.split(" ") }] : [],
-    forbidden: type ? [] : [{ anchors: anchorText.split(" ") }],
+    forbidden: id === "negative-corrected-old"
+      ? [{ anchors: ["ten", "seconds", "timeout", "endpoint"] }]
+      : type ? [] : [{ anchors: anchorText.split(" ") }],
     query,
   }));
 }

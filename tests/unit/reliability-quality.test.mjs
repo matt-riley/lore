@@ -53,6 +53,23 @@ describe("independent reliability quality corpus", () => {
     assert.equal(matchesProposition({ type: "user_preference", scope: "repo", repository: "acme/test", content: "Use a 30 second timeout." }, timeout), false);
   });
 
+  test("forbidden timeout matching distinguishes the old number from its correction", () => {
+    const scenario = RELIABILITY_CORPUS.find((row) => row.client === "copilot" && row.id === "correction");
+    const evaluate = (seconds) => evaluateCandidateMemories({
+      scenario,
+      extraction: { semanticMemories: [{ type: "user_preference", scope: "repo", repository: scenario.repository, content: `Use a ${seconds} second timeout for the worker.` }] },
+    });
+    assert.equal(evaluate(45).negativeFalsePositives, 0);
+    assert.equal(evaluate(30).negativeFalsePositives, 1);
+    const written = RELIABILITY_CORPUS.find((row) => row.client === "copilot" && row.id === "independent-negative-corrected-old");
+    assert.equal(written.transcript.turns.length, 2);
+    assert.match(written.transcript.turns[1].user_message, /twenty seconds/);
+    assert.equal(evaluateCandidateMemories({
+      scenario: written,
+      extraction: { semanticMemories: [{ type: "user_preference", scope: "repo", repository: written.repository, content: "Use twenty seconds for the endpoint timeout because the upstream SLA changed." }] },
+    }).negativeFalsePositives, 0);
+  });
+
   test("counts wrong evidence as a false positive even when it repeats a prompt keyword", () => {
     const scenario = { repository: "acme/test", expected: [{ type: "user_preference", scope: "repo", anchors: ["prefer", "bounded", "queues", "request", "identifier"] }], forbidden: [] };
     const result = evaluateCandidateMemories({
@@ -145,8 +162,8 @@ describe("independent reliability quality corpus", () => {
     assert.ok(Number.isFinite(result.performance[0].promptP95Ms));
     assert.equal(result.performance[0].capture.nativeHook, "passed");
     assert.equal(result.performance[0].capture.persistedExpected, true);
-    assert.equal(result.performance[0].capture.checkpointSupport, false);
-    assert.equal(result.performance[0].capture.captureDeltaWork, null);
+    assert.equal(result.performance[0].capture.checkpointSupport, true);
+    assert.ok(result.performance[0].capture.captureDeltaWork > 0);
     assert.ok(result.performance[0].capture.coldPersistedRows > 0);
     assert.equal(result.performance[0].capture.captureDeltaTurns, result.performance[0].capture.refreshPersistedTurns - result.performance[0].capture.coldPersistedTurns);
   });
@@ -162,7 +179,7 @@ describe("independent reliability quality corpus", () => {
     const result = await runQualityEvaluation({ scenarios: [scenario] });
     assert.equal(result.metrics.retentionRecall, 1);
     assert.equal(result.metrics.scenarioCount, 1);
-    assert.ok(result.metrics.criticalFailures.includes("copilot:suppression"));
+    assert.deepEqual(result.metrics.criticalFailures, []);
   });
 
   test("full production pipeline meets the frozen quality gates", async () => {

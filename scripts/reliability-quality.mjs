@@ -44,9 +44,11 @@ function overlap(haystack, anchors) {
   return found / expected.size;
 }
 
+const NUMBER_WORDS = new Set("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million".split(" "));
+
 function hasExactShortAnchors(haystack, anchors) {
   const text = String(haystack ?? "").toLowerCase();
-  return normalizedAnchorTokens(anchors).filter((anchor) => anchor.length <= 2 || /^\d+(?:\.\d+)?$/u.test(anchor))
+  return normalizedAnchorTokens(anchors).filter((anchor) => anchor.length <= 2 || NUMBER_WORDS.has(anchor) || /^\d+(?:\.\d+)?$/u.test(anchor))
     .every((anchor) => new RegExp(`(?:^|[^a-z0-9])${anchor.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?:$|[^a-z0-9])`, "u").test(text));
 }
 
@@ -65,7 +67,9 @@ export function matchesProposition(memory, proposition) {
 }
 
 function matchesForbidden(memory, forbidden) {
-  return overlap(evidenceText(memory), forbidden?.anchors ?? []) >= 0.72;
+  const evidence = evidenceText(memory);
+  return hasExactShortAnchors(evidence, forbidden?.anchors ?? [])
+    && overlap(evidence, forbidden?.anchors ?? []) >= 0.72;
 }
 
 function includedRows(result) {

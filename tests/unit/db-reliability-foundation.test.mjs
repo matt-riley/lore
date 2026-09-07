@@ -161,6 +161,33 @@ describe("database reliability foundation", () => {
     }
   });
 
+  test("manual canonical matches remain isolated to their scope and repository", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      const manualId = db.insertSemanticMemory({
+        type: "user_preference",
+        content: "Use the repository local convention.",
+        repository: "repo-a",
+        scope: "repo",
+        metadata: { source: "memory_save" },
+      });
+      const inferredId = db.insertSemanticMemory({
+        type: "user_preference",
+        content: "Use the repository local convention.",
+        repository: "repo-b",
+        scope: "repo",
+        sourceSessionId: "session-repo-b",
+        sourceTurnIndex: 1,
+        metadata: { source: "rule_extractor" },
+      });
+      assert.ok(inferredId);
+      assert.notEqual(inferredId, manualId);
+      assert.equal(db.db.prepare("SELECT repository, scope_source FROM semantic_memory WHERE id = ?").get(inferredId).repository, "repo-b");
+    } finally {
+      cleanup();
+    }
+  });
+
   test("forget records durable suppression and rejects unknown memory ids", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, cleanup } = await withFixtureDb();
     try {

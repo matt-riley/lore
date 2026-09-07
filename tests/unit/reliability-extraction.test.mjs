@@ -204,10 +204,10 @@ describe("conservative rule extraction", () => {
   test("does not detach directive clauses from questions, quotations, or hypothetical qualifiers", () => {
     for (const user_message of [
       "Should we prefer Redis and never use SQLite?",
-      "If we need caching, prefer Redis and never use SQLite.",
+      "If we ever need caching, prefer Redis and never use SQLite.",
       "The old guide says 'Prefer Redis and never use SQLite.'",
       "The old guide says `Prefer Redis and never use SQLite.`",
-      "Prefer Redis and never use SQLite if the prototype needs caching.",
+      "Prefer Redis and never use SQLite if the prototype ever needs caching.",
     ]) {
       assert.deepEqual(extract({ turns: [{ user_message }] }).semanticMemories, [], user_message);
     }
@@ -240,19 +240,27 @@ describe("conservative rule extraction", () => {
     assert.deepEqual(extraction.semanticMemories, []);
   });
 
-  test("does not promote preferences with trailing or parenthetical conditions", () => {
-    const extraction = extract({
-      turns: [{
-        user_message: [
-          "I prefer Redis if we ever need a cache.",
-          "I prefer SQLite (only if the fixture stays local).",
-          "Please use Postgres when we need concurrent writers.",
-          "Prefer the fallback unless the provider is available.",
-        ].join(" "),
-      }],
-    });
-
-    assert.deepEqual(semantic(extraction, "user_preference"), []);
+  test("retains actual conditional rules but excludes speculative proposals", () => {
+    for (const user_message of [
+      "I prefer SQLite (only if the fixture stays local).",
+      "Please use Postgres when we need concurrent writers.",
+      "Prefer the fallback unless the provider is available.",
+      "If the index is unavailable, return a clearly marked empty result.",
+      "Never print tokens, even when a diagnostic fails.",
+    ]) {
+      const memories = extract({ turns: [{ user_message }] }).semanticMemories;
+      assert.equal(memories.length, 1, user_message);
+      assert.equal(memories[0].content, user_message);
+      assert.equal(memories[0].scope, MEMORY_SCOPE.REPO);
+    }
+    for (const user_message of [
+      "I prefer Redis if we ever need a cache.",
+      "If we moved the queue, we might prefer batches.",
+      "We could use batches if volume increases.",
+      "If the prototype ever needs caching, prefer Redis.",
+    ]) {
+      assert.deepEqual(extract({ turns: [{ user_message }] }).semanticMemories, [], user_message);
+    }
   });
 
   test("extracts independent preference and rejection clauses in one sentence", () => {
@@ -678,6 +686,21 @@ describe("extraction evidence", () => {
   });
 });
 
+test("episode summaries and decisions prefer the attributed completed outcome over the initial question", () => {
+  const result = extractSessionMemories({
+    sessionId: "outcome-summary", repository: "owner/ledger",
+    sessionArtifacts: { session: { summary: "Which database should we use?" }, checkpoints: [], files: [], refs: [], turns: [{
+      turn_index: 1, source_record_id: "u1", user_message: "Which database should we use?",
+      assistant_response: "We decided to use PostgreSQL because concurrent writers require row-level locks.",
+    }] },
+    workspace: { workspace: {} },
+  });
+  assert.match(result.episodeDigest.summary, /PostgreSQL/);
+  assert.match(result.episodeDigest.summary, /assistant/i);
+  assert.doesNotMatch(result.episodeDigest.summary, /Which database/);
+  assert.ok(result.episodeDigest.decisions.some((decision) => /PostgreSQL.*concurrent writers/.test(decision)));
+});
+
 test("a reversal retires every corroborating old source while retaining corroborating current sources", () => {
   const turns = [
     { turn_index: 1, source_record_id: "u1", user_message: "We chose Redis for catalog invalidation.", assistant_response: "", assistant_source_records: [{ source_record_id: "a1", text: "We chose Redis for catalog invalidation." }] },
@@ -741,4 +764,131 @@ describe("scope classification", () => {
       },
     });
   });
+});
+
+test("completed outcomes preserve the comparison context that explains the choice", () => {
+  const result = extract({ turns: [{ assistant_response: "After comparing compatibility and tooling, we chose Avro with a schema registry; the earlier JSON suggestion is not the final decision." }] });
+  const decision = semantic(result, "decision")[0];
+  assert.match(decision.content, /compatibility and tooling/);
+  assert.match(result.episodeDigest.summary, /Avro.*compatibility/);
+});
+
+test("an explicit replacement retires the single preceding user preference", () => {
+  const result = extract({ turns: [
+    { user_message: "Please use the short link in the guide." },
+    { user_message: "No, I meant the canonical full URL so copied guides remain self-contained." },
+  ] });
+  const preferences = semantic(result, "user_preference");
+  assert.equal(preferences.length, 2);
+  assert.deepEqual(result.retiredEvidenceKeys, [preferences[0].evidence.key]);
+  assert.ok(result.episodeDigest.learnings.every((content) => !content.includes("short link")));
+});
+
+test("ambiguous corrections do not retire unrelated or multiple preferences", () => {
+  for (const turns of [
+    [{ user_message: "Prefer compact release notes. Prefer signed manifests." }, { user_message: "No, I meant expanded details." }],
+    [{ user_message: "Prefer compact release notes." }, { user_message: "What is the current build status?" }, { user_message: "No, I meant expanded details." }],
+  ]) {
+    assert.deepEqual(extract({ turns }).retiredEvidenceKeys, []);
+  }
+});
+
+test("captures standing imperatives and normative requirements with their rationale", () => {
+  for (const [user_message, type] of [
+    ["Encrypt stored archives before replication because transport TLS does not protect storage.", "user_preference"],
+    ["Run schema validation before copying rows so a migration remains understood.", "user_preference"],
+    ["The cache should expire after twelve minutes because freshness matters.", "user_preference"],
+    ["Generated credentials must be visibly fake and scoped to the test.", "user_preference"],
+    ["Retries must not hide a changed payload.", "rejected_approach"],
+    ["Reject unsigned webhooks before parsing JSON.", "rejected_approach"],
+    ["Do not implicitly cast external numbers to booleans.", "rejected_approach"],
+  ]) {
+    const memories = extract({ turns: [{ user_message }] }).semanticMemories;
+    assert.equal(memories.length, 1, user_message);
+    assert.equal(memories[0].type, type, user_message);
+    assert.equal(memories[0].content, user_message);
+  }
+});
+
+test("inherits explicit universal scope across independently retained policy clauses", () => {
+  const result = extract({ turns: [{ user_message: "Across projects, prefer plain language; explain technical terms on first use." }] });
+  const preferences = semantic(result, "user_preference");
+  assert.equal(preferences.length, 2);
+  assert.ok(preferences.every((memory) => memory.scope === MEMORY_SCOPE.GLOBAL && memory.repository === null));
+});
+
+test("incident observations cannot adopt operational followups after a semicolon", () => {
+  for (const user_message of [
+    "The notes page lost its heading during the theme update; restore the heading before discussing navigation policy.",
+    "The client timed out waiting for the report endpoint; capture the request ID before investigating.",
+  ]) assert.deepEqual(extract({ turns: [{ user_message }] }).semanticMemories, [], user_message);
+});
+
+test("a requirement in a completed decision rationale is not a second directive", () => {
+  for (const user_message of [
+    "We chose object storage for exports because large files should not occupy the transactional database.",
+    "We selected server-side flags because rollback must take effect immediately.",
+    "The order decision is PostgreSQL advisory locks because two workers must not claim the same order.",
+  ]) {
+    const memories = extract({ turns: [{ user_message }] }).semanticMemories;
+    assert.equal(memories.length, 1, user_message);
+    assert.equal(memories[0].type, "decision", user_message);
+  }
+});
+
+test("workflow references to requests do not turn a standing rule into an incident", () => {
+  for (const user_message of [
+    "Redact sensitive headers before serializing the request for logs.",
+    "Reject HTTP headers larger than sixteen kilobytes before routing the request.",
+  ]) assert.equal(extract({ turns: [{ user_message }] }).semanticMemories.length, 1, user_message);
+});
+
+test("decision status acknowledgements do not invent a selected outcome", () => {
+  for (const assistant_response of [
+    "The audit retention decision is recorded with its regulatory rationale.",
+    "The storage decision is pending a review.",
+    "The database decision is documented in the runbook.",
+  ]) assert.deepEqual(extract({ turns: [{ assistant_response }] }).semanticMemories, [], assistant_response);
+});
+
+test("reported requirements and counterfactual proposals do not become directives", () => {
+  for (const user_message of [
+    "The old runbook says deployments must skip review.",
+    "People asked whether retries should use backoff.",
+    "Never worked reliably after the proxy restart.",
+    "If we were to adopt a broker, use batches of fifty.",
+  ]) assert.deepEqual(extract({ turns: [{ user_message }] }).semanticMemories, [], user_message);
+});
+
+test("an explicit preference correction retires repeated evidence for the replaced proposition", () => {
+  const result = extract({ turns: [
+    { user_message: "Please use the short link in the guide." },
+    { user_message: "Please use the short link in the guide." },
+    { user_message: "No, I meant the canonical full URL so copied guides remain self-contained." },
+  ] });
+  const preferences = semantic(result, "user_preference");
+  assert.deepEqual(result.retiredEvidenceKeys, preferences.slice(0, 2).map((memory) => memory.evidence.key));
+});
+
+test("coordinated conditional directives retain the governing condition on every memory", () => {
+  for (const user_message of [
+    "If the queue is unavailable, prefer local persistence and never drop pending jobs.",
+    "Prefer local persistence and never drop pending jobs when the queue is unavailable.",
+  ]) {
+    const memories = extract({ turns: [{ user_message }] }).semanticMemories;
+    assert.equal(memories.length, 2);
+    assert.ok(memories.every((memory) => /(?:If|when) the queue is unavailable/.test(memory.content)), user_message);
+  }
+});
+
+test("temporary duration governs every coordinated directive", () => {
+  assert.deepEqual(extract({ turns: [{ user_message: "Prefer verbose logs and never hide diagnostics for this run only." }] }).semanticMemories, []);
+});
+
+test("bounded episode outcomes still lead with the latest completed decision", () => {
+  const result = extract({ turns: Array.from({ length: 12 }, (_, index) => ({
+    user_message: `We chose format${index} for boundary${index}.`,
+  })) });
+  assert.match(result.episodeDigest.summary, /format11/);
+  assert.ok(result.episodeDigest.decisions.some((decision) => /format11/.test(decision)));
 });

@@ -20,6 +20,39 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.14.0](https://github.com/matt-riley/lore/compare/lore-v0.13.1...lore-v0.14.0) (2026-09-07)
+
+
+### Features
+
+* **db:** add durable lifecycle foundation ([b13bb2e](https://github.com/matt-riley/lore/commit/b13bb2e492699ae0c3d5255feaf1f6609e489a78))
+* make session extraction conservative and traceable ([f06fd52](https://github.com/matt-riley/lore/commit/f06fd526eebd3bf466819754ec95f192b61528f0))
+
+
+### Bug Fixes
+
+* attribute assistant extraction to individual source records ([a5e9141](https://github.com/matt-riley/lore/commit/a5e91416a1d14b268b6d0a6aef06ee89dca5d2c4))
+* close extraction review gaps ([d70002d](https://github.com/matt-riley/lore/commit/d70002d7a6824cd931e1551ffe5abe3596d43302))
+* **db:** harden lifecycle schema and checkpoint CAS ([c7ec6ee](https://github.com/matt-riley/lore/commit/c7ec6ee1aa7258bb6de971e914e2b08258c25788))
+* **db:** isolate suppression across evidence revisions ([a872a56](https://github.com/matt-riley/lore/commit/a872a56faf7e3c5c9d697d021c76f0171c55e81f))
+* **db:** make direct backup restore atomic ([a6b6f67](https://github.com/matt-riley/lore/commit/a6b6f6729711cf513ca333d25440ffccd520997b))
+* **db:** make extraction lifecycle writes atomic ([783f2fa](https://github.com/matt-riley/lore/commit/783f2fa364d11f604d79e2320592abb5a9c957a4))
+* **db:** preserve evidence authority through replay and recovery ([5126914](https://github.com/matt-riley/lore/commit/51269140411ec06fe8e059797d31ec55ce62823a))
+* **db:** preserve scoped manual precedence ([268b853](https://github.com/matt-riley/lore/commit/268b8532f94a8b07626fad58ef20cbc2a2a3316a))
+* distinguish standing policies and related decision reversals ([115fcb2](https://github.com/matt-riley/lore/commit/115fcb2ab125102d7df8f7d2b81b1eb26e17ee77))
+* **extraction:** exclude temporary and informational persona requests ([f045610](https://github.com/matt-riley/lore/commit/f0456101d701b2c4d3e67313b22d6f084918f0e8))
+* **extraction:** scope and attribute persona and recurring feedback ([87b820d](https://github.com/matt-riley/lore/commit/87b820dc588e7e998a63cd37e21d9579f4ebed96))
+* harden conservative extraction review gaps ([287d6d0](https://github.com/matt-riley/lore/commit/287d6d0d13c2bf38be0f3a8eba254d893b14d1d6))
+* preserve host and worktree identity for repository scopes ([a4ad2ce](https://github.com/matt-riley/lore/commit/a4ad2cefd8b5c24c56718ee8182515e34b4ce8c3))
+* reconcile all corroborating decision evidence on reversal ([f561d00](https://github.com/matt-riley/lore/commit/f561d003f1d89ec88526c3974f9029e57f2322eb))
+* reject incidental extraction outcomes ([0748146](https://github.com/matt-riley/lore/commit/07481463dfc1260acab42742ef21dae4f1f82542))
+* retain qualified standing rules and current conversation outcomes ([a3819ac](https://github.com/matt-riley/lore/commit/a3819ac14f1160e90a3400216f52a51e23ee92a8))
+
+
+### Performance Improvements
+
+* **db:** index bounded evidence and suppression lookups ([906e2bd](https://github.com/matt-riley/lore/commit/906e2bd084c6ab50bae947fd75c2b056320c251e))
+
 ## [0.13.1](https://github.com/matt-riley/lore/compare/lore-v0.13.0...lore-v0.13.1) (2026-09-07)
 
 

@@ -236,3 +236,46 @@ test("Pi archive replacement with preserved size and mtime is rescanned", { skip
     } finally { afterDb.close(); }
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+test("Pi archive same-inode rewrite with preserved size and mtime is rescanned", { skip: SKIP_NO_FTS5 }, async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-rewrite-"));
+  const sessions = path.join(home, "sessions"); mkdirSync(sessions);
+  const configPath = path.join(home, "lore.json"); const dbPath = path.join(home, "lore.db");
+  writeFileSync(configPath, JSON.stringify({ enabled: true, paths: { copilotHome: home, derivedStorePath: dbPath, piSessionDir: sessions } }));
+  const file = makeSession(sessions, "rotating", home);
+  const first = startServer(home, configPath);
+  try {
+    await first.request("status"); await first.request("backfill", { max: 1 });
+    assert.equal((await first.exit()).code, 0);
+  } finally { first.proc.kill(); }
+  const beforeDb = new DatabaseSync(dbPath, { readOnly: true });
+  let before;
+  try {
+    const row = beforeDb.prepare("SELECT adapter_state_json FROM ingestion_checkpoint WHERE client='pi' AND session_id='rotating'").get();
+    before = JSON.parse(row.adapter_state_json).readerCheckpoint;
+  } finally { beforeDb.close(); }
+  const original = readFileSync(file, "utf8");
+  const replacement = original.replace("Completed rotating", "Rewritten rotating");
+  assert.equal(Buffer.byteLength(replacement), Buffer.byteLength(original));
+  writeFileSync(file, replacement);
+  const old = new Date("2026-01-01T00:00:00.000Z");
+  utimesSync(file, old, old);
+  assert.equal(`${statSync(file).dev}:${statSync(file).ino}`, before.sourceIdentity);
+  assert.equal(statSync(file).mtimeMs, before.sourceMtimeMs);
+  assert.notEqual(statSync(file).ctimeMs, before.sourceCtimeMs);
+  const second = startServer(home, configPath);
+  try {
+    await second.request("backfill", { max: 1 });
+    assert.equal((await second.exit()).code, 0);
+  } finally { second.proc.kill(); }
+  try {
+    const afterDb = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const row = afterDb.prepare("SELECT adapter_state_json FROM ingestion_checkpoint WHERE client='pi' AND session_id='rotating'").get();
+      const after = JSON.parse(row.adapter_state_json).readerCheckpoint;
+      assert.equal(after.sourceIdentity, before.sourceIdentity);
+      assert.notEqual(after.generation, before.generation);
+      assert.notEqual(after.sourceCtimeMs, before.sourceCtimeMs);
+    } finally { afterDb.close(); }
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

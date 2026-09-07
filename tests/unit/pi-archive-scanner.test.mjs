@@ -136,6 +136,7 @@ test("carries device and inode identity into archive candidates", async () => {
       sourceIdentity: `${fileStats.dev}:${fileStats.ino}`,
       sourceSize: fileStats.size,
       sourceMtimeMs: fileStats.mtimeMs,
+      sourceCtimeMs: fileStats.ctimeMs,
     });
     await scanner.close();
   } finally {

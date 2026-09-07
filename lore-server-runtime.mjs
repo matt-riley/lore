@@ -134,7 +134,8 @@ function alreadyExtracted(sessionId, source = null) {
     const sourceSize = source.sourceSize ?? source.size;
     const sourceMtimeMs = source.sourceMtimeMs ?? source.mtimeMs;
     return Boolean(sourceIdentity && recordedIdentity === sourceIdentity
-      && reader?.sourceSize === sourceSize && reader?.sourceMtimeMs === sourceMtimeMs);
+      && reader?.sourceSize === sourceSize && reader?.sourceMtimeMs === sourceMtimeMs
+      && Number.isFinite(source.sourceCtimeMs) && reader?.sourceCtimeMs === source.sourceCtimeMs);
   }
   if (source) return false;
   // LoreDb wraps the raw node:sqlite handle as `db.db`; there is no public

@@ -62,16 +62,19 @@ describe("db-snapshot-lifecycle", () => {
     const dbPath = path.join(tempDir, "test.db");
     try {
       const db = new DatabaseSync(dbPath);
-      for (const statement of SCHEMA_STATEMENTS) {
-        db.exec(statement);
+      try {
+        for (const statement of SCHEMA_STATEMENTS) {
+          db.exec(statement);
+        }
+        db.exec(`
+          CREATE TABLE "order" (id TEXT PRIMARY KEY, "desc" TEXT);
+          CREATE TABLE "table-with-dashes" (id TEXT PRIMARY KEY);
+          CREATE TABLE "table with spaces""and quotes" (id TEXT PRIMARY KEY);
+          INSERT INTO lore_schema_version (version) VALUES (${SCHEMA_VERSION});
+        `);
+      } finally {
+        db.close();
       }
-      db.exec(`
-        CREATE TABLE "order" (id TEXT PRIMARY KEY, "desc" TEXT);
-        CREATE TABLE "table-with-dashes" (id TEXT PRIMARY KEY);
-        CREATE TABLE "table with spaces""and quotes" (id TEXT PRIMARY KEY);
-        INSERT INTO lore_schema_version (version) VALUES (${SCHEMA_VERSION});
-      `);
-      db.close();
 
       const result = inspectDatabase(dbPath);
       assert.strictEqual(result.exists, true);
@@ -89,13 +92,16 @@ describe("db-snapshot-lifecycle", () => {
     const dbPath = path.join(tempDir, "incomplete.db");
     try {
       const db = new DatabaseSync(dbPath);
-      db.exec(`
-        CREATE TABLE "order" (id TEXT PRIMARY KEY);
-        CREATE TABLE lore_schema_version (version INTEGER);
-        INSERT INTO lore_schema_version (version) VALUES (${SCHEMA_VERSION});
-        CREATE TABLE semantic_memory (id TEXT PRIMARY KEY);
-      `);
-      db.close();
+      try {
+        db.exec(`
+          CREATE TABLE "order" (id TEXT PRIMARY KEY);
+          CREATE TABLE lore_schema_version (version INTEGER);
+          INSERT INTO lore_schema_version (version) VALUES (${SCHEMA_VERSION});
+          CREATE TABLE semantic_memory (id TEXT PRIMARY KEY);
+        `);
+      } finally {
+        db.close();
+      }
 
       const result = inspectDatabase(dbPath);
       assert.strictEqual(result.exists, true);

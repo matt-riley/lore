@@ -323,7 +323,7 @@ describe("backfill extraction and progress reporting", () => {
       });
 
       assert.equal(artifacts.length, 1);
-      assert.equal(artifacts[0].source_case_id, "session:recurring_mistake:global:fixture-repo:recurring_mistake:missing or overriding explicit user corrections before continuing implementation");
+      assert.equal(artifacts[0].source_case_id, "session:recurring_mistake:repo:fixture-repo:recurring_mistake:missing or overriding explicit user corrections before continuing implementation");
       assert.equal(artifacts[0].title, "Session-inferred recurring mistake");
       assert.equal(artifacts[0].summary, "Mistake: missing or overriding explicit user corrections before continuing implementation");
       assert.ok(artifacts[0].linked_memory_id);

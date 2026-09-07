@@ -892,3 +892,89 @@ test("bounded episode outcomes still lead with the latest completed decision", (
   assert.match(result.episodeDigest.summary, /format11/);
   assert.ok(result.episodeDigest.decisions.some((decision) => /format11/.test(decision)));
 });
+
+describe("recurring feedback attribution and scope", () => {
+  test("keeps direct repository feedback local and explicit cross-project feedback global", () => {
+    const local = semantic(extract({ turns: [{ user_message: "You keep using semicolons in this Python repository." }] }), "recurring_mistake");
+    assert.equal(local.length, 1);
+    assert.equal(local[0].scope, "repo");
+    assert.equal(local[0].repository, "owner/repo");
+    assert.equal(local[0].metadata.sourceRole, "user");
+    assert.equal(local[0].metadata.confidenceBasis, "direct_recurring_feedback");
+    const global = semantic(extract({ turns: [{ user_message: "Across all projects, you keep ignoring my explicit corrections." }] }), "recurring_mistake");
+    assert.equal(global.length, 1);
+    assert.equal(global[0].scope, "global");
+    assert.equal(global[0].repository, null);
+  });
+
+  test("does not promote reported, quoted, hypothetical or approving observations to recurring mistakes", () => {
+    for (const user_message of [
+      "The bug report says you always return stale cache entries.",
+      'The example says "you keep using stale cache entries."',
+      "If you keep returning stale cache entries, the test might fail.",
+      "Do you always return stale cache entries?",
+      "You always explain the result clearly, which is helpful.",
+      "Again the server returns stale cache entries.",
+    ]) {
+      assert.deepEqual(semantic(extract({ turns: [{ user_message }] }), "recurring_mistake"), [], user_message);
+    }
+    const reportedCorrections = extract({ turns: [
+      { user_message: "The bug report says the cache should be invalidated." },
+      { user_message: "The incident report says the retry needs to finish." },
+    ] });
+    assert.deepEqual(semantic(reportedCorrections, "recurring_mistake"), []);
+  });
+
+  test("implicit repeated corrections stay local and unknown origin cannot become global", () => {
+    const turns = [
+      { user_message: "No, keep the artifact content unchanged while refactoring." },
+      { user_message: "Still, stop touching other production files in this lane." },
+    ];
+    const local = semantic(extract({ turns }), "recurring_mistake");
+    assert.equal(local.length, 1);
+    assert.equal(local[0].scope, "repo");
+    assert.equal(local[0].repository, "owner/repo");
+    const unknown = semantic(extract({ repository: null, turns }), "recurring_mistake");
+    assert.equal(unknown[0].scope, "repo");
+    assert.equal(unknown[0].repository, null);
+  });
+});
+
+describe("persona extraction uses direct sentence attribution", () => {
+  test("style questions and reported guidance do not create global persona", () => {
+    for (const user_message of [
+      "Could you explain why we use a friendly tone?",
+      'The style guide says "please use a friendly tone".',
+      "If you used a friendly tone, would that help?",
+    ]) assert.deepEqual(semantic(extract({ turns: [{ user_message }] }), "interaction_style"), [], user_message);
+  });
+  test("style keeps explicit repository scope and does not swallow separate directives", () => {
+    const scoped = semantic(extract({ turns: [{ user_message: "For this repository, please use a friendly tone." }] }), "interaction_style");
+    assert.equal(scoped.length, 1);
+    assert.equal(scoped[0].scope, "repo");
+    assert.equal(scoped[0].repository, "owner/repo");
+    const mixed = extract({ turns: [{ user_message: "Please use a friendly tone. For this repository, never disable TLS certificate validation." }] });
+    const style = semantic(mixed, "interaction_style");
+    assert.equal(style.length, 1);
+    assert.equal(style[0].scope, "global");
+    assert.doesNotMatch(style[0].content, /TLS/);
+    const rejection = semantic(mixed, "rejected_approach");
+    assert.equal(rejection.length, 1);
+    assert.equal(rejection[0].scope, "repo");
+    assert.match(rejection[0].content, /TLS/);
+  });
+  test("assistant naming excludes questions, negation and reported text while preserving scoped declarations", () => {
+    for (const user_message of [
+      "Should I call you Merlin?", "Do not call yourself Merlin.",
+      'The documentation says "your name is Merlin".', "If I call you Merlin, would that work?",
+      "I used the name Merlin in that doc.",
+    ]) assert.deepEqual(semantic(extract({ turns: [{ user_message }] }), "assistant_identity"), [], user_message);
+    const scoped = semantic(extract({ turns: [{ user_message: "For this repository, call yourself Merlin." }] }), "assistant_identity");
+    assert.equal(scoped.length, 1);
+    assert.equal(scoped[0].scope, "repo");
+    assert.equal(scoped[0].repository, "owner/repo");
+    const direct = semantic(extract({ turns: [{ user_message: "Please call yourself Merlin." }] }), "assistant_identity");
+    assert.equal(direct[0].scope, "global");
+    assert.equal(direct[0].metadata.sourceRole, "user");
+  });
+});

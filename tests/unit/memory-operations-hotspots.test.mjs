@@ -110,13 +110,15 @@ describe("memory-operations hotspot coverage", () => {
       focus: "summary",
     });
 
+    // The overlay's raw content is not rendered by the workstream section;
+    // it must not masquerade as included recall evidence in the trace.
     assert.deepEqual(
       reflection.insights.map((entry) => entry.text),
       [
         "Avoid broad suppressions",
-        "Hotspot cleanup workstream",
         "Keep output stable",
         "Pending recall split",
+        "Preserve lookup ordering",
       ],
     );
     assert.ok(

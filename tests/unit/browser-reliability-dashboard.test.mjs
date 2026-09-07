@@ -168,6 +168,8 @@ describe("reliability dashboard renderers", () => {
     db.db.prepare("UPDATE memory_evidence SET retired_at = ? WHERE memory_id = ? AND evidence_key = ?").run("2026-09-07T09:05:00.000Z", memoryId, evidenceKey);
     db.db.prepare(`INSERT INTO memory_suppression (suppression_key, memory_id, scope, repository, actor, reason, created_at, superseded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run("suppression:fixture", memoryId, "repo", "owner/repo", "fixture", "reviewed test suppression", "2026-09-07T08:30:00.000Z", null);
+    db.db.prepare(`INSERT INTO memory_suppression (suppression_key, memory_id, scope, repository, actor, reason, created_at, superseded_at, repair_candidate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("suppression:repair-candidate", memoryId, "repo", "owner/repo", "migration", "legacy repair candidate", "2026-09-07T08:00:00.000Z", null, 1);
     const { server } = startLoreBrowserServer({ db, host: "127.0.0.1", port: 0, repository: "owner/repo" });
     await new Promise((resolve) => server.once("listening", resolve));
     try {
@@ -178,11 +180,12 @@ describe("reliability dashboard renderers", () => {
       assert.equal(payload.data.lifecycle.evidence[0].sourceRole, "user");
       assert.equal(payload.data.lifecycle.evidence[0].sourceRecordId, "turn-1");
       assert.equal(payload.data.lifecycle.state.suppression, "suppressed");
+      assert.equal(payload.data.lifecycle.state.activeSuppressionCount, 1);
       const evidenceTimeline = payload.data.lifecycle.timeline.filter((item) => item.kind.includes("evidence"));
       assert.deepEqual(new Set(evidenceTimeline.map((item) => item.kind)), new Set(["evidence", "evidence_retired", "evidence_link_retired"]));
       assert.equal(evidenceTimeline.find((item) => item.kind === "evidence_retired").at, "2026-09-07T09:00:00.000Z");
       assert.equal(evidenceTimeline.find((item) => item.kind === "evidence_link_retired").at, "2026-09-07T09:05:00.000Z");
-      assert.deepEqual(payload.data.lifecycle.timeline.find((item) => item.kind === "suppression"), {
+      assert.deepEqual(payload.data.lifecycle.timeline.find((item) => item.kind === "suppression" && item.actor === "fixture"), {
         at: "2026-09-07T08:30:00.000Z",
         kind: "suppression",
         label: "Suppression recorded",

@@ -849,3 +849,30 @@ test("canonical hydration uses raw cwd and never restores a resolved-null legacy
     assert.equal(reader.searchIndex({ query: "quartzanchor", repository: null })[0].repository, null);
   } finally { reader?.db?.close(); rmSync(home, { recursive: true, force: true }); }
 });
+
+test("historical hydration ignores the active repository environment override", () => {
+  const home = makeTempDir(); let reader;
+  const previous = process.env.LORE_REPOSITORY;
+  process.env.LORE_REPOSITORY = "active/repository";
+  try {
+    const file = buildRawStore(home, [["historical", "legacy/repository", null, null, null, null]]);
+    const raw = new DatabaseSync(file);
+    raw.prepare("UPDATE sessions SET cwd=?").run("/historical/source/cwd");
+    raw.close();
+    const seen = [];
+    reader = new SessionStoreReader(buildFixtureConfig(home), {
+      resolveRepositoryIdentity: (identity) => {
+        seen.push(identity);
+        return identity.legacy;
+      },
+    });
+    reader.initialize();
+    assert.equal(reader.getRecentSessionsWindow()[0].repository, "legacy/repository");
+    assert.equal(seen[0].explicit, undefined);
+  } finally {
+    reader?.db?.close();
+    rmSync(home, { recursive: true, force: true });
+    if (previous === undefined) delete process.env.LORE_REPOSITORY;
+    else process.env.LORE_REPOSITORY = previous;
+  }
+});

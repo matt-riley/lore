@@ -21,8 +21,8 @@ document.querySelectorAll<HTMLElement>("[data-archive]").forEach((element) => {
     button.textContent = "Opening the archive…";
     let cleanupOnFailure: (() => void) | undefined;
     try {
-      const [THREE, { GLTFLoader }, { RoomEnvironment }, { OrbitControls }] = await Promise.all([
-        import("three"),
+      const [{ THREE }, { GLTFLoader }, { RoomEnvironment }, { OrbitControls }] = await Promise.all([
+        import("./three-runtime"),
         import("three/addons/loaders/GLTFLoader.js"),
         import("three/addons/environments/RoomEnvironment.js"),
         import("three/addons/controls/OrbitControls.js"),

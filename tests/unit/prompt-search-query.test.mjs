@@ -156,3 +156,12 @@ test("prompt fallback recognizes safe paginate and pagination morphology", () =>
   ], ["pagination"]);
   assert.deepEqual(rows.map((row) => row.id), ["paginate"]);
 });
+
+test("preserves exact plural and technical spellings alongside morphological variants", () => {
+  const variants = expandPromptSearchTerms(["status", "postgres"], { maxTerms: 2, maxVariants: 16 });
+  assert.ok(variants.includes("status"));
+  assert.ok(variants.includes("postgres"));
+  assert.deepEqual(scorePromptFallbackRows([
+    { id: "technical", content: "Status reports use Postgres for the release." },
+  ], ["status", "postgres"]).map((row) => row.id), ["technical"]);
+});

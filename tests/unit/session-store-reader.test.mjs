@@ -876,3 +876,22 @@ test("historical hydration ignores the active repository environment override", 
     else process.env.LORE_REPOSITORY = previous;
   }
 });
+
+test("repository identity hydration caches by source and invalidates when mappings change", () => {
+  let version = 1;
+  let calls = 0;
+  const reader = new SessionStoreReader({ paths: { copilotHome: "/ignored" } }, {
+    resolveRepositoryIdentity: ({ cwd, legacy }) => {
+      calls += 1;
+      return `${cwd}:${legacy}`;
+    },
+    identityResolverCacheVersion: () => version,
+  });
+  const row = { id: "same", cwd: "/repo", repository: "legacy", branch: null, summary: null, created_at: null, updated_at: null };
+  assert.equal(reader.hydrateSessionRow(row).repository, "/repo:legacy");
+  assert.equal(reader.hydrateSessionRow({ ...row, id: "different" }).repository, "/repo:legacy");
+  assert.equal(calls, 1);
+  version = 2;
+  assert.equal(reader.hydrateSessionRow(row).repository, "/repo:legacy");
+  assert.equal(calls, 2);
+});

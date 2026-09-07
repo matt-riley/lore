@@ -53,6 +53,7 @@ const RECALL_TYPES = [
   "user_identity",
   "assistant_goal",
   "recurring_mistake",
+  "decision",
   "interaction_style",
 ];
 

@@ -14,6 +14,7 @@ const save = (db, id, content, extra = {}) => db.insertSemanticMemory({ id, type
 const apply = (fn, db, request, plan = fn(db, request)) => fn(db, { ...request, action: "apply", planFingerprint: plan.planFingerprint, selectedCandidateIds: plan.candidateIds });
 function transcript(db, config, sessionId, lines, client = "codex") {
   const sourcePath = path.join(path.dirname(config.paths.derivedStorePath), `${sessionId}.jsonl`);
+  if (client === "codex") lines = [{ type: "session_meta", payload: { id: sessionId.replace(/^codex:/, "") } }, ...lines];
   writeFileSync(sourcePath, lines.map((value) => JSON.stringify(value)).join("\n") + "\n");
   const stat = statSync(sourcePath);
   db.saveIngestionCheckpoint(client, sessionId, { sourceIdentity: `${stat.dev}:${stat.ino}`, repository: repo, adapterState: { sourcePath, sourceCwd: path.dirname(sourcePath) }, health: {} });
@@ -203,12 +204,12 @@ test("safe source reader rejects FIFO promptly in a timed child", () => {
 });
 
 test("full repair role descriptors generate the native per-record evidence contract", () => {
-  const bytes = Buffer.from([user("Which database?"), { type: "response_item", payload: { type: "message", role: "assistant", content: "We decided to use PostgreSQL because we need concurrent writers." } }].map(JSON.stringify).join("\n") + "\n");
+  const bytes = Buffer.from([{ type: "session_meta", payload: { id: "native" } }, user("Which database?"), { type: "response_item", payload: { type: "message", role: "assistant", content: "We decided to use PostgreSQL because we need concurrent writers." } }].map(JSON.stringify).join("\n") + "\n");
   const artifacts = parseAdministrationTranscript(bytes, { client: "codex", sessionId: "native", repository: repo, timestamp: "2026-01-01T00:00:00Z" });
   const result = extractSessionMemories({ sessionId: "native", repository: repo, sessionArtifacts: artifacts, workspace: { workspace: { repository: repo } } });
   const decision = result.semanticMemories.find((row) => row.evidence?.sourceKind === "decision");
   assert.ok(decision, JSON.stringify(result.semanticMemories));
-  assert.equal(decision.evidence.sourceRecordId, String(bytes.indexOf(10) + 1));
+  assert.equal(decision.evidence.sourceRecordId, String(bytes.indexOf(10, bytes.indexOf(10) + 1) + 1));
 });
 
 test("available Copilot raw session store is repaired read-only", async () => {
@@ -407,7 +408,7 @@ test("repair rejects a newly introduced canonical manual destination after previ
 });
 
 test("complete Claude repair follows the last physical revision and ancestry order", () => {
-  const node = (uuid, parentUuid, role, content) => ({ uuid, parentUuid, type: role, message: { role, content } });
+  const node = (uuid, parentUuid, role, content) => ({ sessionId: "branch", uuid, parentUuid, type: role, message: { role, content } });
   const records = [node("u", null, "user", "Choose a database."), node("a", "u", "assistant", "Old a."), node("b", "u", "assistant", "Branch b."), node("a", "u", "assistant", "Revised a.")];
   const parse = (values) => parseAdministrationTranscript(Buffer.from(values.map(JSON.stringify).join("\n") + "\n"), { client: "claude", sessionId: "branch", repository: repo, timestamp: "2026-01-01" });
   const first = parse(records);
@@ -436,4 +437,17 @@ test("missing repository or global targets cannot report a successful no-op purg
       assert.throws(() => apply(memoryPurge, f.db, request, plan), /unresolved/);
     }
   } finally { f.cleanup(); }
+});
+
+
+test("repair requires a matching unambiguous native identity before accepting source evidence", () => {
+  for (const client of ["codex", "claude", "pi"]) {
+    const identified = (id) => client === "codex" ? { type: "session_meta", payload: { id } }
+      : client === "claude" ? { type: "user", sessionId: id } : { type: "session", id };
+    const parse = (records) => parseAdministrationTranscript(Buffer.from(records.map(JSON.stringify).join("\n") + "\n"), { client, sessionId: `${client}:expected` });
+    assert.throws(() => parse([{}]), /SOURCE_SESSION_ID_MISSING/, client);
+    assert.throws(() => parse([identified("")]), /SOURCE_SESSION_ID_MISSING/, client);
+    assert.throws(() => parse([identified("expected"), identified("foreign")]), /SOURCE_SESSION_MISMATCH/, client);
+    assert.doesNotThrow(() => parse([identified("expected"), identified("expected")]), client);
+  }
 });

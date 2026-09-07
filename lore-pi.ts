@@ -30,8 +30,7 @@ import { Type } from "typebox";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { resolveRepositoryIdentity } from "./lib/utils/repository-identity.mjs";
 import { createPiServerClient } from "./lib/clients/pi-server-client.mjs";
 
 type LoreConfig = {
@@ -203,48 +202,11 @@ function notify(
   }
 }
 
-/** Best-effort repository slug ("owner/name") from the git remote, else the toplevel dir name. */
 function deriveRepository(cwd: string): string | null {
-  if (repoCache.has(cwd)) {
-    return repoCache.get(cwd)!;
-  }
   const explicit = process.env.LORE_REPOSITORY?.trim();
-  if (explicit) {
-    return explicit;
-  }
-  let repo: string | null = null;
-  try {
-    const remote = execSync("git remote get-url origin", { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    let host = "";
-    let remotePath = "";
-    if (remote.includes("://")) {
-      const url = new URL(remote);
-      if (["ssh:", "https:", "http:", "git:"].includes(url.protocol)) {
-        host = url.host.toLowerCase();
-        remotePath = url.pathname;
-      }
-    } else {
-      const match = remote.match(/^(?:[^@/\s]+@)?(\[[^\]]+\]|[^/:\s]+):(.+)$/u);
-      if (match) {
-        host = match[1].toLowerCase();
-        remotePath = match[2];
-      }
-    }
-    remotePath = remotePath.replace(/^\/+|\/+$/gu, "").replace(/\.git$/u, "");
-    if (host && remotePath && !/[\s?#]/u.test(remotePath)) repo = `${host}/${remotePath}`;
-  } catch {
-    // A local-only repository still has a stable common-directory identity.
-  }
-  if (!repo) {
-    try {
-      const common = realpathSync(path.resolve(cwd, execSync("git rev-parse --git-common-dir", { cwd, encoding: "utf8" }).trim()));
-      repo = `local:${createHash("sha256").update(common).digest("hex")}`;
-    } catch {
-      repo = null;
-    }
-  }
-  repoCache.set(cwd, repo);
-  return repo;
+  if (explicit) return resolveRepositoryIdentity({ cwd, explicit });
+  if (!repoCache.has(cwd)) repoCache.set(cwd, resolveRepositoryIdentity({ cwd }));
+  return repoCache.get(cwd) ?? null;
 }
 
 // recallMemory with a stopword-cleaned retrieval query, plus semantic rescue

@@ -830,3 +830,22 @@ describe("SessionStoreReader.collectRelevantSessionMatches", () => {
     ]);
   });
 });
+
+test("canonical hydration uses raw cwd and never restores a resolved-null legacy identity", () => {
+  const home = makeTempDir(); let reader;
+  try {
+    const file = buildRawStore(home, [["source", "ambiguous/repo", null, null, null, null]]);
+    const raw = new DatabaseSync(file);
+    raw.prepare("UPDATE sessions SET cwd=?").run("/actual/source/cwd");
+    raw.exec("CREATE VIRTUAL TABLE search_index USING fts5(session_id, content, source_type, source_id)");
+    raw.prepare("INSERT INTO search_index VALUES (?, ?, ?, ?)").run("source", "quartzanchor", "turn", "1");
+    raw.close();
+    const seen = [];
+    reader = new SessionStoreReader(buildFixtureConfig(home), { resolveRepositoryIdentity: (identity) => { seen.push(identity); return null; } });
+    reader.initialize();
+    assert.equal(reader.getRecentSessionsWindow()[0].repository, null);
+    assert.equal(seen[0].cwd, "/actual/source/cwd");
+    assert.deepEqual(reader.searchIndex({ query: "quartzanchor", repository: "ambiguous/repo" }), []);
+    assert.equal(reader.searchIndex({ query: "quartzanchor", repository: null })[0].repository, null);
+  } finally { reader?.db?.close(); rmSync(home, { recursive: true, force: true }); }
+});

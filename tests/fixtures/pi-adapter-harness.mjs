@@ -23,12 +23,15 @@ writeFileSync(adapterPath, source);
 
 const { default: registerLore } = await import(pathToFileURL(adapterPath));
 const handlers = new Map();
+const tools = new Map();
 const pi = {
   on(name, handler) {
     handlers.set(name, handler);
   },
   registerCommand() {},
-  registerTool() {},
+  registerTool(definition) {
+    tools.set(definition.name, definition);
+  },
 };
 registerLore(pi);
 
@@ -56,6 +59,14 @@ await Promise.all([
 await handlers.get("before_agent_start")({ prompt: "remember the adapter lifecycle" }, ctx);
 await new Promise((resolve) => setTimeout(resolve, 50));
 await handlers.get("before_agent_start")({ prompt: "remember the adapter lifecycle" }, ctx);
+const recoveredRecall = await tools.get("lore_recall").execute(
+  "test-call",
+  { query: "unmatched typed lookup" },
+  undefined,
+  undefined,
+  ctx,
+);
+assert.match(recoveredRecall?.content?.[0]?.text ?? "", /typed fallback memory/);
 await handlers.get("session_shutdown")({}, ctx);
 
 console.log(JSON.stringify({ ok: true }));

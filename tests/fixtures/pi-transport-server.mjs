@@ -47,8 +47,10 @@ function handleLine(line) {
     ? { ready: "pi-transport-✓" }
     : request.method === "recall"
       ? { text: "", includedRows: 0, memoryCount: 0 }
-      : request.method === "search"
-        ? []
+        : request.method === "search"
+        ? (process.env.LORE_PI_TYPED_FALLBACK === "1"
+          ? [{ type: "decision", content: "typed fallback memory" }]
+          : [])
         : request.method === "backfill"
           ? { queued: 0 }
           : { echo: request.params?.message ?? null };

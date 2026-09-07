@@ -70,7 +70,7 @@ test("correction wrappers deduplicate manual destination and preserve transferab
     const result = apply(memoryCorrect, f.db, { memoryId: "old", content: "Prefer clear names.", scope: "transferable", repository: "other/repo" });
     assert.equal(result.replacementId, "destination");
     assert.equal(result.replacement.repository, "other/repo");
-    assert.equal(result.replacement.expires_at, "2030-01-01T00:00:00Z");
+    assert.equal(result.replacement.expires_at, "2030-01-01T00:00:00.000Z");
     assert.equal(result.replacement.scope_source, "manual");
     assert.equal(f.db.isMemorySuppressed("old"), true);
   } finally { f.cleanup(); }

@@ -119,6 +119,8 @@ test("complete repair retires old false global output and preserves early suppor
     assert.ok(!plan.candidateIds.includes("false-global"));
     const result = apply(memoryRepair, f.db, request, plan);
     assert.equal(result.applied, true);
+    assert.ok(result.repairedMemoryIds.length > 0);
+    assert.ok(result.repairedMemoryIds.every((id) => f.db.db.prepare("SELECT 1 FROM semantic_memory WHERE id=?").get(id)));
     assert.ok(f.db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id='false-global'").get().superseded_by);
     assert.equal(f.db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id='manual'").get().superseded_by, null);
     assert.ok(f.db.db.prepare("SELECT 1 FROM semantic_memory WHERE content LIKE '%descriptive variable%' AND superseded_by IS NULL").get());
@@ -321,4 +323,73 @@ test("repair re-scopes a legacy false global with the same source evidence key",
     assert.equal(evidence[0].retiredAt, null);
     assert.equal(evidence[0].linkRetiredAt, null);
   } finally { f.cleanup(); }
+});
+
+test("unrelated suppression history cannot exhaust a single-memory correction preview", async () => {
+  const f = await withFixtureDb();
+  try {
+    for (let index = 0; index < 55; index++) {
+      const id = save(f.db, `unrelated-${index}`, `Unrelated preference ${index}`);
+      f.db.forgetMemory({ id });
+    }
+    save(f.db, "target", "Prefer old names.");
+    const request = { memoryId: "target", content: "Prefer clear names." };
+    const plan = memoryCorrect(f.db, request);
+    assert.equal(plan.unresolvedCandidates.length, 0);
+    assert.equal(apply(memoryCorrect, f.db, request, plan).applied, true);
+  } finally { f.cleanup(); }
+});
+
+test("purge previews cross-session checkpoint plaintext copies without evidence links", async () => {
+  const f = await withFixtureDb();
+  try {
+    save(f.db, "secret", "quartzsecret across checkpoints");
+    f.db.saveIngestionCheckpoint("codex", "unlinked", { repository: repo, adapterState: { turns: [{ user_message: "quartzsecret across checkpoints" }] }, health: {} });
+    const before = memoryPurge(f.db, { memoryIds: ["secret"] });
+    assert.ok(before.unresolvedCandidates.some((row) => row.code === "DEPENDENT_AGGREGATES_REQUIRE_SELECTION"));
+    const request = { memoryIds: ["secret"], includeDependentAggregates: true };
+    const plan = memoryPurge(f.db, request);
+    assert.ok(plan.aggregateCandidates.some((row) => row.table === "ingestion_checkpoint" && row.key.session_id === "unlinked"));
+    apply(memoryPurge, f.db, request, plan);
+    assert.equal(JSON.stringify(f.db.db.prepare("SELECT * FROM ingestion_checkpoint").all()).includes("quartzsecret"), false);
+  } finally { f.cleanup(); }
+});
+
+test("repair rejects a newly introduced canonical manual destination after preview", async () => {
+  const f = await withFixtureDb();
+  try {
+    transcript(f.db, f.config, "destination-race", [user("For this repository, I prefer clear variable names.")]);
+    save(f.db, "legacy-race", "Outdated output", { sourceSessionId: "destination-race" });
+    const request = { memoryIds: ["legacy-race"] };
+    const plan = memoryRepair(f.db, request);
+    const proposed = plan.repairCandidates[0].memories[0];
+    const manual = f.db.insertSemanticMemory({ ...proposed, sourceSessionId: "other-session", metadata: { source: "memory_save" } });
+    assert.throws(() => apply(memoryRepair, f.db, request, plan), /stale/);
+    const fresh = memoryRepair(f.db, request);
+    assert.ok(fresh.affected.repairDestinationMemoryIds.includes(manual));
+    const before = f.db.db.prepare("SELECT content,scope,repository,metadata_json FROM semantic_memory WHERE id=?").get(manual);
+    apply(memoryRepair, f.db, request, fresh);
+    assert.deepEqual(f.db.db.prepare("SELECT content,scope,repository,metadata_json FROM semantic_memory WHERE id=?").get(manual), before);
+  } finally { f.cleanup(); }
+});
+
+test("complete Claude repair follows the last physical revision and ancestry order", () => {
+  const node = (uuid, parentUuid, role, content) => ({ uuid, parentUuid, type: role, message: { role, content } });
+  const records = [node("u", null, "user", "Choose a database."), node("a", "u", "assistant", "Old a."), node("b", "u", "assistant", "Branch b."), node("a", "u", "assistant", "Revised a.")];
+  const parse = (values) => parseAdministrationTranscript(Buffer.from(values.map(JSON.stringify).join("\n") + "\n"), { client: "claude", sessionId: "branch", repository: repo, timestamp: "2026-01-01" });
+  const first = parse(records);
+  assert.equal(first.turns[0].assistant_response, "Revised a.");
+  // Parent and leaf UUIDs may both have later physical revisions.
+  const revised = parse([...records, node("u", null, "user", "Revised parent."), node("a", "u", "assistant", "Latest a.")]);
+  assert.equal(revised.turns.length, 1);
+  assert.equal(revised.turns[0].user_message, "Revised parent.");
+  assert.equal(revised.turns[0].assistant_response, "Latest a.");
+});
+
+test("complete repair rejects a replaced source with another known native session identity", () => {
+  const parse = (client, values) => parseAdministrationTranscript(Buffer.from(values.map(JSON.stringify).join("\n") + "\n"), { client, sessionId: `${client}:expected`, repository: repo, timestamp: "2026-01-01" });
+  assert.throws(() => parse("codex", [{ type: "session_meta", payload: { id: "other" } }, user("For this repository, prefer clear names.")]), /SOURCE_SESSION_MISMATCH/);
+  assert.doesNotThrow(() => parse("codex", [{ type: "session_meta", payload: { id: "expected" } }]));
+  assert.throws(() => parse("claude", [{ type: "user", uuid: "u", sessionId: "other", message: { role: "user", content: "Hello" } }]), /SOURCE_SESSION_MISMATCH/);
+  assert.doesNotThrow(() => parse("antigravity", [{ step_index: 0, status: "DONE", type: "USER_INPUT", source: "USER_EXPLICIT", content: "Hello" }]));
 });

@@ -22,6 +22,7 @@ The default path settings are:
 | `paths.derivedStorePath` | `~/.config/lore/lore.db` |
 | `paths.backupDir` | `~/.config/lore/backups` |
 | `paths.instructionsPath` | `~/.copilot/copilot-instructions.md` |
+| `paths.scopedInstructionsDir` | `~/.copilot/instructions` |
 
 Keep the raw store and derived store separate. Lore reads the raw store and writes derived memory to `lore.db`.
 

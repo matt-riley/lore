@@ -51,6 +51,7 @@ also supports the experimental native hook adapters, but capabilities differ:
 | `memory_status` | Reports health, counts, latency, and maintenance state |
 | `memory_explain` | Explains a retrieval or suppression decision |
 | `memory_validate` | Checks database integrity and schema parity |
+| `memory_skill_validate` | Validates `SKILL.md` files and frontmatter integrity |
 
 These are the supported Copilot CLI tools to build everyday workflows around. Pi uses the adapter names described above; it does not expose these `memory_*` names as native Pi tools.
 
@@ -66,6 +67,11 @@ These are the supported Copilot CLI tools to build everyday workflows around. Pi
 | `memory_portable_bundle` | Export approved improvement artifacts; OKF import is manual |
 | `memory_scope_override` / `memory_scope_audit` | Inspect or override active scope |
 | `memory_doctor_report` | Generate an observe-only health report |
+| `memory_intent_journal` | Inspect or record durable intent/routing journal entries |
+| `memory_improvement_backlog` | Inspect or update durable improvement artifacts |
+| `memory_evolution_ledger` | Review-gated evolution ledger and proposal generation |
+| `memory_capability_inventory` | Scan local skills, agents, and tool surfaces with rollout state |
+| `memory_review_gate` | Evaluate review gates for proposals and changes |
 | Browser dashboard | Inspect local memories through a read-only loopback UI |
 
 Some experimental tools require rollout flags such as `evolutionLedger`, `loreDoctor`, or `refreshableObservations`. They do not receive the same stability promise as the core.

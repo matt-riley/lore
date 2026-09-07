@@ -25,6 +25,13 @@ Copilot CLI runs Lore in its extension runtime. It and Pi use separate adapter r
 
 Temporal questions use normalised dates and day or episode summaries first. Lore only falls back to bounded raw session-store verification when that evidence is missing.
 
+### Native CLI events (Codex, Claude Code, Antigravity)
+
+Codex CLI, Claude Code, and Antigravity CLI connect through native lifecycle command hooks:
+1. `UserPromptSubmit` (Codex, Claude) and `PreInvocation` (Antigravity) recall prompt-relevant memories and inject bounded context before the model runs.
+2. `SessionStart` (Codex, Claude) and the initial `PreInvocation` (Antigravity) perform startup initialization.
+3. `Stop` and `SessionEnd` (Codex, Claude) and `PostInvocation`/`Stop` (Antigravity) capture completed work from the active transcript into the shared store.
+
 ## What gets stored
 
 The derived store can contain semantic memories, episode and day summaries, commitments, working-profile information, and provenance. A memory may include a repository scope, category, confidence, source, and supersession history.
@@ -35,19 +42,21 @@ Lore reads Copilot's raw `session-store.db` for extraction and backfill. It neve
 
 Lore keeps global memories eligible across repositories. Repository-scoped memories are eligible for their repository; cross-repository results are bounded and require the relevant request or configuration. Workstream overlays can add active project context when the feature is enabled.
 
-The shared retrieval concepts are exposed through adapter-specific names. In Pi, use `lore_recall`; in Copilot CLI, use `memory_search` for keyword search and `memory_explain` to inspect a prompt decision:
+The shared retrieval concepts are exposed through adapter-specific interfaces:
 
 | Adapter | Tool | Use it for |
 | --- | --- | --- |
-| Pi | `lore_recall` | Explicit query search with lexical and optional semantic matches |
+| Copilot CLI | `lore_recall` | Prompt-relevant retrieval with provenance and optional semantic matches |
 | Copilot CLI | `memory_search` | Explicit keyword search |
 | Copilot CLI | `memory_explain` | Why a prompt was matched, filtered, or skipped |
+| Pi | `lore_recall` | Explicit query search with lexical and optional semantic matches |
+| Codex, Claude, Antigravity | `lore_recall` / `memory_search` | Direct shell-invoked recall and keyword search via `lore-cli.mjs tool` |
 
 With local embeddings enabled, `lore_recall` appends meaning-ranked matches to lexical results. Embeddings augment lexical retrieval; they do not replace it, and endpoint failures fall back to lexical search.
 
 ## Writing and retiring memories
 
-In Copilot CLI, use `lore_retain` for a structured memory with scope and category, `memory_save` for an explicit freeform note or decision, and `memory_forget` to soft-delete a memory by marking it superseded. In Pi, use `lore_save` and provide an explicit `scope` when you need to control classification. Lore keeps provenance so a later review can understand where a result came from.
+In Copilot CLI, use `lore_retain` for a structured memory with scope and category, `memory_save` for an explicit freeform note or decision, and `memory_forget` to soft-delete a memory by marking it superseded. In Pi, use `lore_save` and provide an explicit `scope` when you need to control classification. For Codex CLI, Claude Code, and Antigravity CLI, run `lore_retain`, `memory_save`, or `memory_forget` through `lore-cli.mjs tool`. Lore keeps provenance so a later review can understand where a result came from.
 
 ## Reflection is advisory
 

@@ -9,7 +9,7 @@ Contributions are welcome, especially fixes, clear documentation, useful diagnos
 
 ## Before changing code
 
-Read the README, [compatibility contract](https://github.com/matt-riley/lore/blob/main/docs/compatibility.md), and support matrix. For tool or hook changes, inspect `lib/capability-manifest.mjs` first; it is the canonical metadata source. Significant changes to memory behavior, retention, or the database should begin with an issue to discuss the approach.
+Read the README, [compatibility contract](https://github.com/matt-riley/lore/blob/main/docs/compatibility.md), and support matrix. For tool or hook changes, inspect `lib/capabilities/capability-manifest.mjs` first; it is the canonical metadata source. Significant changes to memory behavior, retention, or the database should begin with an issue to discuss the approach.
 
 ## Set up a checkout
 
@@ -48,7 +48,7 @@ Use ESM, two-space indentation, double quotes, semicolons, and trailing commas. 
 
 ## Documentation changes
 
-Describe user-visible behavior and mark experimental features clearly. When tool metadata or support changes, update `lib/capability-manifest.mjs` and `docs/support-matrix.md` together. Keep compatibility and release-facing docs in sync with public behavior.
+Describe user-visible behavior and mark experimental features clearly. When tool metadata or support changes, update `lib/capabilities/capability-manifest.mjs` and `docs/support-matrix.md` together. Keep compatibility and release-facing docs in sync with public behavior.
 
 ## Pull requests
 

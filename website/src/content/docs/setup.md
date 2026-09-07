@@ -19,7 +19,7 @@ npm run setup
 
 If you already have a Lore checkout, run `npm run setup` there. No npm dependency installation or runtime build is needed.
 
-The installer lists detected clients: Copilot (`copilot`), Pi (`pi`), Codex (`codex`), Claude Code (`claude`), and Antigravity CLI (`agy`). Enter names or numbers separated by commas, or `all`. Review the installation paths and confirm with `y`. An empty selection or declining confirmation cancels without changes.
+The installer lists detected clients: Copilot (`copilot`), Pi (`pi`), Codex (`codex`), Claude Code (`claude`), and Antigravity CLI (`antigravity`). Enter names or numbers separated by commas, or `all`. Review the installation paths and confirm with `y`. An empty selection or declining confirmation cancels without changes.
 
 Detection means the executable is available, not that the client is authenticated or its version is compatible. Codex, Claude Code, and Antigravity integrations remain [experimental](/guides/cli-integrations/#compatibility-and-current-limits). Claude Desktop and the Antigravity IDE integration are not targets.
 

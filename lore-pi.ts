@@ -29,7 +29,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import path from "node:path";
 import { resolveRepositoryIdentity } from "./lib/utils/repository-identity.mjs";
 import { createPiServerClient } from "./lib/clients/pi-server-client.mjs";
 
@@ -61,20 +60,6 @@ const repoCache = new Map<string, string | null>();
 // so fresh memories surface on the next prompt.
 let recallCache: Map<string, { termKey: string; memoryVersion: number }> | null = null;
 let memoryVersion = 0;
-
-// Types recall surfaces in prompt context (see buildPromptSemanticContext).
-const RECALL_TYPES = [
-  "commitment",
-  "open_loop",
-  "rejected_approach",
-  "blocker",
-  "user_preference",
-  "assistant_identity",
-  "user_identity",
-  "assistant_goal",
-  "recurring_mistake",
-  "interaction_style",
-];
 
 // Small stopword list so retrieval queries keep only content-bearing terms.
 const STOPWORDS = new Set(
@@ -209,22 +194,13 @@ function deriveRepository(cwd: string): string | null {
   return repoCache.get(cwd) ?? null;
 }
 
-// recallMemory with a stopword-cleaned retrieval query, plus semantic rescue
-// (ambient) and a recent-memory fallback when the lexical lookup misses
-// (lore's search is exact-token AND with no stemming in default config).
-//
-// opts:
-//   semantic   - try vector search on a lexical miss (ambient path)
-//   expansion  - try query expansion on a miss (explicit path; needs a chat
-//                model, parked unless localInference.queryExpansion is enabled)
-//   skipFallback - don't append the recency fallback (explicit search already
-//                produced semantically-ranked results)
+// The server owns scope, temporal filtering, semantic merging and final budgets.
 async function recallWithFallback(
   rt: LoreRuntime,
   query: string,
   repository: string | null,
   limit = 6,
-  opts: { semantic?: boolean; expansion?: boolean; skipFallback?: boolean } = {},
+  opts: { semantic?: boolean; expansion?: boolean } = {},
 ): Promise<string> {
   const terms = contentTerms(query);
   const deterministicQuery = terms.length > 0 ? terms.join(" ") : null;
@@ -233,13 +209,13 @@ async function recallWithFallback(
     request<{ text: string; includedRows: number; memoryCount: number }>("recall", {
       prompt: query,
       retrievalPrompt: retrievalQuery,
+      semantic: opts.semantic === true,
       repository,
       limit,
     });
 
   // Fast path first: deterministic lexical recall, no model calls.
   let recall = await runRecall(deterministicQuery);
-  let retrievalQuery = deterministicQuery;
   let text = recall.text.trim();
 
   // "Hit" = semantic memories, episodes, or standing directives were found.
@@ -248,20 +224,10 @@ async function recallWithFallback(
     || text.includes("Standing Directives");
 
   if (!hasUsefulContent) {
-    // Semantic rescue: vector search is cheap once vectors are cached and
-    // strictly better than lexical, so it runs on any miss when configured.
-    if (opts.semantic && (recall.memoryCount ?? 0) > 2) {
-      const rows = await semanticSearch(rt, query, repository, limit);
-      if (rows.length > 0) {
-        text += ["", renderSemanticSection(rows)].join("\n");
-        opts.skipFallback = true;
-      }
-    }
-
     // Query expansion (chat-model based) is parked by default — it needs a
     // local chat model and FTS-AND semantics make it a coin flip.
     const expansionEnabled = rt.config?.localInference?.queryExpansion?.enabled === true;
-    if (!opts.skipFallback && opts.expansion && expansionEnabled && deterministicQuery) {
+    if (opts.expansion && expansionEnabled && deterministicQuery) {
       try {
         const expanded = await request<{ query?: string; used?: boolean }>(
           "expand",
@@ -269,8 +235,7 @@ async function recallWithFallback(
           4000,
         );
         if (expanded?.used && expanded.query && expanded.query !== deterministicQuery) {
-          retrievalQuery = expanded.query;
-          recall = await runRecall(retrievalQuery);
+          recall = await runRecall(expanded.query);
           text = recall.text.trim();
         }
       } catch {
@@ -279,78 +244,11 @@ async function recallWithFallback(
     }
   }
 
-  if (recall.includedRows === 0 && !opts.skipFallback) {
-    const rows = await request<Array<{ type: string; content: string }>>("search", {
-      query: retrievalQuery || query,
-      repository,
-      types: RECALL_TYPES,
-      includeTypedFallback: true,
-      limit: 6,
-    });
-    if (rows.length > 0) {
-      text += ["", "## Related memories", ...rows.map((r) => `- [${r.type}] ${r.content}`)].join("\n");
-    }
-  }
   return text.trim();
 }
 
-type SemanticRow = { id: string; type: string; content: string; score: number };
-
-type SemanticSearchResult = {
-  enabled: boolean;
-  rows: SemanticRow[];
-};
-
-async function semanticSearch(
-  rt: LoreRuntime,
-  query: string,
-  repository: string | null,
-  limit = 6,
-): Promise<SemanticRow[]> {
-  if (rt.config?.localInference?.embeddings?.enabled !== true) {
-    return [];
-  }
-  try {
-    const result = await request<SemanticSearchResult>("semantic_search", {
-      query,
-      repository,
-      limit,
-    });
-    return result?.enabled ? (result.rows ?? []) : [];
-  } catch {
-    return []; // embedding path unavailable — callers fall back to lexical
-  }
-}
-
-function renderSemanticSection(rows: SemanticRow[]): string {
-  return [
-    "## Semantic matches",
-    ...rows.map((r) => `- [${r.type}] ${r.content} (${r.score})`),
-  ].join("\n");
-}
-
-// Explicit search: true semantic (vector) matches first, then lexical recall
-// with episodes/directives. The recency fallback is skipped when semantic
-// already produced ranked results — semantically-ranked rows beat recency.
-async function explicitSearch(
-  rt: LoreRuntime,
-  query: string,
-  repository: string | null,
-  limit = 6,
-): Promise<string> {
-  const rows = await semanticSearch(rt, query, repository, limit);
-  const parts: string[] = [];
-  if (rows.length > 0) {
-    parts.push(renderSemanticSection(rows));
-  }
-  const text = await recallWithFallback(rt, query, repository, limit, {
-    expansion: true,
-    skipFallback: rows.length > 0,
-  });
-  if (text) {
-    parts.push(text);
-  }
-  return parts.join("\n\n").trim() || "(no memories found)";
+async function explicitSearch(rt: LoreRuntime, query: string, repository: string | null, limit = 6): Promise<string> {
+  return await recallWithFallback(rt, query, repository, limit, { semantic: true, expansion: true }) || "(no memories found)";
 }
 
 export default function (pi: ExtensionAPI) {

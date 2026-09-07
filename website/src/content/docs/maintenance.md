@@ -26,6 +26,12 @@ node scripts/run-maintenance.mjs --dry-run
 
 The in-session equivalent is `maintenance_schedule_run({ dryRun: true })`. Start with a dry run when enabling a new task.
 
+The optional [browser dashboard](/guides/troubleshooting/#dashboard-cannot-be-reached)
+keeps this inspection read-only. Its overview shows the last successful native
+capture, pending bytes, resumable source checkpoints, embedding coverage, and
+recent fallback diagnostics. A resume button only copies a command for review;
+it does not run capture from the browser.
+
 ## Useful task cadence
 
 The built-in defaults suggest validation every 12 hours, replay every 24 hours, backlog review every 6 hours, and index upkeep every 12 hours when enabled. `traceCompaction` is hourly and `doctorSnapshot` is daily when their rollout gates are enabled.
@@ -60,3 +66,8 @@ Use an absolute Node path because cron has a minimal `PATH`. Set `LORE_HOME` or 
 ## Recovery and isolation
 
 Stale deferred jobs and abandoned maintenance runs are reclaimed after their configured 30-minute defaults. Failed migrations and tasks use forward recovery and leave the database intact. Point maintenance only at the configured Lore database; do not aim it at fixtures or another user's data.
+
+Administrative repair and purge follow the same review boundary: preview first,
+then apply only with the preview fingerprint and explicit candidate IDs. Purge
+removes selected derived records while retaining raw sources and recovery
+snapshots; it is not secure erasure.

@@ -265,6 +265,43 @@ main {
   margin: 0;
 }
 
+.health-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  margin-top: 1rem;
+}
+
+.health-section {
+  min-width: 0;
+}
+
+.health-section .table-wrap {
+  margin-top: 0.65rem;
+}
+
+.health-section .summary-grid {
+  margin-top: 0.8rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.health-section .metric-card {
+  min-height: 4.8rem;
+  padding: 0.6rem;
+}
+
+.health-section .metric {
+  font-size: 1.1rem;
+}
+
+.coverage-note {
+  margin: 0.75rem 0;
+}
+
+.coverage-diagnostics {
+  margin-top: 0.8rem;
+}
+
 .detail-grid {
   display: grid;
   gap: 1rem;
@@ -295,6 +332,64 @@ main {
   gap: 0.2rem;
   border-bottom: 1px solid var(--border);
   padding-bottom: 0.45rem;
+}
+
+.lifecycle-section h3 {
+  margin: 0.85rem 0 0.45rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.lifecycle-section {
+  grid-column: 1 / -1;
+}
+
+.lifecycle-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.provenance-item {
+  overflow-wrap: anywhere;
+}
+
+.timeline {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0 0 0 1.35rem;
+}
+
+.timeline li {
+  padding-left: 0.2rem;
+}
+
+.timeline li strong {
+  display: inline-block;
+  margin-right: 0.6rem;
+}
+
+.copy-feedback {
+  min-height: 1.1rem;
+  margin-top: 0.25rem;
+}
+
+.admin-command-item {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.command-preview {
+  display: block;
+  color: var(--text);
+  font: 0.78rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.administration-section {
+  grid-column: 1 / -1;
 }
 
 .graph-shell {
@@ -416,6 +511,37 @@ main {
 
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .health-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .header-pills {
+    justify-content: flex-start;
+  }
+
+  main {
+    padding-inline: 0.75rem;
+  }
+
+  .tabs {
+    padding-inline: 0.75rem;
+  }
+
+  .health-section .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .table {
+    min-width: 34rem;
   }
 }
 

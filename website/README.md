@@ -11,6 +11,8 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
+The website uses TypeScript 6 because `astro check` requires its JavaScript compiler API. TypeScript 7 is held back in Renovate until [Astro adds compatible support](https://github.com/withastro/roadmap/discussions/1321). Keep the type-checking step enabled when revisiting this constraint.
+
 Open `http://127.0.0.1:4321`. To validate and preview the production output:
 
 ```sh

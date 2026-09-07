@@ -39,6 +39,7 @@ import {
 } from "./lib/rollout/rollout-flags.mjs";
 import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.mjs";
 import { readPiSessionHeader } from "./pi-session-reader.mjs";
+import { reconcileCaptureEvidence } from "./lib/clients/cli-capture-evidence.mjs";
 import { ingestCliTranscript } from "./lib/clients/cli-transcript-ingestion.mjs";
 import { PiArchiveScanner, parseBackfillSettings } from "./lib/sessions/pi-archive-scanner.mjs";
 
@@ -102,7 +103,7 @@ async function init() {
     minAgeMs: BACKFILL.minAgeMs,
     maxFileBytes: BACKFILL.maxFileBytes,
     cursorPath: archiveCursorPath(),
-    isAlreadyExtracted: (sessionId) => alreadyExtracted(sessionId),
+    isAlreadyExtracted: (sessionId, source) => alreadyExtracted(sessionId, source),
   });
   return { schemaVersion: db.getStats().schemaVersion };
 }
@@ -118,9 +119,15 @@ function maybeCompactErrorTelemetry() {
   });
 }
 
-function alreadyExtracted(sessionId) {
+function alreadyExtracted(sessionId, source = null) {
   if (!sessionId) {
     return false;
+  }
+  const checkpoint = db.getIngestionCheckpoint("pi", sessionId);
+  if (checkpoint) {
+    const reader = checkpoint.adapterState?.readerCheckpoint;
+    if (checkpoint.health.pendingBytes > 0 || checkpoint.adapterState?.cleanupCursor != null || checkpoint.adapterState?.branchWork) return false;
+    return !source || (reader?.sourceSize === source.size && reader?.sourceMtimeMs === source.mtimeMs);
   }
   // LoreDb wraps the raw node:sqlite handle as `db.db`; there is no public
   // episode-existence query, so reach into it for a cheap existence check.
@@ -142,7 +149,6 @@ async function extractPiSession(filePath, repository) {
     cwd: parsed.cwd,
     repository: parsed.repository,
     capture: (artifacts) => {
-      if (!artifacts.turns.length) return;
       const workspace = { workspace: { repository: parsed.repository, branch: null, updated_at: artifacts.session.updated_at } };
       const extraction = extractSessionMemories({
         sessionId: parsed.sessionId,
@@ -151,15 +157,7 @@ async function extractPiSession(filePath, repository) {
         workspace,
         config: db.config,
       });
-      const retiredIds = Array.isArray(artifacts.retiredSourceRecordIds) ? artifacts.retiredSourceRecordIds : [];
-      if (retiredIds.length > 0) {
-        const placeholders = retiredIds.map(() => "?").join(", ");
-        const oldEvidence = db.db.prepare(`
-          SELECT evidence_key FROM session_evidence
-          WHERE session_id = ? AND source_record_id IN (${placeholders})
-        `).all(parsed.sessionId, ...retiredIds).map((row) => row.evidence_key);
-        extraction.retiredEvidenceKeys = [...new Set([...(extraction.retiredEvidenceKeys ?? []), ...oldEvidence])];
-      }
+      const captureState = reconcileCaptureEvidence({ db, sessionId: parsed.sessionId, artifacts, extraction });
       applySessionExtraction({
         db,
         sessionId: parsed.sessionId,
@@ -169,10 +167,21 @@ async function extractPiSession(filePath, repository) {
         extraction,
       });
       extractionResult = { extracted: true, episodeId: extraction.episodeDigest.id, memoryCount: extraction.semanticMemories.length };
+      return captureState;
     },
   });
-  if (!extractionResult) return { extracted: false, reason: captureResult.status === "pending" ? "pending" : "no_turns", sessionId: parsed.sessionId, pending: captureResult.pending ?? false };
-  return { ...extractionResult, sessionId: parsed.sessionId, turns: captureResult.turns ?? 0, files: 0 };
+  if (captureResult.status === "error" || captureResult.status === "stale") {
+    const error = new Error(`Capture failed: ${captureResult.errorCode ?? "capture_failed"}`);
+    error.code = captureResult.errorCode;
+    throw error;
+  }
+  const state = captureResult.checkpoint?.adapterState;
+  const runnablePending = captureResult.pending && (state?.readerCheckpoint?.offset < state?.readerCheckpoint?.sourceSize
+    || state?.cleanupCursor != null || Boolean(state?.branchWork));
+  return { ...(extractionResult ?? { extracted: false, reason: captureResult.pending ? "pending" : "no_turns" }),
+    sessionId: parsed.sessionId, repository: parsed.repository, pending: captureResult.pending ?? false, runnablePending,
+    turns: captureResult.turns ?? 0, files: 0, health: captureResult.health };
+
 }
 
 function yieldToForeground() {
@@ -189,16 +198,17 @@ async function runArchiveQueue() {
       continue;
     }
     try {
-      const result = await extractPiSession(candidate.path, null);
+      const result = await extractPiSession(candidate.path, candidate.repository ?? null);
+      if (result.runnablePending) archiveQueue.push(candidate);
       if (result.extracted) {
         console.error(
           `[lore-server] imported ${candidate.sessionId?.slice(0, 8)}: ${result.memoryCount} memories, ${result.turns} turns`,
         );
       }
     } catch (error) {
-      console.error(`[lore-server] backfill failed for ${candidate.path}: ${error?.message ?? String(error)}`);
+      console.error(`[lore-server] archive capture failed: ${error?.code ?? "capture_failed"}`);
     } finally {
-      archiveQueuedPaths.delete(candidate.path);
+      if (!archiveQueue.some((queued) => queued.path === candidate.path)) archiveQueuedPaths.delete(candidate.path);
     }
   }
   archiveWorkerRunning = false;
@@ -233,19 +243,31 @@ function waitForArchiveIdle() {
 async function dispatch(method, params) {
   switch (method) {
     case "recall": {
-      const recall = recallMemory({
+      let recall = recallMemory({
         db,
         prompt: params.prompt,
         retrievalPrompt: params.retrievalPrompt ?? null,
         repository: params.repository ?? null,
-        includeOtherRepositories: true,
+        includeOtherRepositories: params.includeOtherRepositories === true,
         limit: params.limit ?? 6,
         sessionStore: null,
       });
+      if (params.semantic === true && recall.promptNeed?.hasTemporalSignal !== true
+        && db.config?.localInference?.embeddings?.enabled === true) {
+        const { semanticSearch } = await import("./lib/memory/semantic-search.mjs");
+        const { mergeSemanticRecallResult } = await import("./lib/memory/memory-operations.mjs");
+        const semantic = await semanticSearch({ db, query: String(params.prompt ?? ""),
+          repository: params.repository ?? null, includeOtherRepositories: params.includeOtherRepositories === true,
+          types: RECALL_TYPES, limit: params.limit ?? 6 });
+        recall = mergeSemanticRecallResult({ result: recall, semantic, config: db.config });
+      }
       const hits = recall?.trace?.lookups?.localMemories?.includedRows;
       return {
         text: recall?.text?.trim() ?? "",
-        includedRows: Array.isArray(hits) ? hits.length : 0,
+        includedRows: (Array.isArray(hits) ? hits.length : 0) + (recall.semanticMatches?.length ?? 0),
+        estimatedTokens: recall.estimatedTokens,
+        semanticDiagnostics: recall.semanticDiagnostics ?? null,
+        trace: recall.trace,
         // Cheap gate for query expansion: only expand when the store has real
         // content worth finding (seeded onboarding alone doesn't count).
         memoryCount: db.db
@@ -257,7 +279,7 @@ async function dispatch(method, params) {
       const rows = db.searchSemantic({
         query: params.query,
         repository: params.repository ?? null,
-        includeOtherRepositories: true,
+        includeOtherRepositories: params.includeOtherRepositories === true,
         types: params.types ?? RECALL_TYPES,
         includeTypedFallback: params.includeTypedFallback ?? false,
         limit: params.limit ?? 6,
@@ -312,7 +334,9 @@ async function dispatch(method, params) {
       if (!filePath) {
         throw new Error("extract requires a session file path");
       }
-      return extractPiSession(filePath, params.repository ?? null);
+      const result = await extractPiSession(filePath, params.repository ?? null);
+      if (result.runnablePending) queueArchiveCandidates([{ path: filePath, sessionId: result.sessionId, repository: result.repository }]);
+      return result;
     }
     case "backfill": {
       // Discovery is independent of the foreground request queue. Returning

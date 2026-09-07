@@ -141,3 +141,26 @@ test("lore server handles status/save/recall/extract, backfill, and graceful EOF
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("Pi archive queue resumes a partial import beyond four MiB", { skip: SKIP_NO_FTS5 }, async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-large-"));
+  const sessions = path.join(home, "sessions"); mkdirSync(sessions);
+  const configPath = path.join(home, "lore.json"); const dbPath = path.join(home, "lore.db");
+  writeFileSync(configPath, JSON.stringify({ enabled: true, paths: { copilotHome: home, derivedStorePath: dbPath, piSessionDir: sessions } }));
+  const file = path.join(sessions, "large.jsonl");
+  writeFileSync(file, JSON.stringify({ type: "session", id: "large", cwd: home }) + "\n"
+    + JSON.stringify({ type: "message", message: { role: "user", content: "hello" } }) + "\n"
+    + (JSON.stringify({ type: "compaction", content: "x".repeat(1024) }) + "\n").repeat(5000)
+    + JSON.stringify({ type: "message", message: { role: "user", content: "Across all repositories, I prefer jadeanchor focused unit tests." } }) + "\n");
+  const old = new Date("2026-01-01T00:00:00Z"); utimesSync(file, old, old);
+  const server = startServer(home, configPath);
+  try {
+    await server.request("status"); await server.request("backfill", { max: 1 });
+    const result = await server.exit(); assert.equal(result.code, 0);
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      assert.ok(db.prepare("SELECT id FROM semantic_memory WHERE content LIKE '%jadeanchor%'").get());
+      assert.equal(db.prepare("SELECT pending_bytes FROM ingestion_checkpoint WHERE session_id='large'").get().pending_bytes, 0);
+    } finally { db.close(); }
+  } finally { server.proc.kill(); rmSync(home, { recursive: true, force: true }); }
+});

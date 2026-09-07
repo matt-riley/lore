@@ -37,8 +37,41 @@ describe("LoreDb legacy schema version compatibility", () => {
         "lore-visibility-substrate",
         "memory-domain-observation",
         "lifecycle-foundation",
+        "session-evidence-record-index",
       ],
     );
+  });
+
+  test("v19 upgrade rebuilds the session evidence record index with retired_at", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const dbPath = path.join(tempHome, "lore.db");
+    const backupDir = path.join(tempHome, "backups");
+    try {
+      const initial = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      initial.initialize();
+      initial.close();
+
+      const legacy = new DatabaseSync(dbPath);
+      legacy.exec(`
+        DROP INDEX idx_session_evidence_record;
+        CREATE INDEX idx_session_evidence_record
+          ON session_evidence(session_id, source_record_id);
+        UPDATE lore_schema_version SET version = 19;
+      `);
+      legacy.close();
+
+      const upgraded = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      upgraded.initialize();
+      const columns = upgraded.db
+        .prepare("PRAGMA index_info('idx_session_evidence_record')")
+        .all()
+        .map((row) => row.name);
+      assert.deepEqual(columns, ["session_id", "source_record_id", "retired_at"]);
+      assert.equal(upgraded.getCurrentVersion(), SCHEMA_VERSION);
+      upgraded.close();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   });
 
   test("adopts coherence_schema_version into lore_schema_version", { skip: SKIP_NO_FTS5 }, () => {

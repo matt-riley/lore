@@ -77,3 +77,13 @@ test("truncation and same-size rewrites reset source generation", async () => {
     assert.deepEqual(truncated.records.map((row) => row.value), [{}]);
   });
 });
+
+test("reader rejects relative paths and invalid work budgets", async () => {
+  await assert.rejects(readJsonlDelta("relative.jsonl"), /absolute/);
+  await fixture(async (file) => {
+    await writeFile(file, "{}\n");
+    for (const options of [{ maxBytes: 0 }, { maxRecordBytes: -1 }, { budgetMs: Infinity }]) {
+      await assert.rejects(readJsonlDelta(file, options), /positive safe integer/);
+    }
+  });
+});

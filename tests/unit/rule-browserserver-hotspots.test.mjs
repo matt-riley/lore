@@ -20,11 +20,7 @@ async function loadBrowserServerHotspots() {
     const serverPath = path.join(REPO_ROOT, "browser", "server.mjs");
     const serverUrl = pathToFileURL(serverPath).href;
     const source = readFileSync(serverPath, "utf8")
-      .replace(/from "\.\.\/lib\/maintenance\/maintenance-scheduler\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "maintenance", "maintenance-scheduler.mjs")).href}"`)
-      .replace(/from "\.\.\/lib\/utils\/numeric-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "utils", "numeric-utils.mjs")).href}"`)
-      .replace(/from "\.\.\/lib\/utils\/json-array-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "utils", "json-array-utils.mjs")).href}"`)
-      .replace(/from "\.\.\/lib\/utils\/json-object-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "utils", "json-object-utils.mjs")).href}"`)
-      .replace(/from "\.\.\/lib\/utils\/repository-utils\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "utils", "repository-utils.mjs")).href}"`)
+      .replace(/from "(\.\.?\/[^"]+)"/g, (_match, specifier) => `from "${new URL(specifier, serverUrl).href}"`)
       .replace('const __dirname = path.dirname(fileURLToPath(import.meta.url))', `const __dirname = ${JSON.stringify(path.join(REPO_ROOT, "browser"))}`)
       .replace("function buildMemoryDrilldown({ db, id, entityType }) {", "export function buildMemoryDrilldown({ db, id, entityType }) {");
     browserServerHotspotsPromise = import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=${serverUrl}\n`).toString("base64")}`);

@@ -39,3 +39,20 @@ test("resolves relative file tool paths against the session cwd", () => {
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("bounded Pi header uses explicit environment identity and rejects relative sources", async () => {
+  const { readPiSessionHeader } = await import("../../pi-session-reader.mjs");
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-header-"));
+  const previous = process.env.LORE_REPOSITORY;
+  try {
+    const file = path.join(home, "t.jsonl");
+    writeFileSync(file, JSON.stringify({ type: "session", id: "fixture", cwd: home }) + "\n");
+    process.env.LORE_REPOSITORY = "explicit/repository";
+    assert.equal((await readPiSessionHeader(file)).repository, "explicit/repository");
+    await assert.rejects(readPiSessionHeader("relative.jsonl"), /absolute/);
+  } finally {
+    if (previous === undefined) delete process.env.LORE_REPOSITORY;
+    else process.env.LORE_REPOSITORY = previous;
+    rmSync(home, { recursive: true, force: true });
+  }
+});

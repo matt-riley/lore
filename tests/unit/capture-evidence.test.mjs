@@ -14,12 +14,13 @@ async function fixture(client, fn) {
   const home = await mkdtemp(path.join(os.tmpdir(), "lore-capture-evidence-"));
   const config = enabledConfig(home); const db = freshDb(config);
   const file = path.join(home, "t.jsonl"); const sessionId = `${client}:fixture`;
-  const run = () => ingestCliTranscript({ db, client, sessionId, transcriptPath: file, cwd: home,
+  const run = (options = {}) => ingestCliTranscript({ db, client, sessionId, transcriptPath: file, cwd: home,
     repository: "fixture/repo", capture: (artifacts) => {
       const workspace = { workspace: { repository: "fixture/repo" } };
       const extraction = extractSessionMemories({ sessionId, repository: "fixture/repo", sessionArtifacts: artifacts, workspace, config });
       const state = reconcileCaptureEvidence({ db, sessionId, artifacts, extraction });
       applySessionExtraction({ db, sessionId, repository: "fixture/repo", sessionArtifacts: artifacts, workspace, extraction });
+      if (options.failCapture) throw new Error("injected capture failure");
       return state;
     } });
   const active = () => db.db.prepare("SELECT sm.content FROM semantic_memory sm JOIN memory_evidence me ON me.memory_id=sm.id JOIN session_evidence se ON se.evidence_key=me.evidence_key WHERE me.retired_at IS NULL AND se.retired_at IS NULL").all().map((r) => r.content);
@@ -68,5 +69,22 @@ test("Claude branch retirement reaches evidence older than the rolling turn wind
     while ((await run()).pending) {}
     assert.equal(active().some((text) => text.includes("focused unit tests")), false);
     assert.ok(active().some((text) => text.includes("small pure functions")));
+  });
+});
+
+
+test("capture failure rolls source evidence and offset back together before retry", async () => {
+  await fixture("codex", async ({ db, file, run, active }) => {
+    await writeFile(file, codex("For this repository, I prefer small pure functions."));
+    await run();
+    const before = db.getIngestionCheckpoint("codex", "codex:fixture");
+    await appendFile(file, codex("For this repository, I prefer focused unit tests."));
+    const failed = await run({ failCapture: true });
+    assert.equal(failed.status, "error");
+    assert.equal(db.getIngestionCheckpoint("codex", "codex:fixture").offset, before.offset);
+    assert.equal(active().some((text) => text.includes("focused unit tests")), false);
+    assert.equal(db.getIngestionCheckpoint("codex", "codex:fixture").health.failureCode, "capture_failed");
+    await run();
+    assert.ok(active().some((text) => text.includes("focused unit tests")));
   });
 });

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { COMMON_PATH_ARG_HANDLERS, parseArgsWith, resolveDefaultLoreConfigPath, finalizeScriptConfig } from "./shared-args.mjs";
 import { LoreDb } from "../lib/db/db.mjs";
+import { resolveRepositoryIdentity } from "../lib/utils/repository-identity.mjs";
 import { SessionStoreReader } from "../lib/sessions/session-store-reader.mjs";
 import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/core/config.mjs";
 import { createTraceRecorder } from "../lib/lifecycle/trace-recorder.mjs";
@@ -220,10 +221,13 @@ function buildEmptyLatencyMetric() {
   };
 }
 
-function buildScriptRuntime({ args, config }) {
+export function buildScriptRuntime({ args, config }) {
   const db = new LoreDb(config);
   db.initialize();
-  const sessionStore = new SessionStoreReader(config);
+  const sessionStore = new SessionStoreReader(config, {
+    resolveRepositoryIdentity: (identity) => resolveRepositoryIdentity({ ...identity, mappings: db.getRepositoryMappings() }),
+    identityResolverCacheVersion: () => JSON.stringify(db.getRepositoryMappings()),
+  });
   sessionStore.initialize();
   const traceRecorder = createTraceRecorder(config);
 

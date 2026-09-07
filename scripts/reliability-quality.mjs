@@ -20,10 +20,14 @@ export const QUALITY_GATES = Object.freeze({
   maxNegativeFalsePositives: 0,
 });
 
-const CANDIDATE_TYPES = new Set(["user_preference", "rejected_approach", "decision", "fact", "constraint"]);
+const CANDIDATE_TYPES = new Set([
+  "commitment", "open_loop", "rejected_approach", "blocker", "user_preference",
+  "assistant_identity", "user_identity", "assistant_goal", "recurring_mistake",
+  "interaction_style", "decision", "fact", "constraint", "workstream_overlay",
+]);
 
 function words(value) {
-  return new Set(String(value ?? "").toLowerCase().replace(/[^a-z0-9-]+/gu, " ").split(/\s+/u).filter((word) => word.length > 2));
+  return new Set(String(value ?? "").toLowerCase().replace(/[^a-z0-9-]+/gu, " ").split(/\s+/u).filter(Boolean));
 }
 
 function overlap(haystack, anchors) {
@@ -36,14 +40,15 @@ function overlap(haystack, anchors) {
 }
 
 function evidenceText(memory) {
-  return `${memory?.content ?? memory?.summary ?? ""} ${JSON.stringify(memory?.decisions ?? [])} ${JSON.stringify(memory?.metadata ?? {})} ${JSON.stringify(memory ?? {})}`;
+  return `${memory?.content ?? memory?.summary ?? ""} ${JSON.stringify(memory?.decisions ?? [])}`;
 }
 
 export function matchesProposition(memory, proposition) {
   if (!memory || !proposition) return false;
   if (proposition.type && memory.type !== proposition.type) return false;
   if (proposition.scope && memory.scope && memory.scope !== proposition.scope) return false;
-  if (proposition.scope === "repo" && memory.repository && memory.repository !== proposition.repository && proposition.repository) return false;
+  if (proposition.scope === "repo" && proposition.repository && (memory.scope === "global" || (memory.repository && memory.repository !== proposition.repository))) return false;
+  if (proposition.scope === "global" && memory.scope === "repo") return false;
   return overlap(evidenceText(memory), proposition.anchors ?? []) >= 0.72;
 }
 
@@ -90,9 +95,21 @@ export function evaluateCandidateMemories({ scenario, extraction }) {
   };
 }
 
-function findExpectedRecall(scenario, rows, text) {
-  return scenario.expected.filter((proposition) => rows.some((row) => matchesProposition(row, { ...proposition, repository: scenario.repository }))
-    || matchesProposition({ content: text, type: proposition.type, repository: scenario.repository }, proposition));
+export function evaluatePersistedRows({ scenario, rows }) {
+  const activeRows = rows.filter((row) => !row.superseded_by);
+  const falseGlobals = activeRows.filter((row) => {
+    if (scenario.expected.some((proposition) => proposition.scope === "global" && matchesProposition(row, { ...proposition, repository: scenario.repository }))) return false;
+    return row.scope === "global" || row.repository == null;
+  });
+  return {
+    activeRows,
+    falseGlobalPromotions: falseGlobals.length,
+    falseGlobalExamples: falseGlobals.slice(0, 3).map((row) => ({ id: row.id, type: row.type, scope: row.scope, repository: row.repository, content: row.content })),
+  };
+}
+
+function findExpectedRecall(scenario, rows) {
+  return scenario.expected.filter((proposition) => rows.some((row) => matchesProposition(row, { ...proposition, repository: scenario.repository })));
 }
 
 function createForeignScenario(scenario) {
@@ -152,9 +169,30 @@ async function runScenario(scenario) {
       applySessionExtraction({ db: fixture.db, sessionId: foreign.sessionId, repository: foreign.repository, sessionArtifacts: foreign.transcript, workspace: foreignWorkspace, extraction: foreignExtraction });
     }
 
-    let retainedRows = fixture.db.db.prepare("SELECT id, type, content, scope, repository, superseded_by FROM semantic_memory WHERE source_session_id = ?").all(scenario.sessionId);
+    let retainedRows = fixture.db.db.prepare("SELECT id, type, content, scope, repository, source_session_id, metadata_json, superseded_by FROM semantic_memory WHERE source_session_id = ? AND superseded_by IS NULL").all(scenario.sessionId);
+    const persistedMetrics = evaluatePersistedRows({ scenario, rows: retainedRows });
+    extractionMetrics.falseGlobalPromotions = persistedMetrics.falseGlobalPromotions;
+    extractionMetrics.falseGlobalExamples = persistedMetrics.falseGlobalExamples;
     if (scenario.suppress) {
-      for (const row of retainedRows.filter((candidate) => scenario.expected.some((proposition) => matchesProposition(candidate, { ...proposition, repository: scenario.repository })))) {
+      const suppressionTargets = retainedRows.filter((candidate) => scenario.expected.some((proposition) => matchesProposition(candidate, { ...proposition, scope: undefined, repository: undefined })));
+      if (suppressionTargets.length === 0) {
+        return {
+          id: scenario.scenarioId,
+          client: scenario.client,
+          family: scenario.family,
+          extraction: extractionMetrics,
+          expectedRecall: 0,
+          recallExpectedCount: scenario.expected.length,
+          forbiddenRecall: 0,
+          isolationFailure: false,
+          suppressionFailure: true,
+          suppressionSetupFailure: true,
+          candidateRows: retainedRows.length,
+          activeRowsAfterReplay: retainedRows.length,
+          parsedTurns: scenario.transcript.turns.length,
+        };
+      }
+      for (const row of suppressionTargets) {
         fixture.db.forgetMemory({ id: row.id, supersededBy: `quality:${scenario.scenarioId}` });
       }
       // Replay the same transcript after forgetting. Durable suppression must
@@ -167,15 +205,15 @@ async function runScenario(scenario) {
         workspace,
         extraction,
       });
-      retainedRows = fixture.db.db.prepare("SELECT id, type, content, scope, repository, superseded_by FROM semantic_memory WHERE source_session_id = ?").all(scenario.sessionId);
+      retainedRows = fixture.db.db.prepare("SELECT id, type, content, scope, repository, source_session_id, metadata_json, superseded_by FROM semantic_memory WHERE source_session_id = ? AND superseded_by IS NULL").all(scenario.sessionId);
     }
 
     const recall = recallMemory({ db: fixture.db, prompt: scenario.query, repository: scenario.repository, limit: 12 });
     const rows = includedRows(recall);
-    const recalledExpected = findExpectedRecall(scenario, rows, recall.text ?? "");
+    const recalledExpected = findExpectedRecall(scenario, rows);
     const forbiddenRecall = (scenario.forbidden ?? []).filter((forbidden) => rows.some((row) => matchesForbidden(row, forbidden)) || matchesForbidden({ content: recall.text }, forbidden));
     const isolationFailure = scenario.critical?.includes("isolation") && rows.some((row) => row.repository && row.repository !== scenario.repository);
-    const suppressionFailure = scenario.critical?.includes("suppression") && recalledExpected.length > 0;
+    const suppressionFailure = scenario.critical?.includes("suppression") && (recalledExpected.length > 0 || retainedRows.some((row) => scenario.expected.some((proposition) => matchesProposition(row, { ...proposition, scope: undefined, repository: undefined }))));
     return {
       id: scenario.scenarioId,
       client: scenario.client,
@@ -186,7 +224,10 @@ async function runScenario(scenario) {
       forbiddenRecall: forbiddenRecall.length,
       isolationFailure: Boolean(isolationFailure),
       suppressionFailure: Boolean(suppressionFailure),
+      suppressionSetupFailure: false,
       candidateRows: retainedRows.length,
+      activeRowsAfterReplay: retainedRows.length,
+      persistedScope: persistedMetrics,
       parsedTurns: scenario.transcript.turns.length,
     };
   } finally {

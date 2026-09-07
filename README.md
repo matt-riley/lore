@@ -511,7 +511,7 @@ on stdin:
 
 ```sh
 printf '%s\n' '{"memoryId":"<id>","content":"<replacement>","reason":"<why>"}' | node lore-cli.mjs tool memory_correct
-printf '%s\n' '{"sessionIds":["<session-id>"]}' | node lore-cli.mjs tool memory_repair
+printf '%s\n' '{"memoryIds":["<id>"]}' | node lore-cli.mjs tool memory_repair
 printf '%s\n' '{"memoryIds":["<id>"]}' | node lore-cli.mjs tool memory_purge
 ```
 

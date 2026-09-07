@@ -84,14 +84,21 @@ test("global purge is a distinct explicit selector", async () => {
   }
 });
 
-test("repository constrained corrections reject a foreign target", async () => {
+test("correction repository selects the replacement destination", async () => {
   const { db, cleanup } = await withFixtureDb();
   try {
     const id = db.insertSemanticMemory({ type: "user_preference", content: "Other repository.", scope: "repo", repository: "fixture/other" });
     const plan = previewMemoryAdministration(db, normalizeAdministrationRequest({ operation: "correct", memoryId: id, repository: "fixture/repo", content: "Wrong target" }));
-    assert.ok(plan.unresolvedCandidates.some((item) => item.code === "FOREIGN_TARGET"));
-    assert.throws(() => applyMemoryAdministration(db, normalizeAdministrationRequest({ operation: "correct", memoryId: id, repository: "fixture/repo", content: "Wrong target" }), plan.planFingerprint), /unresolved|stale/i);
+    assert.equal(plan.replacement.repository, "fixture/repo");
+    const result = applyMemoryAdministration(db, { operation: "correct", memoryId: id, repository: "fixture/repo", content: "Wrong target" }, plan.planFingerprint);
+    assert.equal(result.replacement.repository, "fixture/repo");
   } finally {
     cleanup();
   }
+});
+
+test("operation-specific selectors cannot enter another mutation path", () => {
+  assert.throws(() => normalizeAdministrationRequest({ operation: "purge", repositoryMappings: [{ legacy: "a", canonical: "b" }] }), /only supported by repair/);
+  assert.throws(() => normalizeAdministrationRequest({ operation: "correct", memoryId: "one", type: "" }), /non-empty/);
+  assert.throws(() => normalizeAdministrationRequest({ operation: "purge", memoryIds: ["one"], includeDependentAggregates: "true" }), /boolean/);
 });

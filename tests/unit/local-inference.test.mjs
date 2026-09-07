@@ -176,3 +176,96 @@ test("local inference rejects non-loopback endpoints before making a request", a
   );
   assert.equal(called, false);
 });
+
+test("local inference includes error body text in failure exceptions", async () => {
+  await assert.rejects(
+    () => requestLocalInferenceJson({
+      config: {
+        enabled: true,
+        baseUrl: "http://127.0.0.1:12434/v1",
+        model: "local-test-model",
+      },
+      messages: [{ role: "user", content: "hello" }],
+      fetchImpl: async () => ({
+        ok: false,
+        status: 400,
+        text: async () => "model 'local-test-model' not found",
+      }),
+    }),
+    (error) => {
+      assert.match(error.message, /local inference request failed with status 400: model 'local-test-model' not found/);
+      return true;
+    },
+  );
+});
+
+test("local inference truncates long error body text to 300 characters", async () => {
+  const longError = "x".repeat(500);
+  await assert.rejects(
+    () => requestLocalInferenceJson({
+      config: {
+        enabled: true,
+        baseUrl: "http://127.0.0.1:12434/v1",
+        model: "local-test-model",
+      },
+      messages: [{ role: "user", content: "hello" }],
+      fetchImpl: async () => ({
+        ok: false,
+        status: 502,
+        text: async () => longError,
+      }),
+    }),
+    (error) => {
+      assert.match(error.message, new RegExp(`local inference request failed with status 502: ${"x".repeat(300)}$`));
+      return true;
+    },
+  );
+});
+
+test("local inference handles body read failure gracefully when response is not ok", async () => {
+  await assert.rejects(
+    () => requestLocalInferenceJson({
+      config: {
+        enabled: true,
+        baseUrl: "http://127.0.0.1:12434/v1",
+        model: "local-test-model",
+      },
+      messages: [{ role: "user", content: "hello" }],
+      fetchImpl: async () => ({
+        ok: false,
+        status: 500,
+        text: async () => {
+          throw new Error("network reset while reading body");
+        },
+      }),
+    }),
+    (error) => {
+      assert.equal(error.message, "local inference request failed with status 500");
+      return true;
+    },
+  );
+});
+
+test("local inference does not append dangling colon when error body is only whitespace", async () => {
+  await assert.rejects(
+    () => requestLocalInferenceJson({
+      config: {
+        enabled: true,
+        baseUrl: "http://127.0.0.1:12434/v1",
+        model: "local-test-model",
+      },
+      messages: [{ role: "user", content: "hello" }],
+      fetchImpl: async () => ({
+        ok: false,
+        status: 503,
+        text: async () => "   \n\t  ",
+      }),
+    }),
+    (error) => {
+      assert.equal(error.message, "local inference request failed with status 503");
+      return true;
+    },
+  );
+});
+
+

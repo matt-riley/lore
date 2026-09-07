@@ -37,7 +37,8 @@ import {
   readPreToolUseGuardrailEnabled,
 } from "./lib/rollout/rollout-flags.mjs";
 import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.mjs";
-import { readPiSessionFile } from "./pi-session-reader.mjs";
+import { readPiSessionHeader } from "./pi-session-reader.mjs";
+import { ingestCliTranscript } from "./lib/clients/cli-transcript-ingestion.mjs";
 import { PiArchiveScanner, parseBackfillSettings } from "./lib/sessions/pi-archive-scanner.mjs";
 
 const RECALL_TYPES = [
@@ -125,33 +126,35 @@ function alreadyExtracted(sessionId) {
   return !!db.db.prepare("SELECT session_id FROM episode_digest WHERE session_id = ?").get(sessionId);
 }
 
-function extractPiSession(filePath, repository) {
-  const parsed = readPiSessionFile(filePath, { repository });
-  if (parsed.sessionArtifacts.turns.length === 0) {
-    return { extracted: false, reason: "no_turns", sessionId: parsed.sessionId };
-  }
-  const workspace = {
-    workspace: {
-      repository: parsed.repository,
-      branch: null,
-      updated_at: parsed.sessionArtifacts.session.updated_at,
-    },
-  };
-  const extraction = applySessionExtraction({
-    db,
-    sessionId: parsed.sessionId,
-    repository: parsed.repository,
-    sessionArtifacts: parsed.sessionArtifacts,
-    workspace,
+async function extractPiSession(filePath, repository) {
+  const parsed = await readPiSessionHeader(filePath, {
+    repository,
+    mappings: db?.getRepositoryMappings?.() ?? [],
   });
-  return {
-    extracted: true,
+  if (!parsed.sessionId) return { extracted: false, reason: "missing_session_id", sessionId: null };
+  let extractionResult = null;
+  const captureResult = await ingestCliTranscript({
+    db,
+    client: "pi",
     sessionId: parsed.sessionId,
-    episodeId: extraction.episodeDigest.id,
-    memoryCount: extraction.semanticMemories.length,
-    turns: parsed.sessionArtifacts.turns.length,
-    files: parsed.sessionArtifacts.files.length,
-  };
+    transcriptPath: filePath,
+    cwd: parsed.cwd,
+    repository: parsed.repository,
+    capture: (artifacts) => {
+      if (!artifacts.turns.length) return;
+      const workspace = { workspace: { repository: parsed.repository, branch: null, updated_at: artifacts.session.updated_at } };
+      const extraction = applySessionExtraction({
+        db,
+        sessionId: parsed.sessionId,
+        repository: parsed.repository,
+        sessionArtifacts: artifacts,
+        workspace,
+      });
+      extractionResult = { extracted: true, episodeId: extraction.episodeDigest.id, memoryCount: extraction.semanticMemories.length };
+    },
+  });
+  if (!extractionResult) return { extracted: false, reason: captureResult.status === "pending" ? "pending" : "no_turns", sessionId: parsed.sessionId, pending: captureResult.pending ?? false };
+  return { ...extractionResult, sessionId: parsed.sessionId, turns: captureResult.turns ?? 0, files: 0 };
 }
 
 function yieldToForeground() {
@@ -168,7 +171,7 @@ async function runArchiveQueue() {
       continue;
     }
     try {
-      const result = extractPiSession(candidate.path, null);
+      const result = await extractPiSession(candidate.path, null);
       if (result.extracted) {
         console.error(
           `[lore-server] imported ${candidate.sessionId?.slice(0, 8)}: ${result.memoryCount} memories, ${result.turns} turns`,
@@ -400,6 +403,7 @@ async function dispatch(method, params) {
         observationCount: s.observationCount ?? 0,
         schemaVersion: s.schemaVersion ?? "?",
         dbPath: s.dbPath ?? null,
+        captureHealth: db.listCaptureHealth(),
       };
     }
     case "close":

@@ -84,8 +84,13 @@ function resolveNode(): string | null {
     nodeBin = process.env.LORE_NODE;
     return nodeBin;
   }
+  if (process.execPath) {
+    nodeBin = process.execPath;
+    return nodeBin;
+  }
   try {
-    nodeBin = execSync("which node", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
+    const cmd = process.platform === "win32" ? "where node" : "which node";
+    nodeBin = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().split(/\r?\n/)[0] || null;
   } catch {
     nodeBin = null;
   }

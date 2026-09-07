@@ -7,12 +7,17 @@ const argv = process.argv.slice(2);
 const [mode, clientOrTool, event] = argv;
 const neutral = clientOrTool === "antigravity" && event === "Stop" ? { decision: "stop" } : {};
 try {
-  let input = "";
-  for await (const chunk of process.stdin) {
-    input += chunk;
-    if (Buffer.byteLength(input) > 1024 * 1024) throw new Error("Hook input exceeds 1 MiB");
+  let bytesReceived = 0;
+  const chunks = [];
+  if (!process.stdin.isTTY) {
+    for await (const chunk of process.stdin) {
+      bytesReceived += chunk.length;
+      if (bytesReceived > 1024 * 1024) throw new Error("Hook input exceeds 1 MiB");
+      chunks.push(chunk);
+    }
   }
-  const args = JSON.parse(input || "{}");
+  const input = chunks.length > 0 ? Buffer.concat(chunks).toString("utf8") : "{}";
+  const args = JSON.parse(input.trim() || "{}");
   if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Expected a JSON object on stdin");
   const runtime = await checkRuntime();
   if (!runtime.ok) throw new Error(formatRuntimeDiagnostics(runtime));

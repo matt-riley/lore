@@ -86,7 +86,7 @@ selection of any repair or aggregate candidates.
 
 ```sh
 printf '%s\n' '{"memoryId":"<id>","content":"<replacement>","reason":"<why>"}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_correct
-printf '%s\n' '{"sessionIds":["<session-id>"]}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_repair
+printf '%s\n' '{"memoryIds":["<id>"]}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_repair
 printf '%s\n' '{"memoryIds":["<id>"]}' | node /absolute/path/to/lore/lore-cli.mjs tool memory_purge
 ```
 

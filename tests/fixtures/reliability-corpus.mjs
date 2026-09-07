@@ -278,6 +278,15 @@ const CASES = Object.freeze([
     expected: [{ type: "decision", scope: "repo", anchors: ["chose", "domain", "events", "timer", "invalidation"] }],
     query: "Why did we choose domain events for cache invalidation?",
   },
+  {
+    id: "footer-link-do-not",
+    family: "rejection",
+    repository: "acme/site",
+    user: "Do not remove the footer link from the documentation page. Keep the canonical support URL in the footer so readers can find maintenance guidance.",
+    assistant: "I will preserve the canonical support URL in the documentation footer.",
+    expected: [{ type: "rejected_approach", scope: "repo", anchors: ["do", "not", "remove", "footer", "link", "canonical"] }],
+    query: "What footer link rule applies to the documentation page?",
+  },
 ]);
 
 function clientLabel(client) {

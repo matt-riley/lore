@@ -181,11 +181,11 @@ inferred from arbitrary shell output. Automatic recall uses deterministic
 retrieval; explicit `lore_recall` retains the shared tool's optional local query
 expansion and embedding behavior.
 
-Hook-provided transcript snapshots are capped at 32 MiB and hook input at 1
-MiB. Oversized or malformed hook input produces a diagnostic and is not
-imported. The separate native `capture --resume` command handles larger
-transcripts incrementally within its per-pass bounds. An incomplete final JSONL
-record is deferred until a later capture. Hosts that disable transcript
+Hook input is capped at 1 MiB. Malformed or oversized hook input produces a
+diagnostic and is not imported. Capture hooks and `capture --resume` both read
+transcripts incrementally, including files larger than 32 MiB, within the
+per-pass bounds above. An incomplete final JSONL record is deferred until a
+later capture. Hosts that disable transcript
 persistence cannot provide automatic extraction. Hook timeouts are 10 seconds,
 except Codex `SessionEnd` at its 3-second maximum; `Stop` provides the normal
 capture point before shutdown. Hook metrics, automatic maintenance, raw archive

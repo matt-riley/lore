@@ -41,9 +41,8 @@ For Codex CLI, Claude Code, and Antigravity CLI, check the [installation guide](
 Run `memory_status` and a synthetic `lore_recall` through `lore-cli.mjs tool` from the project directory. If direct recall works but automatic recall does not, inspect the host's hook diagnostics. Lore fails open, so the agent continuing normally is not proof that hooks ran.
 
 For missing hook capture, confirm the host persists and supplies the active
-transcript. Hook-provided snapshots over 32 MiB are not imported; use the
-native `capture --resume` command for larger transcripts, which reads them in
-bounded passes. An unfinished last JSONL record waits for a later capture. The
+transcript. Capture hooks and `capture --resume` both read large transcripts
+in bounded passes. Use the resume command when health reports pending work. An unfinished last JSONL record waits for a later capture. The
 verified host versions and unsupported features are listed in [Compatibility
 and current limits](/guides/cli-integrations/#compatibility-and-current-limits).
 

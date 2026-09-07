@@ -5,7 +5,7 @@ import { withFixtureDb } from "../helpers/fixture-db.mjs";
 import { mergeSemanticRecallResult } from "../../lib/memory/memory-operations.mjs";
 import { extractMeaningfulPromptTerms, scorePromptFallbackRows } from "../../lib/context/prompt-search-query.mjs";
 import { buildSemanticEligibilitySql } from "../../lib/db/db-retrieval-policy.mjs";
-import { indexMemoryEmbeddings } from "../../lib/memory/semantic-search.mjs";
+import { indexMemoryEmbeddings, semanticSearch } from "../../lib/memory/semantic-search.mjs";
 
 test("semantic retrieval enforces repository, expiry, and unknown-repository policy", async () => {
   const fixture = await withFixtureDb();
@@ -78,6 +78,89 @@ test("semantic recall merge keeps the final text and token estimate aligned", ()
   assert.equal(result.semanticMatches.length, 1);
 });
 
+test("semantic merge deduplicates only rows that were actually rendered", () => {
+  const result = mergeSemanticRecallResult({
+    result: {
+      text: "## Context\n\n- Rendered memory",
+      trace: { lookups: { local: { rows: [{ id: "same", content: "Omitted lexical memory" }], includedRows: [] } }, output: {} },
+    },
+    semantic: { enabled: true, rows: [{ id: "same", type: "fact", content: "Omitted lexical memory", score: 0.8 }] },
+    config: { budgets: { total: 100 } },
+  });
+  assert.equal(result.semanticMatches.length, 1);
+  assert.deepEqual(result.trace.lookups.semantic.includedRows.map((row) => row.id), ["same"]);
+});
+
+test("embedding candidate pages advance by a stable keyset cursor", async () => {
+  const fixture = await withFixtureDb();
+  try {
+    for (let index = 0; index < 260; index += 1) {
+      fixture.db.insertSemanticMemory({ id: `keyset-${String(index).padStart(3, "0")}`, type: "user_preference", content: `Keyset candidate ${index}`, scope: "global" });
+    }
+    fixture.db.ensureMemoryEmbeddingTable();
+    const first = fixture.db.listSemanticMemoriesForEmbedding({ limit: 256 });
+    const cursor = {
+      cacheRank: 0,
+      embeddingUpdatedAt: "",
+      updatedAt: first.at(-1).updated_at,
+      id: first.at(-1).id,
+    };
+    const second = fixture.db.listSemanticMemoriesForEmbedding({ limit: 256, after: cursor });
+    assert.equal(first.length, 256);
+    assert.equal(second.length, 4);
+    assert.equal(new Set([...first, ...second].map((row) => row.id)).size, 260);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("deadline failures return sorted partial semantic rows with diagnostics", async () => {
+  const fixture = await withFixtureDb({ configOverrides: { localInference: { enabled: true, embeddings: { enabled: true, model: "test" } } } });
+  try {
+    const rows = Array.from({ length: 256 }, (_, index) => ({
+      id: `partial-${String(index).padStart(3, "0")}`,
+      type: "user_preference",
+      content: `Partial candidate ${index}`,
+      repository: null,
+      scope: "global",
+      scope_source: "auto",
+      updated_at: `2024-01-01T00:00:${String(index % 60).padStart(2, "0")}.000Z`,
+      expires_at: null,
+      metadata_json: "{}",
+      embedding_updated_at: "2024-01-01T00:00:00.000Z",
+      vector: JSON.stringify([1, 0]),
+      content_hash: "stale",
+      provider: "test",
+      model: "test",
+      dimensions: 2,
+    }));
+    let calls = 0;
+    fixture.db.listSemanticMemoriesForEmbedding = () => {
+      calls += 1;
+      if (calls > 1) throw new Error("deadline exceeded while paging");
+      return rows;
+    };
+    fixture.db.ensureMemoryEmbeddingTable = () => {};
+    const result = await semanticSearch({
+      db: fixture.db,
+      query: "partial",
+      deadlineMs: 10_000,
+      fetchImpl: async (_url, options) => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ index: 0, embedding: [1, 0] }] }),
+      }),
+      config: fixture.config,
+    });
+    assert.equal(result.diagnostics.partialCoverage, true);
+    assert.ok(result.error);
+    assert.ok(result.rows.length > 0);
+    assert.ok(result.rows.every((row, index) => index === 0 || row.score <= result.rows[index - 1].score));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("semantic merge accounts for heading overhead at a small total budget", () => {
   const result = mergeSemanticRecallResult({
     result: { text: "", trace: { output: {} } },
@@ -87,6 +170,19 @@ test("semantic merge accounts for heading overhead at a small total budget", () 
   assert.equal(result.semanticMatches.length, 0);
   assert.equal(result.trace.omissions[0].reason, "budget");
   assert.equal(result.estimatedTokens, 0);
+});
+
+test("semantic merge applies the final total budget to the base sections", () => {
+  const result = mergeSemanticRecallResult({
+    result: {
+      text: "## Context\n\n- This base section is deliberately much longer than the output budget allows.",
+      trace: { output: {}, lookups: {} },
+    },
+    semantic: { enabled: true, rows: [] },
+    config: { budgets: { total: 5 } },
+  });
+  assert.ok(result.estimatedTokens <= 5);
+  assert.equal(result.estimatedTokens, result.trace.output.estimatedTokens);
 });
 
 test("maintenance advances past persistently malformed vectors within a short final page", async () => {

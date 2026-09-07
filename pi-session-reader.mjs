@@ -13,44 +13,13 @@
 // Only reads files; never writes.
 
 import { readFileSync, statSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { open } from "node:fs/promises";
 import path from "node:path";
+import { resolveRepositoryIdentity } from "./lib/utils/repository-identity.mjs";
 
 const FILE_TOOL_NAMES = new Set(["write", "edit", "read"]);
 
 /** Best-effort repository slug ("owner/name") from the git remote, else the toplevel dir name. */
-function deriveRepository(cwd) {
-  if (!cwd) {
-    return null;
-  }
-  try {
-    const remote = execSync("git remote get-url origin", {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    const match = remote.match(/[:/]([^/:]+)\/([^/.]+?)(?:\.git)?$/);
-    if (match) {
-      return `${match[1]}/${match[2]}`;
-    }
-  } catch {
-    // not a git remote
-  }
-  try {
-    const top = execSync("git rev-parse --show-toplevel", {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    if (top) {
-      return path.basename(top);
-    }
-  } catch {
-    // not a git repo
-  }
-  return null;
-}
-
 /** Extract joined text from a pi content block (string or block array). */
 function textOf(content) {
   if (typeof content === "string") {
@@ -74,7 +43,7 @@ function textOf(content) {
  *            sessionArtifacts: { session: object, checkpoints: object[],
  *            files: object[], refs: [], turns: object[] } }}
  */
-export function readPiSessionFile(filePath, { repository = null } = {}) {
+export function readPiSessionFile(filePath, { repository = null, legacy = null, mappings = [] } = {}) {
   const raw = readFileSync(filePath, "utf8");
   const lines = raw.split("\n").filter((line) => line.trim().length > 0);
 
@@ -178,7 +147,7 @@ export function readPiSessionFile(filePath, { repository = null } = {}) {
 
   const cwd = header?.cwd ?? null;
   const sessionId = header?.id ?? null;
-  const effectiveRepository = repository ?? deriveRepository(cwd);
+  const effectiveRepository = repository ?? resolveRepositoryIdentity({ cwd, legacy, mappings }) ?? null;
   const createdAt = header?.timestamp ?? lastTimestamp ?? statSync(filePath).mtime.toISOString();
   const updatedAt = lastTimestamp ?? createdAt;
 
@@ -202,4 +171,28 @@ export function readPiSessionFile(filePath, { repository = null } = {}) {
       turns,
     },
   };
+}
+
+/** Read only Pi's small session header for bounded/resumable capture. */
+export async function readPiSessionHeader(filePath, { repository = null, legacy = null, mappings = [] } = {}) {
+  const handle = await open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(64 * 1024);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const newline = buffer.indexOf(0x0a, 0, bytesRead);
+    const firstLine = buffer.toString("utf8", 0, newline >= 0 ? newline : bytesRead);
+    const header = JSON.parse(firstLine);
+    if (header?.type !== "session" || typeof header.id !== "string" || !header.id.trim()) {
+      throw new Error("Invalid Pi session header");
+    }
+    const cwd = typeof header.cwd === "string" && header.cwd ? header.cwd : null;
+    return {
+      sessionId: header.id,
+      cwd,
+      repository: repository ?? resolveRepositoryIdentity({ cwd, legacy, mappings }) ?? null,
+      createdAt: header.timestamp ?? null,
+    };
+  } finally {
+    await handle.close();
+  }
 }

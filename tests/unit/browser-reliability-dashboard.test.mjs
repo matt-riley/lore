@@ -23,7 +23,7 @@ function response(payload) {
 
 async function fixtureFetch(path) {
   const data = {
-    "/api/health": { repository: "owner/repo" },
+    "/api/health": { repository: "owner/repo", loreCliPath: "/tmp/lore/lore-cli.mjs" },
     "/api/overview": {
       data: {
         stats: { semanticCount: 1 },
@@ -136,7 +136,8 @@ describe("reliability dashboard renderers", () => {
     assert.match(html, /memory_correct/);
     assert.match(html, /memory_repair/);
     assert.match(html, /memory_purge/);
-    assert.match(html, /\/absolute\/path\/to\/lore\/lore-cli\.mjs/);
+    assert.match(html, /node .*\/tmp\/lore\/lore-cli\.mjs.*tool memory_correct/);
+    assert.doesNotMatch(html, /\/absolute\/path\/to\/lore\/lore-cli\.mjs/);
     assert.match(html, /preview only/);
   });
 
@@ -166,31 +167,34 @@ describe("reliability dashboard renderers", () => {
     const evidenceKey = db.listSemanticEvidence(memoryId)[0].key;
     db.db.prepare("UPDATE session_evidence SET retired_at = ? WHERE evidence_key = ?").run("2026-09-07T09:00:00.000Z", evidenceKey);
     db.db.prepare("UPDATE memory_evidence SET retired_at = ? WHERE memory_id = ? AND evidence_key = ?").run("2026-09-07T09:05:00.000Z", memoryId, evidenceKey);
-    db.db.prepare(`INSERT INTO memory_suppression (suppression_key, memory_id, scope, repository, actor, reason, created_at, superseded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run("suppression:fixture", memoryId, "repo", "owner/repo", "fixture", "reviewed test suppression", "2026-09-07T08:30:00.000Z", null);
     db.db.prepare(`INSERT INTO memory_suppression (suppression_key, memory_id, scope, repository, actor, reason, created_at, superseded_at, repair_candidate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run("suppression:repair-candidate", memoryId, "repo", "owner/repo", "migration", "legacy repair candidate", "2026-09-07T08:00:00.000Z", null, 1);
     const { server } = startLoreBrowserServer({ db, host: "127.0.0.1", port: 0, repository: "owner/repo" });
     await new Promise((resolve) => server.once("listening", resolve));
     try {
+      const healthResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/health`);
+      const healthPayload = await healthResponse.json();
+      assert.equal(healthResponse.status, 200);
+      assert.equal(path.basename(healthPayload.loreCliPath), "lore-cli.mjs");
+      assert.doesNotMatch(healthPayload.loreCliPath, /\/absolute\/path\/to\//);
       const responseValue = await fetch(`http://127.0.0.1:${server.address().port}/api/drilldown?entity=memory&id=${memoryId}`);
       const payload = await responseValue.json();
       assert.equal(responseValue.status, 200);
       assert.equal(payload.mode, "read_only");
       assert.equal(payload.data.lifecycle.evidence[0].sourceRole, "user");
       assert.equal(payload.data.lifecycle.evidence[0].sourceRecordId, "turn-1");
-      assert.equal(payload.data.lifecycle.state.suppression, "suppressed");
-      assert.equal(payload.data.lifecycle.state.activeSuppressionCount, 1);
+      assert.equal(payload.data.lifecycle.state.suppression, "none");
+      assert.equal(payload.data.lifecycle.state.activeSuppressionCount, 0);
       const evidenceTimeline = payload.data.lifecycle.timeline.filter((item) => item.kind.includes("evidence"));
       assert.deepEqual(new Set(evidenceTimeline.map((item) => item.kind)), new Set(["evidence", "evidence_retired", "evidence_link_retired"]));
       assert.equal(evidenceTimeline.find((item) => item.kind === "evidence_retired").at, "2026-09-07T09:00:00.000Z");
       assert.equal(evidenceTimeline.find((item) => item.kind === "evidence_link_retired").at, "2026-09-07T09:05:00.000Z");
-      assert.deepEqual(payload.data.lifecycle.timeline.find((item) => item.kind === "suppression" && item.actor === "fixture"), {
-        at: "2026-09-07T08:30:00.000Z",
+      assert.deepEqual(payload.data.lifecycle.timeline.find((item) => item.kind === "suppression" && item.actor === "migration"), {
+        at: "2026-09-07T08:00:00.000Z",
         kind: "suppression",
         label: "Suppression recorded",
-        actor: "fixture",
-        reason: "reviewed test suppression",
+        actor: "migration",
+        reason: "legacy repair candidate",
       });
     } finally {
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

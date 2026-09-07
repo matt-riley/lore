@@ -93,9 +93,9 @@ events map to shared behavior through the adapters above.
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_correct` | 🟢 Supported | Defaults to a read-only preview. Applying requires the exact preview planFingerprint; creates a validated snapshot and retains suppression and source boundaries. |
-| `memory_repair` | 🟡 Experimental | Deterministic and bounded. Missing source and ambiguous provenance remain unresolved; applying requires the exact preview planFingerprint. |
-| `memory_purge` | 🟡 Experimental | Requires explicit memoryIds or repository selection. Applying requires the exact preview planFingerprint and creates a validated recovery snapshot; this is not secure erasure. |
+| `memory_correct` | 🟢 Supported | Defaults to a read-only preview. Repository selects the manual replacement destination. Apply requires planFingerprint, preserves expiry unless changed, and creates a validated snapshot. |
+| `memory_repair` | 🟡 Experimental | Deterministic complete-source repair, bounded to 32 MiB per source and the preview candidate limit. Missing, incomplete, or ambiguous sources remain unresolved. Apply requires planFingerprint and actionable selectedCandidateIds. |
+| `memory_purge` | 🟡 Experimental | Requires explicit memoryIds, repository, or global scope selection. Shared derived copies require includeDependentAggregates and all typed preview candidate IDs. Apply validates planFingerprint and a snapshot; raw sources, backups, and suppression remain. |
 
 ### Skill management and diagnostics
 

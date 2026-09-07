@@ -5,7 +5,7 @@ import { withFixtureDb } from "../helpers/fixture-db.mjs";
 import { mergeSemanticRecallResult } from "../../lib/memory/memory-operations.mjs";
 import { extractMeaningfulPromptTerms, scorePromptFallbackRows } from "../../lib/context/prompt-search-query.mjs";
 import { buildSemanticEligibilitySql } from "../../lib/db/db-retrieval-policy.mjs";
-import { indexMemoryEmbeddings, semanticSearch } from "../../lib/memory/semantic-search.mjs";
+import { embeddingContentHash, indexMemoryEmbeddings, semanticSearch, validatedCachedEmbeddingVector } from "../../lib/memory/semantic-search.mjs";
 
 test("semantic retrieval enforces repository, expiry, and unknown-repository policy", async () => {
   const fixture = await withFixtureDb();
@@ -30,6 +30,14 @@ test("prompt fallback scores meaningful terms without weakening strict search", 
     { id: "irrelevant", content: "Penguin habitats need cold water." },
   ], terms);
   assert.deepEqual(rows.map((row) => row.id), ["match"]);
+});
+
+test("validated embedding cache helper rejects stale identity metadata", () => {
+  const key = { content: "bounded retrieval", provider: "local", model: "embed-v1", dimensions: 2 };
+  const row = { content_hash: embeddingContentHash(key.content), provider: key.provider, model: key.model, dimensions: 2, vector: "[1,0]" };
+  assert.deepEqual(validatedCachedEmbeddingVector(row, key), [1, 0]);
+  assert.equal(validatedCachedEmbeddingVector({ ...row, model: "embed-v2" }, key), null);
+  assert.equal(validatedCachedEmbeddingVector({ ...row, vector: "[0,0]" }, key), null);
 });
 
 test("suppression fingerprints exclude a restored generated copy while manual restore remains visible", async () => {
@@ -99,12 +107,7 @@ test("embedding candidate pages advance by a stable keyset cursor", async () => 
     }
     fixture.db.ensureMemoryEmbeddingTable();
     const first = fixture.db.listSemanticMemoriesForEmbedding({ limit: 256 });
-    const cursor = {
-      cacheRank: 0,
-      embeddingUpdatedAt: "",
-      updatedAt: first.at(-1).updated_at,
-      id: first.at(-1).id,
-    };
+    const cursor = { memoryRowid: first.at(-1).memory_rowid };
     const second = fixture.db.listSemanticMemoriesForEmbedding({ limit: 256, after: cursor });
     assert.equal(first.length, 256);
     assert.equal(second.length, 4);

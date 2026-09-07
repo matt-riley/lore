@@ -83,3 +83,15 @@ test("global purge is a distinct explicit selector", async () => {
     cleanup();
   }
 });
+
+test("repository constrained corrections reject a foreign target", async () => {
+  const { db, cleanup } = await withFixtureDb();
+  try {
+    const id = db.insertSemanticMemory({ type: "user_preference", content: "Other repository.", scope: "repo", repository: "fixture/other" });
+    const plan = previewMemoryAdministration(db, normalizeAdministrationRequest({ operation: "correct", memoryId: id, repository: "fixture/repo", content: "Wrong target" }));
+    assert.ok(plan.unresolvedCandidates.some((item) => item.code === "FOREIGN_TARGET"));
+    assert.throws(() => applyMemoryAdministration(db, normalizeAdministrationRequest({ operation: "correct", memoryId: id, repository: "fixture/repo", content: "Wrong target" }), plan.planFingerprint), /unresolved|stale/i);
+  } finally {
+    cleanup();
+  }
+});

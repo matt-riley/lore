@@ -12,6 +12,7 @@ const adapterPath = path.join(tempDir, "lore-pi.ts");
 const clientUrl = pathToFileURL(path.join(root, "lib", "clients", "pi-server-client.mjs")).href;
 const configUrl = pathToFileURL(path.join(root, "lib", "core", "config.mjs")).href;
 const source = readFileSync(sourcePath, "utf8")
+  .replace('from "./lib/utils/repository-identity.mjs"', `from "${pathToFileURL(path.join(root, "lib", "utils", "repository-identity.mjs")).href}"`)
   .replace('from "./lib/clients/pi-server-client.mjs"', `from "${clientUrl}"`)
   .replace('import("./lib/core/config.mjs")', `import("${configUrl}")`)
   .replace(

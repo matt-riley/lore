@@ -28,6 +28,9 @@ test("lore-cli handles whitespace-only stdin gracefully without hanging", () => 
 test("lore-cli handles simulated TTY stdin gracefully without hanging", () => {
   const code = `
     process.stdin.isTTY = true;
+    process.stdin[Symbol.asyncIterator] = () => ({
+      next: () => new Promise(() => {}),
+    });
     process.argv = [process.execPath, ${JSON.stringify(cliPath)}, "hook", "antigravity", "Stop"];
     await import(${JSON.stringify(cliPath)});
   `;

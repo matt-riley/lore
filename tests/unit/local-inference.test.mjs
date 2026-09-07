@@ -246,3 +246,26 @@ test("local inference handles body read failure gracefully when response is not 
   );
 });
 
+test("local inference does not append dangling colon when error body is only whitespace", async () => {
+  await assert.rejects(
+    () => requestLocalInferenceJson({
+      config: {
+        enabled: true,
+        baseUrl: "http://127.0.0.1:12434/v1",
+        model: "local-test-model",
+      },
+      messages: [{ role: "user", content: "hello" }],
+      fetchImpl: async () => ({
+        ok: false,
+        status: 503,
+        text: async () => "   \n\t  ",
+      }),
+    }),
+    (error) => {
+      assert.equal(error.message, "local inference request failed with status 503");
+      return true;
+    },
+  );
+});
+
+

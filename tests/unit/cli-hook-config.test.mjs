@@ -3,31 +3,19 @@ import { test } from "node:test";
 import { shellQuote, buildCliHookConfig, mergeCliHookConfig } from "../../lib/clients/cli-hook-config.mjs";
 
 test("shellQuote quotes and escapes strings for POSIX platforms", () => {
-  const originalPlatform = process.platform;
-  try {
-    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
-    assert.equal(shellQuote("simple"), "'simple'");
-    assert.equal(shellQuote("with spaces"), "'with spaces'");
-    assert.equal(shellQuote("can't stop"), "'can'\\''t stop'");
-    assert.equal(shellQuote("path/to/\"quoted\"/file"), "'path/to/\"quoted\"/file'");
-    assert.equal(shellQuote(123), "'123'");
-  } finally {
-    Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
-  }
+  assert.equal(shellQuote("simple", "darwin"), "'simple'");
+  assert.equal(shellQuote("with spaces", "linux"), "'with spaces'");
+  assert.equal(shellQuote("can't stop", "linux"), "'can'\\''t stop'");
+  assert.equal(shellQuote("path/to/\"quoted\"/file", "darwin"), "'path/to/\"quoted\"/file'");
+  assert.equal(shellQuote(123, "linux"), "'123'");
 });
 
 test("shellQuote quotes and escapes strings for Windows (win32)", () => {
-  const originalPlatform = process.platform;
-  try {
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-    assert.equal(shellQuote("simple"), '"simple"');
-    assert.equal(shellQuote("with spaces"), '"with spaces"');
-    assert.equal(shellQuote('has "quotes" inside'), '"has ""quotes"" inside"');
-    assert.equal(shellQuote("can't stop"), '"can\'t stop"');
-    assert.equal(shellQuote(456), '"456"');
-  } finally {
-    Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
-  }
+  assert.equal(shellQuote("simple", "win32"), '"simple"');
+  assert.equal(shellQuote("with spaces", "win32"), '"with spaces"');
+  assert.equal(shellQuote('has "quotes" inside', "win32"), '"has ""quotes"" inside"');
+  assert.equal(shellQuote("can't stop", "win32"), '"can\'t stop"');
+  assert.equal(shellQuote(456, "win32"), '"456"');
 });
 
 test("buildCliHookConfig constructs expected hook structure", () => {

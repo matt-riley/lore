@@ -64,6 +64,14 @@ The Codex, Claude Code, and Antigravity adapters do not run automatic maintenanc
 
 The browser dashboard is experimental, read-only, unauthenticated, and loopback-only. Start it with `npm run browser`; use `127.0.0.1`, `localhost`, or `::1`. It is intentionally not available through a LAN address.
 
+When it loads, open a memory from the **Memories** table to inspect source
+evidence, role attribution, confidence basis, scope, expiry, suppression, and
+the correction timeline. The overview's **Capture health** table shows pending
+bytes and a copy-only resume preview when a native checkpoint includes both
+`sourcePath` and `sourceCwd`. **Embedding coverage** reports the active indexed
+portion and recent lexical fallback diagnostics. No dashboard control executes
+a command or writes to Lore.
+
 ## Still stuck?
 
 Capture the Node version, Lore version or checkout revision, operating system, exact symptom, and output from `memory_status` or `memory_validate`. Do not attach `lore.db`, `lore.json`, or raw session data; they can contain sensitive work details. See the project's support guidance before opening an issue.

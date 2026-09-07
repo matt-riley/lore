@@ -944,6 +944,10 @@ describe("persona extraction uses direct sentence attribution", () => {
   test("style questions and reported guidance do not create global persona", () => {
     for (const user_message of [
       "Could you explain why we use a friendly tone?",
+      "I want to know why we use a friendly tone?",
+      "I want to understand why we use a friendly tone.",
+      "Please use a friendly tone just this once.",
+      "For this response, please use a friendly tone.",
       'The style guide says "please use a friendly tone".',
       "If you used a friendly tone, would that help?",
     ]) assert.deepEqual(semantic(extract({ turns: [{ user_message }] }), "interaction_style"), [], user_message);
@@ -966,6 +970,7 @@ describe("persona extraction uses direct sentence attribution", () => {
   test("assistant naming excludes questions, negation and reported text while preserving scoped declarations", () => {
     for (const user_message of [
       "Should I call you Merlin?", "Do not call yourself Merlin.",
+      "Call yourself Merlin just for this response.",
       'The documentation says "your name is Merlin".', "If I call you Merlin, would that work?",
       "I used the name Merlin in that doc.",
     ]) assert.deepEqual(semantic(extract({ turns: [{ user_message }] }), "assistant_identity"), [], user_message);

@@ -136,6 +136,7 @@ describe("reliability dashboard renderers", () => {
     assert.match(html, /memory_correct/);
     assert.match(html, /memory_repair/);
     assert.match(html, /memory_purge/);
+    assert.match(html, /\/absolute\/path\/to\/lore\/lore-cli\.mjs/);
     assert.match(html, /preview only/);
   });
 
@@ -212,6 +213,11 @@ describe("reliability dashboard renderers", () => {
     });
     db.db.prepare("UPDATE semantic_memory SET expires_at = ? WHERE id = ?").run("2020-01-01T00:00:00.000Z", expiredId);
     db.ensureMemoryEmbeddingTable();
+    db.saveIngestionCheckpoint("codex", "session-1", {
+      repository: "owner/repo",
+      adapterState: { sourcePath: "/tmp/transcript.jsonl", sourceCwd: "/tmp/project" },
+      health: { pendingBytes: 128 },
+    });
     db.db.prepare(`INSERT OR REPLACE INTO memory_embedding (memory_id, content_hash, provider, model, dimensions, vector, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(activeId, embeddingContentHash("Use the active fixture memory."), "http://127.0.0.1:12434/v1", "fixture-model", 2, "[1,0]", "2026-09-07T08:00:00.000Z");
     db.insertRetrievalTraceSample({
@@ -255,11 +261,34 @@ describe("reliability dashboard renderers", () => {
       assert.equal(payload.data.indexing.indexed, 1);
       assert.equal(payload.data.indexing.pending, 0);
       assert.equal(payload.data.indexing.dimensionsBasis, "stored vector dimensions");
+      assert.equal(payload.data.captureHealth[0].resumeEligible, true);
+      assert.match(payload.data.captureHealth[0].resumeCommand, /node ['"]?[^ ]*lore-cli\.mjs['"]? capture --resume/);
       assert.deepEqual(payload.data.indexing.fallbackDiagnostics, [
         { reason: "deterministic_fallback", count: 1 },
         { reason: "partial_embedding_coverage", count: 1 },
         { reason: "embedding_deadline", count: 1 },
       ]);
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      db.close();
+    }
+  });
+
+  test("overview disables embedding coverage when the model is missing", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "lore-browser-invalid-embedding-fixture-"));
+    const config = buildFixtureConfig(home, {
+      enabled: true,
+      localInference: { enabled: true, embeddings: { enabled: true, model: "   " } },
+    });
+    const db = new LoreDb(config);
+    db.initialize();
+    const { server } = startLoreBrowserServer({ db, host: "127.0.0.1", port: 0, repository: "owner/repo" });
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      const responseValue = await fetch(`http://127.0.0.1:${server.address().port}/api/overview`);
+      const payload = await responseValue.json();
+      assert.equal(responseValue.status, 200);
+      assert.equal(payload.data.indexing.enabled, false);
     } finally {
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
       db.close();

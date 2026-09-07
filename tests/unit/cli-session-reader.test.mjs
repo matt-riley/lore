@@ -51,3 +51,16 @@ test("reader tolerates only an unfinished trailing JSON record", () => {
   assert.doesNotThrow(() => parseCliTranscript('{"partial":', options));
   assert.throws(() => parseCliTranscript('{broken}\n{}\n', options), /Malformed/);
 });
+
+test("bounded latest Antigravity prompt works beyond 32 MiB and ignores incomplete trailing data", async () => {
+  const { readLatestCliPrompt } = await import("../../lib/clients/cli-session-reader.mjs");
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const path = await import("node:path"); const os = await import("node:os");
+  const home = await mkdtemp(path.join(os.tmpdir(), "lore-latest-prompt-"));
+  try {
+    const file = path.join(home, "t.jsonl");
+    await writeFile(file, (JSON.stringify({ type: "THINKING", content: "x".repeat(1024) }) + "\n").repeat(33_000)
+      + JSON.stringify({ step_index: 4, type: "USER_INPUT", source: "USER_EXPLICIT", status: "DONE", content: "<USER_REQUEST>latest 🥝</USER_REQUEST>" }) + "\n{unfinished");
+    assert.equal(await readLatestCliPrompt(file, { client: "antigravity" }), "latest 🥝");
+  } finally { await rm(home, { recursive: true, force: true }); }
+});

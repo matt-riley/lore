@@ -396,7 +396,7 @@ describe("lore_reflect tool", () => {
         /localInference: deterministic fallback \(local inference reflection produced no quality-approved insights\)/,
       );
       assert.doesNotMatch(output, /This generated summary must be rejected/);
-      assert.match(output, /Defined deterministic fallback for low-quality generated reflection/);
+      assert.match(output, /Preserve deterministic reflection when generated quality is too low/);
     } finally {
       cleanup();
     }

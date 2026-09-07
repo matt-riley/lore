@@ -20,6 +20,7 @@ import {
   detectRelevantInstructionFiles,
 } from "./lib/memory/procedural-memory.mjs";
 import { SessionStoreReader } from "./lib/sessions/session-store-reader.mjs";
+import { resolveRepositoryIdentity } from "./lib/utils/repository-identity.mjs";
 import { createTraceRecorder } from "./lib/lifecycle/trace-recorder.mjs";
 import {
   readWorkspaceContext,
@@ -725,7 +726,12 @@ async function ensureRuntime(session) {
     const initResult = runtime.db.initialize();
     runtime.lastBackupPath = initResult.backupPath ?? null;
 
-    runtime.sessionStore = new SessionStoreReader(runtime.config);
+    runtime.sessionStore = new SessionStoreReader(runtime.config, {
+      resolveRepositoryIdentity: (identity) => resolveRepositoryIdentity({
+        ...identity,
+        mappings: runtime.db.getRepositoryMappings(),
+      }),
+    });
     runtime.sessionStore.initialize();
     runtime.traceRecorder = createTraceRecorder(runtime.config);
 
@@ -753,7 +759,12 @@ async function getContext(session, sessionId, cwd) {
     activeRuntime.config?.paths?.copilotHome,
   );
   const workspace = await readWorkspaceContext(workspacePath);
-  const repository = workspace.workspace?.repository ?? null;
+  const repository = resolveRepositoryIdentity({
+    cwd: cwd || workspace.workspace?.cwd || null,
+    explicit: process.env.LORE_REPOSITORY,
+    legacy: workspace.workspace?.repository ?? null,
+    mappings: activeRuntime.db?.getRepositoryMappings?.() ?? [],
+  });
 
   return {
     runtime: activeRuntime,

@@ -30,6 +30,8 @@ import { Type } from "typebox";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { createPiServerClient } from "./lib/clients/pi-server-client.mjs";
 
 type LoreConfig = {
@@ -206,27 +208,37 @@ function deriveRepository(cwd: string): string | null {
   if (repoCache.has(cwd)) {
     return repoCache.get(cwd)!;
   }
+  const explicit = process.env.LORE_REPOSITORY?.trim();
+  if (explicit) {
+    return explicit;
+  }
   let repo: string | null = null;
   try {
-    const remote = execSync("git remote get-url origin", {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    const match = remote.match(/[:/]([^/:]+)\/([^/.]+?)(?:\.git)?$/);
-    if (match) {
-      repo = `${match[1]}/${match[2]}`;
-    }
-  } catch {
-    try {
-      const top = execSync("git rev-parse --show-toplevel", {
-        cwd,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
-      if (top) {
-        repo = path.basename(top);
+    const remote = execSync("git remote get-url origin", { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    let host = "";
+    let remotePath = "";
+    if (remote.includes("://")) {
+      const url = new URL(remote);
+      if (["ssh:", "https:", "http:", "git:"].includes(url.protocol)) {
+        host = url.host.toLowerCase();
+        remotePath = url.pathname;
       }
+    } else {
+      const match = remote.match(/^(?:[^@/\s]+@)?(\[[^\]]+\]|[^/:\s]+):(.+)$/u);
+      if (match) {
+        host = match[1].toLowerCase();
+        remotePath = match[2];
+      }
+    }
+    remotePath = remotePath.replace(/^\/+|\/+$/gu, "").replace(/\.git$/u, "");
+    if (host && remotePath && !/[\s?#]/u.test(remotePath)) repo = `${host}/${remotePath}`;
+  } catch {
+    // A local-only repository still has a stable common-directory identity.
+  }
+  if (!repo) {
+    try {
+      const common = realpathSync(path.resolve(cwd, execSync("git rev-parse --git-common-dir", { cwd, encoding: "utf8" }).trim()));
+      repo = `local:${createHash("sha256").update(common).digest("hex")}`;
     } catch {
       repo = null;
     }
@@ -684,6 +696,7 @@ export default function (pi: ExtensionAPI) {
         observationCount: number;
         schemaVersion: number | string;
         dbPath: string | null;
+        captureHealth?: Array<{ client: string; sessionId: string; pendingBytes: number; failureCode: string | null }>;
       }>("status");
       const text = [
         `semantic memories: ${s.semanticCount ?? 0}`,
@@ -692,6 +705,7 @@ export default function (pi: ExtensionAPI) {
         `observations: ${s.observationCount ?? 0}`,
         `schema: ${s.schemaVersion ?? "?"}`,
         `db: ${s.dbPath ?? "?"}`,
+        `capture health: ${s.captureHealth?.length ?? 0} checkpoint(s)`,
       ].join("\n");
       return { content: [{ type: "text", text }], details: {} };
     },
@@ -736,6 +750,7 @@ export default function (pi: ExtensionAPI) {
         observationCount: number;
         schemaVersion: number | string;
         dbPath: string | null;
+        captureHealth?: Array<{ client: string; sessionId: string; pendingBytes: number; failureCode: string | null }>;
       }>("status");
       notify(
         ctx as never,
@@ -743,6 +758,7 @@ export default function (pi: ExtensionAPI) {
         [
           `semantic: ${s.semanticCount ?? 0} | episodes: ${s.episodeCount ?? 0} | domains: ${s.domainCount ?? 0} | observations: ${s.observationCount ?? 0}`,
           `schema ${s.schemaVersion ?? "?"} | db: ${s.dbPath ?? "?"}`,
+          `capture checkpoints: ${s.captureHealth?.length ?? 0}`,
           "",
           "usage: /lore status | search <query> | save <text>",
         ].join("\n"),

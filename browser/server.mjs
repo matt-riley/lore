@@ -447,7 +447,7 @@ function buildMemoryLifecycle({ db, memory }) {
       repairCandidate: Boolean(row.repair_candidate),
     }))
     : []
-  const activeSuppressions = suppressions.filter((item) => !item.supersededAt)
+  const activeSuppressions = suppressions.filter((item) => !item.supersededAt && !item.repairCandidate)
   const correction = memory.metadata?.correctionProvenance && typeof memory.metadata.correctionProvenance === "object"
     ? memory.metadata.correctionProvenance
     : null

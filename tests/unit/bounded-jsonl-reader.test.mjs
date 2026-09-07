@@ -100,6 +100,19 @@ test("small append preserves generation and reads only appended records", async 
   });
 });
 
+test("checkpoint-neighborhood hashes reset truncate-and-regrow rewrites", async () => {
+  await fixture(async (file) => {
+    const prefix = `${JSON.stringify({ prefix: "x".repeat(5000) })}\n`;
+    await writeFile(file, `${prefix}${JSON.stringify({ value: "old" })}\n`);
+    const first = await readJsonlDelta(file);
+    assert.equal(first.checkpoint.pendingBytes, 0);
+    await writeFile(file, `${prefix}${JSON.stringify({ value: "new" })}\n${JSON.stringify({ value: "appended" })}\n`);
+    const rewritten = await readJsonlDelta(file, { checkpoint: first.checkpoint });
+    assert.equal(rewritten.reset, true);
+    assert.deepEqual(rewritten.records.map((row) => row.value), [{ prefix: "x".repeat(5000) }, { value: "new" }, { value: "appended" }]);
+  });
+});
+
 test("accepted record cap resumes without skipping bytes after excluded records", async () => {
   await fixture(async (file) => {
     await writeFile(file, [0, 1, 2, 3, 4].map((n) => JSON.stringify({ n })).join("\n") + "\n");

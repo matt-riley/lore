@@ -6,6 +6,7 @@ import { mergeSemanticRecallResult } from "../../lib/memory/memory-operations.mj
 import { extractMeaningfulPromptTerms, scorePromptFallbackRows } from "../../lib/context/prompt-search-query.mjs";
 import { buildSemanticEligibilitySql } from "../../lib/db/db-retrieval-policy.mjs";
 import { embeddingContentHash, indexMemoryEmbeddings, semanticSearch, validatedCachedEmbeddingVector } from "../../lib/memory/semantic-search.mjs";
+import { estimateTokens } from "../../lib/utils/token-estimator.mjs";
 
 test("semantic retrieval enforces repository, expiry, and unknown-repository policy", async () => {
   const fixture = await withFixtureDb();
@@ -84,6 +85,20 @@ test("semantic recall merge keeps the final text and token estimate aligned", ()
   assert.match(result.text, /Semantic Matches/);
   assert.equal(result.estimatedTokens, result.trace.output.estimatedTokens);
   assert.equal(result.semanticMatches.length, 1);
+});
+
+test("recall budgets preserve the rendered commitment heading as required context", () => {
+  const commitments = "## Relevant Commitments, Preferences, And Identity\n\n- Keep repository guidance visible.";
+  const result = mergeSemanticRecallResult({
+    result: {
+      text: `## Optional\n\n- Unrelated context.\n\n${commitments}`,
+      trace: { output: {} },
+    },
+    semantic: { enabled: true, rows: [] },
+    config: { budgets: { total: estimateTokens(commitments) } },
+  });
+  assert.match(result.text, /## Relevant Commitments, Preferences, And Identity/);
+  assert.doesNotMatch(result.text, /## Optional/);
 });
 
 test("semantic merge deduplicates only rows that were actually rendered", () => {

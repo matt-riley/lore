@@ -132,6 +132,13 @@ test("prompt terms retain meaningful uppercase acronyms", () => {
   assert.ok(terms.includes("tls"));
 });
 
+test("prompt terms retain lowercase three-letter technical identifiers", () => {
+  const terms = extractMeaningfulPromptTerms("How should jwt, sql, and api identifiers interact?");
+  assert.ok(terms.includes("jwt"));
+  assert.ok(terms.includes("sql"));
+  assert.ok(terms.includes("api"));
+});
+
 test("prompt fallback splits compound terms like the FTS tokenizer", () => {
   const terms = expandPromptSearchTerms(["rate-limit"], { maxTerms: 1, maxVariants: 8 });
   assert.deepEqual(terms.slice(0, 3), ["rate-limit", "rate", "limit"]);

@@ -101,4 +101,36 @@ describe("released Lore schema fixtures", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("upgrades ambiguous legacy manual markers as hashed repair candidates", { skip: SKIP_NO_FTS5 }, () => {
+    const root = tempDir();
+    const dbPath = path.join(root, "ambiguous.db");
+    const backupDir = path.join(root, "backups");
+    try {
+      const raw = new DatabaseSync(dbPath);
+      raw.exec(readFileSync(path.join(FIXTURE_DIR, "v18-lore-v0.10.0.sql"), "utf8"));
+      raw.prepare(`
+        INSERT INTO semantic_memory
+          (id, type, content, confidence, scope, scope_source, repository,
+           tags, created_at, updated_at, superseded_by, metadata_json)
+        VALUES (?, 'fact', ?, 1.0, 'repo', 'auto', ?, '', ?, ?, ?, '{}')
+      `).run("legacy-ambiguous", "Preserve ambiguous lineage.", "fixture-repository",
+        "2026-01-02T03:04:05.000Z", "2026-01-03T04:05:06.000Z", "manual-user-memory");
+      raw.close();
+      const db = new LoreDb({ paths: { derivedStorePath: dbPath, backupDir } });
+      db.initialize();
+      const candidate = db.db.prepare(`
+        SELECT memory_id, repair_candidate, legacy_marker_fingerprint, evidence_fingerprint
+        FROM memory_suppression WHERE memory_id = ?
+      `).get("legacy-ambiguous");
+      assert.equal(candidate.memory_id, "legacy-ambiguous");
+      assert.equal(candidate.repair_candidate, 1);
+      assert.match(candidate.legacy_marker_fingerprint, /^[0-9a-f]{64}$/);
+      assert.match(candidate.evidence_fingerprint, /^[0-9a-f]{64}$/);
+      assert.equal(db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("legacy-ambiguous").superseded_by, "manual-user-memory");
+      db.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

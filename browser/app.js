@@ -200,6 +200,12 @@ function normalizeOverviewData(data) {
 }
 
 function renderCaptureHealth(health) {
+  const statusForCapture = (row) => {
+    if (row.status) return row.status
+    if (row.failureCode) return "failed"
+    if (Number(row.pendingBytes) > 0 || row.pendingWork?.branch || row.pendingWork?.cleanup) return "pending"
+    return "healthy"
+  }
   return `
     <section class="card section-card health-section">
       <div class="section-head">
@@ -214,11 +220,11 @@ function renderCaptureHealth(health) {
           <tbody>
             ${health.map((row) => `
               <tr>
-                <td><strong>${escapeHtml(row.client ?? "unknown")}</strong><div class="small">${escapeHtml(row.sessionId ?? "unknown session")}</div><div class="small">repo=${escapeHtml(row.repository ?? "global")}</div></td>
+                <td><strong>${escapeHtml(row.client ?? "unknown")}</strong><div class="small">${escapeHtml(row.sessionId ?? "unknown session")}</div><div class="small">origin=${escapeHtml(row.originLabel ?? row.repository ?? "unknown origin")}</div></td>
                 <td>${escapeHtml(formatTime(row.lastSuccessAt))}</td>
                 <td>${escapeHtml(row.pendingBytes ?? 0)} bytes</td>
-                <td>${row.failureCode ? `<span class="tag warn">${escapeHtml(row.failureCode)}</span>` : '<span class="tag ok">healthy</span>'}<div class="small">offset=${escapeHtml(row.offset ?? 0)}</div></td>
-                <td>${row.resumeCommand ? `<button type="button" class="action-btn copy-command" data-copy-command="${escapeHtml(row.resumeCommand)}" aria-label="Copy resume command">Copy preview command</button><div class="small copy-feedback" aria-live="polite"></div>` : '<span class="small">No resumable source</span>'}</td>
+                <td>${(() => { const status = statusForCapture(row); return `<span class="tag ${status === "healthy" ? "ok" : "warn"}">${escapeHtml(status)}</span>${row.failureCode ? `<div class="small">failure=${escapeHtml(row.failureCode)}</div>` : ""}<div class="small">offset=${escapeHtml(row.offset ?? 0)}</div>${row.pendingWork?.branch ? '<div class="small">branch reconciliation pending</div>' : ""}${row.pendingWork?.cleanup ? '<div class="small">cleanup pending</div>' : ""}` })()}</td>
+                <td>${row.resumeCommand ? `<button type="button" class="action-btn copy-command" data-copy-kind="resume" data-copy-command="${escapeHtml(row.resumeCommand)}" aria-label="Copy resume command">Copy resume command</button><div class="small copy-feedback" aria-live="polite"></div>` : '<span class="small">No resumable source</span>'}</td>
               </tr>
             `).join("") || '<tr><td colspan="5" class="row-muted">No capture checkpoints recorded.</td></tr>'}
           </tbody>
@@ -230,22 +236,22 @@ function renderCaptureHealth(health) {
 
 function renderIndexingCoverage(indexing) {
   const diagnostics = asArray(indexing.fallbackDiagnostics)
-  const status = indexing.enabled === false ? "disabled" : `${indexing.coveragePercent ?? 0}% covered`
+  const status = indexing.enabled === false ? "disabled" : `${indexing.coveragePercent ?? 0}% sampled`
   return `
     <section class="card section-card health-section">
       <div class="section-head">
         <div>
           <h2>Embedding coverage</h2>
-          <div class="small">Cached vectors augment lexical retrieval. Coverage is derived from active memories.</div>
+          <div class="small">Cached vectors augment lexical retrieval. Coverage is a bounded sample of eligible active memories.</div>
         </div>
         <span class="tag ${indexing.enabled === false ? "warn" : "ok"}">${escapeHtml(status)}</span>
       </div>
       ${renderMetricGrid([
         ["Active memories", indexing.totalActive ?? 0],
         ["Indexed", indexing.indexed ?? 0],
-        ["Pending", indexing.pending ?? 0],
+        ["Pending", indexing.pending == null ? "not estimated" : indexing.pending],
       ])}
-      <div class="small coverage-note">${indexing.enabled === false ? "Embeddings are disabled in configuration; lexical retrieval remains available." : "Indexing is bounded and incremental; pending rows can be processed during maintenance."}</div>
+      <div class="small coverage-note">${indexing.enabled === false ? "Embeddings are disabled in configuration; lexical retrieval remains available." : `Indexed ${indexing.indexedSample ?? indexing.indexed ?? 0} of ${indexing.sampleSize ?? indexing.totalActive ?? 0} sampled eligible rows (${escapeHtml(indexing.coverageBasis ?? "bounded eligible sample")}; ${escapeHtml(indexing.dimensionsBasis ?? "cache identity validated")}). Pending is shown only when the eligible set was fully sampled.`}</div>
       ${diagnostics.length > 0 ? `<div class="list compact-list coverage-diagnostics"><strong>Recent fallback diagnostics</strong>${diagnostics.map((row) => `<div class="list-item"><span>${escapeHtml(row.reason)}</span><span class="small">count=${escapeHtml(row.count)}</span></div>`).join("")}</div>` : '<div class="small">No fallback diagnostics in the recent trace sample.</div>'}
     </section>
   `
@@ -1020,7 +1026,7 @@ function renderAdministrationPreviewSection(focus) {
     const command = buildPreviewCommand(tool, payload)
     return `
       <article class="list-item admin-command-item">
-        <div class="item-header-row"><strong>${escapeHtml(label)} preview</strong><button type="button" class="action-btn copy-command" data-copy-command="${escapeHtml(command)}" aria-label="Copy ${escapeHtml(label.toLowerCase())} preview command">Copy command</button></div>
+        <div class="item-header-row"><strong>${escapeHtml(label)} preview</strong><button type="button" class="action-btn copy-command" data-copy-kind="preview" data-copy-command="${escapeHtml(command)}" aria-label="Copy ${escapeHtml(label.toLowerCase())} preview command">Copy preview command</button></div>
         <code class="command-preview">${escapeHtml(command)}</code>
         <div class="small copy-feedback" aria-live="polite"></div>
       </article>
@@ -1300,7 +1306,11 @@ document.body.addEventListener("click", (event) => {
   const copyButton = event.target.closest("[data-copy-command]")
   if (copyButton) {
     const command = copyButton.dataset.copyCommand
+    const copyKind = copyButton.dataset.copyKind === "resume" ? "resume" : "preview"
+    const idleLabel = copyKind === "resume" ? "Copy resume command" : "Copy preview command"
+    const copiedLabel = copyKind === "resume" ? "Copied resume command" : "Copied preview command"
     const feedback = copyButton.parentElement?.querySelector?.(".copy-feedback")
+      ?? copyButton.closest?.(".admin-command-item")?.querySelector?.(".copy-feedback")
     if (!command) {
       return
     }
@@ -1309,10 +1319,10 @@ document.body.addEventListener("click", (event) => {
       return
     }
     void navigator.clipboard.writeText(command).then(() => {
-      if (feedback) feedback.textContent = "Copied preview command"
+      if (feedback) feedback.textContent = copiedLabel
       copyButton.textContent = "Copied"
       window.setTimeout(() => {
-        copyButton.textContent = "Copy preview command"
+        copyButton.textContent = idleLabel
         if (feedback) feedback.textContent = ""
       }, 1600)
     }).catch(() => {

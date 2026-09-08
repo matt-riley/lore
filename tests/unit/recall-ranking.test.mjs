@@ -214,4 +214,115 @@ describe("ranking, TTL, keys, and recall types", () => {
       cleanup();
     }
   });
+
+  test("restating an unkeyed preference fills its canonical key instead of duplicating", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      const now = new Date().toISOString();
+      db.db.prepare(`
+        INSERT INTO semantic_memory (
+          id, type, content, confidence, scope, repository, tags, created_at, updated_at, metadata_json
+        ) VALUES (?, 'user_preference', ?, 1, 'repo', ?, 'preference user', ?, ?, ?)
+      `).run(
+        "unkeyed-pref",
+        "Prefer bun",
+        "fixture-repo",
+        now,
+        now,
+        JSON.stringify({ source: "rule_extractor" }),
+      );
+      const restated = db.insertSemanticMemory({
+        type: "user_preference",
+        content: "Prefer bun",
+        repository: "fixture-repo",
+        scope: "repo",
+        metadata: { source: "rule_extractor" },
+      });
+      assert.equal(restated, "unkeyed-pref");
+      const rows = db.db.prepare(`
+        SELECT id, canonical_key FROM semantic_memory
+        WHERE type = 'user_preference' AND content = ? AND superseded_by IS NULL
+      `).all("Prefer bun");
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].id, "unkeyed-pref");
+      assert.equal(rows[0].canonical_key, "pref:prefer bun");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("pre-key forget still suppresses generated replay of the same preference", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      const now = new Date().toISOString();
+      db.db.prepare(`
+        INSERT INTO semantic_memory (
+          id, type, content, confidence, scope, repository, tags, created_at, updated_at, metadata_json
+        ) VALUES (?, 'user_preference', ?, 1, 'repo', ?, 'preference user', ?, ?, ?)
+      `).run(
+        "pre-key-pref",
+        "Prefer bun",
+        "fixture-repo",
+        now,
+        now,
+        JSON.stringify({ source: "rule_extractor" }),
+      );
+      db.forgetMemory({ id: "pre-key-pref" });
+      const suppression = db.db.prepare("SELECT canonical_fingerprint FROM memory_suppression WHERE memory_id = ?").get("pre-key-pref");
+      assert.equal(suppression.canonical_fingerprint, null);
+      const generated = db.insertSemanticMemory({
+        type: "user_preference",
+        content: "Prefer bun",
+        repository: "fixture-repo",
+        scope: "repo",
+        metadata: { source: "rule_extractor" },
+      });
+      assert.equal(generated, null);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("directive dual-read still surfaces an older extractor preference behind newer manuals", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: { memoryOperations: true, directives: true },
+      },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "old-extractor-pref",
+        type: "user_preference",
+        content: "Always include the failing request in the bug report.",
+        repository: "fixture-repo",
+        scope: "repo",
+        tags: ["preference", "user"],
+        metadata: { source: "rule_extractor" },
+      });
+      db.db.prepare("UPDATE semantic_memory SET updated_at = ? WHERE id = ?")
+        .run("2025-01-01T00:00:00.000Z", "old-extractor-pref");
+      for (let index = 0; index < 10; index += 1) {
+        db.insertSemanticMemory({
+          id: `manual-crowd-${index}`,
+          type: "user_preference",
+          content: `I like dashboard theme ${index}.`,
+          repository: "fixture-repo",
+          scope: "repo",
+          tags: ["preference", "manual"],
+          metadata: { source: "memory_save" },
+        });
+      }
+      const recall = await assembleRecall({
+        db,
+        prompt: "What standing rules apply to this repo?",
+        repository: "fixture-repo",
+        config,
+      });
+      assert.match(recall.text, /Always include the failing request/);
+      assert.equal(recall.text.includes("dashboard theme"), false);
+    } finally {
+      cleanup();
+    }
+  });
 });

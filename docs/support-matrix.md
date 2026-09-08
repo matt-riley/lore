@@ -76,7 +76,7 @@ events map to shared behavior through the adapters above.
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. Optional local query expansion changes retrieval terms only and retries deterministic retrieval when expansion finds no evidence. When `localInference.embeddings` is configured, appends embedding-ranked `Semantic Matches` (cosine similarity) cached in `memory_embedding`; fails open to lexical-only on endpoint errors. |
+| `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. Optional local query expansion changes retrieval terms only and retries deterministic retrieval when expansion finds no evidence. When `localInference.embeddings` is configured, fuses embedding-ranked hits into one lexical∪vector list with reciprocal rank fusion; fails open to lexical-only on endpoint errors. |
 | `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope, category, and optional domain association. CLI / `lore tool` aliases for one deprecation cycle: `lore_save`, `memory_save`. |
 | `lore_onboard` | 🟢 Supported | Captures the user name plus Lore's assistant/style profile in one step. |
 | `lore_search` | 🟢 Supported | Keyword search over the derived semantic-memory store. Meaning-based (vector) search is available via `lore_recall` when embeddings are configured. CLI / `lore tool` aliases for one deprecation cycle: `memory_search`. |

@@ -13,7 +13,7 @@ Lore turns session activity into a local derived memory store. It does not repla
 
 Pi maps `session_start` to lazy runtime initialisation and onboarding seed, `before_agent_start` to ambient recall injected into the agent context, and `session_shutdown` to final extraction followed by database shutdown. Explicit Pi commands and tools use the Pi server process, and the resulting memories are written to the shared local store.
 
-Pi also cleans prompt terms for lexical recall and uses a typed fallback for explicit `/lore search` and `lore_recall` misses. This is a Pi adapter convenience; the underlying store and scope rules remain shared.
+Pi uses the same `assembleRecall` path as other hosts, including shared stopword filtering and AND-then-OR lexical retry. Optional embeddings fuse into that ranked list rather than appending a separate section.
 
 ### Copilot CLI events
 

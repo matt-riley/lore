@@ -27,7 +27,7 @@ The native CLI integrations use local command hooks and open no listening socket
 
 ## Local inference is explicit
 
-When `localInference.enabled` is true, selected bounded session or reflection evidence is sent to the configured loopback model endpoint. Lore allows only `127.0.0.1`, `localhost`, and `::1`, and rejects credentials embedded in the URL. Embedding vectors are cached locally in `memory_embedding`.
+When `localInference.enabled` is true, selected bounded session or reflection evidence is sent to the configured loopback model endpoint. Lore allows only `127.0.0.1`, `localhost`, and `::1`, rejects credentials embedded in the URL, and refuses HTTP redirects. Embedding vectors are cached locally in `memory_embedding`.
 
 Prompt hooks make no model calls by default. Query expansion, context compression, embeddings, deferred model extraction, and model-backed reflection each have separate opt-ins. If a local provider fails, Lore keeps its deterministic result.
 
@@ -47,6 +47,6 @@ Backups and exported portability bundles can contain the same sensitive material
 
 ## Review before sharing
 
-`memory_portable_bundle` is experimental and exports approved improvement artifacts rather than the full raw corpus. Even so, review every generated JSON or OKF bundle before putting it in a repository or sending it to another person. Soft-deleted memories and related residual data may remain for provenance and recovery. OKF import is manual and only the OKF format supports import today.
+`memory_portable_bundle` is experimental and exports approved improvement artifacts rather than the full raw corpus. Generated JSON files are private (`0600`); OKF bundle directories are private (`0700`) and reject symlink destinations. Even so, review every generated bundle before putting it in a repository or sending it to another person. Soft-deleted memories and related residual data may remain for provenance and recovery. OKF import is manual and only the OKF format supports import today.
 
 See [Local inference](/guides/local-inference/) for provider boundaries and [Troubleshooting](/guides/troubleshooting/) for safe issue reports.

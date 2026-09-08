@@ -303,7 +303,7 @@ The provider and each consuming surface have separate opt-ins:
 - When embeddings are enabled, Lore embeds generated claims in a second bounded pass and discards claims below `groundingMinSimilarity`. If no grounded insight remains, Lore returns the deterministic reflection.
 - Embedding-based semantic memory search is opt-in via `embeddings.enabled` + `model`. When enabled, `lore_recall` fuses meaning-ranked hits into the lexical list with reciprocal rank fusion. Memory vectors are cached in the local `memory_embedding` table and reused across searches, so only the query and any new memories are re-embedded. Search fails open to lexical-only when the endpoint is unavailable.
 
-Prompt-context hooks make no model calls by default. In the Copilot adapter, enabling query expansion or context compression permits bounded loopback-only inference during context assembly and can add latency. Codex, Claude Code, and Antigravity automatic recall remains deterministic; their explicit `lore_recall` command can use optional local query expansion and embeddings. Invalid output, missing citations, ungrounded claims, timeouts, or an unavailable model server are reported while Lore preserves its deterministic retrieval, capsule, extraction, or reflection result. Embedding vectors are cached locally in `memory_embedding`; Lore's inference requests go only to the configured loopback endpoint. Recalled context can separately reach your coding agent's model, as explained under [Privacy and security](#privacy-and-security).
+Prompt-context hooks make no model calls by default. In the Copilot adapter, enabling query expansion or context compression permits bounded loopback-only inference during context assembly and can add latency. Codex, Claude Code, and Antigravity automatic recall remains deterministic; their explicit `lore_recall` command can use optional local query expansion and embeddings. Invalid output, missing citations, ungrounded claims, timeouts, or an unavailable model server are reported while Lore preserves its deterministic retrieval, capsule, extraction, or reflection result. Embedding vectors are cached locally in `memory_embedding`; Lore's inference requests go only to the configured loopback endpoint and refuse redirects. Recalled context can separately reach your coding agent's model, as explained under [Privacy and security](#privacy-and-security).
 
 ### `traceRecorder`
 
@@ -447,6 +447,8 @@ For runtime and platform promises, see [`docs/compatibility.md`](docs/compatibil
 ### Portable exports and the OKF viewer
 
 `memory_portable_bundle` accepts a `format` argument: `json` (default, machine-readable) or `okf`. It exports approved improvement artifacts, not a raw database dump. The `okf` format writes an [Open Knowledge Format v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundle -- one markdown file with YAML frontmatter per approved improvement artifact, plus a root `index.md` -- so approved Lore improvements can be reviewed, archived, or shared outside the CLI with any OKF-aware tool.
+
+Exports use private filesystem permissions by default: JSON files are owner-only (`0600`), OKF bundle directories use `0700`, and bundle files use `0600`. Existing symlink destinations are rejected to avoid overwriting an unexpected target.
 
 To browse an OKF bundle visually, render it into a self-contained HTML viewer:
 

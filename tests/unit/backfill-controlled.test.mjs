@@ -34,7 +34,7 @@ describe("backfill controlled operations", { concurrency: false }, () => {
       const tools = createMemoryTools({
         getRuntime: async () => runtime,
       });
-      const output = await findTool(tools, "memory_backfill").handler({
+      const output = await findTool(tools, "lore_backfill").handler({
         mode: "controlled",
         action: "preview",
         limit: 5,
@@ -74,7 +74,7 @@ describe("backfill controlled operations", { concurrency: false }, () => {
       const tools = createMemoryTools({
         getRuntime: async () => runtime,
       });
-      const output = await findTool(tools, "memory_backfill").handler({
+      const output = await findTool(tools, "lore_backfill").handler({
         mode: "controlled",
         action: "preview",
       }, {
@@ -111,7 +111,7 @@ describe("backfill controlled operations", { concurrency: false }, () => {
       const tools = createMemoryTools({
         getRuntime: async () => runtime,
       });
-      const output = await findTool(tools, "memory_backfill").handler({
+      const output = await findTool(tools, "lore_backfill").handler({
         mode: "controlled",
         action: "preview",
         limit: 80,
@@ -150,7 +150,7 @@ describe("backfill controlled operations", { concurrency: false }, () => {
       const tools = createMemoryTools({
         getRuntime: async () => runtime,
       });
-      const output = await findTool(tools, "memory_backfill").handler({
+      const output = await findTool(tools, "lore_backfill").handler({
         mode: "controlled",
         action: "status",
         runId,
@@ -249,7 +249,7 @@ describe("backfill controlled operations", { concurrency: false }, () => {
       const tools = createMemoryTools({
         getRuntime: async () => runtime,
       });
-      const output = await findTool(tools, "memory_backfill").handler({
+      const output = await findTool(tools, "lore_backfill").handler({
         mode: "controlled",
         action: "start",
         limit: 5,

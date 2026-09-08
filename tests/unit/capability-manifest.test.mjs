@@ -4,14 +4,18 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { LORE_CAPABILITY_SPECS } from "../../lib/capabilities/capability-manifest.mjs";
+import {
+  LORE_CAPABILITY_SPECS,
+  listCoreAliasToolNames,
+  resolveLoreToolName,
+} from "../../lib/capabilities/capability-manifest.mjs";
 import { createMemoryTools } from "../../lib/tools/memory-tools.mjs";
 
 const EXPECTED_TOOL_NAMES = [
-  "memory_status",
+  "lore_status",
   "memory_intent_journal",
   "memory_portable_bundle",
-  "maintenance_schedule_run",
+  "lore_maintenance",
   "memory_improvement_backlog",
   "memory_evolution_ledger",
   "memory_capability_inventory",
@@ -19,20 +23,19 @@ const EXPECTED_TOOL_NAMES = [
   "lore_onboard",
   "lore_retain",
   "lore_reflect",
-  "memory_search",
-  "memory_explain",
-  "memory_validate",
+  "lore_search",
+  "lore_explain",
+  "lore_validate",
   "memory_replay",
   "memory_scope_override",
   "memory_scope_audit",
-  "memory_save",
-  "memory_forget",
-  "memory_correct",
-  "memory_repair",
-  "memory_purge",
+  "lore_forget",
+  "lore_correct",
+  "lore_repair",
+  "lore_purge",
   "memory_deferred_process",
-  "memory_backfill",
-  "memory_doctor_report",
+  "lore_backfill",
+  "lore_doctor",
   "memory_review_gate",
   "memory_skill_validate",
 ];
@@ -245,11 +248,43 @@ describe("LORE_CAPABILITY_SPECS", () => {
         assert.strictEqual(typeof flag, "string", `Non-string rollout flag on: ${spec.name}`);
         assert.ok(flag.length > 0, `Empty rollout flag on: ${spec.name}`);
       }
+      assert.ok(Array.isArray(spec.aliases), `aliases must be array on: ${spec.name}`);
+      assert.ok(Object.isFrozen(spec.aliases), `aliases should be frozen: ${spec.name}`);
+      assert.ok(spec.surfaces && typeof spec.surfaces === "object", `surfaces missing on: ${spec.name}`);
+      assert.ok(Object.isFrozen(spec.surfaces), `surfaces should be frozen: ${spec.name}`);
+      for (const surface of ["model", "cli", "slash"]) {
+        assert.strictEqual(typeof spec.surfaces[surface], "boolean", `surfaces.${surface} must be boolean on: ${spec.name}`);
+      }
+      assert.ok(spec.parameters && typeof spec.parameters === "object", `parameters missing on: ${spec.name}`);
+      assert.equal(spec.parameters.type, "object", `parameters.type must be object on: ${spec.name}`);
     }
   });
 
+  it("default model tools are the nine canonical lore_* verbs", () => {
+    const modelTools = LORE_CAPABILITY_SPECS.filter((spec) => spec.surfaces.model).map((spec) => spec.name).sort();
+    assert.deepEqual(modelTools, [
+      "lore_correct",
+      "lore_explain",
+      "lore_forget",
+      "lore_onboard",
+      "lore_recall",
+      "lore_retain",
+      "lore_search",
+      "lore_status",
+      "lore_validate",
+    ]);
+  });
+
+  it("resolves core aliases to canonical names", () => {
+    assert.equal(resolveLoreToolName("memory_save"), "lore_retain");
+    assert.equal(resolveLoreToolName("lore_save"), "lore_retain");
+    assert.equal(resolveLoreToolName("lore_retain"), "lore_retain");
+    assert.equal(resolveLoreToolName("memory_search"), "lore_search");
+    assert.equal(resolveLoreToolName("memory_repair"), "lore_repair");
+  });
+
   it("retrieval tools include retrieval route hint", () => {
-    const retrievalTools = ["lore_recall", "lore_reflect", "memory_search", "memory_explain"];
+    const retrievalTools = ["lore_recall", "lore_reflect", "lore_search", "lore_explain"];
     for (const name of retrievalTools) {
       const spec = LORE_CAPABILITY_SPECS.find((s) => s.name === name);
       assert.ok(spec, `Spec not found: ${name}`);
@@ -258,7 +293,7 @@ describe("LORE_CAPABILITY_SPECS", () => {
   });
 
   it("direct tools include direct route hint", () => {
-    const directTools = ["memory_status", "memory_validate", "memory_replay"];
+    const directTools = ["lore_status", "lore_validate", "memory_replay"];
     for (const name of directTools) {
       const spec = LORE_CAPABILITY_SPECS.find((s) => s.name === name);
       assert.ok(spec, `Spec not found: ${name}`);
@@ -267,7 +302,7 @@ describe("LORE_CAPABILITY_SPECS", () => {
   });
 
   it("background tools include background_task route hint", () => {
-    const bgTools = ["memory_deferred_process", "memory_backfill"];
+    const bgTools = ["memory_deferred_process", "lore_backfill"];
     for (const name of bgTools) {
       const spec = LORE_CAPABILITY_SPECS.find((s) => s.name === name);
       assert.ok(spec, `Spec not found: ${name}`);
@@ -277,30 +312,42 @@ describe("LORE_CAPABILITY_SPECS", () => {
 });
 
 describe("createMemoryTools ↔ LORE_CAPABILITY_SPECS contract", () => {
-  it("createMemoryTools returns exactly the tools named in the manifest", () => {
+  it("createMemoryTools returns canonical tools plus dual-emitted core aliases", () => {
     const tools = createMemoryTools({ getRuntime: async () => ({}) });
-    const toolNames = tools.map((t) => t.name).sort();
-    const manifestNames = LORE_CAPABILITY_SPECS.map((s) => s.name).sort();
-    assert.deepStrictEqual(toolNames, manifestNames);
+    const toolNames = tools.map((t) => t.name);
+    const manifestNames = LORE_CAPABILITY_SPECS.map((s) => s.name);
+    for (const name of manifestNames) {
+      assert.ok(toolNames.includes(name), `Missing canonical tool: ${name}`);
+    }
+    for (const spec of LORE_CAPABILITY_SPECS) {
+      for (const alias of listCoreAliasToolNames(spec)) {
+        assert.ok(toolNames.includes(alias), `Missing dual-emitted core alias: ${alias}`);
+      }
+      if (spec.support.status === "experimental") {
+        for (const alias of spec.aliases) {
+          assert.equal(toolNames.includes(alias), false, `Experimental alias should not be dual-emitted: ${alias}`);
+        }
+      }
+    }
+    const unexpected = toolNames.filter((name) => (
+      !manifestNames.includes(name)
+      && !LORE_CAPABILITY_SPECS.some((spec) => listCoreAliasToolNames(spec).includes(name))
+    ));
+    assert.deepEqual(unexpected, []);
   });
 
-  it("each registered tool description matches its manifest spec", () => {
+  it("each registered tool description and parameters match its manifest spec", () => {
     const tools = createMemoryTools({ getRuntime: async () => ({}) });
     for (const tool of tools) {
-      const spec = LORE_CAPABILITY_SPECS.find((s) => s.name === tool.name);
+      const spec = LORE_CAPABILITY_SPECS.find((s) => s.name === tool.name)
+        ?? LORE_CAPABILITY_SPECS.find((s) => s.aliases.includes(tool.name));
       assert.ok(spec, `No manifest spec for registered tool: ${tool.name}`);
       assert.strictEqual(
         tool.description,
         spec.description,
         `Description mismatch for ${tool.name}`,
       );
-    }
-  });
-
-  it("each registered tool has a parameters object", () => {
-    const tools = createMemoryTools({ getRuntime: async () => ({}) });
-    for (const tool of tools) {
-      assert.ok(tool.parameters && typeof tool.parameters === "object", `Missing parameters on: ${tool.name}`);
+      assert.deepEqual(tool.parameters, spec.parameters, `Parameters mismatch for ${tool.name}`);
     }
   });
 
@@ -309,6 +356,18 @@ describe("createMemoryTools ↔ LORE_CAPABILITY_SPECS contract", () => {
     for (const tool of tools) {
       assert.strictEqual(typeof tool.handler, "function", `Missing handler on: ${tool.name}`);
     }
+  });
+
+  it("memory_save and lore_retain share a handler so both CLI names succeed", () => {
+    const tools = createMemoryTools({ getRuntime: async () => ({}) });
+    const retain = tools.find((tool) => tool.name === "lore_retain");
+    const save = tools.find((tool) => tool.name === "memory_save");
+    const piSave = tools.find((tool) => tool.name === "lore_save");
+    assert.ok(retain);
+    assert.ok(save);
+    assert.ok(piSave);
+    assert.equal(save.handler, retain.handler);
+    assert.equal(piSave.handler, retain.handler);
   });
 });
 

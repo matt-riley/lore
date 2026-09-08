@@ -17,13 +17,13 @@ function assertDeclaredApplyPayload(tool, payload) {
 }
 
 for (const operation of ["purge", "repair"]) {
-  test(`registered memory_${operation} declares and accepts the exact preview-selected apply payload`, async () => {
+  test(`registered lore_${operation} declares and accepts the exact preview-selected apply payload`, async () => {
     const f = await withFixtureDb();
     try {
       const repository = "github.com/example/schema";
       const id = f.db.insertSemanticMemory({ type: "user_preference", content: "Prefer copper schema fixtures.", repository, scope: "repo", sourceSessionId: "schema-session" });
       f.db.saveIngestionCheckpoint("codex", "schema-session", { repository, adapterState: { turns: [{ user_message: "Prefer copper schema fixtures." }] }, health: {} });
-      const tool = findTool(createMemoryTools({ getRuntime: async () => ({ initialized: true, db: f.db, config: f.config }) }), `memory_${operation}`);
+      const tool = findTool(createMemoryTools({ getRuntime: async () => ({ initialized: true, db: f.db, config: f.config }) }), `lore_${operation}`);
       const request = operation === "purge"
         ? { memoryIds: [id], includeDependentAggregates: true, limit: 200 }
         : { repositoryMappings: [{ legacy: repository, canonical: "github.com/example/renamed" }], limit: 200 };

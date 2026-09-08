@@ -26,7 +26,8 @@ test("native administration preview preserves database bytes, configuration, and
   try {
     const saved = f.run("memory_save", { content: "Prefer quartzanchor fixtures.", type: "user_preference" });
     assert.equal(saved.status, 0, saved.stderr);
-    const memoryId = saved.stdout.trim().split(" ").at(-1);
+    const memoryId = saved.stdout.match(/semantic memory ([^\s.]+)/)?.[1];
+    assert.ok(memoryId);
     const dbPath = path.join(f.home, "lore.db");
     const before = readFileSync(dbPath);
     const configBefore = readFileSync(f.env.LORE_CONFIG);
@@ -88,7 +89,8 @@ test("native correction APPLY returns a manual replacement and purge APPLY rejec
   try {
     const saved = f.run("memory_save", { content: "Prefer quartzanchor fixtures.", type: "user_preference" });
     assert.equal(saved.status, 0, saved.stderr);
-    const memoryId = saved.stdout.trim().split(" ").at(-1);
+    const memoryId = saved.stdout.match(/semantic memory ([^\s.]+)/)?.[1];
+    assert.ok(memoryId);
     const request = { memoryId, content: "Prefer reviewed quartzanchor fixtures.", scope: "transferable", repository: "example/destination", expiresAt: "2030-01-01T00:00:00Z" };
     const preview = f.run("memory_correct", request);
     assert.equal(preview.status, 0, preview.stderr);

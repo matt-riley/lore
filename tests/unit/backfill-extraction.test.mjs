@@ -368,7 +368,7 @@ describe("backfill extraction and progress reporting", () => {
       const tools = createMemoryTools({
         getRuntime: async () => runtime,
       });
-      const output = await findTool(tools, "maintenance_schedule_run").handler({
+      const output = await findTool(tools, "lore_maintenance").handler({
         action: "status",
       }, {
         sessionId: "session-maintenance-status",

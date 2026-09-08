@@ -111,8 +111,8 @@ describe("capability inventory helpers", () => {
       },
       {
         id: "tool-explain",
-        name: "memory_explain",
-        targetName: "memory_explain",
+        name: "lore_explain",
+        targetName: "lore_explain",
         targetType: "tool",
         executionMode: "local_tool",
         sourcePath: "lib/memory-tools.mjs",
@@ -121,8 +121,8 @@ describe("capability inventory helpers", () => {
       },
       {
         id: "tool-backfill",
-        name: "memory_backfill",
-        targetName: "memory_backfill",
+        name: "lore_backfill",
+        targetName: "lore_backfill",
         targetType: "tool",
         executionMode: "local_tool",
         sourcePath: "lib/memory-tools.mjs",
@@ -133,8 +133,8 @@ describe("capability inventory helpers", () => {
     const matchMap = new Map([
       ["skill-reverse", { capabilityId: "skill-reverse", score: 12, nameMatched: true, name: "reverse-prompt" }],
       ["skill-creator", { capabilityId: "skill-creator", score: 9, nameMatched: false, name: "skill-creator" }],
-      ["tool-explain", { capabilityId: "tool-explain", score: 8, nameMatched: false, name: "memory_explain" }],
-      ["tool-backfill", { capabilityId: "tool-backfill", score: 7, nameMatched: false, name: "memory_backfill" }],
+      ["tool-explain", { capabilityId: "tool-explain", score: 8, nameMatched: false, name: "lore_explain" }],
+      ["tool-backfill", { capabilityId: "tool-backfill", score: 7, nameMatched: false, name: "lore_backfill" }],
     ]);
 
     const rewriteSkillTarget = selectRouteTarget(
@@ -173,7 +173,7 @@ describe("capability inventory helpers", () => {
       [],
       matchMap,
     );
-    assert.equal(retrievalTarget?.targetName, "memory_explain");
+    assert.equal(retrievalTarget?.targetName, "lore_explain");
 
     const backgroundTarget = selectRouteTarget(
       capabilities,
@@ -182,7 +182,7 @@ describe("capability inventory helpers", () => {
       [],
       matchMap,
     );
-    assert.equal(backgroundTarget?.targetName, "memory_backfill");
+    assert.equal(backgroundTarget?.targetName, "lore_backfill");
 
     const directTarget = selectRouteTarget(capabilities, "direct", {}, [], matchMap);
     assert.equal(directTarget?.targetName, "direct_response");

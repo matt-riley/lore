@@ -357,7 +357,7 @@ describe("memory-tools hotspot behavior", () => {
         sessionId: "memory-deferred",
       });
 
-      assert.match(saveOutput, /Saved semantic memory/);
+      assert.match(saveOutput, /Retained semantic memory/);
       assert.equal(
         db.searchSemantic({
           query: "exact envelope regression tests",

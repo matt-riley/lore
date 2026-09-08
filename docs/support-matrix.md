@@ -31,10 +31,11 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 | Google Antigravity CLI | 🟡 Experimental | Native `PreInvocation`, `PostInvocation`, `Stop`, and `PostToolUse` hooks; shared configuration and explicit workspace mounting are required on the observed 1.1.27 target. |
 
 Codex, Claude Code, and Antigravity use `lore-cli.mjs`, not MCP. Native hooks provide automatic recall
-and transcript capture. The direct shell commands are `lore_recall`,
-`lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`,
-`memory_status`, `memory_correct`, `memory_repair`, and `memory_purge`. The
-canonical lists are `LORE_CLIENT_HOOKS` and
+and transcript capture. The canonical shell commands are `lore_recall`,
+`lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`,
+`lore_correct`, `lore_repair`, and `lore_purge`. `memory_*` names and Pi
+`lore_save` remain aliases for one deprecation cycle on `lore tool` JSON.
+The canonical lists are `LORE_CLIENT_HOOKS` and
 `LORE_CLI_TOOL_NAMES` in `lib/capabilities/capability-manifest.mjs`.
 See [installation, verification, and boundaries](cli-integrations.md).
 
@@ -49,7 +50,7 @@ All five adapters target stable macOS support for v1. The entries above describe
 | Session capture | Supported | Supported | Experimental; active supplied transcript only |
 | Archive backfill | Copilot session store, experimental | Pi archive importer, experimental | Not wired |
 | Maintenance at startup | Supported when configured | Adapter-specific bounded behavior | Not wired; use the standalone script |
-| Diagnostics | `memory_status`, `memory_explain`, `memory_validate` | `lore_status` | `memory_status`; the Copilot-only diagnostics are unavailable |
+| Diagnostics | `lore_status`, `lore_explain`, `lore_validate` | `lore_status` | `lore_status`; the Copilot-only diagnostics are unavailable |
 | Local semantic search | Optional embeddings through shared store | Optional embeddings through shared store | Optional for explicit `lore_recall` only |
 
 ## Session hooks
@@ -76,27 +77,26 @@ events map to shared behavior through the adapters above.
 | Tool | Status | Notes |
 |---|---|---|
 | `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. Optional local query expansion changes retrieval terms only and retries deterministic retrieval when expansion finds no evidence. When `localInference.embeddings` is configured, appends embedding-ranked `Semantic Matches` (cosine similarity) cached in `memory_embedding`; fails open to lexical-only on endpoint errors. |
-| `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope, category, and optional domain association. |
+| `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope, category, and optional domain association. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `lore_save`, `memory_save`. |
 | `lore_onboard` | 🟢 Supported | Captures the user name plus Lore's assistant/style profile in one step. |
-| `memory_search` | 🟢 Supported | Keyword search over the derived semantic-memory store. Meaning-based (vector) search is available via `lore_recall` when embeddings are configured. |
-| `memory_save` | 🟢 Supported | Explicit save for freeform notes and decisions. |
-| `memory_forget` | 🟢 Supported | Soft-deletes a memory by ID. Superseded rows and related residual data may remain for provenance and recovery; this is not secure erasure. |
+| `lore_search` | 🟢 Supported | Keyword search over the derived semantic-memory store. Meaning-based (vector) search is available via `lore_recall` when embeddings are configured. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_search`. |
+| `lore_forget` | 🟢 Supported | Soft-deletes a memory by ID. Superseded rows and related residual data may remain for provenance and recovery; this is not secure erasure. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_forget`. |
 
 ### Status and diagnostics
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_status` | 🟢 Supported | Overview of DB health, row counts, latency metrics, and maintenance state. |
-| `memory_explain` | 🟢 Supported | Explains what context would be injected for a given prompt and why. |
-| `memory_validate` | 🟢 Supported | Validates DB integrity and schema parity. |
+| `lore_status` | 🟢 Supported | Overview of DB health, row counts, latency metrics, and maintenance state. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_status`. |
+| `lore_explain` | 🟢 Supported | Explains what context would be injected for a given prompt and why. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_explain`. |
+| `lore_validate` | 🟢 Supported | Validates DB integrity and schema parity. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_validate`. |
 
 ### Memory administration
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_correct` | 🟢 Supported | Defaults to a read-only preview. Repository selects the manual replacement destination. Apply requires planFingerprint, preserves expiry unless changed, and creates a validated snapshot. |
-| `memory_repair` | 🟡 Experimental | Deterministic complete-source repair, bounded to 32 MiB per source and the preview candidate limit. Missing, incomplete, or ambiguous sources remain unresolved. Apply requires planFingerprint and actionable selectedCandidateIds. |
-| `memory_purge` | 🟡 Experimental | Requires explicit memoryIds, repository, or global scope selection. Shared derived copies require includeDependentAggregates and all typed preview candidate IDs. Apply validates planFingerprint and a snapshot; raw sources, backups, and suppression remain. |
+| `lore_correct` | 🟢 Supported | Defaults to a read-only preview. Repository selects the manual replacement destination. Apply requires planFingerprint, preserves expiry unless changed, and creates a validated snapshot. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_correct`. |
+| `lore_repair` | 🟡 Experimental | Deterministic complete-source repair, bounded to 32 MiB per source and the preview candidate limit. Missing, incomplete, or ambiguous sources remain unresolved. Apply requires planFingerprint and actionable selectedCandidateIds. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_repair`. |
+| `lore_purge` | 🟡 Experimental | Requires explicit memoryIds, repository, or global scope selection. Shared derived copies require includeDependentAggregates and all typed preview candidate IDs. Apply validates planFingerprint and a snapshot; raw sources, backups, and suppression remain. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_purge`. |
 
 ### Skill management and diagnostics
 
@@ -121,7 +121,7 @@ events map to shared behavior through the adapters above.
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_backfill` | 🟡 Experimental | Backfills memories from the raw session store. The public tool is bounded to 20 items per run; manual controlled runs still create restorable snapshots, while session-start archive import uses the same engine without creating snapshots. |
+| `lore_backfill` | 🟡 Experimental | Backfills memories from the raw session store. The public tool is bounded to 20 items per run; manual controlled runs still create restorable snapshots, while session-start archive import uses the same engine without creating snapshots. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_backfill`. |
 | `memory_deferred_process` | 🟡 Experimental | Triggers processing of extractions deferred during session-start. Optional local model enrichment is default-off, requires provider plus deferred-extraction opt-in, and preserves deterministic extraction on failure. |
 
 ### Replay and portability
@@ -143,13 +143,13 @@ events map to shared behavior through the adapters above.
 
 | Tool | Status | Notes |
 |---|---|---|
-| `maintenance_schedule_run` | 🟡 Experimental | Triggers a maintenance sweep (dry-run or live), reports automated memory hygiene, or rolls back one exact `auto-hygiene:*` marker with an audit artifact. |
+| `lore_maintenance` | 🟡 Experimental | Triggers a maintenance sweep (dry-run or live), reports automated memory hygiene, or rolls back one exact `auto-hygiene:*` marker with an audit artifact. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `maintenance_schedule_run`. |
 
 ### Self-diagnostics and proposals
 
 | Tool | Status | Notes |
 |---|---|---|
-| `memory_doctor_report` | 🟡 Experimental | Generates a structured health report. Requires `loreDoctor` and `evolutionLedger` rollout flags. |
+| `lore_doctor` | 🟡 Experimental | Generates a structured health report. Requires `loreDoctor` and `evolutionLedger` rollout flags. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_doctor_report`. |
 | `memory_review_gate` | 🟡 Experimental | Runs an observe-only proposal-doc gate and records review-gate trajectory artifacts. Requires `reviewGate` and `evolutionLedger` rollout flags. |
 | `memory_capability_inventory` | 🟡 Experimental | Enumerates all registered capabilities with rollout state. |
 
@@ -200,7 +200,7 @@ Experimental surfaces are controlled by rollout flags in the `rollout` section o
 | `evolutionLedger` | 🟡 Experimental | `true` | `memory_improvement_backlog`, `memory_evolution_ledger`, proposal generation, integrity checks, doctor, review gate, approval substrate |
 | `proposalGeneration` | 🟢 Supported | `true` (requires `evolutionLedger`) | AI-assisted improvement proposal generation |
 | `generatedArtifactIntegrity` | 🟡 Experimental | `true` (requires `evolutionLedger`) | Integrity checks on generated manifests and caches |
-| `loreDoctor` | 🟢 Supported | `true` (requires `evolutionLedger`) | `memory_doctor_report` |
+| `loreDoctor` | 🟢 Supported | `true` (requires `evolutionLedger`) | `lore_doctor` |
 | `reviewGate` | 🟢 Supported | `true` (requires `evolutionLedger`) | `memory_review_gate` |
 | `approvalSubstrate` | 🟢 Supported | `true` (requires `evolutionLedger`) | Approval-workflow substrate for ledger-backed proposal review state |
 | `errorTelemetry` | 🟡 Experimental | `false` | Passive `onErrorOccurred` hook. Persists only categorical metadata (category, recoverability, fingerprint) to `error_telemetry`. Never persists raw messages or stack traces. No `errorHandling` overrides. |

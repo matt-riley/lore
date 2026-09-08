@@ -182,4 +182,48 @@ describe("lore_retain tool", () => {
       enabledFixture.cleanup();
     }
   });
+
+  test("memory_save and lore_retain both persist semantic memory", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: { enabled: true },
+    });
+    try {
+      const tools = createMemoryTools({
+        getRuntime: async () => ({
+          initialized: true,
+          lastError: null,
+          db,
+          config,
+          repository: "fixture-repo",
+        }),
+      });
+      const retainOutput = await findTool(tools, "lore_retain").handler({
+        type: "decision",
+        content: "Remember jadeanchor for retain.",
+      }, { sessionId: "retain-canonical" });
+      const saveOutput = await findTool(tools, "memory_save").handler({
+        type: "user_preference",
+        content: "Prefer quartzanchor for save.",
+      }, { sessionId: "retain-alias" });
+
+      assert.match(retainOutput, /Retained semantic memory/);
+      assert.match(saveOutput, /Retained semantic memory/);
+      assert.equal(db.searchSemantic({
+        query: "jadeanchor",
+        repository: "fixture-repo",
+        includeOtherRepositories: false,
+        types: ["decision"],
+        limit: 2,
+      }).length > 0, true);
+      assert.equal(db.searchSemantic({
+        query: "quartzanchor",
+        repository: "fixture-repo",
+        includeOtherRepositories: false,
+        types: ["user_preference"],
+        limit: 2,
+      }).length > 0, true);
+    } finally {
+      cleanup();
+    }
+  });
 });

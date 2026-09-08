@@ -538,6 +538,7 @@ function buildIndependentBlueprints() {
     repository,
     user,
     assistant,
+    type,
     ...(id === "negative-corrected-old" ? {
       correction: {
         user: "Actually, that is wrong: use twenty seconds for the endpoint timeout because the upstream SLA changed.",
@@ -557,6 +558,25 @@ function buildIndependentBlueprints() {
 
 const INDEPENDENT_BLUEPRINTS = Object.freeze(buildIndependentBlueprints());
 
+// Bare imperative task language is intentionally excluded from durable
+// extraction. Independent positive cases therefore state their durability
+// explicitly so this corpus tests retention, scope, and replay across clients
+// without weakening that safety boundary.
+function materializeIndependentPolicyMessage(blueprint) {
+  const clauses = blueprint.user.split(/;\s*/u);
+  const sourceId = blueprint.id.replace(/^independent-/u, "");
+  const additional = ADDITIONAL_PROPOSITIONS[sourceId] ?? [];
+  return clauses.map((clause, index) => {
+    if (index === 0 && blueprint.type === "user_preference") {
+      return `As a policy, I prefer this: ${clause}`;
+    }
+    if (index > 0 && additional[index - 1]?.[0] === "user_preference") {
+      return `I prefer this: ${clause}`;
+    }
+    return clause;
+  }).join("; ");
+}
+
 function clientLabel(client) {
   return client[0].toUpperCase() + client.slice(1);
 }
@@ -569,7 +589,7 @@ function materializeTurns(blueprint, client) {
     }))
     : [];
   const turns = [
-    { user_message: `${blueprint.user} ${CLIENT_CONTEXT[client]}`, assistant_response: `${blueprint.assistant} ${CLIENT_CONTEXT[client]}` },
+    { user_message: `${materializeIndependentPolicyMessage(blueprint)} ${CLIENT_CONTEXT[client]}`, assistant_response: `${blueprint.assistant} ${CLIENT_CONTEXT[client]}` },
     ...tail,
   ];
   if (blueprint.correction) turns.splice(1, 0, { user_message: blueprint.correction.user, assistant_response: blueprint.correction.assistant });

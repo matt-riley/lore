@@ -108,21 +108,16 @@ describe("SessionSource and EpisodeSessionSource", () => {
 
   test("openCliRuntime initializes sessionSource over EpisodeSessionSource", async () => {
     const tempHome = makeTempDir();
-    const originalEnv = process.env.LORE_HOME;
     try {
-      process.env.LORE_HOME = tempHome;
-      const config = buildFixtureConfig(tempHome);
-      const db = new LoreDb(config);
-      db.initialize();
-      db.close();
+      const config = buildFixtureConfig(tempHome, { enabled: true });
 
-      const runtime = await openCliRuntime({ cwd: tempHome, client: "codex" });
+      const runtime = await openCliRuntime({ cwd: tempHome, client: "codex", config });
       assert.ok(runtime);
       assert.ok(runtime.sessionSource instanceof EpisodeSessionSource);
       assert.strictEqual(runtime.sessionStore, runtime.sessionSource);
+      runtime.sessionSource.close();
       runtime.db.close();
     } finally {
-      process.env.LORE_HOME = originalEnv;
       rmSync(tempHome, { recursive: true, force: true });
     }
   });

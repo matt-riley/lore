@@ -155,6 +155,17 @@ describe("buildImprovementArtifactEpisode", () => {
     assert.equal(buildImprovementArtifactEpisode(artifact, "fixture-repo"), null);
     assert.equal(buildImprovementArtifactEpisode(artifact, "other-repo")?.repository, "other-repo");
   });
+
+  test("reads legacy repository provenance from persisted evidence and trace JSON", () => {
+    const legacyArtifact = {
+      ...artifact,
+      repository: null,
+      evidence_json: JSON.stringify({ caseType: "ranking_target", originRepository: "legacy-repo" }),
+      trace_json: JSON.stringify({}),
+    };
+    assert.equal(buildImprovementArtifactEpisode(legacyArtifact, null), null);
+    assert.equal(buildImprovementArtifactEpisode(legacyArtifact, "legacy-repo")?.repository, "legacy-repo");
+  });
 });
 
 describe("memory_portable_bundle tool handler", () => {

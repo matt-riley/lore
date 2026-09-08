@@ -32,6 +32,7 @@ import { seedOnboardingMemories } from "./lib/memory/onboarding.mjs";
 import { createLoreSession } from "./lib/runtime/lore-runtime.mjs";
 import { retainMemory } from "./lib/memory/memory-operations.mjs";
 import { assembleRecall } from "./lib/context/recall-assembler.mjs";
+import { EpisodeSessionSource } from "./lib/runtime/session-source.mjs";
 import { applySessionExtraction } from "./lib/sessions/backfill.mjs";
 import { extractSessionMemories } from "./lib/sessions/rule-extractor.mjs";
 import { buildErrorTelemetryRecord, buildPostToolUseObservation } from "./lib/lifecycle/passive-hooks.mjs";
@@ -330,7 +331,7 @@ async function dispatch(method, params) {
         repository: params.repository ?? null,
         includeOtherRepositories: params.includeOtherRepositories === true,
         limit: params.limit ?? 6,
-        sessionStore: null,
+        sessionSource: new EpisodeSessionSource(db, { client: "pi" }),
         config: db.config,
       });
       const hits = recall?.trace?.lookups?.localMemories?.includedRows;

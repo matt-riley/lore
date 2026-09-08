@@ -33,7 +33,9 @@ import { createMemoryTools } from "../../lib/tools/memory-tools.mjs";
 import {
   buildPortableBundleRequest,
   mapImprovementArtifactRow,
+  writePortableBundle,
 } from "../../lib/tools/memory-tools-portable-bundle.mjs";
+import { buildImprovementArtifactEpisode } from "../../lib/db/db-improvement-artifacts.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 import { findTool } from "../helpers/tool-helpers.mjs";
 
@@ -132,7 +134,42 @@ describe("mapImprovementArtifactRow", () => {
   });
 });
 
+describe("buildImprovementArtifactEpisode", () => {
+  const artifact = {
+    id: "artifact-replay-1",
+    source_case_id: "case-replay-1",
+    source_kind: "replay",
+    repository: "other-repo",
+    title: "Keep replay evidence scoped",
+    summary: "Do not mix repositories during retrieval.",
+    evidence_json: JSON.stringify({ caseType: "ranking_target" }),
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+
+  test("does not synthesize a repository-specific episode for an unknown request", () => {
+    assert.equal(buildImprovementArtifactEpisode(artifact, null), null);
+    assert.equal(buildImprovementArtifactEpisode(artifact, ""), null);
+  });
+
+  test("only synthesizes the episode for the artifact's exact repository", () => {
+    assert.equal(buildImprovementArtifactEpisode(artifact, "fixture-repo"), null);
+    assert.equal(buildImprovementArtifactEpisode(artifact, "other-repo")?.repository, "other-repo");
+  });
+});
+
 describe("memory_portable_bundle tool handler", () => {
+  test("replaces an existing JSON bundle when exporting the same path again", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const bundlePath = path.join(tmpDir, "bundle.json");
+      await writePortableBundle(bundlePath, { bundleVersion: 1, marker: "first" });
+      await writePortableBundle(bundlePath, { bundleVersion: 1, marker: "second" });
+      assert.equal(JSON.parse(readFileSync(bundlePath, "utf8")).marker, "second");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test("format=json exports approved artifacts using the mapped camelCase shape", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, tools, cleanup } = await setupFixtureTools({ enabled: true });
     const tmpDir = makeTmpDir();

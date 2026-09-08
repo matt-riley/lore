@@ -55,7 +55,13 @@ function handleLine(line) {
           : [])
         : request.method === "backfill"
           ? { queued: 0 }
-          : { echo: request.params?.message ?? null };
+          : request.method === "tool"
+            ? `tool:${request.params?.name ?? ""}`
+            : request.method === "lifecycle"
+              ? { text: "", additionalContext: undefined }
+              : request.method === "slash"
+                ? `slash:${request.params?.args ?? ""}`
+                : { echo: request.params?.message ?? null };
   writeFragmented({
     id: request.id,
     ok: true,

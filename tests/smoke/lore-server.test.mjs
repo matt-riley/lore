@@ -73,6 +73,64 @@ function startServer(home, configPath) {
   return { proc, request, exit };
 }
 
+test("lore server tool/lifecycle/slash RPC covers the shared verb surface", { skip: SKIP_NO_FTS5 }, async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-rpc-"));
+  const copilotHome = path.join(home, ".copilot");
+  mkdirSync(copilotHome, { recursive: true });
+  const configPath = path.join(copilotHome, "lore.json");
+  const dbPath = path.join(copilotHome, "lore.db");
+  writeFileSync(configPath, JSON.stringify({
+    enabled: true,
+    paths: {
+      copilotHome,
+      rawStorePath: path.join(copilotHome, "session-store.db"),
+      derivedStorePath: dbPath,
+      backupDir: path.join(copilotHome, "backups"),
+      instructionsPath: path.join(copilotHome, "copilot-instructions.md"),
+      scopedInstructionsDir: path.join(copilotHome, "instructions"),
+    },
+  }));
+  writeFileSync(path.join(copilotHome, "copilot-instructions.md"), "");
+
+  const server = startServer(home, configPath);
+  try {
+    const status = await server.request("status");
+    assert.equal(status.ok, true);
+
+    const retained = await server.request("tool", {
+      name: "lore_retain",
+      args: { content: "pi rpc prefers bun", type: "user_preference" },
+    });
+    assert.equal(retained.ok, true);
+    assert.match(String(retained.result), /Retained semantic memory/);
+
+    const saveAlias = await server.request("tool", {
+      name: "lore_save",
+      args: { content: "pi rpc save alias", type: "user_preference" },
+    });
+    assert.equal(saveAlias.ok, true);
+    assert.match(String(saveAlias.result), /Retained semantic memory/);
+
+    const slashForgetShape = await server.request("slash", { args: "forget mem-missing" });
+    assert.equal(slashForgetShape.ok, true);
+
+    const slashStatus = await server.request("slash", { args: "status" });
+    assert.equal(slashStatus.ok, true);
+    assert.match(String(slashStatus.result), /enabled: true/);
+
+    const doctor = await server.request("slash", { args: "doctor" });
+    assert.equal(doctor.ok, true);
+
+    const lifecycle = await server.request("lifecycle", { event: "session_start", prompt: "" });
+    assert.equal(lifecycle.ok, true);
+    assert.equal(typeof lifecycle.result.text, "string");
+  } finally {
+    const result = await server.exit();
+    assert.equal(result.code, 0, `server exited with ${JSON.stringify(result)}`);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("lore server handles status/save/recall/extract, backfill, and graceful EOF", { skip: SKIP_NO_FTS5 }, async () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-server-"));
   const copilotHome = path.join(home, ".copilot");

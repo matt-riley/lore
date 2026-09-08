@@ -105,6 +105,20 @@ describe("parseLoreArgv", () => {
 });
 
 describe("dispatchSlash", () => {
+  test("/lore forget id and forget id dispatch the same lore_forget call", async () => {
+    const calls = [];
+    const dispatch = async (name, args, extra) => {
+      calls.push({ name, args, extra });
+      return "ok";
+    };
+    await dispatchSlash("/lore forget mem-1", dispatch, { sessionId: "s-shared" });
+    await dispatchSlash("forget mem-1", dispatch, { sessionId: "s-shared" });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0], calls[1]);
+    assert.equal(calls[0].name, "lore_forget");
+    assert.deepEqual(calls[0].args, { id: "mem-1" });
+  });
+
   test("forwards parsed argv to dispatchTool with surface slash", async () => {
     const calls = [];
     const result = await dispatchSlash("forget mem-1", async (name, args, extra) => {

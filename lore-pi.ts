@@ -7,7 +7,7 @@
 //   Copilot onSessionStart        -> lazy runtime init + onboarding seed
 //   Copilot onUserPromptSubmitted -> pi before_agent_start (recall -> message)
 //   Copilot onSessionEnd          -> pi session_shutdown (close db)
-//   Copilot memory_save/_search   -> pi tools lore_save / lore_recall / lore_status
+//   Copilot memory_* tools        -> nine model tools + /lore <verb> (lore_save aliases retain)
 //
 // Shared config: ~/.config/lore/lore.json (lore's own documented config path);
 // memory lives in ~/.config/lore/lore.db, so installing lore into the Copilot CLI
@@ -29,6 +29,30 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolveRepositoryIdentity } from "./lib/utils/repository-identity.mjs";
 import { createPiServerClient } from "./lib/clients/pi-server-client.mjs";
+import { getLoreCapabilitySpec, LORE_CAPABILITY_SPECS } from "./lib/capabilities/capability-manifest.mjs";
+import { jsonSchemaToTypeBox } from "./lib/runtime/json-schema-to-typebox.mjs";
+import { dispatchSlash, LORE_SLASH_DESCRIPTION, parseLoreArgv } from "./lib/runtime/slash-dispatch.mjs";
+
+const PI_MODEL_TOOL_NAMES = LORE_CAPABILITY_SPECS
+  .filter((spec: { surfaces: { model: boolean } }) => spec.surfaces.model === true)
+  .map((spec: { name: string }) => spec.name);
+
+const MUTATING_TOOL_NAMES = new Set([
+  "lore_retain",
+  "lore_save",
+  "memory_save",
+  "lore_forget",
+  "memory_forget",
+  "lore_onboard",
+  "lore_correct",
+  "memory_correct",
+  "lore_repair",
+  "memory_repair",
+  "lore_purge",
+  "memory_purge",
+  "lore_backfill",
+  "memory_backfill",
+]);
 
 type LoreConfig = {
   configPath?: string;
@@ -174,6 +198,41 @@ function notify(
   }
 }
 
+function toolResultText(result: unknown): string {
+  if (typeof result === "string") {
+    return result;
+  }
+  if (result && typeof result === "object" && typeof (result as { text?: unknown }).text === "string") {
+    return (result as { text: string }).text;
+  }
+  if (result == null) {
+    return "";
+  }
+  return JSON.stringify(result);
+}
+
+function toolLabel(name: string): string {
+  return name
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function maybeBumpMemoryVersion(name: string | undefined, text: string): void {
+  if (!name || !MUTATING_TOOL_NAMES.has(name)) {
+    return;
+  }
+  if (/unavailable|skipped|unknown (?:tool|verb)|requires --json|^usage:/i.test(text)) {
+    return;
+  }
+  memoryVersion++;
+}
+
+function loreUnavailableResult() {
+  return { content: [{ type: "text" as const, text: "lore unavailable" }], details: {} };
+}
+
 function deriveRepository(cwd: string): string | null {
   const explicit = process.env.LORE_REPOSITORY?.trim();
   if (explicit) return resolveRepositoryIdentity({ cwd, explicit });
@@ -196,10 +255,6 @@ async function recallWithFallback(
   return (recall.text ?? "").trim();
 }
 
-async function explicitSearch(rt: LoreRuntime, query: string, repository: string | null, limit = 6): Promise<string> {
-  return await recallWithFallback(rt, query, repository, limit) || "(no memories found)";
-}
-
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const rt = await ensureRuntime(ctx as never);
@@ -207,21 +262,38 @@ export default function (pi: ExtensionAPI) {
       notifiedReady = true;
       notify(ctx as never, "lore", "memory ready", "info");
     }
+    if (!rt) {
+      return;
+    }
     // Bounded backfill: quietly import past pi sessions, a few per session start.
-    if (rt) {
-      request("backfill", {
-        currentSessionId: ctx.sessionManager.getSessionId() ?? null,
-        max: 5,
+    request("backfill", {
+      currentSessionId: ctx.sessionManager.getSessionId() ?? null,
+      max: 5,
+    })
+      .then((result) => {
+        const queued = (result as { queued?: number })?.queued ?? 0;
+        if (queued > 0) {
+          notify(ctx as never, "lore", `queued ${queued} past session(s) for import`, "info");
+        }
       })
-        .then((result) => {
-          const queued = (result as { queued?: number })?.queued ?? 0;
-          if (queued > 0) {
-            notify(ctx as never, "lore", `queued ${queued} past session(s) for import`, "info");
-          }
-        })
-        .catch(() => {
-          // backfill must never break startup
-        });
+      .catch(() => {
+        // backfill must never break startup
+      });
+    try {
+      const capsule = await request<{ text?: string }>("lifecycle", {
+        event: "session_start",
+        prompt: "",
+        repository: deriveRepository(ctx.cwd),
+        sessionId: ctx.sessionManager.getSessionId() ?? null,
+      });
+      const text = toolResultText(capsule).trim();
+      if (text) {
+        return {
+          message: { customType: "lore", content: text, display: false, lorePhase: "session_start" },
+        };
+      }
+    } catch {
+      // session-start capsule must never break startup
     }
   });
 
@@ -256,21 +328,29 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // Keep only the most recent ambient recall message in context: lore messages
-  // accumulate one per turn in the session, but only the latest is needed.
+  // Keep the session-start capsule plus the most recent prompt recall. Prompt
+  // lore messages accumulate one per turn; only the latest of those is needed.
   pi.on("context", async (event) => {
-    let lastLore = -1;
+    let lastSessionStart = -1;
+    let lastPromptLore = -1;
     for (let i = 0; i < event.messages.length; i++) {
-      if ((event.messages[i] as { customType?: string }).customType === "lore") {
-        lastLore = i;
+      const message = event.messages[i] as { customType?: string; lorePhase?: string };
+      if (message.customType !== "lore") {
+        continue;
+      }
+      if (message.lorePhase === "session_start") {
+        lastSessionStart = i;
+      } else {
+        lastPromptLore = i;
       }
     }
-    if (lastLore === -1) {
+    if (lastSessionStart === -1 && lastPromptLore === -1) {
       return;
     }
-    const filtered = event.messages.filter(
-      (m, i) => i === lastLore || (m as { customType?: string }).customType !== "lore",
-    );
+    const keep = new Set([lastSessionStart, lastPromptLore].filter((index) => index >= 0));
+    const filtered = event.messages.filter((m, i) => {
+      return (m as { customType?: string }).customType !== "lore" || keep.has(i);
+    });
     return { messages: filtered };
   });
 
@@ -365,208 +445,94 @@ export default function (pi: ExtensionAPI) {
     memoryVersion = 0;
   });
 
-  pi.registerTool({
-    name: "lore_save",
-    label: "Lore Save",
-    description:
-      "Persist a memory (decision, pattern, preference, gotcha) into the local lore store so future sessions recall it. " +
-      "Use a recallable type: user_preference, commitment, recurring_mistake, rejected_approach, blocker, open_loop, or decision.",
-    parameters: Type.Object({
-      content: Type.String({ description: "Memory content to persist" }),
-      type: Type.Optional(
-        Type.String({ description: "Memory type (see description)", default: "user_preference" }),
-      ),
-      repository: Type.Optional(Type.String({ description: "Optional explicit repository scope" })),
-      scope: Type.Optional(Type.String({ description: "Scope: global, transferable, or repo" })),
-    }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const rt = await ensureRuntime(ctx as never);
-      if (!rt) {
-        return { content: [{ type: "text", text: "lore unavailable" }], details: {} };
-      }
-      const type = params.type ?? "user_preference";
-      const result = await request<{ id: string | null }>("save", {
-        type,
-        content: params.content,
-        repository: params.repository ?? deriveRepository(ctx.cwd),
-        scope: params.scope,
-        sourceSessionId: ctx.sessionManager.getSessionId() ?? null,
-        tags: [type, "manual"],
-        metadata: { source: "pi:command" },
-      });
-      if (result?.id) {
-        memoryVersion++; // force ambient recall to refresh on the next prompt
-      }
-      const text = result?.id
-        ? `Saved memory ${result.id} (${type})`
-        : "Save skipped: content was empty after sanitization.";
-      return { content: [{ type: "text", text }], details: {} };
-    },
-  });
+  function withToolArgs(spec: { parameters?: { properties?: Record<string, unknown> } } | undefined, params: Record<string, unknown>, ctx: { cwd: string }) {
+    const args: Record<string, unknown> = { ...params };
+    if (spec?.parameters?.properties?.repository && args.repository == null) {
+      args.repository = deriveRepository(ctx.cwd);
+    }
+    if (spec?.name === "lore_recall" && args.prompt == null && typeof args.query === "string") {
+      args.prompt = args.query;
+    }
+    return args;
+  }
 
-  pi.registerTool({
-    name: "lore_onboard",
-    label: "Lore Onboard",
-    description:
-      "Record or update lore's personality: the user's preferred name, the assistant's name, and interaction-style profile fields. " +
-      "All fields are optional; omitted fields keep their current values.",
-    parameters: Type.Object({
-      userName: Type.Optional(Type.String({ description: "The user's preferred name (required until lore knows it)" })),
-      assistantName: Type.Optional(Type.String({ description: "Optional assistant self-name; omitted means lore keeps or chooses one" })),
-      voice: Type.Optional(Type.Union([Type.Literal("colleague"), Type.Literal("collaborative"), Type.Literal("friendly")], { description: "Preferred assistant voice" })),
-      warmth: Type.Optional(Type.Union([Type.Literal("warm"), Type.Literal("balanced")], { description: "Preferred assistant warmth" })),
-      humor: Type.Optional(Type.Union([Type.Literal("light"), Type.Literal("none")], { description: "Whether lore uses humor by default" })),
-      humorFrequency: Type.Optional(Type.Union([Type.Literal("frequent"), Type.Literal("occasional"), Type.Literal("never")], { description: "How often humor is welcome" })),
-      collaborative: Type.Optional(Type.Boolean({ description: "Default to a collaborative teammate posture" })),
-      useNameNaturally: Type.Optional(Type.Boolean({ description: "Use the user's preferred name naturally when helpful" })),
-    }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const rt = await ensureRuntime(ctx as never);
-      if (!rt) {
-        return { content: [{ type: "text", text: "lore unavailable" }], details: {} };
-      }
-      const result = await request<{
-        assistantName: string;
-        userName: string | null;
-        profile: { voice: string; warmth: string; humor: string; humorFrequency: string; useNameNaturally: boolean };
-      }>("onboard", {
-        userName: params.userName,
-        assistantName: params.assistantName,
-        voice: params.voice,
-        warmth: params.warmth,
-        humor: params.humor,
-        humorFrequency: params.humorFrequency,
-        collaborative: params.collaborative,
-        useNameNaturally: params.useNameNaturally,
-        sourceSessionId: ctx.sessionManager.getSessionId() ?? null,
-      });
-      if (result?.assistantName) {
-        memoryVersion++;
-      }
-      const text = result?.assistantName
-        ? [
-            `Onboarding saved. You can call lore ${result.assistantName}.`,
-            `userName=${result.userName ?? "(unset)"}`,
-            `voice=${result.profile?.voice}`,
-            `warmth=${result.profile?.warmth}`,
-            `humor=${result.profile?.humor}`,
-            `humorFrequency=${result.profile?.humorFrequency}`,
-            `useNameNaturally=${result.profile?.useNameNaturally === true ? "true" : "false"}`,
-          ].join(" ")
-        : "Onboarding skipped.";
-      return { content: [{ type: "text", text }], details: {} };
-    },
-  });
+  async function executeManifestTool(name: string, params: Record<string, unknown>, ctx: {
+    cwd: string;
+    sessionManager: { getSessionId(): string | null };
+  }) {
+    const rt = await ensureRuntime(ctx as never);
+    if (!rt) {
+      return loreUnavailableResult();
+    }
+    const spec = getLoreCapabilitySpec(name);
+    const text = toolResultText(await request("tool", {
+      name,
+      args: withToolArgs(spec, params, ctx),
+      sessionId: ctx.sessionManager.getSessionId() ?? null,
+      surface: "tool",
+      repository: deriveRepository(ctx.cwd),
+    }));
+    maybeBumpMemoryVersion(spec?.name ?? name, text);
+    return { content: [{ type: "text" as const, text }], details: {} };
+  }
 
-  pi.registerTool({
-    name: "lore_recall",
-    label: "Lore Recall",
-    description:
-      "Search the local lore memory store for memories relevant to a query. Uses semantic (vector) search via the local embeddings model when configured, plus lexical recall.",
-    parameters: Type.Object({
-      query: Type.String({ description: "Search query" }),
-      repository: Type.Optional(Type.String({ description: "Optional repository scope" })),
-      limit: Type.Optional(Type.Number({ description: "Max results", default: 6 })),
-    }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const rt = await ensureRuntime(ctx as never);
-      if (!rt) {
-        return { content: [{ type: "text", text: "lore unavailable" }], details: {} };
-      }
-      const text = await explicitSearch(
-        rt,
-        params.query,
-        params.repository ?? deriveRepository(ctx.cwd),
-        params.limit ?? 6,
-      );
-      return { content: [{ type: "text", text }], details: {} };
-    },
-  });
+  function registerManifestTool(canonicalName: string, registeredName = canonicalName) {
+    const spec = getLoreCapabilitySpec(canonicalName);
+    if (!spec) {
+      console.error(`[lore-pi] skipping tool ${canonicalName}: no capability spec`);
+      return;
+    }
+    let parameters;
+    try {
+      parameters = jsonSchemaToTypeBox(spec.parameters, Type);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[lore-pi] skipping tool ${registeredName}: ${message}`);
+      return;
+    }
+    pi.registerTool({
+      name: registeredName,
+      label: toolLabel(registeredName),
+      description: spec.description,
+      parameters,
+      async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+        return executeManifestTool(registeredName, (params ?? {}) as Record<string, unknown>, ctx as never);
+      },
+    });
+  }
 
-  pi.registerTool({
-    name: "lore_status",
-    label: "Lore Status",
-    description: "Show lore store statistics (memory counts, db path, schema version).",
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const rt = await ensureRuntime(ctx as never);
-      if (!rt) {
-        return { content: [{ type: "text", text: "lore unavailable" }], details: {} };
-      }
-      const s = await request<{
-        semanticCount: number;
-        episodeCount: number;
-        domainCount: number;
-        observationCount: number;
-        schemaVersion: number | string;
-        dbPath: string | null;
-        captureHealth?: Array<{ client: string; sessionId: string; pendingBytes: number; failureCode: string | null }>;
-      }>("status");
-      const text = [
-        `semantic memories: ${s.semanticCount ?? 0}`,
-        `episodes: ${s.episodeCount ?? 0}`,
-        `domains: ${s.domainCount ?? 0}`,
-        `observations: ${s.observationCount ?? 0}`,
-        `schema: ${s.schemaVersion ?? "?"}`,
-        `db: ${s.dbPath ?? "?"}`,
-        `capture health: ${s.captureHealth?.length ?? 0} checkpoint(s)`,
-      ].join("\n");
-      return { content: [{ type: "text", text }], details: {} };
-    },
-  });
+  for (const name of PI_MODEL_TOOL_NAMES) {
+    registerManifestTool(name);
+  }
+  // lore_save is the Pi-legacy retain alias, not an extra canonical model verb.
+  registerManifestTool("lore_retain", "lore_save");
 
   pi.registerCommand("lore", {
-    description: "Inspect lore memory: status | search <query> | save <text>",
+    description: LORE_SLASH_DESCRIPTION,
     handler: async (args, ctx) => {
       const rt = await ensureRuntime(ctx as never);
       if (!rt) {
         return;
       }
-      const [cmd, ...rest] = (args ?? "").trim().split(/\s+/);
-      const argText = rest.join(" ").trim();
-
-      if (cmd === "search" && argText) {
-        const text = await explicitSearch(rt, argText, deriveRepository(ctx.cwd));
-        notify(ctx as never, "lore search", text);
-        return;
-      }
-
-      if (cmd === "save" && argText) {
-        const result = await request<{ id: string | null }>("save", {
-          type: "user_preference",
-          content: argText,
-          repository: deriveRepository(ctx.cwd),
-          sourceSessionId: ctx.sessionManager.getSessionId() ?? null,
-          tags: ["user_preference", "manual"],
-          metadata: { source: "pi:command" },
-        });
-        if (result?.id) {
-          memoryVersion++;
-        }
-        notify(ctx as never, "lore save", result?.id ? `Saved memory ${result.id}` : "Save skipped.");
-        return;
-      }
-
-      const s = await request<{
-        semanticCount: number;
-        episodeCount: number;
-        domainCount: number;
-        observationCount: number;
-        schemaVersion: number | string;
-        dbPath: string | null;
-        captureHealth?: Array<{ client: string; sessionId: string; pendingBytes: number; failureCode: string | null }>;
-      }>("status");
-      notify(
-        ctx as never,
-        "lore",
-        [
-          `semantic: ${s.semanticCount ?? 0} | episodes: ${s.episodeCount ?? 0} | domains: ${s.domainCount ?? 0} | observations: ${s.observationCount ?? 0}`,
-          `schema ${s.schemaVersion ?? "?"} | db: ${s.dbPath ?? "?"}`,
-          `capture checkpoints: ${s.captureHealth?.length ?? 0}`,
-          "",
-          "usage: /lore status | search <query> | save <text>",
-        ].join("\n"),
+      const argsText = String(args ?? "");
+      const text = await dispatchSlash(
+        argsText,
+        async (name: string, toolArgs: Record<string, unknown>, extra: { sessionId?: string | null; surface?: string }) => {
+          const spec = getLoreCapabilitySpec(name);
+          const result = await request("tool", {
+            name,
+            args: withToolArgs(spec, toolArgs ?? {}, ctx),
+            sessionId: extra?.sessionId ?? ctx.sessionManager.getSessionId() ?? null,
+            surface: extra?.surface ?? "slash",
+            repository: deriveRepository(ctx.cwd),
+          });
+          return toolResultText(result);
+        },
+        { sessionId: ctx.sessionManager.getSessionId() ?? null, surface: "slash" },
       );
+      const parsed = parseLoreArgv(argsText);
+      maybeBumpMemoryVersion(parsed?.name, String(text ?? ""));
+      notify(ctx as never, "lore", String(text ?? ""));
     },
   });
 }

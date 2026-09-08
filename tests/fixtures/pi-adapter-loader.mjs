@@ -1,5 +1,6 @@
 const typeboxStub = `data:text/javascript,${encodeURIComponent(`
   export const Type = {
+    Array: (items) => items,
     Boolean: () => ({}),
     Literal: () => ({}),
     Number: () => ({}),

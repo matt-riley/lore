@@ -12,8 +12,7 @@ const adapterPath = path.join(tempDir, "lore-pi.ts");
 const clientUrl = pathToFileURL(path.join(root, "lib", "clients", "pi-server-client.mjs")).href;
 const configUrl = pathToFileURL(path.join(root, "lib", "core", "config.mjs")).href;
 const source = readFileSync(sourcePath, "utf8")
-  .replace('from "./lib/utils/repository-identity.mjs"', `from "${pathToFileURL(path.join(root, "lib", "utils", "repository-identity.mjs")).href}"`)
-  .replace('from "./lib/clients/pi-server-client.mjs"', `from "${clientUrl}"`)
+  .replaceAll(/from "(\.\/lib\/[^"]+)"/g, (_match, rel) => `from "${pathToFileURL(path.join(root, rel)).href}"`)
   .replace('import("./lib/core/config.mjs")', `import("${configUrl}")`)
   .replace(
     'const serverPath = fileURLToPath(new URL("./lore-server.mjs", import.meta.url));',
@@ -61,12 +60,12 @@ await new Promise((resolve) => setTimeout(resolve, 50));
 await handlers.get("before_agent_start")({ prompt: "remember the adapter lifecycle" }, ctx);
 const recoveredRecall = await tools.get("lore_recall").execute(
   "test-call",
-  { query: "unmatched typed lookup" },
+  { prompt: "unmatched typed lookup" },
   undefined,
   undefined,
   ctx,
 );
-assert.match(recoveredRecall?.content?.[0]?.text ?? "", /recovered recall memory/);
+assert.match(recoveredRecall?.content?.[0]?.text ?? "", /tool:lore_recall/);
 await handlers.get("session_shutdown")({}, ctx);
 
 console.log(JSON.stringify({ ok: true }));

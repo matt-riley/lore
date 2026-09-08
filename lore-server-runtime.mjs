@@ -11,10 +11,13 @@
 //   <- { id, ok: true, result } | { id, ok: false, error }
 //
 // Methods:
-//   status           - store statistics
-//   recall           - assembleRecall (prompt context + onboarding/directives)
+//   tool             - createLoreSession.dispatchTool(name, args)
+//   lifecycle        - createLoreSession.handleLifecycle(event, payload)
+//   slash            - createLoreSession.dispatchSlash(args)
+//   status           - store statistics (alias; prefer tool lore_status)
+//   recall           - assembleRecall (alias; prefer tool lore_recall)
 //   search           - searchSemantic (typed fallback supported)
-//   save / onboard   - retainMemory
+//   save / onboard   - retainMemory (alias; prefer tool lore_retain / lore_onboard)
 //   extract          - extract memories from one pi session file
 //   backfill         - bounded scan + extraction of unprocessed pi sessions
 //   post_tool        - passive post-tool-use observation (rollout-gated)
@@ -24,10 +27,9 @@
 
 import os from "node:os";
 import path from "node:path";
-import { loadConfig } from "./lib/core/config.mjs";
 import { resolveLorePaths } from "./lib/core/lore-paths.mjs";
-import { LoreDb } from "./lib/db/db.mjs";
 import { seedOnboardingMemories } from "./lib/memory/onboarding.mjs";
+import { createLoreSession } from "./lib/runtime/lore-runtime.mjs";
 import { retainMemory } from "./lib/memory/memory-operations.mjs";
 import { assembleRecall } from "./lib/context/recall-assembler.mjs";
 import { applySessionExtraction } from "./lib/sessions/backfill.mjs";
@@ -62,6 +64,7 @@ const RECALL_TYPES = [
 // Bounded pi-session backfill knobs. Invalid values fall back to safe defaults.
 const BACKFILL = parseBackfillSettings();
 
+let session = null;
 let db = null;
 let errorTelemetryWrites = 0;
 let archiveScanner = null;
@@ -92,13 +95,29 @@ function archiveCursorPath() {
     : `${resolveLorePaths().derivedStorePath}.pi-archive-cursor.json`;
 }
 
-async function init() {
-  const config = await loadConfig();
-  if (config?.enabled !== true) {
-    throw new Error(`lore is disabled — set "enabled": true in ${config.configPath}`);
+function toolResultText(result) {
+  if (typeof result === "string") {
+    return result;
   }
-  db = new LoreDb(config);
-  db.initialize();
+  if (result && typeof result === "object" && typeof result.text === "string") {
+    return result.text;
+  }
+  if (result == null) {
+    return "";
+  }
+  return JSON.stringify(result);
+}
+
+async function init() {
+  session = await createLoreSession({
+    client: "pi",
+    surface: "hook",
+    cwd: process.cwd(),
+  });
+  if (!session.initialized || !session.db) {
+    throw session.lastError ?? new Error("lore unavailable");
+  }
+  db = session.db;
   seedOnboardingMemories({ db, sessionId: "lore-server" });
   archiveScanner = new PiArchiveScanner({
     rootDir: piSessionDir(),
@@ -259,8 +278,50 @@ function waitForArchiveIdle() {
   return archiveScanQueue.then(() => archiveWorkerRunning ? archiveIdle : undefined);
 }
 
+function invocationExtra(params, surface) {
+  const extra = {
+    sessionId: params.sessionId ?? session?.sessionId ?? null,
+    surface,
+  };
+  if (Object.hasOwn(params, "repository")) {
+    extra.repository = params.repository;
+  }
+  return extra;
+}
+
 async function dispatch(method, params) {
   switch (method) {
+    case "tool": {
+      if (!session) {
+        throw new Error("lore unavailable");
+      }
+      const name = String(params.name ?? "");
+      const text = await session.dispatchTool(name, params.args ?? {}, invocationExtra(params, params.surface ?? "tool"));
+      return toolResultText(text);
+    }
+    case "lifecycle": {
+      if (!session) {
+        throw new Error("lore unavailable");
+      }
+      const event = String(params.event ?? "");
+      const result = await session.handleLifecycle(event, {
+        prompt: params.prompt ?? params.initialPrompt ?? "",
+        initialPrompt: params.initialPrompt ?? params.prompt ?? "",
+        repository: Object.hasOwn(params, "repository") ? params.repository : session.repository,
+        sessionId: params.sessionId ?? session.sessionId,
+      });
+      return {
+        text: result?.text ?? "",
+        additionalContext: result?.additionalContext,
+      };
+    }
+    case "slash": {
+      if (!session) {
+        throw new Error("lore unavailable");
+      }
+      const text = await session.dispatchSlash(params.args ?? "", invocationExtra(params, "slash"));
+      return toolResultText(text);
+    }
     case "recall": {
       let recall = await assembleRecall({
         db,
@@ -503,7 +564,7 @@ rl.on("close", () => {
     await archiveScanner?.close();
   }).finally(() => {
     try {
-      db?.close();
+      session?.close();
     } catch {
       // best-effort
     }

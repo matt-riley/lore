@@ -33,6 +33,8 @@ test("directives survive inline code and Markdown list formatting", () => {
   assert.ok(inline.semanticMemories.some((memory) => memory.type === "user_preference"));
   const markdown = extractTurn("Preferences:\n- Always use node:test for tests.\n- Prefer small patches.");
   assert.equal(markdown.semanticMemories.filter((memory) => memory.type === "user_preference").length, 2);
+  const mixed = extractTurn("Always preserve the original context.\n- Always use node:test for tests.\n- Prefer small patches.");
+  assert.equal(mixed.semanticMemories.filter((memory) => memory.type === "user_preference").length, 3);
   const fenced = extractTurn("```\nAlways use node:test for tests.\n```");
   assert.equal(fenced.semanticMemories.some((memory) => memory.type === "user_preference"), false);
 });

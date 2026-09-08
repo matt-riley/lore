@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { describe, test } from "node:test";
 
 import {
@@ -291,5 +292,19 @@ describe("backfill controlled operations", { concurrency: false }, () => {
     } finally {
       cleanup();
     }
+  });
+
+  test("restoreControlledBackfillRun emits an absolute configured default target", () => {
+    const result = restoreControlledBackfillRun({
+      db: {
+        config: {},
+        getBackfillRun: () => ({ snapshot_path: "/tmp/lore-backfill-snapshot.db" }),
+      },
+      runId: "run-with-snapshot",
+    });
+    const target = result.recoveryCommand.split("--derived-store-path ", 2)[1]?.split(" ", 1)[0];
+    assert.ok(target, "expected a derived-store-path argument");
+    assert.ok(path.isAbsolute(target.replace(/^["']|["']$/gu, "")));
+    assert.doesNotMatch(result.recoveryCommand, /(?:^|\s)["']?~\//u);
   });
 });

@@ -18,7 +18,7 @@
 
 import { it, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, existsSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -165,6 +165,30 @@ describe("writeOkfBundle", () => {
       const symlinkPath = path.join(tmpDir, "linked-bundle");
       symlinkSync(symlinkTarget, symlinkPath);
       await assert.rejects(() => writeOkfBundle(symlinkPath, []), /real directory/u);
+
+      const nestedBundle = path.join(tmpDir, "nested-bundle");
+      await writeOkfBundle(nestedBundle, [{ relativePath: "subdir/artifact.md", contents: "nested" }]);
+      assert.strictEqual(statSync(path.join(nestedBundle, "subdir")).mode & 0o777, 0o700);
+      const escapedDir = path.join(tmpDir, "escaped");
+      mkdirSync(escapedDir);
+      const linkedSubdir = path.join(nestedBundle, "linked-subdir");
+      symlinkSync(escapedDir, linkedSubdir);
+      await assert.rejects(
+        () => writeOkfBundle(nestedBundle, [{ relativePath: "linked-subdir/escape.md", contents: "x" }]),
+        /real directory|symlink/u,
+      );
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("replaces an existing document when exporting the same bundle again", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const bundleDir = path.join(tmpDir, "bundle");
+      await writeOkfBundle(bundleDir, [{ relativePath: "index.md", contents: "first" }]);
+      await writeOkfBundle(bundleDir, [{ relativePath: "index.md", contents: "second" }]);
+      assert.equal(readFileSync(path.join(bundleDir, "index.md"), "utf8"), "second");
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }

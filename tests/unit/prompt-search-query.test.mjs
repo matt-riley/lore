@@ -16,7 +16,10 @@ test("prompt recall drops conversational scaffolding while preserving scope and 
     for (const prompt of ["What did we decide?", "What about penguin habitats?"]) {
       assert.deepEqual(f.db.buildPromptSemanticContext({ prompt, repository: "team/current", limit: 6 }).memories, []);
     }
-    assert.deepEqual(f.db.searchSemantic({ query: "Remind me what we decided about Redis retries", repository: "team/current" }), []);
+    assert.deepEqual(
+      f.db.searchSemantic({ query: "Remind me what we decided about Redis retries", repository: "team/current" }).map((row) => row.id),
+      [id],
+    );
   } finally { f.cleanup(); }
 });
 

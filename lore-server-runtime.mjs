@@ -56,6 +56,7 @@ const RECALL_TYPES = [
   "recurring_mistake",
   "decision",
   "interaction_style",
+  "learned_rule",
 ];
 
 // Bounded pi-session backfill knobs. Invalid values fall back to safe defaults.
@@ -271,15 +272,6 @@ async function dispatch(method, params) {
         sessionStore: null,
         config: db.config,
       });
-      if (params.semantic === true && recall.promptNeed?.hasTemporalSignal !== true
-        && db.config?.localInference?.embeddings?.enabled === true) {
-        const { semanticSearch } = await import("./lib/memory/semantic-search.mjs");
-        const { mergeSemanticRecallResult } = await import("./lib/memory/memory-operations.mjs");
-        const semantic = await semanticSearch({ db, query: String(params.prompt ?? ""),
-          repository: params.repository ?? null, includeOtherRepositories: params.includeOtherRepositories === true,
-          types: RECALL_TYPES, limit: params.limit ?? 6 });
-        recall = mergeSemanticRecallResult({ result: recall, semantic, config: db.config });
-      }
       const hits = recall?.trace?.lookups?.localMemories?.includedRows;
       return {
         text: recall?.text?.trim() ?? "",

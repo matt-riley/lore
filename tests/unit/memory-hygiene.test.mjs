@@ -108,6 +108,25 @@ describe("evaluateMemoryHygieneCandidate", () => {
     assert.equal(result.reason, "later_episode_still_open");
   });
 
+  test("does not complete an unrelated open_loop from all tests green", async () => {
+    const result = await evaluateMemoryHygieneCandidate({
+      memory: buildMemory({
+        content: "Finish the auth migration for billing.",
+      }),
+      episodes: [
+        buildEpisode({
+          summary: "All tests green.",
+          actions: ["all tests green"],
+        }),
+      ],
+      repository: "matt-riley/lore",
+      isCommitAncestor: async () => false,
+    });
+
+    assert.equal(result.disposition, "ambiguous");
+    assert.equal(result.reason, "no_high_confidence_evidence");
+  });
+
   test("does not use another repository's completion evidence for a repo-scoped item", async () => {
     const result = await evaluateMemoryHygieneCandidate({
       memory: buildMemory(),

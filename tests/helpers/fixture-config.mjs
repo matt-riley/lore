@@ -120,7 +120,7 @@ function buildFixtureConfig(home, overrides = {}) {
         model: "",
         maxInputs: 24,
         topK: 6,
-        minSimilarity: 0.2,
+        minSimilarity: 0.35,
         groundingMinSimilarity: 0.35,
       },
     },

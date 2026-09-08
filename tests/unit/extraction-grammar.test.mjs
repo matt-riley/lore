@@ -30,6 +30,19 @@ describe("extraction grammar accuracy", () => {
     assert.notEqual(standingDirectiveType("Do not forget to run migrations"), "rejected_approach");
   });
 
+  test("does not treat bare imperative task language as standing policy", () => {
+    assert.equal(standingDirectiveType("Run the tests."), null);
+    assert.equal(standingDirectiveType("Use bun for this task."), null);
+    assert.equal(standingDirectiveType("Write a summary of the diff."), null);
+    assert.equal(standingDirectiveType("Check if the endpoint is healthy."), null);
+  });
+
+  test("emits directive for must/should/mandatory standing policy", () => {
+    assert.equal(standingDirectiveType("Secrets must be redacted at rest."), "directive");
+    assert.equal(standingDirectiveType("Failure reports should include the request id."), "directive");
+    assert.equal(standingDirectiveType("Idempotency keys are mandatory."), "directive");
+  });
+
   test("detects task requests and negative task constraints as one-off directives", () => {
     assert.equal(isOneOffDirectiveRequest("Review git diff --cached... Do not edit files."), true);
     assert.equal(isOneOffDirectiveRequest("Do not edit files."), true);

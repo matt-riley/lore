@@ -137,6 +137,36 @@ describe("buildSemanticCanonicalKey", () => {
     );
   });
 
+  test("normalizes preference and decision keys without matching paraphrases", () => {
+    assert.equal(
+      buildSemanticCanonicalKey({ type: "user_preference", content: "Prefer bun" }),
+      "pref:prefer bun",
+    );
+    assert.equal(
+      buildSemanticCanonicalKey({ type: "user_preference", content: "prefer bun" }),
+      "pref:prefer bun",
+    );
+    assert.notEqual(
+      buildSemanticCanonicalKey({
+        type: "user_preference",
+        content: "I prefer bun for this repo's scripts",
+      }),
+      "pref:prefer bun",
+    );
+    assert.equal(
+      buildSemanticCanonicalKey({
+        type: "decision",
+        content: "Decision: use PostgreSQL because we need concurrent writers.",
+        metadata: { decisionChoice: "use PostgreSQL" },
+      }),
+      "decision:use postgresql",
+    );
+    assert.equal(
+      buildSemanticCanonicalKey({ type: "directive", content: "Secrets must be redacted." }),
+      "pref:secrets must be redacted",
+    );
+  });
+
   test("prefers overlay identifiers over title or content for workstream keys", () => {
     assert.equal(
       buildSemanticCanonicalKey({

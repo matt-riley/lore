@@ -18,12 +18,10 @@
 // so lore-server.mjs owns the DB and this adapter is a thin JSON-lines client.
 //
 // Retrieval notes (default config, no local inference):
-//   - lore's lexical search is exact-token AND with no stemming, so
-//     conversational prompts mostly miss. The adapter compensates by passing a
-//     stopword-cleaned retrievalPrompt, and explicit searches (lore_recall
-//     tool, /lore search) fall back to includeTypedFallback so recent memories
-//     surface on a miss. Enable localInference/queryExpansion/embeddings in
-//     lore.json for true semantic recall.
+//   - lore's lexical search is AND-first with a shared OR-retry in
+//     assembleRecall. This adapter does not keep a private stopword list or
+//     typed fallback. Enable localInference/queryExpansion/embeddings in
+//     lore.json for vector recall.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -53,28 +51,12 @@ let nodeBin: string | null = null;
 const repoCache = new Map<string, string | null>();
 
 // Ambient-recall state, reset per session (see session_shutdown).
-// recallCache: per-session+repo recall results, keyed by the content terms of
-// the prompt that produced them, so identical follow-up prompts skip the server
-// roundtrip instead of re-injecting the same memories every turn.
+// recallCache: per-session+repo recall results, keyed by the prompt that
+// produced them, so identical follow-up prompts skip the server roundtrip.
 // memoryVersion: bumped when a memory is saved mid-session, forcing a re-recall
 // so fresh memories surface on the next prompt.
 let recallCache: Map<string, { termKey: string; memoryVersion: number }> | null = null;
 let memoryVersion = 0;
-
-// Small stopword list so retrieval queries keep only content-bearing terms.
-const STOPWORDS = new Set(
-  "a an and are as at be but by for from had has have how i if in is it its just of on or our so that the they this to was we what when where which who why will with would you your".split(" "),
-);
-
-function contentTerms(query: string): string[] {
-  return [...new Set(
-    String(query || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter((t) => t.length > 2 && !STOPWORDS.has(t)),
-  )];
-}
 
 function resolveNode(): string | null {
   if (nodeBin) {
@@ -199,87 +181,23 @@ function deriveRepository(cwd: string): string | null {
   return repoCache.get(cwd) ?? null;
 }
 
-// The server owns scope, temporal filtering, semantic merging and final budgets.
+// The server owns assembleRecall, including AND-then-OR retry and fusion.
 async function recallWithFallback(
-  rt: LoreRuntime,
+  _rt: LoreRuntime,
   query: string,
   repository: string | null,
   limit = 6,
-  opts: { semantic?: boolean; expansion?: boolean; typedFallback?: boolean } = {},
 ): Promise<string> {
-  const terms = contentTerms(query);
-  const deterministicQuery = terms.length > 0 ? terms.join(" ") : null;
-  let retrievalQuery = deterministicQuery;
-
-  const runRecall = (retrievalQuery: string | null) =>
-    request<{ text: string; includedRows: number; memoryCount: number }>("recall", {
-      prompt: query,
-      retrievalPrompt: retrievalQuery,
-      semantic: opts.semantic === true,
-      repository,
-      limit,
-    });
-
-  // Fast path first: deterministic lexical recall, no model calls.
-  let recall = await runRecall(deterministicQuery);
-  let text = recall.text.trim();
-
-  // "Hit" = semantic memories, episodes, or standing directives were found.
-  const hasUsefulContent = recall.includedRows > 0
-    || text.includes("Relevant Prior Work")
-    || text.includes("Standing Directives");
-
-  if (!hasUsefulContent) {
-    // Query expansion (chat-model based) is parked by default — it needs a
-    // local chat model and FTS-AND semantics make it a coin flip.
-    const expansionEnabled = rt.config?.localInference?.queryExpansion?.enabled === true;
-    if (opts.expansion && expansionEnabled && deterministicQuery) {
-      try {
-        const expanded = await request<{ query?: string; used?: boolean }>(
-          "expand",
-          { prompt: query, query: deterministicQuery },
-          4000,
-        );
-        if (expanded?.used && expanded.query && expanded.query !== deterministicQuery) {
-          retrievalQuery = expanded.query;
-          recall = await runRecall(expanded.query);
-          text = recall.text.trim();
-        }
-      } catch {
-        // fail open to the deterministic query
-      }
-    }
-  }
-
-  // Explicit Pi searches retain the typed fallback contract used by the
-  // native memory_search tool. This keeps a lexical miss useful even when
-  // semantic search is unavailable or has no matching vector.
-  if (opts.typedFallback && recall.includedRows === 0) {
-    try {
-      const rows = await request<Array<{ type: string; content: string }>>("search", {
-        query: retrievalQuery || query,
-        repository,
-        types: ["user_preference", "commitment", "recurring_mistake", "rejected_approach", "blocker", "open_loop", "decision"],
-        includeTypedFallback: true,
-        limit,
-      });
-      if (rows.length > 0) {
-        text += ["", "## Related memories", ...rows.map((row) => `- [${row.type}] ${row.content}`)].join("\n");
-      }
-    } catch {
-      // Explicit recall remains fail-open when the typed fallback is unavailable.
-    }
-  }
-
-  return text.trim();
+  const recall = await request<{ text: string; includedRows: number; memoryCount: number }>("recall", {
+    prompt: query,
+    repository,
+    limit,
+  });
+  return (recall.text ?? "").trim();
 }
 
 async function explicitSearch(rt: LoreRuntime, query: string, repository: string | null, limit = 6): Promise<string> {
-  return await recallWithFallback(rt, query, repository, limit, {
-    semantic: true,
-    expansion: true,
-    typedFallback: true,
-  }) || "(no memories found)";
+  return await recallWithFallback(rt, query, repository, limit) || "(no memories found)";
 }
 
 export default function (pi: ExtensionAPI) {
@@ -317,18 +235,13 @@ export default function (pi: ExtensionAPI) {
     try {
       const sessionId = ctx.sessionManager.getSessionId() ?? "anon";
       const repo = deriveRepository(ctx.cwd);
-      const terms = contentTerms(event.prompt);
-      // Trivial prompts with no content-bearing terms skip ambient recall.
-      if (terms.length === 0) {
-        return;
-      }
       const cacheKey = `${sessionId}|${repo}`;
-      const termKey = [...terms].sort().join(" ");
+      const termKey = String(event.prompt).trim().toLowerCase();
       const cached = recallCache?.get(cacheKey);
       if (cached && cached.termKey === termKey && cached.memoryVersion === memoryVersion) {
         return; // already injected for this query this session; the context prune keeps it visible
       }
-      const text = await recallWithFallback(rt, event.prompt, repo, 6, { semantic: true });
+      const text = await recallWithFallback(rt, event.prompt, repo, 6);
       if (text) {
         if (!recallCache) {
           recallCache = new Map();

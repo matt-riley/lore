@@ -341,7 +341,7 @@
               "type": "number",
               "minimum": -1,
               "maximum": 1,
-              "default": 0.2
+              "default": 0.35
             },
             "groundingMinSimilarity": {
               "type": "number",

@@ -245,7 +245,6 @@ describe("conservative rule extraction", () => {
       "I prefer SQLite (only if the fixture stays local).",
       "Please use Postgres when we need concurrent writers.",
       "Prefer the fallback unless the provider is available.",
-      "If the index is unavailable, return a clearly marked empty result.",
       "Never print tokens, even when a diagnostic fails.",
     ]) {
       const memories = extract({ turns: [{ user_message }] }).semanticMemories;
@@ -258,9 +257,34 @@ describe("conservative rule extraction", () => {
       "If we moved the queue, we might prefer batches.",
       "We could use batches if volume increases.",
       "If the prototype ever needs caching, prefer Redis.",
+      "If the index is unavailable, return a clearly marked empty result.",
     ]) {
       assert.deepEqual(extract({ turns: [{ user_message }] }).semanticMemories, [], user_message);
     }
+  });
+
+  test("does not write standing memories from bare imperative task language", () => {
+    for (const user_message of [
+      "Run the tests.",
+      "Use bun for this task.",
+      "Write a summary of the diff.",
+      "Check if the endpoint is healthy.",
+      "Help me land the auth migration.",
+    ]) {
+      const directives = extract({ turns: [{ user_message }] }).semanticMemories.filter((memory) =>
+        memory.type === "user_preference" || memory.type === "directive" || memory.type === "rejected_approach"
+      );
+      assert.deepEqual(directives, [], user_message);
+    }
+  });
+
+  test("emits directive for must/should standing policy and keeps prefer language as user_preference", () => {
+    const directive = extract({ turns: [{ user_message: "Secrets must be redacted at rest." }] }).semanticMemories;
+    assert.equal(directive.length, 1);
+    assert.equal(directive[0].type, "directive");
+    const preference = extract({ turns: [{ user_message: "I prefer bun for scripts." }] }).semanticMemories;
+    assert.equal(preference.length, 1);
+    assert.equal(preference[0].type, "user_preference");
   });
 
   test("extracts independent preference and rejection clauses in one sentence", () => {
@@ -794,11 +818,15 @@ test("ambiguous corrections do not retire unrelated or multiple preferences", ()
 });
 
 test("captures standing imperatives and normative requirements with their rationale", () => {
+  for (const user_message of [
+    "Encrypt stored archives before replication because transport TLS does not protect storage.",
+    "Run schema validation before copying rows so a migration remains understood.",
+  ]) {
+    assert.deepEqual(extract({ turns: [{ user_message }] }).semanticMemories, [], user_message);
+  }
   for (const [user_message, type] of [
-    ["Encrypt stored archives before replication because transport TLS does not protect storage.", "user_preference"],
-    ["Run schema validation before copying rows so a migration remains understood.", "user_preference"],
-    ["The cache should expire after twelve minutes because freshness matters.", "user_preference"],
-    ["Generated credentials must be visibly fake and scoped to the test.", "user_preference"],
+    ["The cache should expire after twelve minutes because freshness matters.", "directive"],
+    ["Generated credentials must be visibly fake and scoped to the test.", "directive"],
     ["Retries must not hide a changed payload.", "rejected_approach"],
     ["Reject unsigned webhooks before parsing JSON.", "rejected_approach"],
     ["Do not implicitly cast external numbers to booleans.", "rejected_approach"],
@@ -813,8 +841,10 @@ test("captures standing imperatives and normative requirements with their ration
 test("inherits explicit universal scope across independently retained policy clauses", () => {
   const result = extract({ turns: [{ user_message: "Across projects, prefer plain language; explain technical terms on first use." }] });
   const preferences = semantic(result, "user_preference");
-  assert.equal(preferences.length, 2);
-  assert.ok(preferences.every((memory) => memory.scope === MEMORY_SCOPE.GLOBAL && memory.repository === null));
+  assert.equal(preferences.length, 1);
+  assert.equal(preferences[0].content, "Across projects, prefer plain language");
+  assert.equal(preferences[0].scope, MEMORY_SCOPE.GLOBAL);
+  assert.equal(preferences[0].repository, null);
 });
 
 test("incident observations cannot adopt operational followups after a semicolon", () => {
@@ -837,10 +867,15 @@ test("a requirement in a completed decision rationale is not a second directive"
 });
 
 test("workflow references to requests do not turn a standing rule into an incident", () => {
-  for (const user_message of [
-    "Redact sensitive headers before serializing the request for logs.",
-    "Reject HTTP headers larger than sixteen kilobytes before routing the request.",
-  ]) assert.equal(extract({ turns: [{ user_message }] }).semanticMemories.length, 1, user_message);
+  assert.deepEqual(
+    extract({ turns: [{ user_message: "Redact sensitive headers before serializing the request for logs." }] }).semanticMemories,
+    [],
+  );
+  const rejected = extract({
+    turns: [{ user_message: "Reject HTTP headers larger than sixteen kilobytes before routing the request." }],
+  }).semanticMemories;
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].type, "rejected_approach");
 });
 
 test("decision status acknowledgements do not invent a selected outcome", () => {

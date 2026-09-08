@@ -21,11 +21,14 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildFtsOrRetryQuery,
+  contentQueryTokens,
   extractDirectTerms,
   inferDateFromPrompt,
   extractTemporalContentTerms,
   extractFtsTerms,
   GENERIC_QUERY_TERMS,
+  STOPWORDS,
   sanitizeFtsQuery,
   normalizeFtsToken,
 } from "../../lib/utils/query-normalizer.mjs";
@@ -262,6 +265,31 @@ describe("extractFtsTerms", () => {
 
   test("sanitizes default lore aliases to a compact MATCH string", () => {
     assert.strictEqual(sanitizeFtsQuery("lore"), "lore memory");
+  });
+});
+
+describe("STOPWORDS and OR-retry", () => {
+  test("exports one STOPWORDS list used as GENERIC_QUERY_TERMS", () => {
+    assert.equal(GENERIC_QUERY_TERMS, STOPWORDS);
+    assert.equal(STOPWORDS.has("the"), true);
+    assert.equal(STOPWORDS.has("please"), true);
+    assert.equal(STOPWORDS.has("decision"), false);
+    assert.equal(STOPWORDS.has("remember"), false);
+  });
+
+  test("AND query drops stopwords while keeping retrieval subjects", () => {
+    assert.ok(sanitizeFtsQuery("please remember this decision").includes("decision"));
+    assert.ok(sanitizeFtsQuery("please remember this decision").includes("remember"));
+    assert.equal(sanitizeFtsQuery("please remember this decision").includes("please"), false);
+  });
+
+  test("OR retry caps eight tokens and four prefixes", () => {
+    const query = "alpha bravo charlie delta echo foxtrot golf hotel india juliet";
+    const orQuery = buildFtsOrRetryQuery(query);
+    const tokens = orQuery.split(" OR ");
+    assert.equal(tokens.length, 8);
+    assert.equal(tokens.filter((token) => token.endsWith("*")).length, 4);
+    assert.deepEqual(contentQueryTokens("please use the decision"), ["use", "decision"]);
   });
 });
 

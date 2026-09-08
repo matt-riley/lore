@@ -223,7 +223,8 @@ describe("database reliability foundation", () => {
       db.forgetMemory({ id });
       const suppression = db.db.prepare("SELECT * FROM memory_suppression WHERE memory_id = ?").get(id);
       assert.equal(Object.hasOwn(suppression, "canonical_key"), false);
-      assert.equal(suppression.canonical_fingerprint, null);
+      assert.match(suppression.canonical_fingerprint, /^[0-9a-f]{64}$/);
+      assert.doesNotMatch(suppression.canonical_fingerprint, /Keep generated/iu);
       assert.doesNotMatch(suppression.evidence_fingerprint, /Keep generated/iu);
       const generated = db.insertSemanticMemory({
         type: "user_preference",
@@ -346,7 +347,7 @@ describe("database reliability foundation", () => {
       });
       assert.ok(foreign);
       const suppression = db.db.prepare("SELECT canonical_fingerprint, evidence_fingerprint FROM memory_suppression WHERE memory_id = ?").get(forgotten);
-      assert.equal(suppression.canonical_fingerprint, null);
+      assert.match(suppression.canonical_fingerprint, /^[0-9a-f]{64}$/);
       assert.match(suppression.evidence_fingerprint, /^[0-9a-f]{64}$/);
       assert.doesNotMatch(JSON.stringify(suppression), /Prefer kiwi fixtures/iu);
     } finally {
@@ -406,7 +407,7 @@ describe("database reliability foundation", () => {
       const originalEvidence = db.listSemanticEvidence(originalId)[0];
       assert.equal(originalEvidence.retiredAt !== null, true);
       assert.deepEqual(originalEvidence.metadata.sourceAttribution, { role: "user", recordId: "turn-1" });
-      assert.deepEqual(db.searchSemantic({ query: "original deployment", repository: "fixture-repo" }), []);
+      assert.deepEqual(db.searchSemantic({ query: "original", repository: "fixture-repo" }), []);
       assert.equal(db.searchSemantic({ query: "replacement deployment", repository: "fixture-repo" }).length, 1);
     } finally {
       cleanup();

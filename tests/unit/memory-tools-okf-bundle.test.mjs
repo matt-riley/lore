@@ -18,7 +18,7 @@
 
 import { it, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, existsSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -149,6 +149,25 @@ describe("writeOkfBundle", () => {
 
   it("is a no-op when bundleDir is falsy", async () => {
     await assert.doesNotReject(() => writeOkfBundle(null, [{ relativePath: "index.md", contents: "x" }]));
+  });
+
+  it("writes private modes and rejects symlink or traversal destinations", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const bundleDir = path.join(tmpDir, "bundle");
+      await writeOkfBundle(bundleDir, [{ relativePath: "index.md", contents: "x" }]);
+      assert.strictEqual(statSync(bundleDir).mode & 0o777, 0o700);
+      assert.strictEqual(statSync(path.join(bundleDir, "index.md")).mode & 0o777, 0o600);
+      await assert.rejects(() => writeOkfBundle(bundleDir, [{ relativePath: "../escape.md", contents: "x" }]), /within the bundle/u);
+
+      const symlinkTarget = path.join(tmpDir, "target");
+      writeFileSync(symlinkTarget, "original");
+      const symlinkPath = path.join(tmpDir, "linked-bundle");
+      symlinkSync(symlinkTarget, symlinkPath);
+      await assert.rejects(() => writeOkfBundle(symlinkPath, []), /real directory/u);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

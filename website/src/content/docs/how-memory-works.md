@@ -58,7 +58,7 @@ The shared retrieval concepts are exposed through adapter-specific interfaces:
 | Pi | `lore_recall` | Explicit query search with lexical and optional semantic matches |
 | Codex, Claude, Antigravity | `lore_recall` / `memory_search` | Direct shell-invoked recall and keyword search via `lore-cli.mjs tool` |
 
-With local embeddings enabled, `lore_recall` appends meaning-ranked matches to lexical results. Embeddings augment lexical retrieval; they do not replace it, and endpoint failures fall back to lexical search.
+With local embeddings enabled, `lore_recall` fuses meaning-ranked matches with lexical results using reciprocal rank fusion. Embeddings augment lexical retrieval; they do not replace it, and endpoint failures fall back to lexical search.
 
 The dashboard overview reports a bounded sample of eligible active-memory
 embedding coverage and bounded fallback diagnostics. It validates cache content

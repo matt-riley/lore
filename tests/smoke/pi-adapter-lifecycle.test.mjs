@@ -34,7 +34,6 @@ test("pi adapter shares initialization and recovers after its worker exits", {
       LORE_PI_TRANSPORT_MODE: "exit-once",
       LORE_PI_TRANSPORT_LAUNCHES: launches,
       LORE_PI_TRANSPORT_ONCE_STATE: onceState,
-      LORE_PI_TYPED_FALLBACK: "1",
     },
     timeout: 10_000,
   });

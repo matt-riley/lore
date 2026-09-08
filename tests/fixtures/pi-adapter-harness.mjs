@@ -66,7 +66,7 @@ const recoveredRecall = await tools.get("lore_recall").execute(
   undefined,
   ctx,
 );
-assert.match(recoveredRecall?.content?.[0]?.text ?? "", /typed fallback memory/);
+assert.match(recoveredRecall?.content?.[0]?.text ?? "", /recovered recall memory/);
 await handlers.get("session_shutdown")({}, ctx);
 
 console.log(JSON.stringify({ ok: true }));

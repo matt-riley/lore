@@ -46,8 +46,10 @@ function handleLine(line) {
   const result = request.method === "status"
     ? { ready: "pi-transport-✓" }
     : request.method === "recall"
-      ? { text: "", includedRows: 0, memoryCount: 0 }
-        : request.method === "search"
+      ? (request.params?.prompt === "unmatched typed lookup"
+        ? { text: "recovered recall memory", includedRows: 1, memoryCount: 1 }
+        : { text: "", includedRows: 0, memoryCount: 0 })
+      : request.method === "search"
         ? (process.env.LORE_PI_TYPED_FALLBACK === "1"
           ? [{ type: "decision", content: "typed fallback memory" }]
           : [])

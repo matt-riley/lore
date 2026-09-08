@@ -448,7 +448,7 @@ For runtime and platform promises, see [`docs/compatibility.md`](docs/compatibil
 
 `memory_portable_bundle` accepts a `format` argument: `json` (default, machine-readable) or `okf`. It exports approved improvement artifacts, not a raw database dump. The `okf` format writes an [Open Knowledge Format v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundle -- one markdown file with YAML frontmatter per approved improvement artifact, plus a root `index.md` -- so approved Lore improvements can be reviewed, archived, or shared outside the CLI with any OKF-aware tool.
 
-Exports use private filesystem permissions by default: JSON files are owner-only (`0600`); OKF bundle roots and all directories within them are owner-only (`0700`), with bundle files owner-only (`0600`). Both formats reject symlink destinations, and OKF paths that would leave the configured bundle directory are rejected.
+Exports use private filesystem permissions by default: JSON files are owner-only (`0600`); OKF bundle roots and all directories within them are owner-only (`0700`), with bundle files owner-only (`0600`). Each format rejects a symlink at its bundle path (the JSON output file or OKF bundle directory), and OKF paths that would leave the configured bundle directory are rejected.
 
 To browse an OKF bundle visually, render it into a self-contained HTML viewer:
 
@@ -595,7 +595,7 @@ website/               # Separate Astro documentation site and interactive examp
 
 ## Docs and contributing
 
-The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 24.0.0+ and pnpm 11.24.0, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
+The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 24.0.0+ and pnpm 11.25.0, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
 
 If you want the deeper contract, these are the main references:
 

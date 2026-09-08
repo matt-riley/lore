@@ -49,6 +49,9 @@ try {
       else {
         console.log("Existing settings are merged; replaced files/installations are backed up. Keep this checkout and Node installation in place for native hooks.");
         console.log("Recalled memories become context for each client's configured model. No experimental rollout flags are enabled by setup.");
+        if (plan.shim?.homeBin) console.log(`PATH shim: ${plan.shim.homeBin}`);
+        if (plan.shim?.pathCopy) console.log(`PATH copy: ${plan.shim.pathCopy}`);
+        if (plan.pathExport) console.log(`No writable directory on PATH. Add Lore with:\n  ${plan.pathExport}`);
       }
       if (options.dryRun) console.log("Dry run. No changes made.");
       else if (!options.yes && !/^y(?:es)?$/iu.test((await ask(options.remove ? "Remove Lore hooks and runtimes for these clients? [y/N] " : "Install and enable Lore for these clients? [y/N] ")).trim())) console.log("Cancelled. No changes made.");
@@ -63,6 +66,13 @@ try {
           if (ids.includes("claude")) console.log("Claude Code: restart; approve hooks if prompted.");
           if (ids.includes("antigravity")) console.log('Antigravity: restart with agy --add-dir "/absolute/project"; /hooks should list lore.');
           console.log("Detection confirms executables, not host-version compatibility. See docs/cli-integrations.md for verified versions and host limits.");
+          if (plan.pathExport) {
+            if (options.yes) console.log(`Recorded PATH instruction: ${plan.pathExport}`);
+            else {
+              console.error(`Lore setup: no writable directory on PATH. Add Lore with:\n  ${plan.pathExport}`);
+              process.exitCode = 1;
+            }
+          }
         }
       }
     }

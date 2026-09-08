@@ -61,5 +61,23 @@ test("lore-cli reports usage error on missing arguments without hanging", () => 
     timeout: 3000,
   });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /Usage: node lore-cli\.mjs/);
+  assert.match(result.stderr, /usage: \/lore <verb>/i);
+});
+
+test("human lore status does not drain or parse stdin JSON", () => {
+  const result = spawnSync(process.execPath, [cliPath, "status"], {
+    input: "this is not json and must not be parsed",
+    encoding: "utf8",
+    timeout: 3000,
+    env: {
+      ...process.env,
+      HOME: "/tmp/lore-cli-status-nonhome",
+      LORE_HOME: "/tmp/lore-cli-status-nonhome",
+      LORE_CONFIG: "/tmp/lore-cli-status-nonhome/missing-lore.json",
+      LORE_ENABLED: "false",
+    },
+  });
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stderr, /Expected a JSON object/);
+  assert.doesNotMatch(result.stderr, /JSON\.parse|Unexpected token/);
 });

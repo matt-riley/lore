@@ -37,6 +37,27 @@ describe("parseLoreArgv", () => {
     }
   });
 
+  test("lore forget id, /lore forget id, and dispatchSlash share one dispatchTool call", async () => {
+    const expected = { name: "lore_forget", args: { id: "mem-9" } };
+    const calls = [];
+    const dispatchTool = async (name, args) => {
+      calls.push({ name, args });
+      return "ok";
+    };
+    assert.deepEqual(parseLoreArgv(["forget", "mem-9"]).name, expected.name);
+    assert.deepEqual(parseLoreArgv(["forget", "mem-9"]).args, expected.args);
+    await dispatchSlash("forget mem-9", dispatchTool);
+    await dispatchSlash(["forget", "mem-9"], dispatchTool);
+    await dispatchSlash("/lore forget mem-9", dispatchTool);
+    assert.deepEqual(calls, [expected, expected, expected]);
+  });
+
+  test("extra verbs stay callable through the shared parser", () => {
+    assert.equal(parseLoreArgv("doctor").name, "lore_doctor");
+    assert.equal(parseLoreArgv("reflect notes").name, "lore_reflect");
+    assert.equal(parseLoreArgv("memory_evolution_ledger --json '{\"limit\":1}'").name, "memory_evolution_ledger");
+  });
+
   test("maps save and retain flags onto lore_retain", () => {
     assert.deepEqual(parseLoreArgv("save remember bun"), {
       name: "lore_retain",

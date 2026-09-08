@@ -186,9 +186,10 @@ diagnostic and is not imported. Capture hooks and `capture --resume` both read
 transcripts incrementally, including files larger than 32 MiB, within the
 per-pass bounds above. An incomplete final JSONL record is deferred until a
 later capture. Hosts that disable transcript
-persistence cannot provide automatic extraction. Hook timeouts are 10 seconds,
-except Codex `SessionEnd` at its 3-second maximum; `Stop` provides the normal
-capture point before shutdown. Hook metrics, automatic maintenance, raw archive
+persistence cannot provide automatic extraction. Hook timeouts are 10 seconds, including Codex `SessionEnd`. If a host rejects
+a 10-second SessionEnd timeout, keep Codex SessionEnd at 3 seconds and finish
+capture with `lore capture --resume`. `Stop` provides the normal capture point
+before shutdown. Hook metrics, automatic maintenance, raw archive
 backfill, and subagent-specific scope tracking are not wired into these adapters.
 
 Memory storage remains local. Context returned to a host is sent to that host's

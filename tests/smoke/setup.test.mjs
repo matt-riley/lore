@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync, unlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync, unlinkSync, chmodSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -60,7 +60,16 @@ test("all clients install and rerun without duplicate hooks or losing settings",
       env: f.env, input: JSON.stringify({ session_id: "setup-verification", cwd: f.home }), encoding: "utf8",
     });
     assert.equal(hook.status, 0, hook.stderr);
-    assert.match(JSON.parse(hook.stdout).hookSpecificOutput.additionalContext, /lore_context/);
+    const injected = JSON.parse(hook.stdout).hookSpecificOutput.additionalContext;
+    assert.match(injected, /lore_context/);
+    assert.match(injected, /lore <verb>/);
+    assert.match(injected, /\/lore <verb>/);
+    assert.match(injected, /lore tool/);
+    const homeBin = path.join(f.home, ".config/lore/bin/lore");
+    const pathCopy = path.join(f.home, "bin/lore");
+    assert.ok(existsSync(homeBin));
+    assert.ok(existsSync(pathCopy));
+    assert.match(readFileSync(homeBin, "utf8"), /lore-path-shim/);
   } finally { f.close(); }
 });
 
@@ -157,4 +166,40 @@ test("remove requires confirmation, supports dry-run, and preserves memory data"
     assert.equal(readFileSync(path.join(f.home, ".config/lore/lore.db"), "utf8"), "keep");
     assert.deepEqual(JSON.parse(readFileSync(path.join(f.home, ".codex/hooks.json"))).hooks, {});
   } finally { f.close(); }
+});
+
+test("setup records a PATH export when no PATH directory is writable", () => {
+  const f = fixture();
+  const locked = path.join(f.home, "locked");
+  try {
+    mkdirSync(locked);
+    writeFileSync(path.join(locked, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    chmodSync(locked, 0o555);
+    f.env.PATH = locked;
+    const result = f.run(["--clients", "codex", "--yes"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /export PATH=/);
+    assert.match(result.stdout, /Recorded PATH instruction/);
+    assert.ok(existsSync(path.join(f.home, ".config/lore/bin/lore")));
+    assert.equal(existsSync(path.join(locked, "lore")), false);
+
+    const denied = fixture();
+    try {
+      const deniedLocked = path.join(denied.home, "locked");
+      mkdirSync(deniedLocked);
+      writeFileSync(path.join(deniedLocked, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      chmodSync(deniedLocked, 0o555);
+      denied.env.PATH = deniedLocked;
+      const interactive = denied.run(["--clients", "codex"], "y\n");
+      assert.equal(interactive.status, 1);
+      assert.match(`${interactive.stdout}\n${interactive.stderr}`, /export PATH=/);
+      assert.ok(existsSync(path.join(denied.home, ".config/lore/bin/lore")));
+    } finally {
+      try { chmodSync(path.join(denied.home, "locked"), 0o755); } catch { /* cleanup */ }
+      denied.close();
+    }
+  } finally {
+    try { chmodSync(locked, 0o755); } catch { /* cleanup */ }
+    f.close();
+  }
 });

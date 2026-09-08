@@ -24,3 +24,11 @@ test("buildCliHookConfig constructs expected hook structure", () => {
   assert.ok(config.hooks.SessionStart);
   assert.equal(config.hooks.SessionStart[0].hooks[0].type, "command");
 });
+
+test("Codex SessionEnd uses a 10s timeout like other capture hooks", () => {
+  const codex = buildCliHookConfig("codex", { nodePath: "/bin/node", entryPath: "/app/lore-cli.mjs" });
+  assert.equal(codex.hooks.SessionEnd[0].hooks[0].timeout, 10);
+  assert.equal(codex.hooks.Stop[0].hooks[0].timeout, 10);
+  const claude = buildCliHookConfig("claude", { nodePath: "/bin/node", entryPath: "/app/lore-cli.mjs" });
+  assert.equal(claude.hooks.SessionEnd[0].hooks[0].timeout, 10);
+});

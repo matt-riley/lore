@@ -4,6 +4,9 @@
   "description": "Local-first memory and continuity for Copilot, Pi, Codex, Claude Code, and Antigravity CLI.",
   "type": "module",
   "main": "extension.mjs",
+  "bin": {
+    "lore": "./lore-cli.mjs"
+  },
   "keywords": [
     "github-copilot",
     "copilot-cli",

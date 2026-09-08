@@ -138,9 +138,9 @@ Only the supplied active-session transcript is read; these adapters do not scan 
 Hook input is limited to 1 MiB; malformed or oversized hook input is not
 imported. Capture hooks and `capture --resume` both handle transcripts larger
 than 32 MiB incrementally within the per-pass bounds above. An unfinished final
-JSONL record is deferred. Hooks have a
-10-second timeout, except Codex `SessionEnd` at 3 seconds; `Stop` is its normal
-capture point.
+JSONL record is deferred. Hooks have a 10-second timeout, including Codex `SessionEnd`. If a host
+rejects a 10-second SessionEnd timeout, keep Codex SessionEnd at 3 seconds and
+finish capture with `lore capture --resume`. `Stop` is its normal capture point.
 
 Memory storage stays local, but context injected into a conversation goes to the host's configured model. See [Privacy](/guides/privacy/) before using sensitive material.
 

@@ -1,11 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, chmodSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { planSetup, applySetup, planRemove, applyRemove } from "../../lib/clients/setup.mjs";
+import { spawnSync } from "node:child_process";
+import {
+  planSetup,
+  applySetup,
+  planRemove,
+  applyRemove,
+  buildLorePathShimScript,
+  isLorePathShim,
+  formatLorePathExport,
+  LORE_PATH_SHIM_MARKER,
+} from "../../lib/clients/setup.mjs";
+import { fileURLToPath } from "node:url";
 
 test("failed installation restores config instead of leaving Lore partially enabled", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-rollback-"));
@@ -207,5 +218,94 @@ test("malformed ownership manifests fail with an actionable error before setup o
         assert.equal(readFileSync(configPath, "utf8"), config);
       }
     }
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("setup writes a PATH shim, reruns idempotently, and removes it with the last client", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-shim-"));
+  const bin = path.join(home, "bin");
+  try {
+    mkdirSync(bin, { recursive: true });
+    const env = { HOME: home, PATH: bin };
+    const first = planSetup(["codex"], { home, env });
+    const homeBin = path.join(home, ".config/lore/bin/lore");
+    const pathCopy = path.join(bin, "lore");
+    assert.equal(first.shim.homeBin, homeBin);
+    assert.equal(first.shim.pathCopy, pathCopy);
+    assert.equal(first.pathExport, null);
+    applySetup(first);
+    assert.equal(existsSync(homeBin), true);
+    assert.equal(existsSync(pathCopy), true);
+    const script = readFileSync(homeBin, "utf8");
+    assert.ok(isLorePathShim(script));
+    assert.match(script, /command -v node/);
+    assert.equal(readFileSync(pathCopy, "utf8"), script);
+
+    const rerun = planSetup(["codex"], { home, env });
+    assert.equal(rerun.changes.some((change) => change.target === homeBin || change.target === pathCopy), false);
+    applySetup(rerun);
+    assert.equal(readFileSync(homeBin, "utf8"), script);
+
+    applyRemove(planRemove(["codex"], { home, env }));
+    assert.equal(existsSync(homeBin), false);
+    assert.equal(existsSync(pathCopy), false);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("setup still creates the home shim when PATH is not writable", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-shim-locked-"));
+  const locked = path.join(home, "locked");
+  try {
+    mkdirSync(locked, { recursive: true });
+    chmodSync(locked, 0o555);
+    const env = { HOME: home, PATH: locked };
+    const plan = planSetup(["codex"], { home, env });
+    const homeBin = path.join(home, ".config/lore/bin/lore");
+    assert.equal(plan.shim.pathCopy, null);
+    assert.equal(plan.pathExport, formatLorePathExport(path.join(home, ".config/lore")));
+    applySetup(plan);
+    assert.equal(existsSync(homeBin), true);
+    assert.equal(existsSync(path.join(locked, "lore")), false);
+    assert.match(readFileSync(homeBin, "utf8"), new RegExp(LORE_PATH_SHIM_MARKER));
+  } finally {
+    try { chmodSync(locked, 0o755); } catch { /* cleanup */ }
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a later setup failure rolls back a newly written PATH shim", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-shim-rollback-"));
+  const bin = path.join(home, "bin");
+  try {
+    mkdirSync(bin, { recursive: true });
+    const env = { HOME: home, PATH: bin };
+    const plan = planSetup(["codex"], { home, env });
+    assert.throws(() => applySetup(plan, {
+      afterApply(change) {
+        if (change.type === "file") throw new Error("simulated shim failure");
+      },
+    }), /simulated shim failure/);
+    assert.equal(existsSync(path.join(home, ".config/lore/bin/lore")), false);
+    assert.equal(existsSync(path.join(bin, "lore")), false);
+    assert.equal(existsSync(path.join(home, ".codex/hooks.json")), false);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("PATH shim re-resolves node when the baked binary is missing", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-shim-resolve-"));
+  try {
+    const shim = path.join(home, "lore");
+    const cliPath = fileURLToPath(new URL("../../lore-cli.mjs", import.meta.url));
+    writeFileSync(shim, buildLorePathShimScript({
+      nodePath: path.join(home, "missing-node"),
+      cliPath,
+    }), { mode: 0o755 });
+    const result = spawnSync(shim, [], {
+      encoding: "utf8",
+      timeout: 3000,
+      env: { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH || ""}` },
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /usage: \/lore <verb>/i);
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

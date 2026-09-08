@@ -666,7 +666,7 @@ export function parseScenarioTranscript(blueprint, client) {
   });
 }
 
-export function buildScenario(blueprint, client) {
+function buildScenario(blueprint, client) {
   return Object.freeze({
     ...blueprint,
     client,

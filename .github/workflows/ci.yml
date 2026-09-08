@@ -50,10 +50,9 @@ jobs:
         run: npm run lint
 
   knip:
-    name: Unused exports (knip, non-blocking)
+    name: Unused exports (knip)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
 
     steps:
       - name: Checkout

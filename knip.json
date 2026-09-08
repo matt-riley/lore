@@ -1,25 +1,30 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "extension.mjs!",
-    "lore-cli.mjs!",
     "lore-pi.ts!",
     "lore-server.mjs!",
     "lore-server-runtime.mjs!",
     "pi-session-reader.mjs!",
     "browser/server.mjs!",
-    "scripts/**/*.mjs!"
+    "scripts/**/*.mjs!",
+    "tests/**/*.test.mjs!",
+    "tests/fixtures/*.mjs!"
   ],
   "project": [
     "lib/**/*.mjs",
     "browser/**/*.mjs",
     "scripts/**/*.mjs",
+    "tests/**/*.mjs",
     "*.{mjs,ts}"
   ],
   "ignore": [
-    "website/**",
-    "tests/**"
+    ".github/workflows/**"
   ],
-  "ignoreBinaries": ["oxlint"],
-  "ignoreDependencies": ["oxlint"]
+  "exclude": ["duplicates"],
+  "ignoreBinaries": ["mkfifo"],
+  "ignoreDependencies": [
+    "@earendil-works/pi-coding-agent",
+    "@github/copilot-sdk",
+    "typebox"
+  ]
 }

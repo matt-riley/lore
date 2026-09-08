@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { describe, test } from "node:test";
+import { beforeEach, describe, test } from "node:test";
 
 import {
   buildLoreSlashCommand,
   interceptLoreSlashPrompt,
+  loreSlashPromptHookOutput,
   matchLoreSlashPrompt,
+  resetLoreSlashDispatchClaims,
 } from "../../lib/runtime/slash-dispatch.mjs";
 import {
   COPILOT_MODEL_LIST_SHRINK_READY,
@@ -15,6 +17,10 @@ import {
 } from "../../lib/runtime/tool-registry.mjs";
 
 const EXTENSION_SOURCE = readFileSync(new URL("../../extension.mjs", import.meta.url), "utf8");
+
+beforeEach(() => {
+  resetLoreSlashDispatchClaims();
+});
 
 describe("mocked Copilot joinSession /lore wiring", () => {
   test("joinSession options always include a lore command and keep extra tools", async () => {
@@ -71,11 +77,12 @@ describe("mocked Copilot joinSession /lore wiring", () => {
       },
     });
     assert.equal(intercepted.handled, true);
+    assert.equal(intercepted.dispatched, true);
     assert.equal(intercepted.text, "doctor report");
     assert.equal(logs[0].text, "doctor report");
-
-    const hookResult = intercepted ? undefined : { additionalContext: "should not inject" };
-    assert.equal(hookResult, undefined);
+    assert.deepEqual(intercepted.hookOutput, loreSlashPromptHookOutput());
+    assert.equal(intercepted.hookOutput.modifiedPrompt, "");
+    assert.equal(intercepted.hookOutput.suppressOutput, true);
     assert.equal(matchLoreSlashPrompt("remember this"), null);
   });
 });
@@ -90,6 +97,9 @@ describe("extension.mjs Copilot transport", () => {
     assert.match(EXTENSION_SOURCE, /matchLoreSlashPrompt\(/);
     assert.match(EXTENSION_SOURCE, /listCopilotJoinTools\(/);
     assert.match(EXTENSION_SOURCE, /LORE_SLASH_ADVERTISEMENT/);
+    assert.match(EXTENSION_SOURCE, /intercepted\.hookOutput/);
+    assert.match(EXTENSION_SOURCE, /loreSlashPromptHookOutput\(/);
+    assert.match(EXTENSION_SOURCE, /lore unavailable:/);
     assert.equal(EXTENSION_SOURCE.includes("tools: listModelTools"), false);
     assert.equal(EXTENSION_SOURCE.includes("createMemoryTools"), false);
   });

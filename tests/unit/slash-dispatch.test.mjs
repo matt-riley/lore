@@ -1,17 +1,23 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { beforeEach, describe, test } from "node:test";
 
 import {
   buildLoreSlashCommand,
   dispatchSlash,
   interceptLoreSlashPrompt,
+  loreSlashPromptHookOutput,
   matchLoreSlashPrompt,
   parseLoreArgv,
+  resetLoreSlashDispatchClaims,
   tokenizeLoreArgv,
   LORE_SLASH_ADVERTISEMENT,
   LORE_SLASH_DESCRIPTION,
   LORE_SLASH_USAGE,
 } from "../../lib/runtime/slash-dispatch.mjs";
+
+beforeEach(() => {
+  resetLoreSlashDispatchClaims();
+});
 
 describe("parseLoreArgv", () => {
   test("maps forget <id> to lore_forget", () => {
@@ -60,8 +66,26 @@ describe("parseLoreArgv", () => {
   test("requires --json for high-arity admin verbs", () => {
     const parsed = parseLoreArgv("repair");
     assert.match(parsed.error, /requires --json/);
-    const withJson = parseLoreArgv(`repair --json ${JSON.stringify({ action: "preview" })}`);
+    const payload = JSON.stringify({ action: "preview" });
+    const withJson = parseLoreArgv(`repair --json '${payload}'`);
     assert.equal(withJson.name, "lore_repair");
+    assert.equal(withJson.args.action, "preview");
+  });
+
+  test("does not steal quoted or unquoted retain text that mentions --json", () => {
+    const quoted = parseLoreArgv(`retain "we should require --json for admin tools"`);
+    assert.equal(quoted.name, "lore_retain");
+    assert.equal(quoted.args.content, "we should require --json for admin tools");
+    const unquoted = parseLoreArgv("retain we should require --json for admin tools");
+    assert.equal(unquoted.name, "lore_retain");
+    assert.equal(unquoted.args.content, "we should require --json for admin tools");
+  });
+
+  test("accepts /lore correct <memoryId> without requiring --json", () => {
+    assert.deepEqual(parseLoreArgv("correct mem-9").args, { memoryId: "mem-9" });
+    assert.equal(parseLoreArgv("correct --memory-id mem-9").args.memoryId, "mem-9");
+    const withJson = parseLoreArgv(`correct --json '{"memoryId":"mem-9","action":"preview"}'`);
+    assert.equal(withJson.args.memoryId, "mem-9");
     assert.equal(withJson.args.action, "preview");
   });
 
@@ -130,7 +154,12 @@ describe("Copilot /lore intercept", () => {
         logs.push({ text, options });
       },
     });
-    assert.deepEqual(handled, { handled: true, text: "status ok" });
+    assert.equal(handled.handled, true);
+    assert.equal(handled.dispatched, true);
+    assert.equal(handled.text, "status ok");
+    assert.deepEqual(handled.hookOutput, loreSlashPromptHookOutput());
+    assert.equal(handled.hookOutput.modifiedPrompt, "");
+    assert.equal(handled.hookOutput.suppressOutput, true);
     assert.deepEqual(calls, [{ argsText: "status", extra: { sessionId: "sess-1", surface: "slash" } }]);
     assert.deepEqual(logs, [{ text: "status ok", options: { ephemeral: true } }]);
 
@@ -160,5 +189,30 @@ describe("Copilot /lore intercept", () => {
     assert.deepEqual(calls[0], { args: "forget id-2", extra: { sessionId: "s2", surface: "slash" } });
     assert.equal(logs[0].options.ephemeral, true);
     assert.match(LORE_SLASH_ADVERTISEMENT, /\/lore/);
+    assert.match(LORE_SLASH_ADVERTISEMENT, /remain registered until the Copilot \/lore TUI gate/);
+    assert.match(LORE_SLASH_USAGE, /correct <memoryId>/);
+    assert.match(LORE_SLASH_USAGE, /--json/);
+  });
+
+  test("command handler and intercept share a once-token so mutating verbs do not double-apply", async () => {
+    const calls = [];
+    const command = buildLoreSlashCommand({
+      dispatchSlash: async (args) => {
+        calls.push(`command:${args}`);
+        return "once";
+      },
+    });
+    await command.handler({ args: "forget id-9", sessionId: "same-session" });
+    const intercepted = await interceptLoreSlashPrompt({
+      prompt: "/lore forget id-9",
+      sessionId: "same-session",
+      dispatchSlash: async (args) => {
+        calls.push(`intercept:${args}`);
+        return "twice";
+      },
+    });
+    assert.deepEqual(calls, ["command:forget id-9"]);
+    assert.equal(intercepted.dispatched, false);
+    assert.deepEqual(intercepted.hookOutput, loreSlashPromptHookOutput());
   });
 });

@@ -18,6 +18,7 @@ import { listCopilotJoinTools } from "./lib/runtime/tool-registry.mjs";
 import {
   buildLoreSlashCommand,
   interceptLoreSlashPrompt,
+  loreSlashPromptHookOutput,
   matchLoreSlashPrompt,
   LORE_SLASH_ADVERTISEMENT,
 } from "./lib/runtime/slash-dispatch.mjs";
@@ -1718,11 +1719,17 @@ const session = await joinSession({
           log: (text, options) => session.log(text, options),
         });
         if (intercepted) {
-          return;
+          return intercepted.hookOutput;
         }
-      } catch {
+      } catch (error) {
         if (matchLoreSlashPrompt(input.prompt) !== null) {
-          return;
+          const message = `lore unavailable: ${error instanceof Error ? error.message : String(error)}`;
+          try {
+            await session.log(message, { ephemeral: true, level: "warning" });
+          } catch {
+            // fail open — still swallow the /lore prompt
+          }
+          return loreSlashPromptHookOutput();
         }
       }
 

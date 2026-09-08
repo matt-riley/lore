@@ -1,7 +1,7 @@
 /**
  * tests/unit/rollout-flag-utils.test.mjs
  *
- * Unit tests for lib/rollout-flag-utils.mjs.
+ * Unit tests for rollout boolean readers in lib/rollout/rollout-flags.mjs.
  *
  * Covers:
  *   - readRolloutBoolean reads the key from config.rollout with the given fallback.
@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import {
   readRolloutBoolean,
   createRolloutBooleanReader,
-} from "../../lib/rollout/rollout-flag-utils.mjs";
+} from "../../lib/rollout/rollout-flags.mjs";
 
 describe("readRolloutBoolean", () => {
   test("returns true when key is true", () => {

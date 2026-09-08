@@ -1,1 +1,25 @@
-{"$schema":"https://unpkg.com/knip@6/schema.json"}
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "extension.mjs!",
+    "lore-cli.mjs!",
+    "lore-pi.ts!",
+    "lore-server.mjs!",
+    "lore-server-runtime.mjs!",
+    "pi-session-reader.mjs!",
+    "browser/server.mjs!",
+    "scripts/**/*.mjs!"
+  ],
+  "project": [
+    "lib/**/*.mjs",
+    "browser/**/*.mjs",
+    "scripts/**/*.mjs",
+    "*.{mjs,ts}"
+  ],
+  "ignore": [
+    "website/**",
+    "tests/**"
+  ],
+  "ignoreBinaries": ["oxlint"],
+  "ignoreDependencies": ["oxlint"]
+}

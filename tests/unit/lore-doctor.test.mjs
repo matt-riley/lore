@@ -72,17 +72,17 @@ describe("runDoctorObservation", () => {
     assert.equal(report.incidents[0]?.context.rankingTargetPartial, 1);
   });
 
-  test("reads proposal documents from the configured Copilot root", async () => {
-    const copilotRoot = await mkdtemp(path.join(os.tmpdir(), "lore-doctor-"));
-    const proposalPath = "extensions/lore/docs/proposals/fixture.md";
-    const absoluteProposalPath = path.join(copilotRoot, proposalPath);
+  test("reads proposal documents from Lore home proposals/", async () => {
+    const loreHome = await mkdtemp(path.join(os.tmpdir(), "lore-doctor-"));
+    const proposalPath = "proposals/fixture.md";
+    const absoluteProposalPath = path.join(loreHome, proposalPath);
     await mkdir(path.dirname(absoluteProposalPath), { recursive: true });
     await writeFile(absoluteProposalPath, "# Fixture proposal\n", "utf8");
 
     try {
       const report = runDoctorObservation({
         runtime: createRuntime({
-          config: { paths: { copilotHome: copilotRoot } },
+          config: { paths: { derivedStorePath: path.join(loreHome, "lore.db") } },
           proposalRows: [{
             id: "proposal-fixture",
             title: "Fixture proposal",
@@ -97,7 +97,7 @@ describe("runDoctorObservation", () => {
       assert.equal(report.incidents[0]?.context.unreadable, undefined);
       assert.ok(report.incidents[0]?.context.missingSections.length > 0);
     } finally {
-      await rm(copilotRoot, { recursive: true, force: true });
+      await rm(loreHome, { recursive: true, force: true });
     }
   });
 });

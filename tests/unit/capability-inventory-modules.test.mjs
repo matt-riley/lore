@@ -19,6 +19,7 @@ import {
   renderCapabilityInventoryReport as renderCapabilityInventoryReportFromRenderer,
   renderCapabilityRecommendationReport as renderCapabilityRecommendationReportFromRenderer,
 } from "../../lib/capabilities/capability-renderer.mjs";
+import { DEFAULT_REPO_ROOT } from "../../lib/capabilities/capability-utils.mjs";
 
 describe("capability inventory module split", () => {
   test("barrel exports stay aligned with the split modules", () => {
@@ -28,5 +29,9 @@ describe("capability inventory module split", () => {
     assert.equal(renderCapabilityEvaluationReport, renderCapabilityEvaluationReportFromRenderer);
     assert.equal(renderCapabilityInventoryReport, renderCapabilityInventoryReportFromRenderer);
     assert.equal(renderCapabilityRecommendationReport, renderCapabilityRecommendationReportFromRenderer);
+  });
+
+  test("scan default root is cwd, not a Copilot-shaped four-up path", () => {
+    assert.equal(DEFAULT_REPO_ROOT, process.cwd());
   });
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveLorePaths } from "../../lib/core/lore-paths.mjs";
+import { resolveLoreHomeFromConfig, resolveLorePaths, resolveProposalRoot } from "../../lib/core/lore-paths.mjs";
 
 function resolve(env = {}, files = []) {
   return resolveLorePaths({ env, home: "/users/test", exists: (p) => files.includes(p) });
@@ -43,4 +43,19 @@ test("new home or explicit Lore override prevents legacy fallback", () => {
 
 test("Copilot override alone does not relocate a fresh Lore store", () => {
   assert.equal(resolve({ LORE_COPILOT_HOME: "/copilot" }).derivedStorePath, "/users/test/.config/lore/lore.db");
+});
+
+test("resolveLoreHomeFromConfig prefers paths.loreHome then the derived store directory", () => {
+  assert.equal(resolveLoreHomeFromConfig({ paths: { loreHome: "/lore-home" } }), "/lore-home");
+  assert.equal(
+    resolveLoreHomeFromConfig({ paths: { derivedStorePath: "/lore-home/lore.db" } }),
+    "/lore-home",
+  );
+});
+
+test("resolveProposalRoot lives under Lore home, not a Copilot-shaped docs path", () => {
+  assert.equal(
+    resolveProposalRoot({ paths: { derivedStorePath: "/lore-home/lore.db" } }),
+    "/lore-home/proposals",
+  );
 });

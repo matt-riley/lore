@@ -21,6 +21,7 @@ import {
   renderCapabilityRecommendationReport,
   scanCapabilityInventory,
 } from "../../lib/capabilities/capability-inventory.mjs";
+import { DEFAULT_REPO_ROOT } from "../../lib/capabilities/capability-utils.mjs";
 
 describe("targeted coverage-gap export references", () => {
   test("backfill exports are directly imported and callable", () => {
@@ -45,10 +46,7 @@ describe("targeted coverage-gap export references", () => {
     assert.equal(typeof scanCapabilityInventory, "function");
   });
 
-  test("extension entrypoint is referenced from the test graph", async () => {
-    if (false) {
-      await import("../../extension.mjs");
-    }
-    assert.ok(true);
+  test("capability scanner defaults to cwd, not a Copilot-shaped four-up path", () => {
+    assert.equal(DEFAULT_REPO_ROOT, process.cwd());
   });
 });

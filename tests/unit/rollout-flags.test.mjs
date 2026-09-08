@@ -39,6 +39,9 @@ import {
   readPostToolUseEnabled,
   readSubagentScopeTrackingEnabled,
   readPreToolUseGuardrailEnabled,
+  readAmbientPersonaModeEnabled,
+  readAutoWriteImprovementGoalsEnabled,
+  readAmbientWorkingProfileEnabled,
 } from "../../lib/rollout/rollout-flags.mjs";
 
 // ---------------------------------------------------------------------------
@@ -641,5 +644,44 @@ describe("readPreToolUseGuardrailEnabled — standalone, default-off", () => {
 
   test('"0" string coerces to false', () => {
     assert.strictEqual(readPreToolUseGuardrailEnabled(cfg({ preToolUseGuardrail: "0" })), false);
+  });
+});
+
+describe("readAmbientPersonaModeEnabled — formerly bypassed factory", () => {
+  test("returns true when ambientPersonaMode is true", () => {
+    assert.strictEqual(readAmbientPersonaModeEnabled(cfg({ ambientPersonaMode: true })), true);
+  });
+
+  test("falls back to false when absent", () => {
+    assert.strictEqual(readAmbientPersonaModeEnabled(cfg({})), false);
+  });
+
+  test("coerces string booleans", () => {
+    assert.strictEqual(readAmbientPersonaModeEnabled(cfg({ ambientPersonaMode: "yes" })), true);
+    assert.strictEqual(readAmbientPersonaModeEnabled(cfg({ ambientPersonaMode: "off" })), false);
+  });
+});
+
+describe("readAutoWriteImprovementGoalsEnabled — formerly bypassed factory", () => {
+  test("returns true when autoWriteImprovementGoals is true", () => {
+    assert.strictEqual(readAutoWriteImprovementGoalsEnabled(cfg({ autoWriteImprovementGoals: true })), true);
+  });
+
+  test("falls back to false when absent", () => {
+    assert.strictEqual(readAutoWriteImprovementGoalsEnabled(cfg({})), false);
+  });
+});
+
+describe("readAmbientWorkingProfileEnabled — formerly bypassed factory", () => {
+  test("returns true when ambientWorkingProfile is true", () => {
+    assert.strictEqual(readAmbientWorkingProfileEnabled(cfg({ ambientWorkingProfile: true })), true);
+  });
+
+  test("falls back to true when absent", () => {
+    assert.strictEqual(readAmbientWorkingProfileEnabled(cfg({})), true);
+  });
+
+  test("returns false when explicitly disabled", () => {
+    assert.strictEqual(readAmbientWorkingProfileEnabled(cfg({ ambientWorkingProfile: false })), false);
   });
 });

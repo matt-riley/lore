@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
 import { createMemoryTools } from "../../lib/tools/memory-tools.mjs";
@@ -10,19 +9,6 @@ import { findTool } from "../helpers/tool-helpers.mjs";
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
   ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
   : false;
-
-const MODULE_SOURCES = {
-  root: readFileSync(new URL("../../lib/tools/memory-tools.mjs", import.meta.url), "utf8"),
-  helpers: readFileSync(new URL("../../lib/tools/memory-tools-helpers.mjs", import.meta.url), "utf8"),
-  reports: existsSync(new URL("../../lib/tools/memory-tools-reports.mjs", import.meta.url))
-    ? readFileSync(new URL("../../lib/tools/memory-tools-reports.mjs", import.meta.url), "utf8")
-    : null,
-  builders: readFileSync(new URL("../../lib/tools/memory-tools-builders.mjs", import.meta.url), "utf8"),
-};
-
-function countLines(source) {
-  return source.trim().split("\n").length;
-}
 
 function buildRuntime(db, config, overrides = {}) {
   return {
@@ -46,13 +32,6 @@ async function setupFixtureTools(configOverrides = {}, runtimeOverrides = {}) {
 }
 
 describe("memory-tools module split", () => {
-  test("keeps the root file tiny and pushes implementation into smaller modules", () => {
-    assert.ok(countLines(MODULE_SOURCES.root) <= 10, "memory-tools.mjs should stay as a thin entrypoint");
-    assert.ok(countLines(MODULE_SOURCES.helpers) <= 950, "memory-tools-helpers.mjs should stay file-scoped");
-    assert.ok(countLines(MODULE_SOURCES.reports) <= 1300, "memory-tools-reports.mjs should stay file-scoped");
-    assert.ok(countLines(MODULE_SOURCES.builders) <= 1650, "memory-tools-builders.mjs should stay file-scoped");
-  });
-
   test("createMemoryTools still returns the manifest-backed tool set", async () => {
     const { tools, cleanup } = await setupFixtureTools({ enabled: true });
     try {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -21,11 +21,11 @@ function buildRuntime(db, config) {
 }
 
 function proposalDocsRoot(config) {
-  return path.join(config.paths.copilotHome, "extensions", "lore", "docs", "proposals");
+  return path.join(path.dirname(config.paths.derivedStorePath), "proposals");
 }
 
 function toRepoRelative(config, absolutePath) {
-  return path.relative(config.paths.copilotHome, absolutePath).replaceAll(path.sep, "/");
+  return path.relative(path.dirname(config.paths.derivedStorePath), absolutePath).replaceAll(path.sep, "/");
 }
 
 async function pathExists(targetPath) {
@@ -136,7 +136,11 @@ describe("proposal generator integrity checks", () => {
       assert.equal(generated.generatedCount, 1);
 
       const artifact = db.getImprovementArtifact(artifactId);
-      generatedPath = path.join(config.paths.copilotHome, artifact.proposal_path);
+      generatedPath = path.join(path.dirname(config.paths.derivedStorePath), artifact.proposal_path);
+      assert.match(artifact.proposal_path, /^proposals\//);
+      if (process.platform !== "win32") {
+        assert.equal((await stat(generatedPath)).mode & 0o777, 0o600);
+      }
       db.db.prepare(`
         UPDATE improvement_backlog
         SET proposal_hash = ?

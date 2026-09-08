@@ -13,6 +13,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -180,5 +181,14 @@ describe("normalizeRolloutConfig", () => {
       typeof result === "object",
       "normalizeRolloutConfig should return an object",
     );
+  });
+});
+
+describe("lore.example.json", () => {
+  test("is enabled plus schema only", () => {
+    const example = JSON.parse(readFileSync(new URL("../../lore.example.json", import.meta.url), "utf8"));
+    assert.deepEqual(Object.keys(example).sort(), ["$schema", "enabled"]);
+    assert.equal(example.enabled, true);
+    assert.equal(example.$schema, "./schemas/lore.schema.json");
   });
 });

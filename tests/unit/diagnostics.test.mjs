@@ -43,6 +43,7 @@ async function loadDiagnosticsHotspots() {
       .replace(/from "\.\.\/context\/recall-assembler\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "context", "recall-assembler.mjs")).href}"`)
       .replace(/from "\.\.\/memory\/memory-operations\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory", "memory-operations.mjs")).href}"`)
       .replace(/from "\.\.\/memory\/procedural-memory\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory", "procedural-memory.mjs")).href}"`)
+      .replace(/from "\.\.\/rollout\/rollout-flags\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "rollout", "rollout-flags.mjs")).href}"`)
       .replace(/from "\.\.\/utils\/filtered-reason-summary\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "utils", "filtered-reason-summary.mjs")).href}"`)
       .replace("function evaluateCase(definition, explanation) {", "export function evaluateCase(definition, explanation) {")
       .replace("function classifyReplayMiss(definition, explanation, evidence) {", "export function classifyReplayMiss(definition, explanation, evidence) {")

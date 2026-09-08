@@ -99,7 +99,30 @@ function candidateMemories(extraction) {
     content,
     provenance: "episode_digest",
   }));
-  return [...semantic, ...decisions];
+  const merged = [...semantic, ...decisions];
+  const byDecisionChoice = new Map();
+  const result = [];
+  for (const memory of merged) {
+    if (memory.type !== "decision") {
+      result.push(memory);
+      continue;
+    }
+    const choice = String(memory.metadata?.decisionChoice
+      || memory.content?.replace(/^(?:Assistant reported|User stated):\s*/i, "").replace(/^Decision:\s*/i, "").split(/\s+because\s+/i)[0]
+      || "").trim().toLowerCase();
+    if (!choice) {
+      result.push(memory);
+      continue;
+    }
+    const priorIndex = byDecisionChoice.get(choice);
+    if (priorIndex === undefined) {
+      byDecisionChoice.set(choice, result.length);
+      result.push(memory);
+    } else if (String(memory.content || "").length > String(result[priorIndex].content || "").length) {
+      result[priorIndex] = memory;
+    }
+  }
+  return result;
 }
 
 export function normalizeRecallEvidence(rows) {
@@ -258,7 +281,17 @@ async function runScenario(scenario) {
         workspace,
         extraction,
       });
-      retainedRows = fixture.db.db.prepare("SELECT id, type, content, scope, repository, source_session_id, metadata_json, superseded_by FROM semantic_memory WHERE source_session_id = ? AND superseded_by IS NULL").all(scenario.sessionId);
+      retainedRows = fixture.db.db.prepare(`
+        SELECT sm.id, sm.type, sm.content, sm.scope, sm.repository, sm.source_session_id, sm.metadata_json, sm.superseded_by
+        FROM semantic_memory sm
+        WHERE sm.source_session_id = ? AND sm.superseded_by IS NULL
+          AND (NOT EXISTS (SELECT 1 FROM memory_evidence me WHERE me.memory_id = sm.id)
+            OR EXISTS (
+              SELECT 1 FROM memory_evidence me
+              JOIN session_evidence se ON se.evidence_key = me.evidence_key
+              WHERE me.memory_id = sm.id AND me.retired_at IS NULL AND se.retired_at IS NULL
+            ))
+      `).all(scenario.sessionId);
     }
 
     const recall = await recallMemory({ db: fixture.db, prompt: scenario.query, repository: scenario.repository, limit: 12 });

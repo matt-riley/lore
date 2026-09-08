@@ -71,6 +71,7 @@ function seedApprovedArtifact(db) {
   const id = db.upsertImprovementArtifact({
     sourceCaseId: "case-portable-1",
     sourceKind: "session_review",
+    repository: "fixture-repo",
     title: "Tighten retry backoff",
     summary: "Reduce retry storms during transient network errors.",
     evidence: { occurrences: 3 },
@@ -91,6 +92,7 @@ describe("mapImprovementArtifactRow", () => {
       id: "artifact-1",
       source_case_id: "case-1",
       source_kind: "session_review",
+      repository: "acme/widgets",
       title: "Tighten retry backoff",
       summary: "Reduce retry storms.",
       status: "active",
@@ -107,6 +109,7 @@ describe("mapImprovementArtifactRow", () => {
       id: "artifact-1",
       sourceCaseId: "case-1",
       sourceKind: "session_review",
+      repository: "acme/widgets",
       title: "Tighten retry backoff",
       summary: "Reduce retry storms.",
       status: "active",
@@ -121,6 +124,7 @@ describe("mapImprovementArtifactRow", () => {
 
   test("defaults reviewState to 'none' and proposal fields to null when absent", () => {
     const mapped = mapImprovementArtifactRow({ id: "artifact-2", title: "No proposal yet" });
+    assert.equal(mapped.repository, null);
     assert.equal(mapped.reviewState, "none");
     assert.deepEqual(mapped.proposal, { type: null, path: null, hash: null });
     assert.deepEqual(mapped.evidence, {});
@@ -145,6 +149,36 @@ describe("memory_portable_bundle tool handler", () => {
       assert.equal(artifact.sourceCaseId, "case-portable-1");
       assert.equal(artifact.proposal.path, "docs/proposals/retry.md");
       assert.ok(artifact.updatedAt || artifact.createdAt);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  test("scopes approved exports to the active repository", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, tools, cleanup } = await setupFixtureTools({ enabled: true });
+    const tmpDir = makeTmpDir();
+    try {
+      seedApprovedArtifact(db);
+      const foreignId = db.upsertImprovementArtifact({
+        sourceCaseId: "case-foreign",
+        sourceKind: "replay",
+        repository: "other-repo",
+        title: "Foreign artifact",
+        summary: "Must not cross the repository boundary.",
+      });
+      db.setImprovementArtifactProposal({
+        id: foreignId,
+        proposalType: "diff",
+        proposalPath: "docs/proposals/foreign.md",
+        proposalHash: "foreign",
+        reviewState: "approved",
+      });
+      const tool = findTool(tools, "memory_portable_bundle");
+      const bundlePath = path.join(tmpDir, "bundle.json");
+      await tool.handler({ bundlePath, format: "json" }, { sessionId: "portable-scope" });
+      const bundle = JSON.parse(readFileSync(bundlePath, "utf8"));
+      assert.deepEqual(bundle.data.improvementArtifacts.map((artifact) => artifact.repository), ["fixture-repo"]);
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
       cleanup();

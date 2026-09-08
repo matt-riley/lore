@@ -53,6 +53,20 @@ test("requestLocalInferenceJson calls the configured loopback chat-completions e
   });
 });
 
+test("local inference rejects redirects to preserve the loopback boundary", async () => {
+  await assert.rejects(
+    requestLocalInferenceJson({
+      config: { enabled: true, baseUrl: "http://127.0.0.1:12434/v1", model: "fixture", timeoutMs: 1000 },
+      messages: [{ role: "user", content: "test" }],
+      fetchImpl: async (_url, init) => {
+        assert.equal(init.redirect, "error");
+        throw new Error("redirect blocked");
+      },
+    }),
+    /redirect blocked/,
+  );
+});
+
 test("requestLocalInferenceEmbeddings returns vectors from the configured loopback endpoint", async () => {
   const calls = [];
   const vectors = await requestLocalInferenceEmbeddings({
@@ -267,5 +281,4 @@ test("local inference does not append dangling colon when error body is only whi
     },
   );
 });
-
 

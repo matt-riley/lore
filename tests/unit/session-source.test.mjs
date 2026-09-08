@@ -69,6 +69,19 @@ describe("SessionSource and EpisodeSessionSource", () => {
     }
   });
 
+  test("unknown repository identity returns global history only", async () => {
+    const { db, cleanup } = await import("../helpers/fixture-db.mjs").then(({ withFixtureDb }) => withFixtureDb());
+    try {
+      db.db.prepare(`INSERT INTO episode_digest (session_id, repository, scope, date_key, summary, created_at, updated_at)
+        VALUES ('foreign', 'private-repo', 'repo', '2026-06-04', 'PRIVATE_MARKER', '2026-06-04', '2026-06-04')`).run();
+      const source = new EpisodeSessionSource(db);
+      const rows = source.findSessionsByDate({ dateKey: "2026-06-04", repository: null });
+      assert.equal(rows.some((row) => row.summary === "PRIVATE_MARKER"), false);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("EpisodeSessionSource.findRelevantSessions searches episodes", () => {
     const tempHome = makeTempDir();
     try {

@@ -11,6 +11,10 @@
     "github-copilot",
     "copilot-cli",
     "copilot-extension",
+    "pi",
+    "codex",
+    "claude-code",
+    "antigravity",
     "memory",
     "local-first",
     "sqlite"

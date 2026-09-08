@@ -97,21 +97,30 @@ path. Set `LORE_REPOSITORY` in the client environment to share an existing
 identifier explicitly. All agents must use the same Lore home and repository
 identifier to find the same repository-scoped memories.
 
-The injected context tells the agent how to invoke these native commands. You
-can also run them directly, supplying arguments as JSON on stdin:
+The injected context tells the agent how to invoke these native commands: run `lore <verb>` in the shell (or `/lore <verb>` if the host surfaces slash commands). You can also run them directly from the terminal using the installed `$LORE_HOME/bin/lore` PATH shim (`export PATH="$LORE_HOME/bin:$PATH"`):
+
+```sh
+lore status
+lore recall "What did we decide about storage?"
+lore retain --type decision "Use SQLite for this project"
+lore forget <memory-id>
+lore doctor
+```
+
+Script workflows can also run tools directly supplying arguments as JSON on stdin:
 
 ```sh
 printf '%s\n' '{"prompt":"What did we decide about storage?"}' | node /absolute/lore/lore-cli.mjs tool lore_recall
 printf '%s\n' '{"content":"Use SQLite for this project","type":"user_preference","repository":"owner/repo"}' | node /absolute/lore/lore-cli.mjs tool lore_retain
 printf '%s\n' '{"userName":"Alex"}' | node /absolute/lore/lore-cli.mjs tool lore_onboard
-printf '%s\n' '{}' | node /absolute/lore/lore-cli.mjs tool memory_status
+printf '%s\n' '{}' | node /absolute/lore/lore-cli.mjs tool lore_status
 ```
 
-Available operations are `lore_recall`, `lore_retain`, `lore_onboard`,
-`memory_search`, `memory_save`, `memory_forget`, `memory_status`,
-`memory_correct`, `memory_repair`, and `memory_purge`, declared in
-the capability manifest. These are shell-invoked commands, not registered model
-tools. They return a nonzero exit status for failures. Supply an explicit
+Canonical operations are `lore_recall`, `lore_retain`, `lore_onboard`,
+`lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`,
+`lore_correct`, `lore_repair`, `lore_purge`, `lore_backfill`, `lore_maintenance`,
+`lore_doctor`, and `lore_reflect`. `memory_*` names and Pi `lore_save`
+remain aliases for one deprecation cycle. These return a nonzero exit status for failures. Supply an explicit
 `repository` if invoking from a directory other than your project. For global
 preferences use `lore_retain` with `scope: "global"`.
 

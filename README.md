@@ -26,7 +26,7 @@ At a glance, Lore can:
 
 Lore has a stable core and an experimental ring. The support boundary for each surface lives in [`docs/support-matrix.md`](docs/support-matrix.md).
 
-Capabilities vary by adapter: Codex, Claude Code, and Antigravity integrations are experimental and provide automatic recall/capture plus a small shell-command surface. They do not run automatic maintenance or archive backfill, or expose Copilot's full diagnostics and tool set.
+All five coding agents (GitHub Copilot CLI, Pi, Codex CLI, Claude Code, and Google Antigravity CLI) share the same unified memory engine, deterministic recall, and transcript extraction. Copilot and Pi expose nine canonical model tools (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`, and `lore_correct`), while extra capabilities and native CLI workflows run through `/lore <verb>` slash commands, `lore <verb>` in the shell, or the `$LORE_HOME/bin/lore` PATH shim (e.g. `export PATH="$LORE_HOME/bin:$PATH"`).
 
 ---
 

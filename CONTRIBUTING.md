@@ -7,7 +7,7 @@ Thanks for your interest — contributions are welcome and appreciated! 🎉 Lor
 ## Before you start
 
 - **Read the [README](README.md)** to understand what Lore is and isn't.
-- **Check [`lib/capability-manifest.mjs`](lib/capability-manifest.mjs)** first for the canonical Lore tool metadata (description, lifecycle, category, notes, rollout-governed details).
+- **Check [`lib/capabilities/capability-manifest.mjs`](lib/capabilities/capability-manifest.mjs)** first for the canonical Lore tool metadata (description, lifecycle, category, notes, rollout-governed details).
 - **Check [docs/support-matrix.md](docs/support-matrix.md)** for the published surface matrix; keep it in parity with the manifest when changing Lore tools.
 - **Check [docs/compatibility.md](docs/compatibility.md)** for minimum runtime requirements.
 - For significant changes, open an issue first to discuss the approach before writing code.
@@ -32,7 +32,7 @@ node scripts/dev-install.mjs --dry-run   # preview copy into ~/.copilot/extensio
 node scripts/dev-install.mjs             # copy this checkout into ~/.copilot/extensions/lore
 ```
 
-No build step needed — Lore is plain ESM. Node 22.5.0 or later is required (see [compatibility](docs/compatibility.md)).
+No build step needed — Lore is plain ESM. Node 24.0.0 or later is required (see [compatibility](docs/compatibility.md)).
 
 Validate that schema and config are in sync after any config-related change:
 
@@ -57,7 +57,7 @@ Run a single file directly when you're iterating:
 node --test tests/unit/query-normalizer.test.mjs
 ```
 
-**Unit tests** (`tests/unit/`) are pure and fast — no disk I/O or subprocess spawning.  
+**Unit tests** (`tests/unit/`) exercise focused modules in isolation with temporary, scoped directories.  
 **Smoke tests** (`tests/smoke/`) spin up temporary homes and invoke scripts as real subprocesses. They give you confidence that the whole pipeline works end-to-end.
 
 Some tests skip automatically when FTS5 isn't compiled into your local Node build. That's expected — the Copilot CLI runtime always has FTS5, so those tests will run there.

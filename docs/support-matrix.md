@@ -24,34 +24,21 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 | Client | Status | Interface |
 |---|---|---|
-| GitHub Copilot CLI | 🟢 Supported | Native extension hooks and Copilot tool surface. Observed target 1.0.80; the minimum version floor is pending certification. |
-| Pi | 🟡 Experimental | Native TypeScript extension, shared Lore server, `lore_*` tools, and `/lore` commands. Observed target 0.84.3; the minimum version floor is pending certification. |
-| Codex CLI | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, and `PostToolUse` command hooks. |
-| Claude Code | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, `PostToolUse`, and `PostToolUseFailure` command hooks. |
-| Google Antigravity CLI | 🟡 Experimental | Native `PreInvocation`, `PostInvocation`, `Stop`, and `PostToolUse` hooks; shared configuration and explicit workspace mounting are required on the observed 1.1.27 target. |
+| GitHub Copilot CLI | 🟢 Supported | Native extension hooks, 9 canonical model tools, and `/lore` slash commands. Model tool registration is intentionally shrunk to the 9 core tools so host context is not overloaded; remaining tools are callable as `/lore <verb>` or `lore tool <name>`. Observed target 1.0.80; the minimum version floor is pending certification. |
+| Pi | 🟡 Experimental | Native TypeScript extension with 9 model tools registered with TypeBox schemas, shared Lore server, and `/lore` commands over shared RPC. Observed target 0.84.3; the minimum version floor is pending certification. |
+| Codex CLI | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, and `PostToolUse` command hooks; human `lore <verb>` CLI commands and PATH shim. |
+| Claude Code | 🟡 Experimental | Native `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `PreCompact`, `PostToolUse`, and `PostToolUseFailure` command hooks; human `lore <verb>` CLI commands and PATH shim. |
+| Google Antigravity CLI | 🟡 Experimental | Native `PreInvocation`, `PostInvocation`, `Stop`, and `PostToolUse` hooks; human `lore <verb>` CLI commands and PATH shim. Shared configuration and explicit workspace mounting are required on the observed 1.1.27 target. |
 
-Codex, Claude Code, and Antigravity use `lore-cli.mjs`, not MCP. Native hooks provide automatic recall
-and transcript capture. The canonical shell commands are `lore_recall`,
-`lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`,
-`lore_correct`, `lore_repair`, and `lore_purge`. `memory_*` names and Pi
-`lore_save` remain aliases for one deprecation cycle on `lore tool` JSON.
-The canonical lists are `LORE_CLIENT_HOOKS` and
-`LORE_CLI_TOOL_NAMES` in `lib/capabilities/capability-manifest.mjs`.
+All five adapters provide automatic recall and session capture over the shared Lore runtime.
+Codex, Claude Code, and Antigravity use `lore-cli.mjs`, not MCP.
+Nine canonical model tools are exposed on Copilot and Pi (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`, and `lore_correct`).
+All remaining capabilities (administration, backfill, maintenance, doctor, reflection, etc.) remain accessible across Copilot, Pi, and native CLIs as `/lore <verb>` slash commands or `lore <verb>` shell subcommands (with `lore tool <name>` JSON-on-stdin preserved for scripts).
+`/lore search` and `lore search` invoke `lore_search`; `/lore recall` and `lore recall` invoke `lore_recall`.
+The canonical lists are `LORE_CLIENT_HOOKS` and `LORE_CLI_TOOL_NAMES` in `lib/capabilities/capability-manifest.mjs`.
 See [installation, verification, and boundaries](cli-integrations.md).
 
 All five adapters target stable macOS support for v1. The entries above describe current support; the v1 host certification and soak are still pending. Pi has not been promoted by adding it to this table.
-
-### Adapter capability differences
-
-| Capability | Copilot CLI | Pi | Codex / Claude / Antigravity |
-|---|---|---|---|
-| Native interface | Extension hooks and registered tools | Pi extension tools and `/lore` commands | Shell-invoked commands plus native host hooks |
-| Automatic recall | Supported | Supported | Experimental; host hook coverage varies |
-| Session capture | Supported | Supported | Experimental; active supplied transcript only |
-| Archive backfill | Copilot session store, experimental | Pi archive importer, experimental | Not wired |
-| Maintenance at startup | Supported when configured | Adapter-specific bounded behavior | Not wired; use the standalone script |
-| Diagnostics | `lore_status`, `lore_explain`, `lore_validate` | `lore_status` | `lore_status`; the Copilot-only diagnostics are unavailable |
-| Local semantic search | Optional embeddings through shared store | Optional embeddings through shared store | Optional for explicit `lore_recall` only |
 
 ## Session hooks
 
@@ -72,7 +59,20 @@ events map to shared behavior through the adapters above.
 
 ## Memory tools
 
-### Core memory verbs
+Lore exposes **nine canonical model tools** on Copilot CLI and Pi:
+- `lore_recall`: recall memories with provenance and semantic matching
+- `lore_retain`: persist memories with scope, category, and domain
+- `lore_onboard`: capture user name and assistant style profile
+- `lore_search`: keyword search over the derived semantic-memory store
+- `lore_forget`: soft-delete memories by ID
+- `lore_status`: inspect database health, counts, latency, and maintenance
+- `lore_explain`: explain what prompt context is injected and why
+- `lore_validate`: validate database integrity and schema parity
+- `lore_correct`: preview and apply manual memory corrections
+
+All remaining tools are **`/lore` extras** (and `lore <verb>` CLI subcommands). They do not bloat model tool context on every turn, but remain fully available to users and scripts via `/lore <verb>` or `lore <verb>` (for example `/lore doctor`, `/lore reflect`, `/lore repair`, `/lore purge`, `/lore backfill`, `/lore maintenance`, etc.).
+
+### Core model tools
 
 | Tool | Status | Notes |
 |---|---|---|

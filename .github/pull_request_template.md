@@ -14,14 +14,15 @@
 
 ## Testing
 
-<!-- How did you verify this works? Output of `npm run validate-schema` (paste below), manual steps, etc. -->
+<!-- How did you verify this works? Output of `npm test` and `npm run validate-schema` (paste below), manual steps, etc. -->
 
 ```
-(paste validate-schema output here)
+(paste npm test and validate-schema output here)
 ```
 
 ## Checklist
 
 - [ ] PR title follows Conventional Commits
+- [ ] `npm test` passes
 - [ ] `npm run validate-schema` passes
 - [ ] Docs updated if behaviour changed

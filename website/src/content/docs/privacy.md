@@ -47,6 +47,6 @@ Backups and exported portability bundles can contain the same sensitive material
 
 ## Review before sharing
 
-`memory_portable_bundle` is experimental and exports approved improvement artifacts rather than the full raw corpus. Generated JSON files are private (`0600`); OKF bundle directories are private (`0700`) and reject symlink destinations. Even so, review every generated bundle before putting it in a repository or sending it to another person. Soft-deleted memories and related residual data may remain for provenance and recovery. OKF import is manual and only the OKF format supports import today.
+`memory_portable_bundle` is experimental and exports approved improvement artifacts rather than the full raw corpus. Generated JSON files are private (`0600`); OKF bundle roots and all directories within them are private (`0700`), with bundle files private (`0600`). Both formats reject symlink destinations, and OKF paths that would leave the configured bundle directory are rejected. Even so, review every generated bundle before putting it in a repository or sending it to another person. Soft-deleted memories and related residual data may remain for provenance and recovery. OKF import is manual and only the OKF format supports import today.
 
 See [Local inference](/guides/local-inference/) for provider boundaries and [Troubleshooting](/guides/troubleshooting/) for safe issue reports.

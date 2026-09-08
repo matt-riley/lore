@@ -1,7 +1,7 @@
 import { approveAll } from "@github/copilot-sdk";
 import { joinSession } from "@github/copilot-sdk/extension";
 
-import { loadConfig, normalizeBoolean, clampInteger } from "./lib/core/config.mjs";
+import { normalizeBoolean, clampInteger } from "./lib/core/config.mjs";
 import {
   applySessionExtraction,
   buildSessionStartBackfillDecision,
@@ -11,10 +11,16 @@ import {
   startControlledBackfillRun,
   summarizeBackfillRunProgress,
 } from "./lib/sessions/backfill.mjs";
-import { LoreDb } from "./lib/db/db.mjs";
 import { runMaintenanceSweep } from "./lib/maintenance/maintenance-scheduler.mjs";
 import { assembleRecall } from "./lib/context/recall-assembler.mjs";
-import { createMemoryTools } from "./lib/tools/memory-tools.mjs";
+import { createLoreSession } from "./lib/runtime/lore-runtime.mjs";
+import { listCopilotJoinTools } from "./lib/runtime/tool-registry.mjs";
+import {
+  buildLoreSlashCommand,
+  interceptLoreSlashPrompt,
+  matchLoreSlashPrompt,
+  LORE_SLASH_ADVERTISEMENT,
+} from "./lib/runtime/slash-dispatch.mjs";
 import {
   buildProceduralProfile,
   detectRelevantInstructionFiles,
@@ -43,7 +49,6 @@ import { createSubagentScopeTracker } from "./lib/lifecycle/subagent-scope-track
 import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.mjs";
 import { consumeLatestMemoryHygieneSummary } from "./lib/memory/memory-hygiene.mjs";
 import { setTimeout as delay } from "node:timers/promises";
-import { checkRuntime, formatRuntimeDiagnostics } from "./lib/core/runtime.mjs";
 
 let lastKnownCwd = process.cwd();
 
@@ -95,7 +100,13 @@ const runtime = {
   errorTelemetryWrites: 0,
   pendingWork: new Set(),
   shuttingDown: false,
+  client: "copilot",
+  surface: "hook",
+  enabled: false,
 };
+
+let loreSession = null;
+let ensureRuntimePromise = null;
 
 /**
  * Register a background promise in the runtime tracking set.
@@ -175,11 +186,17 @@ async function shutdownRuntime(session, gracePeriodMs = 4000) {
   }
 
   try {
+    runtime.loreSession?.close?.();
+  } catch {
+    // best-effort close; never rethrow from shutdown path
+  }
+  try {
     runtime.db?.close();
   } catch {
     // best-effort close; never rethrow from shutdown path
   }
   runtime.db = null;
+  runtime.loreSession = null;
 }
 
 function recordMetric(values, value, windowSize) {
@@ -711,38 +728,97 @@ async function logOnce(session, key, message, level = "warning") {
   await session.log(message, { ephemeral: true, level });
 }
 
+async function getHostRuntime(sessionId) {
+  const context = await getContext(session, sessionId, lastKnownCwd);
+  return {
+    ...context.runtime,
+    repository: context.repository,
+    workspace: context.workspace,
+    workspacePath: context.workspacePath,
+    metrics: buildLatencyMetrics(context.runtime.config),
+    client: "copilot",
+    surface: "tool",
+  };
+}
+
 async function ensureRuntime(session) {
-  if (runtime.initialized) {
+  if (loreSession) {
+    return runtime;
+  }
+  if (ensureRuntimePromise) {
+    await ensureRuntimePromise;
     return runtime;
   }
 
-  try {
-    const runtimeCheck = await checkRuntime();
-    if (!runtimeCheck.ok) {
-      throw new Error(formatRuntimeDiagnostics(runtimeCheck));
-    }
-    runtime.config = await loadConfig();
-    runtime.db = new LoreDb(runtime.config);
-    const initResult = runtime.db.initialize();
-    runtime.lastBackupPath = initResult.backupPath ?? null;
-
-    runtime.sessionStore = new SessionStoreReader(runtime.config, {
-      resolveRepositoryIdentity: (identity) => resolveRepositoryIdentity({
-        ...identity,
-        mappings: runtime.db.getRepositoryMappings(),
-      }),
-      identityResolverCacheVersion: () => JSON.stringify(runtime.db.getRepositoryMappings()),
+  ensureRuntimePromise = (async () => {
+    loreSession = await createLoreSession({
+      client: "copilot",
+      surface: "hook",
+      cwd: lastKnownCwd,
+      getRuntime: getHostRuntime,
     });
-    runtime.sessionStore.initialize();
-    runtime.traceRecorder = createTraceRecorder(runtime.config);
 
+    runtime.client = "copilot";
+    runtime.surface = "hook";
+    runtime.config = loreSession.config;
+    runtime.db = loreSession.db;
+    runtime.enabled = loreSession.enabled === true;
+    runtime.lastError = loreSession.lastError;
+    runtime.lastBackupPath = loreSession.lastBackupPath ?? null;
+
+    if (!loreSession.initialized) {
+      runtime.initialized = false;
+      runtime.loreSession = loreSession;
+      await logOnce(
+        session,
+        "lore-init-failed",
+        `lore unavailable; hooks will fail open: ${loreSession.lastError?.message ?? "not initialized"}`,
+      );
+      return runtime;
+    }
+
+    try {
+      runtime.sessionStore = new SessionStoreReader(runtime.config, {
+        resolveRepositoryIdentity: (identity) => resolveRepositoryIdentity({
+          ...identity,
+          mappings: runtime.db.getRepositoryMappings(),
+        }),
+        identityResolverCacheVersion: () => JSON.stringify(runtime.db.getRepositoryMappings()),
+      });
+      runtime.sessionStore.initialize();
+      loreSession.sessionSource = runtime.sessionStore;
+      loreSession.sessionStore = runtime.sessionStore;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await logOnce(session, "lore-session-store", `lore session store unavailable: ${message}`);
+    }
+    try {
+      runtime.traceRecorder = createTraceRecorder(runtime.config);
+    } catch {
+      runtime.traceRecorder = null;
+    }
     runtime.initialized = true;
     runtime.lastError = null;
+    runtime.loreSession = loreSession;
 
     await session.log("lore initialized", { ephemeral: true });
     return runtime;
+  })();
+
+  try {
+    return await ensureRuntimePromise;
   } catch (error) {
     runtime.lastError = error instanceof Error ? error : new Error(String(error));
+    runtime.initialized = false;
+    if (!loreSession) {
+      loreSession = await createLoreSession({
+        client: "copilot",
+        surface: "hook",
+        cwd: lastKnownCwd,
+        getRuntime: getHostRuntime,
+        checkRuntime: async () => ({ ok: false, diagnostics: [runtime.lastError.message] }),
+      });
+    }
     await logOnce(
       session,
       "lore-init-failed",
@@ -1002,9 +1078,11 @@ async function handleSessionStartHook({
     repository,
     activeRuntime,
   });
+  await session.log(LORE_SLASH_ADVERTISEMENT, { ephemeral: true });
   const additionalContext = combineContextSections(
     assembled.text,
     consumeSessionHygieneSummary(activeRuntime.db, repository, invocation.sessionId),
+    LORE_SLASH_ADVERTISEMENT,
   );
 
   await finalizeHookObservation({
@@ -1608,6 +1686,16 @@ const subagentScopeTracker = createSubagentScopeTracker();
 const session = await joinSession({
   onPermissionRequest: approveAll,
 
+  commands: [
+    buildLoreSlashCommand({
+      dispatchSlash: async (argsText, extra) => {
+        await ensureRuntime(session);
+        return loreSession.dispatchSlash(argsText, extra);
+      },
+      log: (text, options) => session.log(text, options),
+    }),
+  ],
+
   hooks: buildLoreHooks({
     ...handlers,
     onSessionStart: async (input, invocation) => {
@@ -1620,6 +1708,23 @@ const session = await joinSession({
     onUserPromptSubmitted: async (input, invocation) => {
       const startedAt = Date.now();
       lastKnownCwd = input.cwd || lastKnownCwd;
+
+      try {
+        await ensureRuntime(session);
+        const intercepted = await interceptLoreSlashPrompt({
+          prompt: input.prompt,
+          dispatchSlash: (argsText, extra) => loreSession.dispatchSlash(argsText, extra),
+          sessionId: invocation.sessionId,
+          log: (text, options) => session.log(text, options),
+        });
+        if (intercepted) {
+          return;
+        }
+      } catch {
+        if (matchLoreSlashPrompt(input.prompt) !== null) {
+          return;
+        }
+      }
 
       const context = await getContext(session, invocation.sessionId, input.cwd);
       const { runtime: activeRuntime, repository } = context;
@@ -1820,17 +1925,8 @@ const session = await joinSession({
     },
   }),
 
-  tools: createMemoryTools({
-    getRuntime: async (sessionId) => {
-      const context = await getContext(session, sessionId, lastKnownCwd);
-      return {
-        ...context.runtime,
-        repository: context.repository,
-        workspace: context.workspace,
-        workspacePath: context.workspacePath,
-        metrics: buildLatencyMetrics(context.runtime.config),
-      };
-    },
+  tools: listCopilotJoinTools({
+    getRuntime: getHostRuntime,
   }),
 });
 

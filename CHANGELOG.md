@@ -20,6 +20,30 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.16.0](https://github.com/matt-riley/lore/compare/lore-v0.15.2...lore-v0.16.0) (2026-09-08)
+
+
+### Features
+
+* add a human lore CLI and install a PATH shim ([e9b1aa5](https://github.com/matt-riley/lore/commit/e9b1aa58727be685dd6bc74da6737dab611daa89))
+* expose the full Lore verb set on Pi via RPC and /lore ([aea2578](https://github.com/matt-riley/lore/commit/aea2578049b307fdd4f6869e340acaf827eb88ed))
+* give native CLIs and Pi a SessionSource over ingested episodes ([e6c2c14](https://github.com/matt-riley/lore/commit/e6c2c145174601ba1935990939f75754cd9fd353))
+* make lore_* the canonical verb set for every host ([e4e3005](https://github.com/matt-riley/lore/commit/e4e3005b776b9071304cf19f02c9abad4c39b8cb))
+* run Copilot on createLoreSession with /lore and a nine-tool model list ([dfcc555](https://github.com/matt-riley/lore/commit/dfcc555f41fad8134d1140896d64dab2940bf160))
+* tighten extraction, key preferences, expire volatile memory, and fuse ranking ([2616cbc](https://github.com/matt-riley/lore/commit/2616cbc6665b50e9e0ee8d6a4b15822fc6959165))
+
+
+### Bug Fixes
+
+* address review feedback for Copilot /lore facade ([7318313](https://github.com/matt-riley/lore/commit/7318313b2103b0fb256442080c0242ef4da59896))
+* address review feedback for extraction ranking ([51c72f9](https://github.com/matt-riley/lore/commit/51c72f98cf34b264dfee38c2407651d85d09e888))
+* address review feedback for feat: canonical lore_* verb set ([c466084](https://github.com/matt-riley/lore/commit/c466084323c291671052f247422bdb8330767b7a))
+* address review feedback for one recall assembler ([ec58649](https://github.com/matt-riley/lore/commit/ec586492284e66438ad41ae915e25b2e827566a1))
+* align Pi smoke harness and docs with fused recall ranking ([bbd0a55](https://github.com/matt-riley/lore/commit/bbd0a5555a79ef8333b3c6f05da4c3463eadf072))
+* align support-matrix category header and extension import test ([b0d59b9](https://github.com/matt-riley/lore/commit/b0d59b945578353f5cb1ed3bc1b961b3797e96fb))
+* make knip CI gate actionable ([47f8a9d](https://github.com/matt-riley/lore/commit/47f8a9d0cea27b6bcec396ab13002a3d7771d316))
+* stabilize main CI runtime and replay gates ([2836654](https://github.com/matt-riley/lore/commit/2836654b1292d35b3822adae4f9900b36b06007e))
+
 ## [0.15.2](https://github.com/matt-riley/lore/compare/lore-v0.15.1...lore-v0.15.2) (2026-09-07)
 
 

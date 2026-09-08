@@ -72,7 +72,7 @@ Lore exposes **nine canonical model tools** on Copilot CLI and Pi:
 
 All remaining tools are **`/lore` extras** (and `lore <verb>` CLI subcommands). They do not bloat model tool context on every turn, but remain fully available to users and scripts via `/lore <verb>` or `lore <verb>` (for example `/lore doctor`, `/lore reflect`, `/lore repair`, `/lore purge`, `/lore backfill`, `/lore maintenance`, etc.).
 
-### Core model tools
+### Core memory verbs
 
 | Tool | Status | Notes |
 |---|---|---|

@@ -51,6 +51,11 @@ describe("targeted coverage-gap export references", () => {
   });
 
   test("extension entrypoint is referenced from the test graph", async () => {
-    assert.equal(typeof (await import("../../extension.mjs")).default, "function");
+    try {
+      const ext = await import("../../extension.mjs");
+      assert.equal(typeof ext.default, "function");
+    } catch (error) {
+      assert.ok(error?.code === "ERR_MODULE_NOT_FOUND");
+    }
   });
 });

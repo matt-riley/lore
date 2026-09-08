@@ -15,13 +15,6 @@ function loadFunction(name, dependencies = {}) {
   )(...Object.values(dependencies));
 }
 
-function loadFunctions(names, dependencies = {}) {
-  const functionSources = names.map((name) => extractFunctionSource(name)).join("\n\n");
-  return Function(
-    ...Object.keys(dependencies),
-    `"use strict"; ${functionSources}; return { ${names.join(", ")} };`,
-  )(...Object.values(dependencies));
-}
 
 describe("extension hook activity helpers", () => {
   test("writeActivitySuccessUpdates mirrors repo writes to the global activity row", () => {

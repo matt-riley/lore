@@ -6,11 +6,7 @@ import {
   buildSessionStartBackfillPreview,
   summarizeBackfillRunProgress,
 } from "../../lib/sessions/backfill.mjs";
-import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
-const SKIP_NO_FTS5 = !FTS5_AVAILABLE
-  ? "FTS5 not compiled into this Node.js SQLite build (Copilot CLI runtime has it; check your local Node install)"
-  : false;
 
 describe("backfill preview", () => {
   test("session-start backfill decision prefers resuming an existing running run", () => {

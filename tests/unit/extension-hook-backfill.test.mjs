@@ -204,9 +204,6 @@ describe("extension hook backfill helpers", () => {
         buildSessionStartBackfillProgressMessage() {
           return "unused";
         },
-        summarizeBackfillRunProgress() {
-          throw new Error("should not summarize progress when work is skipped");
-        },
       },
     );
 

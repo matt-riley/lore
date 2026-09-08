@@ -14,6 +14,8 @@ const FIXTURES = [
   { file: "v13-lore-v0.2.0.sql", version: 13, versionTable: "coherence_schema_version", expectsBackup: true },
   { file: "v15-lore-v0.3.0.sql", version: 15, versionTable: "lore_schema_version", expectsBackup: true },
   { file: "v18-lore-v0.10.0.sql", version: 18, versionTable: "lore_schema_version", expectsBackup: true },
+  { file: "v19-lore-v0.14.0.sql", version: 19, versionTable: "lore_schema_version", expectsBackup: true },
+  { file: "v20-lore-v0.15.0.sql", version: 20, versionTable: "lore_schema_version", expectsBackup: false },
 ];
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE

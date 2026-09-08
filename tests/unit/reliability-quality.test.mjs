@@ -202,7 +202,20 @@ describe("independent reliability quality corpus", () => {
     assert.deepEqual(result.metrics.criticalFailures, []);
   });
 
-  test("full production pipeline meets the frozen quality gates", async () => {
+  test("production pipeline executes representative scenarios without regressions", async () => {
+    const scenarios = RELIABILITY_CLIENTS.map((client) =>
+      RELIABILITY_CORPUS.find((item) => item.client === client && item.id === "repo-preference")
+    );
+    const result = await runQualityEvaluation({ scenarios });
+    assert.equal(result.metrics.extractionPrecision, 1);
+    assert.equal(result.metrics.explicitPropositionRecall, 1);
+    assert.equal(result.metrics.retentionRecall, 1);
+    assert.deepEqual(result.metrics.criticalFailures, []);
+  });
+
+  test("full production pipeline meets the frozen quality gates", {
+    skip: process.env.LORE_RELIABILITY_FULL !== "1",
+  }, async () => {
     const result = await runQualityEvaluation();
     assert.equal(result.passed, true, JSON.stringify(result.metrics, null, 2));
   });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { shellQuote, buildCliHookConfig, mergeCliHookConfig } from "../../lib/clients/cli-hook-config.mjs";
+import { shellQuote, buildCliHookConfig } from "../../lib/clients/cli-hook-config.mjs";
 
 test("shellQuote quotes and escapes strings for POSIX platforms", () => {
   assert.equal(shellQuote("simple", "darwin"), "'simple'");

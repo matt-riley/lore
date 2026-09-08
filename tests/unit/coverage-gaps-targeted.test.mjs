@@ -49,4 +49,8 @@ describe("targeted coverage-gap export references", () => {
   test("capability scanner defaults to cwd, not a Copilot-shaped four-up path", () => {
     assert.equal(DEFAULT_REPO_ROOT, process.cwd());
   });
+
+  test("extension entrypoint is referenced from the test graph", async () => {
+    assert.equal(typeof (await import("../../extension.mjs")).default, "function");
+  });
 });

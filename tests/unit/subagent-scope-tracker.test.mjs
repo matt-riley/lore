@@ -19,7 +19,7 @@
  *   - Multiple trackers are independent (no shared state)
  */
 
-import { describe, test, beforeEach } from "node:test";
+import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { createSubagentScopeTracker } from "../../lib/lifecycle/subagent-scope-tracker.mjs";

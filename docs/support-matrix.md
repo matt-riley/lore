@@ -77,26 +77,26 @@ events map to shared behavior through the adapters above.
 | Tool | Status | Notes |
 |---|---|---|
 | `lore_recall` | 🟢 Supported | Primary recall verb. Returns matched memories with provenance. Optional local query expansion changes retrieval terms only and retries deterministic retrieval when expansion finds no evidence. When `localInference.embeddings` is configured, appends embedding-ranked `Semantic Matches` (cosine similarity) cached in `memory_embedding`; fails open to lexical-only on endpoint errors. |
-| `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope, category, and optional domain association. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `lore_save`, `memory_save`. |
+| `lore_retain` | 🟢 Supported | Primary retain verb. Persists a memory with scope, category, and optional domain association. CLI / `lore tool` aliases for one deprecation cycle: `lore_save`, `memory_save`. |
 | `lore_onboard` | 🟢 Supported | Captures the user name plus Lore's assistant/style profile in one step. |
-| `lore_search` | 🟢 Supported | Keyword search over the derived semantic-memory store. Meaning-based (vector) search is available via `lore_recall` when embeddings are configured. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_search`. |
-| `lore_forget` | 🟢 Supported | Soft-deletes a memory by ID. Superseded rows and related residual data may remain for provenance and recovery; this is not secure erasure. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_forget`. |
+| `lore_search` | 🟢 Supported | Keyword search over the derived semantic-memory store. Meaning-based (vector) search is available via `lore_recall` when embeddings are configured. CLI / `lore tool` aliases for one deprecation cycle: `memory_search`. |
+| `lore_forget` | 🟢 Supported | Soft-deletes a memory by ID. Superseded rows and related residual data may remain for provenance and recovery; this is not secure erasure. CLI / `lore tool` aliases for one deprecation cycle: `memory_forget`. |
 
 ### Status and diagnostics
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_status` | 🟢 Supported | Overview of DB health, row counts, latency metrics, and maintenance state. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_status`. |
-| `lore_explain` | 🟢 Supported | Explains what context would be injected for a given prompt and why. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_explain`. |
-| `lore_validate` | 🟢 Supported | Validates DB integrity and schema parity. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_validate`. |
+| `lore_status` | 🟢 Supported | Overview of DB health, row counts, latency metrics, and maintenance state. CLI / `lore tool` aliases for one deprecation cycle: `memory_status`. |
+| `lore_explain` | 🟢 Supported | Explains what context would be injected for a given prompt and why. Copilot alias for one deprecation cycle: `memory_explain`. |
+| `lore_validate` | 🟢 Supported | Validates DB integrity and schema parity. Copilot alias for one deprecation cycle: `memory_validate`. |
 
 ### Memory administration
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_correct` | 🟢 Supported | Defaults to a read-only preview. Repository selects the manual replacement destination. Apply requires planFingerprint, preserves expiry unless changed, and creates a validated snapshot. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_correct`. |
-| `lore_repair` | 🟡 Experimental | Deterministic complete-source repair, bounded to 32 MiB per source and the preview candidate limit. Missing, incomplete, or ambiguous sources remain unresolved. Apply requires planFingerprint and actionable selectedCandidateIds. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_repair`. |
-| `lore_purge` | 🟡 Experimental | Requires explicit memoryIds, repository, or global scope selection. Shared derived copies require includeDependentAggregates and all typed preview candidate IDs. Apply validates planFingerprint and a snapshot; raw sources, backups, and suppression remain. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_purge`. |
+| `lore_correct` | 🟢 Supported | Defaults to a read-only preview. Repository selects the manual replacement destination. Apply requires planFingerprint, preserves expiry unless changed, and creates a validated snapshot. CLI / `lore tool` aliases for one deprecation cycle: `memory_correct`. |
+| `lore_repair` | 🟡 Experimental | Deterministic complete-source repair, bounded to 32 MiB per source and the preview candidate limit. Missing, incomplete, or ambiguous sources remain unresolved. Apply requires planFingerprint and actionable selectedCandidateIds. CLI / `lore tool` aliases for one deprecation cycle: `memory_repair`. |
+| `lore_purge` | 🟡 Experimental | Requires explicit memoryIds, repository, or global scope selection. Shared derived copies require includeDependentAggregates and all typed preview candidate IDs. Apply validates planFingerprint and a snapshot; raw sources, backups, and suppression remain. CLI / `lore tool` aliases for one deprecation cycle: `memory_purge`. |
 
 ### Skill management and diagnostics
 
@@ -121,7 +121,7 @@ events map to shared behavior through the adapters above.
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_backfill` | 🟡 Experimental | Backfills memories from the raw session store. The public tool is bounded to 20 items per run; manual controlled runs still create restorable snapshots, while session-start archive import uses the same engine without creating snapshots. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_backfill`. |
+| `lore_backfill` | 🟡 Experimental | Backfills memories from the raw session store. The public tool is bounded to 20 items per run; manual controlled runs still create restorable snapshots, while session-start archive import uses the same engine without creating snapshots. Alias: `memory_backfill`. |
 | `memory_deferred_process` | 🟡 Experimental | Triggers processing of extractions deferred during session-start. Optional local model enrichment is default-off, requires provider plus deferred-extraction opt-in, and preserves deterministic extraction on failure. |
 
 ### Replay and portability
@@ -143,13 +143,13 @@ events map to shared behavior through the adapters above.
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_maintenance` | 🟡 Experimental | Triggers a maintenance sweep (dry-run or live), reports automated memory hygiene, or rolls back one exact `auto-hygiene:*` marker with an audit artifact. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `maintenance_schedule_run`. |
+| `lore_maintenance` | 🟡 Experimental | Triggers a maintenance sweep (dry-run or live), reports automated memory hygiene, or rolls back one exact `auto-hygiene:*` marker with an audit artifact. Alias: `maintenance_schedule_run`. |
 
 ### Self-diagnostics and proposals
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_doctor` | 🟡 Experimental | Generates a structured health report. Requires `loreDoctor` and `evolutionLedger` rollout flags. CLI / `/lore` / `lore tool` aliases for one deprecation cycle: `memory_doctor_report`. |
+| `lore_doctor` | 🟡 Experimental | Generates a structured health report. Requires `loreDoctor` and `evolutionLedger` rollout flags. Alias: `memory_doctor_report`. |
 | `memory_review_gate` | 🟡 Experimental | Runs an observe-only proposal-doc gate and records review-gate trajectory artifacts. Requires `reviewGate` and `evolutionLedger` rollout flags. |
 | `memory_capability_inventory` | 🟡 Experimental | Enumerates all registered capabilities with rollout state. |
 

@@ -183,7 +183,7 @@ describe("lore_retain tool", () => {
     }
   });
 
-  test("memory_save and lore_retain both persist semantic memory", { skip: SKIP_NO_FTS5 }, async () => {
+  test("memory_save without repository stays a global manual write", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: { enabled: true },
     });
@@ -207,21 +207,32 @@ describe("lore_retain tool", () => {
       }, { sessionId: "retain-alias" });
 
       assert.match(retainOutput, /Retained semantic memory/);
-      assert.match(saveOutput, /Retained semantic memory/);
-      assert.equal(db.searchSemantic({
+      assert.match(saveOutput, /Saved semantic memory/);
+
+      const retained = db.searchSemantic({
         query: "jadeanchor",
         repository: "fixture-repo",
         includeOtherRepositories: false,
         types: ["decision"],
         limit: 2,
-      }).length > 0, true);
-      assert.equal(db.searchSemantic({
+      });
+      const saved = db.searchSemantic({
         query: "quartzanchor",
         repository: "fixture-repo",
-        includeOtherRepositories: false,
+        includeOtherRepositories: true,
         types: ["user_preference"],
         limit: 2,
-      }).length > 0, true);
+      });
+      assert.equal(retained.length > 0, true);
+      assert.equal(saved.length > 0, true);
+      assert.equal(retained[0].repository, "fixture-repo");
+      assert.equal(saved[0].scope, "global");
+      assert.equal(saved[0].repository, null);
+      assert.equal(JSON.parse(saved[0].metadata_json).source, "memory_save");
+      assert.equal(JSON.parse(retained[0].metadata_json).source, "lore_retain");
+      const savedTags = db.db.prepare("SELECT tags FROM semantic_memory WHERE id = ?").get(saved[0].id).tags;
+      assert.match(savedTags, /user_preference/);
+      assert.match(savedTags, /manual/);
     } finally {
       cleanup();
     }

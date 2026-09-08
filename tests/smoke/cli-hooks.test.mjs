@@ -24,7 +24,7 @@ test("native hooks capture, recall across clients, refresh once, preserve source
   const hook = (client, event, payload) => JSON.parse(run(["hook", client, event], payload).stdout);
   try {
     const saved = run(["tool", "memory_save"], { content: "quartzanchor preference: use SQLite for shared persistence", type: "user_preference" }).stdout;
-    assert.match(saved, /Retained semantic memory/);
+    assert.match(saved, /Saved semantic memory/);
     const id = saved.match(/semantic memory ([^\s.]+)/)?.[1];
     assert.ok(id);
     const transcript = path.join(home, "transcript.jsonl");

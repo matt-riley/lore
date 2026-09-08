@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   LORE_CAPABILITY_SPECS,
+  LORE_CLI_TOOL_NAMES,
   listCoreAliasToolNames,
   resolveLoreToolName,
 } from "../../lib/capabilities/capability-manifest.mjs";
@@ -283,6 +284,18 @@ describe("LORE_CAPABILITY_SPECS", () => {
     assert.equal(resolveLoreToolName("memory_repair"), "lore_repair");
   });
 
+  it("surfaces.cli matches the native CLI allowlist", () => {
+    for (const spec of LORE_CAPABILITY_SPECS) {
+      assert.equal(
+        spec.surfaces.cli,
+        LORE_CLI_TOOL_NAMES.includes(spec.name),
+        `surfaces.cli mismatch for ${spec.name}`,
+      );
+    }
+    assert.equal(LORE_CLI_TOOL_NAMES.includes("lore_explain"), false);
+    assert.equal(LORE_CLI_TOOL_NAMES.includes("lore_save"), true);
+  });
+
   it("retrieval tools include retrieval route hint", () => {
     const retrievalTools = ["lore_recall", "lore_reflect", "lore_search", "lore_explain"];
     for (const name of retrievalTools) {
@@ -358,16 +371,14 @@ describe("createMemoryTools ↔ LORE_CAPABILITY_SPECS contract", () => {
     }
   });
 
-  it("memory_save and lore_retain share a handler so both CLI names succeed", () => {
+  it("dual-emits previously registered memory_* aliases but not lore_save", () => {
     const tools = createMemoryTools({ getRuntime: async () => ({}) });
-    const retain = tools.find((tool) => tool.name === "lore_retain");
-    const save = tools.find((tool) => tool.name === "memory_save");
-    const piSave = tools.find((tool) => tool.name === "lore_save");
-    assert.ok(retain);
-    assert.ok(save);
-    assert.ok(piSave);
-    assert.equal(save.handler, retain.handler);
-    assert.equal(piSave.handler, retain.handler);
+    const names = tools.map((tool) => tool.name);
+    assert.ok(names.includes("lore_retain"));
+    assert.ok(names.includes("memory_save"));
+    assert.equal(names.includes("lore_save"), false);
+    assert.equal(listCoreAliasToolNames(LORE_CAPABILITY_SPECS.find((spec) => spec.name === "lore_retain")).includes("lore_save"), false);
+    assert.equal(resolveLoreToolName("lore_save"), "lore_retain");
   });
 });
 

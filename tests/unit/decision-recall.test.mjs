@@ -116,7 +116,7 @@ test("decisions captured before a long neutral tail remain available to prompt r
     assert.equal(activeDecision.length, 1);
     assert.match(activeDecision[0].content, /PostgreSQL/);
 
-    const recall = recallMemory({
+    const recall = await recallMemory({
       db: fixture.db,
       repository: "fixture/repo",
       prompt: "Which database did we choose for concurrent writers?",

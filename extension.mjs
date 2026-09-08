@@ -13,7 +13,7 @@ import {
 } from "./lib/sessions/backfill.mjs";
 import { LoreDb } from "./lib/db/db.mjs";
 import { runMaintenanceSweep } from "./lib/maintenance/maintenance-scheduler.mjs";
-import { recallMemory } from "./lib/memory/memory-operations.mjs";
+import { assembleRecall } from "./lib/context/recall-assembler.mjs";
 import { createMemoryTools } from "./lib/tools/memory-tools.mjs";
 import {
   buildProceduralProfile,
@@ -26,7 +26,7 @@ import {
   readWorkspaceContext,
   resolveWorkspacePath,
 } from "./lib/sessions/workspace-reader.mjs";
-import { assembleMemoryCapsule, detectPromptContextNeed } from "./lib/context/capsule-assembler.mjs";
+import { detectPromptContextNeed } from "./lib/context/prompt-need.mjs";
 import { hydrateWorkstreamOverlay } from "./lib/context/overlay-hydrator.mjs";
 import { seedOnboardingMemories } from "./lib/memory/onboarding.mjs";
 import {
@@ -1296,15 +1296,23 @@ async function assembleSessionStartCapsule({ prompt, repository, activeRuntime }
       ?? writeCache(
         capsuleCache,
         startCacheKey,
-        await assembleMemoryCapsule({
+        await assembleRecall({
           prompt,
           repository,
           proceduralProfile,
           db: activeRuntime.db,
           sessionStore: activeRuntime.sessionStore,
+          sessionSource: activeRuntime.sessionStore,
           config: activeRuntime.config,
           includeTrace: activeRuntime.traceRecorder?.isEnabled?.() === true,
           includeProposalAwareness: true,
+          phases: {
+            procedural: true,
+            proposals: true,
+            onboarding: false,
+            directives: false,
+            workstream: false,
+          },
         }),
         5 * 60 * 1000,
         24,
@@ -1467,73 +1475,6 @@ async function recordUserPromptBypassObservation({
 }
 
 const handlers = {
-  onSessionStart: async (input, invocation) => {
-    lastKnownCwd = input.cwd || lastKnownCwd;
-    subagentScopeTracker.reset();
-    return handleSessionStartHook({ session, invocation, input, metrics });
-  },
-
-  onUserPromptSubmitted: async (input, invocation) => {
-    const startedAt = Date.now();
-    lastKnownCwd = input.cwd || lastKnownCwd;
-
-    const context = await getContext(session, invocation.sessionId, input.cwd);
-    const { runtime: activeRuntime, repository } = context;
-
-    if (isHookRuntimeUnavailable(activeRuntime) || !hooksEnabled(activeRuntime.config)) {
-      return;
-    }
-
-    const need = detectPromptContextNeed(input.prompt);
-    const hasAmbientInteractionStyle = readAmbientInteractionStylePresence(activeRuntime);
-    if (!need.requiresLookup && !hasAmbientInteractionStyle) {
-      await recordUserPromptBypassObservation({
-        session,
-        activeRuntime,
-        repository,
-        inputPrompt: input.prompt,
-        need,
-        durationMs: Date.now() - startedAt,
-      });
-      return;
-    }
-
-    const recall = recallMemory({
-      db: activeRuntime.db,
-      prompt: input.prompt,
-      repository,
-      includeOtherRepositories: need.allowCrossRepoFallback === true,
-      limit: activeRuntime.config.limits.promptContextLimit,
-      sessionStore: activeRuntime.sessionStore,
-      promptNeed: need,
-    });
-    const additionalContext = recall.text;
-
-    await finalizeHookObservation({
-      session,
-      activeRuntime,
-      repository,
-      hook: "onUserPromptSubmitted",
-      prompt: input.prompt,
-      promptNeed: need,
-      trace: recall.trace,
-      contextText: additionalContext,
-      durationMs: Date.now() - startedAt,
-      metricWindow: metrics.userPromptSubmittedMs,
-      latencyMetric: "userPromptSubmitted",
-      hookLabel: "lore onUserPromptSubmitted",
-      targetMs: activeRuntime.config.latencyTargetsMs.userPromptSubmittedP95,
-    });
-
-    if (!additionalContext) {
-      return;
-    }
-
-    return {
-      additionalContext,
-    };
-  },
-
   onSessionEnd: async (input, invocation) => {
     lastKnownCwd = input.cwd || lastKnownCwd;
     subagentScopeTracker.reset();
@@ -1707,13 +1648,15 @@ const session = await joinSession({
       }
 
       const recall = need.requiresLookup || hasAmbientInteractionStyle
-        ? recallMemory({
+        ? await assembleRecall({
             db: activeRuntime.db,
             prompt: input.prompt,
             repository,
             includeOtherRepositories: need.allowCrossRepoFallback === true,
             limit: activeRuntime.config.limits.promptContextLimit,
             sessionStore: activeRuntime.sessionStore,
+            sessionSource: activeRuntime.sessionStore,
+            config: activeRuntime.config,
             promptNeed: need,
           })
         : {

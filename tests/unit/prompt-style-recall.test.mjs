@@ -8,9 +8,9 @@ test("explicitly relevant style memories remain searchable when ambient persona 
   try {
     const content = "Use a calm, direct tone for difficult status updates in every repository.";
     db.insertSemanticMemory({ type: "user_preference", content, scope: "global", metadata: { source: "memory_save" } });
-    const result = recallMemory({ db, repository: "fixture/repo", prompt: "What tone should difficult status updates use?" });
+    const result = await recallMemory({ db, repository: "fixture/repo", prompt: "What tone should difficult status updates use?" });
     assert.ok(result.text.includes(content));
-    const unrelated = recallMemory({ db, repository: "fixture/repo", prompt: "How does the checksum verifier parse uploaded archives?" });
+    const unrelated = await recallMemory({ db, repository: "fixture/repo", prompt: "How does the checksum verifier parse uploaded archives?" });
     assert.equal(unrelated.text.includes(content), false);
   } finally { cleanup(); }
 });

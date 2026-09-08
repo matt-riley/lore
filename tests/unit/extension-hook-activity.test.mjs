@@ -155,7 +155,7 @@ describe("extension hook activity helpers", () => {
       writeCache() {
         throw new Error("should not write cache without a db");
       },
-      async assembleMemoryCapsule() {
+      async assembleRecall() {
         throw new Error("should not assemble without a db");
       },
     });
@@ -200,7 +200,7 @@ describe("extension hook activity helpers", () => {
         map.set(key, value);
         return value;
       },
-      async assembleMemoryCapsule(args) {
+      async assembleRecall(args) {
         assembleCalls += 1;
         return {
           text: `capsule-${assembleCalls}`,

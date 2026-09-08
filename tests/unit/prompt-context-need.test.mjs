@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { readFileSync } from "node:fs";
 
-import { detectPromptContextNeed } from "../../lib/context/capsule-assembler.mjs";
+import { detectPromptContextNeed } from "../../lib/context/prompt-need.mjs";
 import { makeSourceExtractor } from "../helpers/source-parser.mjs";
 
-const CAPSULE_ASSEMBLER_SOURCE = readFileSync(new URL("../../lib/context/capsule-assembler.mjs", import.meta.url), "utf8");
-const extractFunctionSource = makeSourceExtractor(CAPSULE_ASSEMBLER_SOURCE);
+const PROMPT_NEED_SOURCE = readFileSync(new URL("../../lib/context/prompt-need.mjs", import.meta.url), "utf8");
+const extractFunctionSource = makeSourceExtractor(PROMPT_NEED_SOURCE);
 
 function loadPromptNeedFunctions(names) {
   const functionSources = names.map((name) => extractFunctionSource(name)).join("\n\n");

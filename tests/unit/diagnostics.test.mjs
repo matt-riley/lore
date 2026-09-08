@@ -40,7 +40,7 @@ async function loadDiagnosticsHotspots() {
   if (!diagnosticsHotspotsPromise) {
     const diagnosticsUrl = pathToFileURL(DIAGNOSTICS_PATH).href;
     const source = DIAGNOSTICS_SOURCE
-      .replace(/from "\.\.\/context\/capsule-assembler\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "context", "capsule-assembler.mjs")).href}"`)
+      .replace(/from "\.\.\/context\/recall-assembler\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "context", "recall-assembler.mjs")).href}"`)
       .replace(/from "\.\.\/memory\/memory-operations\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory", "memory-operations.mjs")).href}"`)
       .replace(/from "\.\.\/memory\/procedural-memory\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory", "procedural-memory.mjs")).href}"`)
       .replace(/from "\.\.\/utils\/filtered-reason-summary\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "utils", "filtered-reason-summary.mjs")).href}"`)

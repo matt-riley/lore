@@ -261,7 +261,7 @@ async function runScenario(scenario) {
       retainedRows = fixture.db.db.prepare("SELECT id, type, content, scope, repository, source_session_id, metadata_json, superseded_by FROM semantic_memory WHERE source_session_id = ? AND superseded_by IS NULL").all(scenario.sessionId);
     }
 
-    const recall = recallMemory({ db: fixture.db, prompt: scenario.query, repository: scenario.repository, limit: 12 });
+    const recall = await recallMemory({ db: fixture.db, prompt: scenario.query, repository: scenario.repository, limit: 12 });
     const rows = includedRows(recall);
     const recalledExpected = findExpectedRecall(scenario, rows);
     const forbiddenSemanticRows = (scenario.forbidden ?? []).filter((forbidden) => normalizeRecallEvidence(rows).some((row) => matchesForbidden(row, forbidden)));
@@ -271,7 +271,7 @@ async function runScenario(scenario) {
     const suppressionFailure = scenario.critical?.includes("suppression") && (recalledExpected.length > 0 || retainedRows.some((row) => scenario.expected.some((proposition) => matchesProposition(row, { ...proposition, scope: undefined, repository: undefined }))));
     let negativeQueryResult = null;
     if (scenario.negativeQuery) {
-      const negativeRecall = recallMemory({ db: fixture.db, prompt: scenario.negativeQuery, repository: scenario.repository, limit: 12 });
+      const negativeRecall = await recallMemory({ db: fixture.db, prompt: scenario.negativeQuery, repository: scenario.repository, limit: 12 });
       const negativeRows = includedRows(negativeRecall);
       const scenarioRows = fixture.db.db.prepare("SELECT id, source_session_id, type, content, scope, repository FROM semantic_memory WHERE source_session_id = ? UNION ALL SELECT id, session_id AS source_session_id, 'episode' AS type, summary AS content, scope, repository FROM episode_digest WHERE session_id = ?").all(scenario.sessionId, scenario.sessionId);
       if (foreign) {

@@ -102,8 +102,8 @@ describe("memory-operations hotspot coverage", () => {
     );
   });
 
-  test("reflectMemory preserves workstream ranking semantics for mixed scalar and list entries", () => {
-    const reflection = reflectMemory({
+  test("reflectMemory preserves workstream ranking semantics for mixed scalar and list entries", async () => {
+    const reflection = await reflectMemory({
       db: buildReflectDb({ overlays: [makeWorkstreamRow()] }),
       prompt: "What's next for the workstream?",
       repository: "fixture-repo",
@@ -131,7 +131,7 @@ describe("memory-operations hotspot coverage", () => {
     );
   });
 
-  test("keeps recalled evidence in the inference pool when recent sessions fill the deterministic cap", () => {
+  test("keeps recalled evidence in the inference pool when recent sessions fill the deterministic cap", async () => {
     const db = buildReflectDb();
     db.explainPromptContext = () => ({
       text: "Relevant CI evidence",
@@ -159,7 +159,7 @@ describe("memory-operations hotspot coverage", () => {
       updated_at: "2026-07-14T12:00:00.000Z",
     }));
 
-    const reflection = reflectMemory({
+    const reflection = await reflectMemory({
       db,
       prompt: "What GitHub Actions and CI work was completed?",
       repository: "fixture-repo",
@@ -188,9 +188,9 @@ describe("memory-operations hotspot coverage", () => {
     );
   });
 
-  test("prefers checkpoint evidence for model-backed recent-session candidates", () => {
+  test("prefers checkpoint evidence for model-backed recent-session candidates", async () => {
     const db = buildReflectDb();
-    const reflection = reflectMemory({
+    const reflection = await reflectMemory({
       db,
       prompt: "What recurring GitHub Actions and CI problems were resolved?",
       repository: "fixture-repo",
@@ -226,7 +226,7 @@ describe("memory-operations hotspot coverage", () => {
     );
   });
 
-  test("uses an expanded retrieval prompt without changing the original reflection prompt", () => {
+  test("uses an expanded retrieval prompt without changing the original reflection prompt", async () => {
     const db = buildReflectDb();
     const lookupPrompts = [];
     db.explainPromptContext = ({ prompt }) => {
@@ -243,7 +243,7 @@ describe("memory-operations hotspot coverage", () => {
       };
     };
 
-    const reflection = reflectMemory({
+    const reflection = await reflectMemory({
       db,
       prompt: "What deployment trouble kept recurring?",
       retrievalPrompt: "deployment trouble recurring github actions ci workflow",

@@ -1,0 +1,194 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, test } from "node:test";
+
+import { assembleRecall } from "../../lib/context/recall-assembler.mjs";
+import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
+
+const SKIP_NO_FTS5 = !FTS5_AVAILABLE
+  ? "FTS5 not compiled into this Node.js SQLite build"
+  : false;
+
+const DB_SOURCE = readFileSync(new URL("../../lib/db/db.mjs", import.meta.url), "utf8");
+
+function jsonResponse(body) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("assembleRecall", () => {
+  test("LoreDb no longer renders Relevant Prior Work markdown", () => {
+    assert.equal(DB_SOURCE.includes("## Relevant Prior Work"), false);
+    assert.match(DB_SOURCE, /collectPromptContext\(/);
+  });
+
+  test("embeddings-off golden: lexical recall has no Semantic Matches section", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+        },
+      },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "embeddings-off-decision",
+        type: "decision",
+        content: "Use PostgreSQL for concurrent writers.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        tags: ["decision"],
+      });
+      const result = await assembleRecall({
+        db,
+        prompt: "Which database did we choose for concurrent writers?",
+        repository: "fixture-repo",
+        config,
+      });
+      assert.match(result.text, /PostgreSQL/);
+      assert.equal(result.text.includes("## Semantic Matches"), false);
+      assert.equal(result.trace?.lookups?.semantic, undefined);
+      assert.equal(result.localInference?.queryExpansion?.requested, false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("expansion-on golden: query expansion is used and fails open", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          model: "local-chat-model",
+          queryExpansion: {
+            enabled: true,
+            maxTerms: 4,
+          },
+          embeddings: {
+            enabled: false,
+            model: "",
+          },
+        },
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+        },
+      },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "expansion-on-blocker",
+        type: "blocker",
+        content: "GitHub Actions deployment checks were repeatedly failing.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        tags: ["ci"],
+      });
+
+      const expanded = await assembleRecall({
+        db,
+        prompt: "What deployment trouble kept recurring?",
+        repository: "fixture-repo",
+        config,
+        fetchImpl: async () => jsonResponse({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                terms: ["github actions", "deployment checks"],
+              }),
+            },
+          }],
+        }),
+      });
+      assert.equal(expanded.localInference.queryExpansion.requested, true);
+      assert.equal(expanded.localInference.queryExpansion.used, true);
+      assert.match(expanded.text, /GitHub Actions deployment checks/);
+      assert.equal(expanded.text.includes("## Semantic Matches"), false);
+
+      config.localInference.enabled = false;
+      const failOpen = await assembleRecall({
+        db,
+        prompt: "What deployment trouble kept recurring?",
+        repository: "fixture-repo",
+        config,
+        fetchImpl: async () => {
+          throw new Error("unexpected model request");
+        },
+      });
+      assert.equal(failOpen.localInference.queryExpansion.requested, true);
+      assert.equal(failOpen.localInference.queryExpansion.used, false);
+      assert.equal(failOpen.localInference.queryExpansion.error, "provider disabled");
+      assert.match(failOpen.text, /GitHub Actions deployment checks/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("collectPromptContext returns rows without rendering markdown headings", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: { memoryOperations: true, temporalQueryNormalization: true },
+      },
+    });
+    try {
+      db.upsertEpisodeDigest({
+        id: "ep-row-only",
+        sessionId: "session-row-only",
+        repository: "fixture-repo",
+        summary: "Refactored the pipeline.",
+        actions: ["refactored"],
+        decisions: [],
+        learnings: [],
+        filesChanged: [],
+        refs: [],
+        significance: 5,
+        themes: ["refactor"],
+        openItems: [],
+        dateKey: "2024-03-26",
+        createdAt: "2024-03-26T09:00:00.000Z",
+      });
+      const collected = db.collectPromptContext({
+        prompt: "what did we do yesterday",
+        repository: "fixture-repo",
+        promptNeed: {
+          hasTemporalSignal: true,
+          identityOnly: false,
+          directAddressed: false,
+          wantsContinuity: false,
+          wantsStyleContext: false,
+          wantsCrossRepoExamples: false,
+          wantsRepoLocalTaskContext: true,
+          allowCrossRepoFallback: false,
+        },
+      });
+      assert.equal(collected.text, undefined);
+      assert.ok(Array.isArray(collected.temporalCtx.episodes));
+      assert.equal(JSON.stringify(collected.semanticCtx).includes("## Relevant Prior Work"), false);
+      const rendered = await assembleRecall({
+        db,
+        prompt: "what did we do yesterday",
+        repository: "fixture-repo",
+        config: db.config,
+        phases: {
+          procedural: false,
+          proposals: false,
+          onboarding: false,
+          directives: false,
+          workstream: false,
+        },
+        promptNeed: collected.need,
+      });
+      assert.equal(typeof rendered.text, "string");
+    } finally {
+      cleanup();
+    }
+  });
+});

@@ -40,7 +40,7 @@ test("Core capture survives session end and a fresh-session recall", { skip: SKI
 
     const reopened = freshDb(config);
     try {
-      const recall = recallMemory({
+      const recall = await recallMemory({
         db: reopened,
         prompt: `What did we decide about ${marker}?`,
         retrievalPrompt: marker,

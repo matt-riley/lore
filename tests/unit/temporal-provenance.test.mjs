@@ -5,6 +5,7 @@ import path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 
 import { LoreDb } from "../../lib/db/db.mjs";
+import { assembleRecall } from "../../lib/context/recall-assembler.mjs";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
 import { buildFixtureConfig } from "../helpers/fixture-config.mjs";
 
@@ -72,6 +73,21 @@ function seedDaySummary(loreDb, { date = yesterdayDateKey(), repository = TEST_R
   loreDb.refreshDaySummary({ date, repository });
 }
 
+function assembleTemporal(loreDb, args) {
+  return assembleRecall({
+    db: loreDb,
+    config: loreDb.config,
+    phases: {
+      procedural: false,
+      proposals: false,
+      onboarding: false,
+      directives: false,
+      workstream: false,
+    },
+    ...args,
+  });
+}
+
 function seedEpisodeOnly(loreDb, { date = yesterdayDateKey(), repository = TEST_REPO } = {}) {
   loreDb.upsertEpisodeDigest({
     id: `ep-only-${date}`,
@@ -93,11 +109,11 @@ function seedEpisodeOnly(loreDb, { date = yesterdayDateKey(), repository = TEST_
 }
 
 describe("temporal provenance — trace.temporal contract", () => {
-  test("trace.temporal is null when hasTemporalSignal is false", { skip: SKIP_NO_FTS5 }, () => {
+  test("trace.temporal is null when hasTemporalSignal is false", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: "what are my open commitments",
         repository: TEST_REPO,
         promptNeed: {
@@ -118,12 +134,12 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("omitted promptNeed keeps non-temporal prompts out of temporal fallback paths", { skip: SKIP_NO_FTS5 }, () => {
+  test("omitted promptNeed keeps non-temporal prompts out of temporal fallback paths", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: "continue auth migration",
         repository: TEST_REPO,
       });
@@ -136,13 +152,13 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("high confidence when day summary is included", { skip: SKIP_NO_FTS5 }, () => {
+  test("high confidence when day summary is included", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
       seedDaySummary(loreDb);
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -159,13 +175,13 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("medium confidence when episodes included but no day summary", { skip: SKIP_NO_FTS5 }, () => {
+  test("medium confidence when episodes included but no day summary", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
       seedEpisodeOnly(loreDb);
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -181,13 +197,13 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("none confidence when temporal signal but no usable evidence", { skip: SKIP_NO_FTS5 }, () => {
+  test("none confidence when temporal signal but no usable evidence", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
       // No data seeded — nothing to find for the date
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -204,12 +220,12 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("verifierReason is missing_day_summary when no day_summary row exists", { skip: SKIP_NO_FTS5 }, () => {
+  test("verifierReason is missing_day_summary when no day_summary row exists", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -222,13 +238,13 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("scope is local when allowCrossRepoFallback is false", { skip: SKIP_NO_FTS5 }, () => {
+  test("scope is local when allowCrossRepoFallback is false", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
       seedDaySummary(loreDb);
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -241,13 +257,13 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("scope is cross_repo when allowCrossRepoFallback is true and pure temporal recall", { skip: SKIP_NO_FTS5 }, () => {
+  test("scope is cross_repo when allowCrossRepoFallback is true and pure temporal recall", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
       seedDaySummary(loreDb);
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: { ...TEMPORAL_PROMPT_NEED, allowCrossRepoFallback: true },
@@ -260,13 +276,13 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("verifierUsed is false when day summary evidence exists", { skip: SKIP_NO_FTS5 }, () => {
+  test("verifierUsed is false when day summary evidence exists", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
       seedDaySummary(loreDb);
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -279,7 +295,7 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("unresolved temporal dates use a distinct trace reason", { skip: SKIP_NO_FTS5 }, () => {
+  test("unresolved temporal dates use a distinct trace reason", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
@@ -289,7 +305,7 @@ describe("temporal provenance — trace.temporal contract", () => {
         },
       };
 
-      const { text, trace } = loreDb.explainPromptContext({
+      const { text, trace } = await assembleTemporal(loreDb,  {
         prompt: "what did we do last week",
         repository: TEST_REPO,
         sessionStore,
@@ -310,13 +326,13 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("provenance note appears in injected context text before temporal sections", { skip: SKIP_NO_FTS5 }, () => {
+  test("provenance note appears in injected context text before temporal sections", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
       seedDaySummary(loreDb);
 
-      const { text } = loreDb.explainPromptContext({
+      const { text } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -342,12 +358,12 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("no provenance note when there is no temporal evidence", { skip: SKIP_NO_FTS5 }, () => {
+  test("no provenance note when there is no temporal evidence", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
 
-      const { text } = loreDb.explainPromptContext({
+      const { text } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -360,13 +376,13 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("episode fallback provenance note appears when only episodes are available", { skip: SKIP_NO_FTS5 }, () => {
+  test("episode fallback provenance note appears when only episodes are available", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
       seedEpisodeOnly(loreDb);
 
-      const { text, trace } = loreDb.explainPromptContext({
+      const { text, trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -389,13 +405,13 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("existing lookups.daySummary and lookups.localEpisodes shapes are preserved", { skip: SKIP_NO_FTS5 }, () => {
+  test("existing lookups.daySummary and lookups.localEpisodes shapes are preserved", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
       seedDaySummary(loreDb);
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         promptNeed: TEMPORAL_PROMPT_NEED,
@@ -421,7 +437,7 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("low confidence when raw session-store verification supplies the answer", { skip: SKIP_NO_FTS5 }, () => {
+  test("low confidence when raw session-store verification supplies the answer", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
@@ -446,7 +462,7 @@ describe("temporal provenance — trace.temporal contract", () => {
         },
       };
 
-      const { text, trace } = loreDb.explainPromptContext({
+      const { text, trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         sessionStore,
@@ -470,7 +486,7 @@ describe("temporal provenance — trace.temporal contract", () => {
     }
   });
 
-  test("does not run temporal verifier when primary temporal evidence already exists", { skip: SKIP_NO_FTS5 }, () => {
+  test("does not run temporal verifier when primary temporal evidence already exists", { skip: SKIP_NO_FTS5 }, async () => {
     const tempHome = makeTempDir();
     try {
       const loreDb = makeDb(tempHome);
@@ -483,7 +499,7 @@ describe("temporal provenance — trace.temporal contract", () => {
         },
       };
 
-      const { trace } = loreDb.explainPromptContext({
+      const { trace } = await assembleTemporal(loreDb,  {
         prompt: PURE_TEMPORAL_PROMPT,
         repository: TEST_REPO,
         sessionStore,

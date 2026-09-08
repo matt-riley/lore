@@ -12,7 +12,7 @@
 //
 // Methods:
 //   status           - store statistics
-//   recall           - recallMemory (prompt context + onboarding/directives)
+//   recall           - assembleRecall (prompt context + onboarding/directives)
 //   search           - searchSemantic (typed fallback supported)
 //   save / onboard   - retainMemory
 //   extract          - extract memories from one pi session file
@@ -28,7 +28,8 @@ import { loadConfig } from "./lib/core/config.mjs";
 import { resolveLorePaths } from "./lib/core/lore-paths.mjs";
 import { LoreDb } from "./lib/db/db.mjs";
 import { seedOnboardingMemories } from "./lib/memory/onboarding.mjs";
-import { recallMemory, retainMemory } from "./lib/memory/memory-operations.mjs";
+import { retainMemory } from "./lib/memory/memory-operations.mjs";
+import { assembleRecall } from "./lib/context/recall-assembler.mjs";
 import { applySessionExtraction } from "./lib/sessions/backfill.mjs";
 import { extractSessionMemories } from "./lib/sessions/rule-extractor.mjs";
 import { buildErrorTelemetryRecord, buildPostToolUseObservation } from "./lib/lifecycle/passive-hooks.mjs";
@@ -260,7 +261,7 @@ function waitForArchiveIdle() {
 async function dispatch(method, params) {
   switch (method) {
     case "recall": {
-      let recall = recallMemory({
+      let recall = await assembleRecall({
         db,
         prompt: params.prompt,
         retrievalPrompt: params.retrievalPrompt ?? null,
@@ -268,6 +269,7 @@ async function dispatch(method, params) {
         includeOtherRepositories: params.includeOtherRepositories === true,
         limit: params.limit ?? 6,
         sessionStore: null,
+        config: db.config,
       });
       if (params.semantic === true && recall.promptNeed?.hasTemporalSignal !== true
         && db.config?.localInference?.embeddings?.enabled === true) {

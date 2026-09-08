@@ -448,7 +448,7 @@ For runtime and platform promises, see [`docs/compatibility.md`](docs/compatibil
 
 `memory_portable_bundle` accepts a `format` argument: `json` (default, machine-readable) or `okf`. It exports approved improvement artifacts, not a raw database dump. The `okf` format writes an [Open Knowledge Format v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundle -- one markdown file with YAML frontmatter per approved improvement artifact, plus a root `index.md` -- so approved Lore improvements can be reviewed, archived, or shared outside the CLI with any OKF-aware tool.
 
-Exports use private filesystem permissions by default: JSON files are owner-only (`0600`), OKF bundle directories use `0700`, and bundle files use `0600`. Existing symlink destinations are rejected to avoid overwriting an unexpected target.
+Exports use private filesystem permissions by default: JSON files are owner-only (`0600`); OKF bundle roots and all directories within them are owner-only (`0700`), with bundle files owner-only (`0600`). Both formats reject symlink destinations, and OKF paths that would leave the configured bundle directory are rejected.
 
 To browse an OKF bundle visually, render it into a self-contained HTML viewer:
 

@@ -218,6 +218,10 @@ async function checkLocalEvidenceFiles(input, ledgerPath) {
     try {
       await access(target, constants.R_OK);
       const targetRealPath = await realpath(target);
+      if (targetRealPath === ledgerRealPath) {
+        blockers.push(`evidence ${reference}: the ledger cannot serve as its own supporting artifact`);
+        continue;
+      }
       if (targetRealPath !== ledgerRoot && !targetRealPath.startsWith(`${ledgerRoot}/`)) {
         blockers.push(`evidence ${reference}: must remain within the ledger directory`);
         continue;

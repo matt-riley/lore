@@ -119,6 +119,12 @@ test("CLI rejects extra arguments and runs through a symlinked entrypoint", asyn
     const output = JSON.parse(checked.stdout);
     assert.equal(output.ok, false);
     assert.ok(output.artifactBlockers.length > 0);
+    const selfReferencing = JSON.stringify(validEvidence(), (key, value) => key === "evidence" ? "evidence.json" : value);
+    await writeFile(ledger, selfReferencing, "utf8");
+    const selfChecked = spawnSync(process.execPath, [link, ledger], { encoding: "utf8" });
+    assert.equal(selfChecked.status, 1);
+    assert.equal(JSON.parse(selfChecked.stdout).ok, false);
+    assert.match(JSON.parse(selfChecked.stdout).artifactBlockers.join("\n"), /cannot serve as its own/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -225,7 +225,7 @@ async function runScenario(scenario) {
   const fixture = await withFixtureDb({
     configOverrides: {
       enabled: true,
-      rollout: { memoryOperations: true, directives: true, retentionSanitization: false, hybridRetrieval: true },
+      rollout: { memoryOperations: true, directives: scenario.disableStandingDirectives !== true, retentionSanitization: false, hybridRetrieval: true },
     },
   });
   try {

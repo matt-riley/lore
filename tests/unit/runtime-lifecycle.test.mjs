@@ -5,6 +5,32 @@ import { describe, test } from "node:test";
 
 import { createRuntimeLifecycle } from "../../lib/lifecycle/runtime-lifecycle.mjs";
 
+function manualTimers() {
+  let nextId = 0;
+  const timers = new Map();
+  const cleared = [];
+  return {
+    setTimeout(callback) {
+      const id = ++nextId;
+      timers.set(id, callback);
+      return id;
+    },
+    clearTimeout(id) {
+      cleared.push(id);
+      timers.delete(id);
+    },
+    ids() {
+      return [...timers.keys()];
+    },
+    fire(id) {
+      const callback = timers.get(id);
+      timers.delete(id);
+      callback?.();
+    },
+    cleared,
+  };
+}
+
 describe("runtime lifecycle background work", () => {
   test("tracks work through resolution and rejection", async () => {
     const runtime = { pendingWork: new Set(), shuttingDown: false };
@@ -81,6 +107,37 @@ describe("shutdownRuntime", () => {
     assert.deepEqual(closeCalls, ["db"]);
     assert.equal(runtime.db, null);
     assert.equal(runtime.loreSession, null);
+  });
+
+  test("cancels queued deferred work when grace expires", async () => {
+    const timers = manualTimers();
+    const runtime = { pendingWork: new Set(), shuttingDown: false, db: { close() {} } };
+    const { shutdownRuntime, spawnTrackedDeferredTask } = createRuntimeLifecycle(runtime, timers);
+    let ran = false;
+    spawnTrackedDeferredTask(async () => { ran = true; });
+    const deferredTimer = timers.ids()[0];
+    const shutdown = shutdownRuntime({}, 20);
+    const graceTimer = timers.ids().find((id) => id !== deferredTimer);
+    timers.fire(graceTimer);
+    await shutdown;
+    assert.equal(ran, false);
+    assert.equal(runtime.pendingWork.size, 0);
+    assert.ok(timers.cleared.includes(deferredTimer));
+    assert.equal(runtime.db, null);
+  });
+
+  test("cancels grace timer when tracked work drains early", async () => {
+    const timers = manualTimers();
+    const runtime = { pendingWork: new Set(), shuttingDown: false, db: { close() {} } };
+    const { shutdownRuntime, trackBackgroundWork } = createRuntimeLifecycle(runtime, timers);
+    let resolveWork;
+    trackBackgroundWork(new Promise((resolve) => { resolveWork = resolve; }));
+    const shutdown = shutdownRuntime({}, 20);
+    const graceTimer = timers.ids()[0];
+    resolveWork();
+    await shutdown;
+    assert.ok(timers.cleared.includes(graceTimer));
+    assert.equal(runtime.db, null);
   });
 
   test("bounds shutdown while rejected or slow work remains pending", async () => {

@@ -51,6 +51,12 @@ describe("extraction grammar accuracy", () => {
     assert.notEqual(standingDirectiveType("Do not forget to run migrations"), "rejected_approach");
   });
 
+  test("recognizes direct communication prohibitions with quoted objects", () => {
+    assert.equal(standingDirectiveType('Never say "obviously" in responses.'), "rejected_approach");
+    assert.equal(standingDirectiveType("Never say obviously in responses."), "rejected_approach");
+    assert.equal(standingDirectiveType('The guide says "never say obviously".'), null);
+  });
+
   test("does not treat bare imperative task language as standing policy", () => {
     assert.equal(standingDirectiveType("Run the tests."), null);
     assert.equal(standingDirectiveType("Use bun for this task."), null);

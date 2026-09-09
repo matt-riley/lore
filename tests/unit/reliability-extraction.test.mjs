@@ -301,6 +301,21 @@ describe("conservative rule extraction", () => {
     ]);
   });
 
+  test("extracts quoted and unquoted communication prohibitions but filters reports", () => {
+    const extraction = extract({
+      turns: [
+        { user_message: 'Never say "obviously" in responses.' },
+        { user_message: "Never say obviously in responses." },
+        { user_message: 'The guide says "never say obviously".' },
+      ],
+    });
+
+    assert.deepEqual(semantic(extraction, "rejected_approach").map((memory) => memory.content), [
+      'Never say "obviously" in responses.',
+      "Never say obviously in responses.",
+    ]);
+  });
+
   test("extracts independent preference and rejection clauses in one sentence", () => {
     const extraction = extract({
       turns: [{

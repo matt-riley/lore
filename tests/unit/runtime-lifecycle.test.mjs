@@ -140,6 +140,64 @@ describe("shutdownRuntime", () => {
     assert.equal(runtime.db, null);
   });
 
+  test("keeps a running deferred task tracked after grace closes resources", async () => {
+    const timers = manualTimers();
+    const closeCalls = [];
+    const runtime = {
+      pendingWork: new Set(),
+      shuttingDown: false,
+      db: { close() { closeCalls.push("db"); } },
+    };
+    const { shutdownRuntime, spawnTrackedDeferredTask } = createRuntimeLifecycle(runtime, timers);
+    let resolveTask;
+    let started = false;
+    spawnTrackedDeferredTask(() => {
+      started = true;
+      return new Promise((resolve) => { resolveTask = resolve; });
+    });
+    const deferredTimer = timers.ids()[0];
+    timers.fire(deferredTimer);
+    await Promise.resolve();
+    assert.equal(started, true);
+    assert.equal(runtime.pendingWork.size, 1);
+
+    const shutdown = shutdownRuntime({}, 20);
+    const graceTimer = timers.ids()[0];
+    timers.fire(graceTimer);
+    await shutdown;
+
+    assert.deepEqual(closeCalls, ["db"]);
+    assert.equal(runtime.pendingWork.size, 1, "running work must remain tracked after bounded shutdown");
+    assert.ok(!timers.cleared.includes(deferredTimer), "running task timer is no longer cancellable");
+    const [trackedTask] = runtime.pendingWork;
+    resolveTask();
+    await trackedTask;
+    assert.equal(runtime.pendingWork.size, 0);
+  });
+
+  test("waits for a fired deferred task when it settles within grace", async () => {
+    const timers = manualTimers();
+    const closeCalls = [];
+    const runtime = {
+      pendingWork: new Set(),
+      shuttingDown: false,
+      db: { close() { closeCalls.push("db"); } },
+    };
+    const { shutdownRuntime, spawnTrackedDeferredTask } = createRuntimeLifecycle(runtime, timers);
+    let resolveTask;
+    spawnTrackedDeferredTask(() => new Promise((resolve) => { resolveTask = resolve; }));
+    timers.fire(timers.ids()[0]);
+    await Promise.resolve();
+    const shutdown = shutdownRuntime({}, 20);
+    await Promise.resolve();
+    assert.deepEqual(closeCalls, [], "resources stay open while running work is pending within grace");
+    assert.equal(runtime.pendingWork.size, 1);
+    resolveTask();
+    await shutdown;
+    assert.deepEqual(closeCalls, ["db"]);
+    assert.equal(runtime.pendingWork.size, 0);
+  });
+
   test("bounds shutdown while rejected or slow work remains pending", async () => {
     const runtime = { pendingWork: new Set(), shuttingDown: false, db: { close() {} } };
     const { shutdownRuntime, trackBackgroundWork } = createRuntimeLifecycle(runtime);

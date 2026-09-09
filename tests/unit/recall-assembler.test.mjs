@@ -57,6 +57,48 @@ describe("assembleRecall", () => {
     }
   });
 
+  test("filters rejection provenance before the standing-policy limit", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: { enabled: true, rollout: { memoryOperations: true, directives: true } },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "older-standing-rejection",
+        type: "rejected_approach",
+        content: "Never expose the production signing key.",
+        scope: "repo",
+        repository: "fixture-repo",
+        metadata: { source: "rule_extractor", confidenceBasis: "explicit_rejection_sentence" },
+        confidence: 1,
+        tags: ["rejected", "user"],
+      });
+      for (let index = 0; index < 70; index += 1) {
+        db.insertSemanticMemory({
+          id: `recent-ordinary-rejection-${index}`,
+          type: "rejected_approach",
+          content: `Observed timeout complaint ${index}.`,
+          scope: "repo",
+          repository: "fixture-repo",
+          metadata: { source: "rule_extractor", confidenceBasis: "bug_report" },
+          confidence: 1,
+          tags: ["rejected", "user"],
+        });
+      }
+      db.db.prepare("UPDATE semantic_memory SET updated_at = ? WHERE id LIKE 'recent-ordinary-rejection-%'").run("2099-01-01T00:00:00.000Z");
+      const result = await assembleRecall({
+        db,
+        prompt: "What general guidance applies?",
+        repository: "fixture-repo",
+        config,
+      });
+      assert.ok(result.trace.lookups.directives.includedRows.some((row) => row.id === "older-standing-rejection"));
+      assert.match(result.text, /Never expose the production signing key/);
+      assert.doesNotMatch(result.text, /Observed timeout complaint/);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("budget filtering removes dropped directives from included trace rows", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

@@ -293,15 +293,14 @@ describe("independent reliability quality corpus", () => {
   });
 
   test("mandatory recall gate fails an existing miss without changing other metrics", async () => {
-    const scenarios = RELIABILITY_CORPUS.filter((item) => item.client === "copilot");
+    const scenarios = RELIABILITY_CORPUS.filter((item) => item.client === "copilot").map((item) =>
+      item.id === "independent-worker-shutdown" ? { ...item, disableStandingDirectives: true } : item
+    );
     const baseline = await runQualityEvaluation({ scenarios });
     assert.equal(baseline.passed, true);
     const workerIndex = scenarios.findIndex((item) => item.id === "independent-worker-shutdown");
     const mandatory = scenarios.map((item, index) => index === workerIndex ? {
       ...item,
-      // Keep the real worker-shutdown case and force the evaluator to observe
-      // its existing pre-fix recall path without changing extraction metrics.
-      disableStandingDirectives: true,
       mandatoryRecall: true,
     } : item);
     const gated = await runQualityEvaluation({ scenarios: mandatory });

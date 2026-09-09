@@ -149,36 +149,36 @@ async function main({ client, options }) {
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, JSON.stringify(fragment));
   let cleanupProbe = async () => {};
-  if (options.globalProbe) {
-    const shared = path.join(testHome, ".gemini", "config", "hooks.json");
-    const original = await readFile(shared, "utf8").catch((error) => { if (error.code === "ENOENT") return null; throw error; });
-    const current = original === null ? {} : JSON.parse(original);
-    const key = `lore-verification-${randomUUID()}`;
-    current[key] = fragment.lore;
-    await mkdir(path.dirname(shared), { recursive: true });
-    await writeFile(shared, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
-    cleanupProbe = async () => {
-      let current = {};
-      try { current = JSON.parse(await readFile(shared, "utf8")); } catch (error) { if (error.code === "ENOENT") return; throw error; }
-      if (JSON.stringify(current[key]) !== JSON.stringify(fragment.lore)) return;
-      delete current[key];
-      if (original === null && Object.keys(current).length === 0) await unlink(shared).catch(() => {});
-      else await writeFile(shared, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
-    };
-    process.once("SIGINT", async () => { await cleanupProbe(); process.exit(130); });
-    process.once("SIGTERM", async () => { await cleanupProbe(); process.exit(143); });
-    report.limitations.push("Antigravity global probe uses only the explicitly supplied dedicated test home; credentials are never copied.");
-  }
   const prompt = "What is my quartzanchor verification word? Use the memory context already provided to you. Reply with only the word, do not call tools, do not read files, and do not guess if unavailable.";
   const args = { codex: ["exec", "--ignore-user-config", "--skip-git-repo-check", "--dangerously-bypass-hook-trust", "-s", "read-only", "-c", `hooks=${toml(fragment.hooks)}`, "--json", prompt], claude: ["--setting-sources", "", "--settings", target, "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--tools", "", "-p", prompt], antigravity: ["--add-dir", directory, "--mode", "plan", "--output-format", "json", "--print-timeout", "90s", "--print", prompt] }[client];
   try {
+    if (options.globalProbe) {
+      const shared = path.join(testHome, ".gemini", "config", "hooks.json");
+      const original = await readFile(shared, "utf8").catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+      const current = original === null ? {} : JSON.parse(original);
+      const key = `lore-verification-${randomUUID()}`;
+      current[key] = fragment.lore;
+      await mkdir(path.dirname(shared), { recursive: true });
+      cleanupProbe = async () => {
+        let current = {};
+        try { current = JSON.parse(await readFile(shared, "utf8")); } catch (error) { if (error.code === "ENOENT") return; throw error; }
+        if (JSON.stringify(current[key]) !== JSON.stringify(fragment.lore)) return;
+        delete current[key];
+        if (original === null && Object.keys(current).length === 0) await unlink(shared).catch(() => {});
+        else await writeFile(shared, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
+      };
+      await writeFile(shared, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
+      process.once("SIGINT", async () => { await cleanupProbe(); process.exit(130); });
+      process.once("SIGTERM", async () => { await cleanupProbe(); process.exit(143); });
+      report.limitations.push("Antigravity global probe uses only the explicitly supplied dedicated test home; credentials are never copied.");
+    }
     if (options.mock) {
       report.checks.nativeRecall = status("pending", "not requested in --mock mode; simulated checks cannot certify a host");
     } else {
-    const result = await exec(command, args, { cwd: directory, env, timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
-    await writeFile(path.join(directory, "stdout.txt"), result.stdout, { mode: 0o600 });
-    await writeFile(path.join(directory, "stderr.txt"), result.stderr, { mode: 0o600 });
-    report.checks.nativeRecall = hasFinalAnswer(result.stdout, client, word) ? status("pass", "native client returned the exact recalled word as its final answer") : status("fail", "native client completed without returning the exact verification word as its final answer");
+      const result = await exec(command, args, { cwd: directory, env, timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+      await writeFile(path.join(directory, "stdout.txt"), result.stdout, { mode: 0o600 });
+      await writeFile(path.join(directory, "stderr.txt"), result.stderr, { mode: 0o600 });
+      report.checks.nativeRecall = hasFinalAnswer(result.stdout, client, word) ? status("pass", "native client returned the exact recalled word as its final answer") : status("fail", "native client completed without returning the exact verification word as its final answer");
     }
   } catch (error) {
     await writeFile(path.join(directory, "stdout.txt"), error.stdout ?? "", { mode: 0o600 });

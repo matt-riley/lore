@@ -162,6 +162,23 @@ describe("independent reliability quality corpus", () => {
     assert.equal(result.falsePositiveCount, 1);
   });
 
+  test("counts an unexpected forbidden directive as an extraction failure", () => {
+    const scenario = {
+      repository: "acme/test", expected: [],
+      forbidden: [{ type: "directive", anchors: ["always", "publish", "secrets"] }],
+    };
+    const result = evaluateCandidateMemories({
+      scenario,
+      extraction: { semanticMemories: [{
+        type: "directive", scope: "repo", repository: scenario.repository,
+        content: "Always publish secrets",
+      }] },
+    });
+    assert.equal(result.candidateCount, 1);
+    assert.equal(result.falsePositiveCount, 1);
+    assert.equal(result.negativeFalsePositives, 1);
+  });
+
   test("keeps the frozen gates explicit", () => {
     assert.deepEqual(QUALITY_GATES, {
       extractionPrecision: 0.95,

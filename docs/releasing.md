@@ -216,7 +216,7 @@ There is no time-boxed release train until the project matures to `1.x`.
 
 The current work targets Node 24.0.0+ and all five adapters on macOS. Before promoting adapters or preparing the release-please 1.0.0 PR:
 
-1. Run `npm run check:runtime`, `npm test`, `npm run test:smoke`, `npm run lint`, `npm run validate-schema`, and `npm run test:quality` on the integrated commit. Hosted CI must pass the exact Node 24.0.0 minimum, latest 24, and latest 26 on macOS/Linux.
+1. Run `npm run check:runtime`, `npm test`, `npm run test:smoke`, `npm run lint`, `npm run validate-schema`, `npm run test:quality`, and `npm run test:reliability` on the integrated commit. Hosted CI must pass the exact Node 24.0.0 minimum, latest 24, and latest 26 on macOS/Linux. Review grouped recall misses even when the aggregate reliability gate passes; mandatory recall failures block the gate independently.
 2. Run `npm run benchmark` on the reference Mac. The 10,000-memory gate is p95 <300 ms for database reopen plus startup context and <200 ms for prompt recall, with 10 warmups and 100 measured samples. The 1,000/100,000-store results are informational. This measures Lore core work with warm OS caches, not host launch or model inference.
 3. Run all website checks and desktop/mobile dashboard and site QA. Record screenshot evidence using synthetic data.
 4. Certify each actual client: tagged installation, explicit save/recall, automatic capture and fresh-session recall, scope isolation, reload, failure handling, update, removal, and recovery. Simulated hook events and mocked SDK tests are supporting evidence; they cannot satisfy real-host certification.
@@ -224,3 +224,25 @@ The current work targets Node 24.0.0+ and all five adapters on macOS. Before pro
 6. Review the final evidence and let release-please prepare the 1.0.0 PR. Merge/publish only after maintainer review; verify the published tag and repeat a clean-install smoke check.
 
 See [v1 release evidence](v1-release-evidence.md) for actual progress and pending gates. No candidate or soak is implied by a passing local test suite.
+
+### Validate the reviewed evidence ledger
+
+After collecting redacted real-host artifacts, run:
+
+```sh
+node scripts/check-release-evidence.mjs /path/to/evidence/ledger.json
+```
+
+The checker reports certification and soak blockers separately. It checks one candidate commit and tag, all five authenticated macOS clients, supported Node versions, successful required scenarios, and at least ten distinct successful days per client within a candidate window lasting at least fourteen elapsed days. Duplicate days, future or malformed timestamps, mixed commits, simulated execution, and incomplete checks cannot satisfy the gate. Its CLI also checks the referenced local artifacts.
+
+The ledger is a **reviewed attestation**, not proof that a client actually ran. Review the artifacts, their commit and host versions, and the real scenario outcomes before accepting the result. Existing verifier JSON is supporting evidence and cannot be relabelled as complete certification.
+
+The top-level JSON fields are `schemaVersion: 1`, `candidateCommit` (full lowercase Git hash), `candidateTag`, `startedAt`, `generatedAt`, and `clients`. Timestamps use UTC ISO format. `startedAt` begins the observation window for this candidate; changing the core candidate resets it. Each of `copilot`, `pi`, `codex`, `claude`, and `antigravity` must supply:
+
+- `platform: "macos"`, `nodeVersion`, and `clientVersion`.
+- `execution: { "mode": "real", "authenticated": true }`.
+- `installation` with `tagged: true`, the candidate `tag` and `commit`, the execution timestamp `at`, and a local artifact reference `evidence`.
+- `checks` containing `taggedInstallation`, `explicitSaveRecall`, `automaticCaptureFreshSessionRecall`, `scopeIsolation`, `reload`, `failureHandling`, `update`, `removal`, and `recovery`. Each check has `status: "pass"`, `commit`, `mode: "real"`, `authenticated: true`, `at`, and `evidence`.
+- `soak`, an array of daily records with `date` (`YYYY-MM-DD` UTC), `at`, `commit`, `success: true`, and `evidence`. Each timestamp must be inside the candidate window; `date` must match its timestamp. Keep failed observations in the review record and restart after a core fix rather than editing them into successes.
+
+Artifact references are relative to the ledger directory. Keep the ledger and redacted artifacts private until reviewed for sharing. The checker never creates a candidate tag, authenticates clients, promotes support levels, or publishes a release.

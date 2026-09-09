@@ -597,6 +597,8 @@ website/               # Separate Astro documentation site and interactive examp
 
 The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 24.0.0+ and pnpm 12.2.1, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
 
+Release readiness also requires actual client evidence. Use `node scripts/verify-cli-hooks.mjs <codex|claude|antigravity> --mock --json` for isolated simulated checks; these leave native recall pending and never launch a host. See [the v1 release gate](docs/releasing.md#v1-candidate-gate) for authenticated certification and the 14-day candidate soak. Local test success does not complete those gates.
+
 If you want the deeper contract, these are the main references:
 
 - [docs/support-matrix.md](docs/support-matrix.md) — supported vs experimental surfaces

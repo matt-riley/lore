@@ -32,6 +32,9 @@ describe("extraction grammar accuracy", () => {
     assert.equal(isNonDirectiveSentence("I prefer 'release candidate' tags."), false);
     assert.equal(isNonDirectiveSentence('Never use "obviously" in error messages.'), false);
     assert.equal(isNonDirectiveSentence('I prefer Node’s test runner.'), false);
+    assert.equal(isNonDirectiveSentence('Across all projects, I prefer "small pure functions".'), false);
+    assert.equal(isNonDirectiveSentence('Going forward, I prefer "small pure functions".'), false);
+    assert.equal(isNonDirectiveSentence('If tests fail, never merge "main".', { allowConditions: true }), false);
   });
 
   test("still filters quoted instructions and reported examples", () => {

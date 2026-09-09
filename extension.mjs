@@ -50,6 +50,7 @@ import { createSubagentScopeTracker } from "./lib/lifecycle/subagent-scope-track
 import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.mjs";
 import { createRuntimeLifecycle } from "./lib/lifecycle/runtime-lifecycle.mjs";
 import { consumeLatestMemoryHygieneSummary } from "./lib/memory/memory-hygiene.mjs";
+import { setTimeout as delay } from "node:timers/promises";
 
 let lastKnownCwd = process.cwd();
 

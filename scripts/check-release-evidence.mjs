@@ -1,4 +1,4 @@
-import { access, readFile, realpath } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -140,11 +140,6 @@ function validateClient(client, clientName, candidateCommit, candidateTag, start
   const successfulDays = client.soak.filter((entry) => entry?.success === true && typeof entry.date === "string" && DATE.test(entry.date));
   const distinctSuccessfulDays = new Set(successfulDays.map((entry) => entry.date));
   if (distinctSuccessfulDays.size < 10) addError(errors, `${path}.soak`, "requires at least 10 distinct successful days");
-  if (distinctSuccessfulDays.size > 0) {
-    const sorted = [...distinctSuccessfulDays].sort();
-    const elapsedDays = (Date.parse(`${sorted.at(-1)}T00:00:00Z`) - Date.parse(`${sorted[0]}T00:00:00Z`)) / 86_400_000;
-    if (elapsedDays < 14) addError(errors, `${path}.soak`, "must span at least 14 elapsed calendar days");
-  }
 }
 
 export function validateReleaseEvidence(input, { now = new Date() } = {}) {
@@ -174,8 +169,9 @@ export function validateReleaseEvidence(input, { now = new Date() } = {}) {
     else validateClient(clients[clientName], clientName, input.candidateCommit, input.candidateTag, startTime, endTime, nowDate, errors);
   }
 
-  const certificationBlockers = errors.filter((error) => !error.includes(".soak"));
-  const soakBlockers = errors.filter((error) => error.includes(".soak") || error.includes("generatedAt") || error.includes("startedAt") || error.includes("candidate window") || error.includes("all five actual clients"));
+  const sharedBlockers = errors.filter((error) => /^(?:evidence\.(?:schemaVersion|candidateCommit|candidateTag|startedAt|generatedAt))|all five actual clients|unknown client/.test(error));
+  const certificationBlockers = [...sharedBlockers, ...errors.filter((error) => !sharedBlockers.includes(error) && !error.includes(".soak") && !error.includes("candidate window"))];
+  const soakBlockers = [...sharedBlockers, ...errors.filter((error) => !sharedBlockers.includes(error) && (error.includes(".soak") || error.includes("candidate window")))];
   return {
     ok: errors.length === 0,
     certification: { ok: certificationBlockers.length === 0, blockers: certificationBlockers },
@@ -185,7 +181,7 @@ export function validateReleaseEvidence(input, { now = new Date() } = {}) {
   };
 }
 
-function evidenceReferences(value, references = []) {
+export function evidenceReferences(value, references = []) {
   if (Array.isArray(value)) {
     for (const item of value) evidenceReferences(item, references);
   } else if (isObject(value)) {
@@ -200,14 +196,23 @@ function evidenceReferences(value, references = []) {
 async function checkLocalEvidenceFiles(input, ledgerPath) {
   const blockers = [];
   const references = [...new Set(evidenceReferences(input))];
+  const ledgerRealPath = await realpath(ledgerPath).catch(() => resolve(ledgerPath));
+  const ledgerRoot = dirname(ledgerRealPath);
   for (const reference of references) {
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(reference)) {
       blockers.push(`evidence ${reference}: must be a local ledger reference`);
       continue;
     }
-    const target = resolve(dirname(ledgerPath), reference);
+    const target = resolve(ledgerRoot, reference);
     try {
       await access(target, constants.R_OK);
+      const targetRealPath = await realpath(target);
+      if (targetRealPath !== ledgerRoot && !targetRealPath.startsWith(`${ledgerRoot}/`)) {
+        blockers.push(`evidence ${reference}: must remain within the ledger directory`);
+        continue;
+      }
+      const details = await stat(targetRealPath);
+      if (!details.isFile() || details.size === 0) blockers.push(`evidence ${reference}: must reference a non-empty regular file`);
     } catch {
       blockers.push(`evidence ${reference}: referenced file does not exist or is not readable`);
     }
@@ -233,14 +238,15 @@ async function main() {
   }
   const result = validateReleaseEvidence(input);
   const artifacts = await checkLocalEvidenceFiles(input, file);
-  const output = { ...result, artifactReferences: artifacts.references.length, artifactBlockers: artifacts.blockers };
+  const output = { ...result, ok: result.ok && artifacts.blockers.length === 0, artifactReferences: artifacts.references.length, artifactBlockers: artifacts.blockers };
   console.log(JSON.stringify(output, null, 2));
-  if (!result.ok || artifacts.blockers.length > 0) process.exitCode = 1;
+  if (!output.ok) process.exitCode = 1;
 }
 
+let invokedAsCli = false;
 try {
-  if (process.argv[1] && await realpath(fileURLToPath(import.meta.url)) === await realpath(process.argv[1])) await main();
+  invokedAsCli = Boolean(process.argv[1]) && await realpath(fileURLToPath(import.meta.url)) === await realpath(process.argv[1]);
 } catch {
-  // Imported validators must remain side-effect free; an unresolvable argv[1]
-  // simply means this module was not invoked as the CLI entrypoint.
+  invokedAsCli = false;
 }
+if (invokedAsCli) await main();

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -12,7 +12,7 @@ const CANDIDATE = "0123456789abcdef0123456789abcdef01234567";
 const NOW = new Date("2026-09-09T12:00:00.000Z");
 
 function validEvidence() {
-  const soak = ["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28", "2026-09-03"];
+  const soak = ["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-29"];
   const clients = Object.fromEntries(REQUIRED_CLIENTS.map((client) => [client, {
     platform: "macos",
     nodeVersion: "24.0.0",
@@ -67,18 +67,16 @@ test("rejects simulated, partial, inconsistent, duplicate, and future evidence",
   assert.match(result.blockers.join("\n"), /mode.*real/);
 });
 
-test("requires ten distinct successful days across at least fourteen elapsed days", () => {
+test("requires ten distinct successful days and a common fourteen-day window", () => {
   const evidence = validEvidence();
   evidence.clients.codex.soak = evidence.clients.codex.soak.slice(0, 9).map((entry) => ({ ...entry, success: true }));
-  evidence.clients.pi.soak = evidence.clients.pi.soak.map((entry, index) => ({
-    ...entry,
-    date: `2026-08-${String(20 + index).padStart(2, "0")}`,
-    at: `2026-08-${String(20 + index).padStart(2, "0")}T10:00:00.000Z`,
-  }));
+  evidence.generatedAt = "2026-09-02T10:00:00.000Z";
   const result = validateReleaseEvidence(evidence, { now: NOW });
   assert.equal(result.ok, false);
+  assert.equal(result.certification.ok, true);
+  assert.equal(result.soak.ok, false);
   assert.match(result.blockers.join("\n"), /codex\.soak.*10 distinct/);
-  assert.match(result.blockers.join("\n"), /pi\.soak.*14 elapsed/);
+  assert.match(result.blockers.join("\n"), /candidate window.*14 elapsed/);
 });
 
 test("fails both gates when the candidate window is incomplete or malformed", () => {
@@ -103,6 +101,13 @@ test("CLI rejects extra arguments and runs through a symlinked entrypoint", asyn
     assert.equal(help.status, 0);
     const extra = spawnSync(process.execPath, [link, "--help", "unexpected"], { encoding: "utf8" });
     assert.equal(extra.status, 2);
+    const ledger = join(directory, "evidence.json");
+    await writeFile(ledger, JSON.stringify(validEvidence()), "utf8");
+    const checked = spawnSync(process.execPath, [link, ledger], { encoding: "utf8" });
+    assert.equal(checked.status, 1);
+    const output = JSON.parse(checked.stdout);
+    assert.equal(output.ok, false);
+    assert.ok(output.artifactBlockers.length > 0);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

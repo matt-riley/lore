@@ -30,6 +30,7 @@ describe("extraction grammar accuracy", () => {
     assert.equal(isNonDirectiveSentence('Always use "node test" for tests.'), false);
     assert.equal(isNonDirectiveSentence('Always use “node:test” for tests.'), false);
     assert.equal(isNonDirectiveSentence("I prefer 'release candidate' tags."), false);
+    assert.equal(isNonDirectiveSentence("I prefer ‘release candidate’ tags."), false);
     assert.equal(isNonDirectiveSentence('Never use "obviously" in error messages.'), false);
     assert.equal(isNonDirectiveSentence('I prefer Node’s test runner.'), false);
     assert.equal(isNonDirectiveSentence('Across all projects, I prefer "small pure functions".'), false);
@@ -44,6 +45,8 @@ describe("extraction grammar accuracy", () => {
     assert.equal(isNonDirectiveSentence('The guide says “always use SQLite”.'), true);
     assert.equal(isNonDirectiveSentence('The guide says "always use SQLite.'), true);
     assert.equal(isNonDirectiveSentence('The example says “Always use `node:test`”.'), true);
+    assert.equal(isNonDirectiveSentence("I prefer 'release candidate’ tags."), true);
+    assert.equal(isNonDirectiveSentence("I prefer ‘release candidate' tags."), true);
   });
 
   test("treats don't forget as a positive reminder and never a prohibition", () => {

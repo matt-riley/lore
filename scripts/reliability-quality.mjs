@@ -21,11 +21,12 @@ export const QUALITY_GATES = Object.freeze({
   maxNegativeFalsePositives: 0,
 });
 
-const CANDIDATE_TYPES = new Set([
-  "commitment", "open_loop", "rejected_approach", "blocker", "user_preference",
-  "assistant_identity", "user_identity", "assistant_goal", "recurring_mistake",
-  "interaction_style", "decision", "fact", "constraint", "workstream_overlay",
-]);
+// These cases cover global guidance and changed global guidance, where a
+// regression can otherwise disappear inside the aggregate retention score.
+export const MANDATORY_RECALL_SCENARIO_IDS = Object.freeze(new Set([
+  "global-style",
+  "global-reversals",
+]));
 
 function words(value) {
   return new Set(String(value ?? "").toLowerCase().replace(/[^a-z0-9-]+/gu, " ").split(/\s+/u).filter(Boolean));
@@ -91,7 +92,10 @@ function includedRows(result) {
 
 function candidateMemories(extraction) {
   const retired = new Set(extraction.retiredEvidenceKeys ?? []);
-  const semantic = extraction.semanticMemories.filter((memory) => CANDIDATE_TYPES.has(memory.type) && !retired.has(memory.evidence?.key));
+  // Every active extracted semantic proposal contributes to precision. New
+  // extractor types must be reviewed explicitly rather than escaping the
+  // quality denominator through a stale allow-list.
+  const semantic = extraction.semanticMemories.filter((memory) => !retired.has(memory.evidence?.key));
   const decisions = (extraction.episodeDigest?.decisions ?? []).map((content) => ({
     type: "decision",
     scope: "repo",
@@ -183,6 +187,13 @@ export function evaluateNegativeQueryEvidence({ rows, scenarioRows }) {
 function findExpectedRecall(scenario, rows) {
   const evidence = normalizeRecallEvidence(rows);
   return scenario.expected.filter((proposition) => evidence.some((row) => matchesProposition(row, { ...proposition, repository: scenario.repository })));
+}
+
+function findMissingRecall(scenario, rows) {
+  const evidence = normalizeRecallEvidence(rows);
+  return scenario.suppress
+    ? []
+    : scenario.expected.filter((proposition) => !evidence.some((row) => matchesProposition(row, { ...proposition, repository: scenario.repository })));
 }
 
 function createForeignScenario(scenario) {
@@ -296,7 +307,9 @@ async function runScenario(scenario) {
 
     const recall = await recallMemory({ db: fixture.db, prompt: scenario.query, repository: scenario.repository, limit: 12 });
     const rows = includedRows(recall);
+    const directiveTraceRows = recall.trace?.lookups?.directives?.includedRows ?? [];
     const recalledExpected = findExpectedRecall(scenario, rows);
+    const missingRecall = findMissingRecall(scenario, rows);
     const forbiddenSemanticRows = (scenario.forbidden ?? []).filter((forbidden) => normalizeRecallEvidence(rows).some((row) => matchesForbidden(row, forbidden)));
     const forbiddenRenderedOutput = (scenario.forbidden ?? []).filter((forbidden) => matchesForbidden({ content: currentGuidanceText(recall.text) }, forbidden));
     const foreignRows = evaluateForeignRows({ rows, foreignEvidence });
@@ -320,8 +333,10 @@ async function runScenario(scenario) {
       id: scenario.scenarioId,
       client: scenario.client,
       family: scenario.family,
+      mandatoryRecall: scenario.mandatoryRecall === true,
       extraction: extractionMetrics,
       expectedRecall: recalledExpected.length,
+      missingRecall,
       recallExpectedCount: scenario.suppress ? 0 : scenario.expected.length,
       forbiddenSemanticRows: forbiddenSemanticRows.length,
       forbiddenRenderedOutput: forbiddenRenderedOutput.length,
@@ -336,6 +351,7 @@ async function runScenario(scenario) {
       activeRowsAfterReplay: retainedRows.length,
       persistedScope: persistedMetrics,
       parsedTurns: scenario.transcript.turns.length,
+      directiveTraceRows: directiveTraceRows.length,
     };
   } finally {
     fixture.cleanup();
@@ -368,9 +384,25 @@ export async function runQualityEvaluation({ scenarios = RELIABILITY_CORPUS } = 
     extractionMatchedExpected: matchedExpected,
     recallMatchedExpected: recalledExpected,
   };
+  const mandatoryRecallFailures = cases
+    .filter((item) => (MANDATORY_RECALL_SCENARIO_IDS.has(item.id.split(":").slice(1).join(":"))
+      || item.mandatoryRecall === true)
+      && item.recallExpectedCount > 0 && item.expectedRecall < item.recallExpectedCount)
+    .map((item) => item.id);
+  metrics.mandatoryRecallFailures = mandatoryRecallFailures;
+  metrics.recallMissesByScenario = Object.fromEntries(
+    [...new Set(cases.map((item) => item.id.split(":").slice(1).join(":")))].map((scenarioId) => {
+      const misses = cases.filter((item) => item.id.split(":").slice(1).join(":") === scenarioId && item.missingRecall?.length > 0);
+      return [scenarioId, {
+        clients: misses.map((item) => item.client),
+        missingPropositions: [...new Set(misses.flatMap((item) => item.missingRecall.map((proposition) => `${proposition.type}/${proposition.scope}: ${proposition.anchors.join(" ")}`)))],
+      }];
+    }).filter(([, value]) => value.clients.length > 0),
+  );
   const passed = metrics.extractionPrecision >= QUALITY_GATES.extractionPrecision
     && metrics.explicitPropositionRecall >= QUALITY_GATES.explicitPropositionRecall
     && metrics.retentionRecall >= QUALITY_GATES.retentionRecall
+    && metrics.mandatoryRecallFailures.length === 0
     && metrics.independentSemanticScenarioCount >= QUALITY_GATES.minIndependentSemanticScenarios
     && metrics.falseGlobalPromotions <= QUALITY_GATES.maxFalseGlobalPromotions
     && metrics.negativeFalsePositives <= QUALITY_GATES.maxNegativeFalsePositives
@@ -391,13 +423,16 @@ export function renderQualityReport(result) {
     `extraction precision: ${(metrics.extractionPrecision * 100).toFixed(2)}%`,
     `explicit proposition recall: ${(metrics.explicitPropositionRecall * 100).toFixed(2)}%`,
     `retention recall: ${(metrics.retentionRecall * 100).toFixed(2)}%`,
+    `mandatory recall failures: ${metrics.mandatoryRecallFailures.length}${metrics.mandatoryRecallFailures.length ? ` (${metrics.mandatoryRecallFailures.join(", ")})` : ""}`,
+    `recall misses by scenario: ${Object.entries(metrics.recallMissesByScenario).length}`,
+    ...Object.entries(metrics.recallMissesByScenario).map(([scenarioId, miss]) => `RECALL MISS ${scenarioId}: clients=${miss.clients.join(",")}; missing=${miss.missingPropositions.join(" | ")}`),
     `false global promotions: ${metrics.falseGlobalPromotions}`,
     `negative false positives: ${metrics.negativeFalsePositives}`,
     `critical failures: ${metrics.criticalFailures.length}${metrics.criticalFailures.length ? ` (${metrics.criticalFailures.join(", ")})` : ""}`,
     `negative query failures: ${metrics.negativeQueryFailures.length}`,
     `forbidden semantic row failures: ${metrics.forbiddenSemanticRowFailures.length}`,
     `forbidden rendered output failures: ${metrics.forbiddenRenderedOutputFailures.length}`,
-    ...result.cases.filter((item) => item.extraction.falsePositiveCount || item.extraction.matchedExpected < item.extraction.expectedCount || item.forbiddenRecall || item.isolationFailure || item.suppressionFailure).slice(0, 80).map((item) => `FAIL ${item.id}: candidates=${item.extraction.candidateCount}, matched=${item.extraction.matchedExpected}/${item.extraction.expectedCount}, recall=${item.expectedRecall}/${item.recallExpectedCount}, falseGlobals=${item.extraction.falseGlobalPromotions}`),
+    ...result.cases.filter((item) => item.extraction.falsePositiveCount || item.extraction.matchedExpected < item.extraction.expectedCount || item.expectedRecall < item.recallExpectedCount || item.forbiddenRecall || item.isolationFailure || item.suppressionFailure).map((item) => `FAIL ${item.id}: candidates=${item.extraction.candidateCount}, matched=${item.extraction.matchedExpected}/${item.extraction.expectedCount}, recall=${item.expectedRecall}/${item.recallExpectedCount}, falseGlobals=${item.extraction.falseGlobalPromotions}`),
   ].join("\n");
 }
 

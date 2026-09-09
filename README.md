@@ -595,7 +595,7 @@ website/               # Separate Astro documentation site and interactive examp
 
 ## Docs and contributing
 
-The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 24.0.0+ and pnpm 11.25.0, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
+The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 24.0.0+ and pnpm 12.2.1, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
 
 If you want the deeper contract, these are the main references:
 

@@ -10,7 +10,7 @@ Lore provides local memory for Copilot CLI, Pi, Codex CLI, Claude Code, and Anti
 - `node --test tests/unit/config.test.mjs` runs a focused test file.
 - `npm run validate-schema` checks config/schema parity; `npm run lint` runs oxlint.
 - `npm run browser` starts the loopback-only dashboard.
-- In `website/`, use Node 24.0.0+ and pnpm 11.25.0: `pnpm install --frozen-lockfile`, then `pnpm dev`. Validate with `pnpm check`, `pnpm test`, `pnpm build`, and `pnpm check:links`.
+- In `website/`, use Node 24.0.0+ and pnpm 12.2.1: `pnpm install --frozen-lockfile`, then `pnpm dev`. Validate with `pnpm check`, `pnpm test`, `pnpm build`, and `pnpm check:links`.
 
 ## Coding Style & Naming Conventions
 Use two-space indentation, double quotes, semicolons, and trailing commas. Keep core code in plain ESM (`.mjs`); Pi uses TypeScript and the website uses Astro/TypeScript. Prefer Node built-ins for runtime work. Use focused modules and descriptive names such as `memory-tools-*.mjs` and `*.test.mjs`.

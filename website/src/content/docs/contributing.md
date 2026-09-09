@@ -18,7 +18,7 @@ git clone <repo-url> ~/dev/lore
 cd ~/dev/lore
 ```
 
-Lore is plain ESM with no build step. Node 24.0.0 or later is required. If you want to run the checkout as a live Copilot extension, preview and then run the development installer:
+Lore is plain ESM with no build step. Node 24.0.0 or later is required for both the core and website. Use pnpm 12.2.1 for development dependencies and website commands; both package manifests pin that version. If you want to run the checkout as a live Copilot extension, preview and then run the development installer:
 
 ```sh
 node scripts/dev-install.mjs --dry-run

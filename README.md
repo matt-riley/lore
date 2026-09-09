@@ -26,6 +26,8 @@ At a glance, Lore can:
 
 Lore has a stable core and an experimental ring. The support boundary for each surface lives in [`docs/support-matrix.md`](docs/support-matrix.md).
 
+When standing directives are enabled, explicit directives and extracted standing preferences and prohibitions can appear without matching the prompt's keywords. The section is capped at six eligible memories and respects repository scope, expiry, suppression, and the final output budget. Ordinary complaints and rejected task proposals do not qualify as standing policies.
+
 All five coding agents (GitHub Copilot CLI, Pi, Codex CLI, Claude Code, and Google Antigravity CLI) share the same unified memory engine, deterministic recall, and transcript extraction. Copilot and Pi expose nine canonical model tools (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`, and `lore_correct`), while extra capabilities and native CLI workflows run through `/lore <verb>` slash commands, `lore <verb>` in the shell, or the `$LORE_HOME/bin/lore` PATH shim (e.g. `export PATH="$LORE_HOME/bin:$PATH"`).
 
 ---

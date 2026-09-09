@@ -11,6 +11,17 @@ import { REQUIRED_CHECKS, REQUIRED_CLIENTS, validateReleaseEvidence } from "../.
 const CANDIDATE = "0123456789abcdef0123456789abcdef01234567";
 const NOW = new Date("2026-09-09T12:00:00.000Z");
 
+test("malformed client or simulated execution cannot report a completed soak", () => {
+  for (const replacement of [null, { execution: { mode: "simulated", authenticated: false } }]) {
+    const evidence = validEvidence();
+    evidence.clients.copilot = replacement === null ? null : { ...evidence.clients.copilot, ...replacement };
+    const result = validateReleaseEvidence(evidence, { now: NOW });
+    assert.equal(result.ok, false);
+    assert.equal(result.certification.ok, false);
+    assert.equal(result.soak.ok, false);
+  }
+});
+
 function validEvidence() {
   const soak = ["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-29"];
   const clients = Object.fromEntries(REQUIRED_CLIENTS.map((client) => [client, {

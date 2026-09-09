@@ -145,6 +145,8 @@ function validateClient(client, clientName, candidateCommit, candidateTag, start
 export function validateReleaseEvidence(input, { now = new Date() } = {}) {
   const errors = [];
   const nowDate = now.toISOString().slice(0, 10);
+  const certificationErrors = [];
+  const soakErrors = [];
   if (!checkKeys(input, ["schemaVersion", "candidateCommit", "candidateTag", "startedAt", "generatedAt", "clients"], "evidence", errors)) {
     return { ok: false, certification: { ok: false, blockers: errors }, soak: { ok: false, blockers: errors }, blockers: errors, reviewedAttestationOnly: true };
   }
@@ -159,24 +161,33 @@ export function validateReleaseEvidence(input, { now = new Date() } = {}) {
   const endTime = Date.parse(input.generatedAt);
   if (!Number.isNaN(startTime) && !Number.isNaN(endTime)) {
     if (endTime <= startTime) addError(errors, "evidence.generatedAt", "must follow startedAt");
-    if (endTime - startTime < 14 * 86_400_000) addError(errors, "evidence", "candidate window must span at least 14 elapsed calendar days");
+    if (endTime - startTime < 14 * 86_400_000) addError(soakErrors, "evidence", "candidate window must span at least 14 elapsed calendar days");
   }
 
   const clients = isObject(input.clients) ? input.clients : {};
   for (const key of Object.keys(clients)) if (!REQUIRED_CLIENTS.includes(key)) addError(errors, `evidence.clients.${key}`, "unknown client");
   for (const clientName of REQUIRED_CLIENTS) {
     if (!(clientName in clients)) addError(errors, `evidence.clients.${clientName}`, "all five actual clients are required");
-    else validateClient(clients[clientName], clientName, input.candidateCommit, input.candidateTag, startTime, endTime, nowDate, errors);
+    else {
+      const clientErrors = [];
+      validateClient(clients[clientName], clientName, input.candidateCommit, input.candidateTag, startTime, endTime, nowDate, clientErrors);
+      for (const error of clientErrors) {
+        const field = error.slice(0, error.indexOf(":"));
+        if (field.startsWith(`clients.${clientName}.soak`)) soakErrors.push(error);
+        else if (field.startsWith(`clients.${clientName}.checks`) || field.startsWith(`clients.${clientName}.installation`)) certificationErrors.push(error);
+        else errors.push(error); // Missing client structure or execution metadata invalidates both gates.
+      }
+    }
   }
 
-  const sharedBlockers = errors.filter((error) => /^(?:evidence\.(?:schemaVersion|candidateCommit|candidateTag|startedAt|generatedAt))|all five actual clients|unknown client/.test(error));
-  const certificationBlockers = [...sharedBlockers, ...errors.filter((error) => !sharedBlockers.includes(error) && !error.includes(".soak") && !error.includes("candidate window"))];
-  const soakBlockers = [...sharedBlockers, ...errors.filter((error) => !sharedBlockers.includes(error) && (error.includes(".soak") || error.includes("candidate window")))];
+  const certificationBlockers = [...errors, ...certificationErrors];
+  const soakBlockers = [...errors, ...soakErrors];
+  const blockers = [...errors, ...certificationErrors, ...soakErrors];
   return {
-    ok: errors.length === 0,
+    ok: blockers.length === 0,
     certification: { ok: certificationBlockers.length === 0, blockers: certificationBlockers },
     soak: { ok: soakBlockers.length === 0, blockers: soakBlockers },
-    blockers: errors,
+    blockers,
     reviewedAttestationOnly: true,
   };
 }

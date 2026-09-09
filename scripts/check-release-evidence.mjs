@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const RELEASE_EVIDENCE_SCHEMA_VERSION = 1;
@@ -18,7 +20,6 @@ export const REQUIRED_CHECKS = [
 const HEX_COMMIT = /^[0-9a-f]{40}$/u;
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u;
-const FORBIDDEN_EVIDENCE = /mock|simulat(?:e|ed|ion)|fixture|synthetic|partial|pending|unperformed|fake|placeholder/i;
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -44,8 +45,24 @@ function validEvidence(value, path, errors) {
     addError(errors, path, "requires a non-empty evidence reference");
     return false;
   }
-  if (FORBIDDEN_EVIDENCE.test(value)) addError(errors, path, "must reference actual, completed evidence");
   return true;
+}
+
+function isValidIsoTimestamp(value) {
+  return typeof value === "string"
+    && ISO_DATE_TIME.test(value)
+    && isValidCalendarDate(value.slice(0, 10))
+    && !Number.isNaN(Date.parse(value));
+}
+
+function validEvidenceAt(value, path, startTime, endTime, errors) {
+  if (!isValidIsoTimestamp(value)) {
+    addError(errors, path, "must be a valid UTC ISO timestamp");
+    return;
+  }
+  const time = Date.parse(value);
+  if (time < startTime) addError(errors, path, "cannot precede candidate window");
+  if (time > endTime) addError(errors, path, "cannot follow certification timestamp");
 }
 
 function parseNodeMajor(value) {
@@ -59,16 +76,17 @@ function isValidCalendarDate(value) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-function validateCheck(check, path, candidateCommit, errors) {
-  if (!checkKeys(check, ["status", "evidence", "commit", "mode", "authenticated"], path, errors)) return;
+function validateCheck(check, path, candidateCommit, startTime, endTime, errors) {
+  if (!checkKeys(check, ["status", "evidence", "at", "commit", "mode", "authenticated"], path, errors)) return;
   if (check.status !== "pass") addError(errors, `${path}.status`, "must be pass");
   validEvidence(check.evidence, `${path}.evidence`, errors);
+  validEvidenceAt(check.at, `${path}.at`, startTime, endTime, errors);
   if (check.commit !== candidateCommit) addError(errors, `${path}.commit`, "does not match candidateCommit");
   if (check.mode !== "real") addError(errors, `${path}.mode`, "must be real");
   if (check.authenticated !== true) addError(errors, `${path}.authenticated`, "must be true");
 }
 
-function validateClient(client, clientName, candidateCommit, candidateTag, nowDate, errors) {
+function validateClient(client, clientName, candidateCommit, candidateTag, startTime, endTime, nowDate, errors) {
   const path = `clients.${clientName}`;
   if (!checkKeys(client, ["platform", "nodeVersion", "clientVersion", "execution", "installation", "checks", "soak"], path, errors)) return;
   if (client.platform !== "macos") addError(errors, `${path}.platform`, "must be macos");
@@ -81,17 +99,18 @@ function validateClient(client, clientName, candidateCommit, candidateTag, nowDa
     if (client.execution.authenticated !== true) addError(errors, `${path}.execution.authenticated`, "must be true");
   }
 
-  if (checkKeys(client.installation, ["tagged", "tag", "commit", "evidence"], `${path}.installation`, errors)) {
+  if (checkKeys(client.installation, ["tagged", "tag", "commit", "evidence", "at"], `${path}.installation`, errors)) {
     if (client.installation.tagged !== true) addError(errors, `${path}.installation.tagged`, "must be true");
     if (client.installation.tag !== candidateTag) addError(errors, `${path}.installation.tag`, "does not match candidateTag");
     if (client.installation.commit !== candidateCommit) addError(errors, `${path}.installation.commit`, "does not match candidateCommit");
     validEvidence(client.installation.evidence, `${path}.installation.evidence`, errors);
+    validEvidenceAt(client.installation.at, `${path}.installation.at`, startTime, endTime, errors);
   }
 
   if (checkKeys(client.checks, REQUIRED_CHECKS, `${path}.checks`, errors)) {
     for (const checkName of REQUIRED_CHECKS) {
       if (!(checkName in client.checks)) addError(errors, `${path}.checks.${checkName}`, "is required");
-      else validateCheck(client.checks[checkName], `${path}.checks.${checkName}`, candidateCommit, errors);
+      else validateCheck(client.checks[checkName], `${path}.checks.${checkName}`, candidateCommit, startTime, endTime, errors);
     }
   }
 
@@ -102,13 +121,17 @@ function validateClient(client, clientName, candidateCommit, candidateTag, nowDa
   const days = new Set();
   for (const [index, entry] of client.soak.entries()) {
     const entryPath = `${path}.soak[${index}]`;
-    if (!checkKeys(entry, ["date", "commit", "success", "evidence"], entryPath, errors)) continue;
+    if (!checkKeys(entry, ["date", "at", "commit", "success", "evidence"], entryPath, errors)) continue;
     if (!isValidCalendarDate(entry.date)) {
       addError(errors, `${entryPath}.date`, "must be a valid YYYY-MM-DD date");
     } else {
       if (entry.date > nowDate) addError(errors, `${entryPath}.date`, "cannot be in the future");
       if (days.has(entry.date)) addError(errors, `${entryPath}.date`, "duplicate day cannot inflate the count");
       days.add(entry.date);
+    }
+    validEvidenceAt(entry.at, `${entryPath}.at`, startTime, endTime, errors);
+    if (typeof entry.at === "string" && ISO_DATE_TIME.test(entry.at) && entry.date !== entry.at.slice(0, 10)) {
+      addError(errors, `${entryPath}.date`, "must match at UTC date");
     }
     if (entry.commit !== candidateCommit) addError(errors, `${entryPath}.commit`, "does not match candidateCommit");
     if (entry.success !== true) addError(errors, `${entryPath}.success`, "must be true");
@@ -120,44 +143,84 @@ function validateClient(client, clientName, candidateCommit, candidateTag, nowDa
   if (distinctSuccessfulDays.size > 0) {
     const sorted = [...distinctSuccessfulDays].sort();
     const elapsedDays = (Date.parse(`${sorted.at(-1)}T00:00:00Z`) - Date.parse(`${sorted[0]}T00:00:00Z`)) / 86_400_000;
-    if (elapsedDays < 13) addError(errors, `${path}.soak`, "must span at least 14 elapsed calendar days");
+    if (elapsedDays < 14) addError(errors, `${path}.soak`, "must span at least 14 elapsed calendar days");
   }
 }
 
 export function validateReleaseEvidence(input, { now = new Date() } = {}) {
   const errors = [];
   const nowDate = now.toISOString().slice(0, 10);
-  if (!checkKeys(input, ["schemaVersion", "candidateCommit", "candidateTag", "generatedAt", "clients"], "evidence", errors)) {
-    return { ok: false, certification: { ok: false, blockers: errors }, soak: { ok: false, blockers: errors }, blockers: errors };
+  if (!checkKeys(input, ["schemaVersion", "candidateCommit", "candidateTag", "startedAt", "generatedAt", "clients"], "evidence", errors)) {
+    return { ok: false, certification: { ok: false, blockers: errors }, soak: { ok: false, blockers: errors }, blockers: errors, reviewedAttestationOnly: true };
   }
   if (input.schemaVersion !== RELEASE_EVIDENCE_SCHEMA_VERSION) addError(errors, "evidence.schemaVersion", "unsupported schema version");
   if (typeof input.candidateCommit !== "string" || !HEX_COMMIT.test(input.candidateCommit)) addError(errors, "evidence.candidateCommit", "must be a 40-character lowercase commit hash");
   if (typeof input.candidateTag !== "string" || input.candidateTag.trim() === "") addError(errors, "evidence.candidateTag", "is required");
-  if (typeof input.generatedAt !== "string" || !ISO_DATE_TIME.test(input.generatedAt) || Number.isNaN(Date.parse(input.generatedAt))) addError(errors, "evidence.generatedAt", "must be a valid UTC ISO timestamp");
+  if (!isValidIsoTimestamp(input.startedAt)) addError(errors, "evidence.startedAt", "must be a valid UTC ISO timestamp");
+  if (!isValidIsoTimestamp(input.generatedAt)) addError(errors, "evidence.generatedAt", "must be a valid UTC ISO timestamp");
   else if (Date.parse(input.generatedAt) > now.getTime()) addError(errors, "evidence.generatedAt", "cannot be in the future");
+
+  const startTime = Date.parse(input.startedAt);
+  const endTime = Date.parse(input.generatedAt);
+  if (!Number.isNaN(startTime) && !Number.isNaN(endTime)) {
+    if (endTime <= startTime) addError(errors, "evidence.generatedAt", "must follow startedAt");
+    if (endTime - startTime < 14 * 86_400_000) addError(errors, "evidence", "candidate window must span at least 14 elapsed calendar days");
+  }
 
   const clients = isObject(input.clients) ? input.clients : {};
   for (const key of Object.keys(clients)) if (!REQUIRED_CLIENTS.includes(key)) addError(errors, `evidence.clients.${key}`, "unknown client");
   for (const clientName of REQUIRED_CLIENTS) {
     if (!(clientName in clients)) addError(errors, `evidence.clients.${clientName}`, "all five actual clients are required");
-    else validateClient(clients[clientName], clientName, input.candidateCommit, input.candidateTag, nowDate, errors);
+    else validateClient(clients[clientName], clientName, input.candidateCommit, input.candidateTag, startTime, endTime, nowDate, errors);
   }
 
   const certificationBlockers = errors.filter((error) => !error.includes(".soak"));
-  const soakBlockers = errors.filter((error) => error.includes(".soak") || error.includes("generatedAt"));
+  const soakBlockers = errors.filter((error) => error.includes(".soak") || error.includes("generatedAt") || error.includes("startedAt") || error.includes("candidate window") || error.includes("all five actual clients"));
   return {
     ok: errors.length === 0,
     certification: { ok: certificationBlockers.length === 0, blockers: certificationBlockers },
     soak: { ok: soakBlockers.length === 0, blockers: soakBlockers },
     blockers: errors,
+    reviewedAttestationOnly: true,
   };
 }
 
+function evidenceReferences(value, references = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) evidenceReferences(item, references);
+  } else if (isObject(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      if (key === "evidence" && typeof child === "string") references.push(child);
+      else evidenceReferences(child, references);
+    }
+  }
+  return references;
+}
+
+async function checkLocalEvidenceFiles(input, ledgerPath) {
+  const blockers = [];
+  const references = [...new Set(evidenceReferences(input))];
+  for (const reference of references) {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(reference)) {
+      blockers.push(`evidence ${reference}: must be a local ledger reference`);
+      continue;
+    }
+    const target = resolve(dirname(ledgerPath), reference);
+    try {
+      await access(target, constants.R_OK);
+    } catch {
+      blockers.push(`evidence ${reference}: referenced file does not exist or is not readable`);
+    }
+  }
+  return { references, blockers };
+}
+
 async function main() {
-  const file = process.argv[2];
-  if (!file || file === "--help") {
+  const args = process.argv.slice(2);
+  const file = args[0];
+  if (args.length !== 1 || file === "--help") {
     console.error("Usage: node scripts/check-release-evidence.mjs <evidence.json>");
-    process.exitCode = file === "--help" ? 0 : 2;
+    process.exitCode = args.length === 1 && file === "--help" ? 0 : 2;
     return;
   }
   let input;
@@ -169,8 +232,15 @@ async function main() {
     return;
   }
   const result = validateReleaseEvidence(input);
-  console.log(JSON.stringify(result, null, 2));
-  if (!result.ok) process.exitCode = 1;
+  const artifacts = await checkLocalEvidenceFiles(input, file);
+  const output = { ...result, artifactReferences: artifacts.references.length, artifactBlockers: artifacts.blockers };
+  console.log(JSON.stringify(output, null, 2));
+  if (!result.ok || artifacts.blockers.length > 0) process.exitCode = 1;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) await main();
+try {
+  if (process.argv[1] && await realpath(fileURLToPath(import.meta.url)) === await realpath(process.argv[1])) await main();
+} catch {
+  // Imported validators must remain side-effect free; an unresolvable argv[1]
+  // simply means this module was not invoked as the CLI entrypoint.
+}

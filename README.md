@@ -388,6 +388,8 @@ This uses the controlled backfill engine during Copilot session start, stays rea
 
 ## Validate
 
+`npm run test:reliability` reports extraction and recall quality, including mandatory recall failures. Text output limits failure and grouped recall details to 80 entries each and marks omitted or shortened details. Use `npm run test:reliability -- --json` for the complete evidence.
+
 Before trusting a config change, validate that the runtime defaults and schema still agree:
 
 ```sh

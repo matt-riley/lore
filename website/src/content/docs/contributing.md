@@ -44,6 +44,8 @@ Keep unit tests focused and fast. Use smoke tests for scripts, temporary homes, 
 
 Run `npm run test:reliability` for extraction and recall quality, including mandatory recall cases and grouped recall misses. A passing aggregate score does not imply every proposition was recalled. For isolated native adapter checks, use `node scripts/verify-cli-hooks.mjs <codex|claude|antigravity> --mock --json`; mock mode never launches a host and leaves native recall pending. Actual authenticated certification and a 14-day candidate soak are separate [release gates](https://github.com/matt-riley/lore/blob/main/docs/releasing.md#v1-candidate-gate).
 
+Text output limits failure and grouped recall details to 80 entries each and marks omitted or shortened details. Use `npm run test:reliability -- --json` for the complete evidence.
+
 ## Style and scope
 
 Use ESM, two-space indentation, double quotes, semicolons, and trailing commas. Prefer Node built-ins and small focused modules. Preserve unrelated work in a dirty checkout, and keep changes scoped to the behavior being fixed.

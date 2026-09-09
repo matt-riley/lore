@@ -292,6 +292,41 @@ describe("independent reliability quality corpus", () => {
     assert.match(report, /RECALL MISS mandatory: clients=copilot/);
   });
 
+  test("bounds broad regression reports while preserving complete JSON evidence", () => {
+    const ids = Array.from({ length: 500 }, (_, index) => `case-${index}`);
+    const result = {
+      passed: false,
+      metrics: {
+        scenarioCount: ids.length, independentSemanticScenarioCount: ids.length,
+        clients: { copilot: ids.length }, extractionPrecision: 1,
+        explicitPropositionRecall: 1, retentionRecall: 0,
+        mandatoryRecallFailures: ids, criticalFailures: ids,
+        falseGlobalPromotions: 0, negativeFalsePositives: 0,
+        negativeQueryFailures: [], forbiddenSemanticRowFailures: [], forbiddenRenderedOutputFailures: [],
+        recallMissesByScenario: Object.fromEntries(ids.map((id) => [id, {
+          clients: ["copilot"], missingPropositions: ["x".repeat(5000)],
+        }])),
+      },
+      cases: ids.map((id) => ({
+        id,
+        extraction: { candidateCount: 1, matchedExpected: 1, expectedCount: 1, falsePositiveCount: 0, falseGlobalPromotions: 0 },
+        expectedRecall: 0, recallExpectedCount: 1,
+      })),
+    };
+    const completeEvidence = JSON.stringify(result);
+    const report = renderQualityReport(result);
+    assert.equal(report.split("\n").filter((line) => line.startsWith("FAIL ")).length, 80);
+    assert.equal(report.split("\n").filter((line) => line.startsWith("RECALL MISS ")).length, 80);
+    assert.match(report, /Failure details: showing 80 of 500; 420 omitted/);
+    assert.match(report, /Recall miss details: showing 80 of 500; 420 omitted/);
+    assert.match(report, /line shortened; use --json for full details/);
+    assert.ok(report.split("\n").every((line) => line.length <= 1000));
+    assert.ok(report.length < 180_000);
+    assert.equal(JSON.stringify(result), completeEvidence);
+    assert.ok(result.metrics.recallMissesByScenario["case-499"]);
+    assert.equal(result.cases.at(-1).id, "case-499");
+  });
+
   test("mandatory recall gate fails an existing miss without changing other metrics", async () => {
     const scenarios = RELIABILITY_CORPUS.filter((item) => item.client === "copilot").map((item) =>
       item.id === "independent-worker-shutdown" ? { ...item, disableStandingDirectives: true } : item

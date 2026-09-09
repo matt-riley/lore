@@ -413,8 +413,27 @@ export async function runQualityEvaluation({ scenarios = RELIABILITY_CORPUS } = 
   return { passed, gates: QUALITY_GATES, metrics, cases };
 }
 
+const REPORT_DETAIL_LIMIT = 80;
+const REPORT_LINE_LIMIT = 1000;
+
+function renderReportDetails(items, render, label) {
+  const lines = items.slice(0, REPORT_DETAIL_LIMIT).map(render);
+  if (items.length > REPORT_DETAIL_LIMIT) {
+    lines.push(`${label}: showing ${REPORT_DETAIL_LIMIT} of ${items.length}; ${items.length - REPORT_DETAIL_LIMIT} omitted. Use --json for all details.`);
+  }
+  return lines;
+}
+
+function boundReportLine(value) {
+  const line = String(value).replace(/[\r\n]+/gu, " ");
+  const suffix = "… [line shortened; use --json for full details]";
+  return line.length > REPORT_LINE_LIMIT ? `${line.slice(0, REPORT_LINE_LIMIT - suffix.length)}${suffix}` : line;
+}
+
 export function renderQualityReport(result) {
   const { metrics } = result;
+  const recallMisses = Object.entries(metrics.recallMissesByScenario);
+  const failures = result.cases.filter((item) => item.extraction.falsePositiveCount || item.extraction.matchedExpected < item.extraction.expectedCount || item.expectedRecall < item.recallExpectedCount || item.forbiddenRecall || item.isolationFailure || item.suppressionFailure);
   return [
     `passed: ${result.passed}`,
     `scenarios: ${metrics.scenarioCount}`,
@@ -424,16 +443,16 @@ export function renderQualityReport(result) {
     `explicit proposition recall: ${(metrics.explicitPropositionRecall * 100).toFixed(2)}%`,
     `retention recall: ${(metrics.retentionRecall * 100).toFixed(2)}%`,
     `mandatory recall failures: ${metrics.mandatoryRecallFailures.length}${metrics.mandatoryRecallFailures.length ? ` (${metrics.mandatoryRecallFailures.join(", ")})` : ""}`,
-    `recall misses by scenario: ${Object.entries(metrics.recallMissesByScenario).length}`,
-    ...Object.entries(metrics.recallMissesByScenario).map(([scenarioId, miss]) => `RECALL MISS ${scenarioId}: clients=${miss.clients.join(",")}; missing=${miss.missingPropositions.join(" | ")}`),
+    `recall misses by scenario: ${recallMisses.length}`,
+    ...renderReportDetails(recallMisses, ([scenarioId, miss]) => `RECALL MISS ${scenarioId}: clients=${miss.clients.join(",")}; missing=${miss.missingPropositions.join(" | ")}`, "Recall miss details"),
     `false global promotions: ${metrics.falseGlobalPromotions}`,
     `negative false positives: ${metrics.negativeFalsePositives}`,
     `critical failures: ${metrics.criticalFailures.length}${metrics.criticalFailures.length ? ` (${metrics.criticalFailures.join(", ")})` : ""}`,
     `negative query failures: ${metrics.negativeQueryFailures.length}`,
     `forbidden semantic row failures: ${metrics.forbiddenSemanticRowFailures.length}`,
     `forbidden rendered output failures: ${metrics.forbiddenRenderedOutputFailures.length}`,
-    ...result.cases.filter((item) => item.extraction.falsePositiveCount || item.extraction.matchedExpected < item.extraction.expectedCount || item.expectedRecall < item.recallExpectedCount || item.forbiddenRecall || item.isolationFailure || item.suppressionFailure).map((item) => `FAIL ${item.id}: candidates=${item.extraction.candidateCount}, matched=${item.extraction.matchedExpected}/${item.extraction.expectedCount}, recall=${item.expectedRecall}/${item.recallExpectedCount}, falseGlobals=${item.extraction.falseGlobalPromotions}`),
-  ].join("\n");
+    ...renderReportDetails(failures, (item) => `FAIL ${item.id}: candidates=${item.extraction.candidateCount}, matched=${item.extraction.matchedExpected}/${item.extraction.expectedCount}, recall=${item.expectedRecall}/${item.recallExpectedCount}, falseGlobals=${item.extraction.falseGlobalPromotions}`, "Failure details"),
+  ].map(boundReportLine).join("\n");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

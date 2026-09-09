@@ -287,6 +287,20 @@ describe("conservative rule extraction", () => {
     assert.equal(preference[0].type, "user_preference");
   });
 
+  test("extracts preferences and directives that quote atomic tool names", () => {
+    const extraction = extract({
+      turns: [
+        { user_message: 'I prefer "pnpm" for package management.' },
+        { user_message: 'Always use "node:test" for tests.' },
+      ],
+    });
+
+    assert.deepEqual(extraction.semanticMemories.map(({ type, content }) => ({ type, content })), [
+      { type: "user_preference", content: 'I prefer "pnpm" for package management.' },
+      { type: "user_preference", content: 'Always use "node:test" for tests.' },
+    ]);
+  });
+
   test("extracts independent preference and rejection clauses in one sentence", () => {
     const extraction = extract({
       turns: [{

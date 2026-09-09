@@ -25,6 +25,16 @@ describe("extraction grammar accuracy", () => {
     assert.equal(standingDirectiveType("is there a way to override this?"), null);
   });
 
+  test("keeps quoted tool names inside genuine preferences and directives", () => {
+    assert.equal(isNonDirectiveSentence('I prefer "pnpm" for package management.'), false);
+    assert.equal(isNonDirectiveSentence('Always use "node:test" for tests.'), false);
+  });
+
+  test("still filters quoted instructions and reported examples", () => {
+    assert.equal(isNonDirectiveSentence('"Always use SQLite for local development."'), true);
+    assert.equal(isNonDirectiveSentence('The old guide says "always use SQLite".'), true);
+  });
+
   test("treats don't forget as a positive reminder and never a prohibition", () => {
     assert.notEqual(standingDirectiveType("Don't forget to monitor for review comments too"), "rejected_approach");
     assert.notEqual(standingDirectiveType("Do not forget to run migrations"), "rejected_approach");

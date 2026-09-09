@@ -20,6 +20,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.16.1](https://github.com/matt-riley/lore/compare/lore-v0.16.0...lore-v0.16.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* address review scope and export safety ([5660a30](https://github.com/matt-riley/lore/commit/5660a3069e21592bb2f1ad91d17341195a9f7538))
+* close memory scope and recovery gaps ([610267e](https://github.com/matt-riley/lore/commit/610267e315f9cdbd3bb13abc41a6cafbf1a1ab3c))
+* cover mixed directives and empty paths ([861795d](https://github.com/matt-riley/lore/commit/861795d978ebb48fd7bd1648ffa60fbc4bacf175))
+* override vulnerable transitive sharp ([a44a783](https://github.com/matt-riley/lore/commit/a44a783cd4a42b1a4ad55f5c50bbd37e65a3a791))
+* parse persisted replay provenance ([240e545](https://github.com/matt-riley/lore/commit/240e54537a248e328a2b35c1ad5119c6efd3e107))
+* pin sharp security override ([4339801](https://github.com/matt-riley/lore/commit/4339801dc9c9634fb73fc864bbfdbc9a1ec139d8))
+
 ## [0.16.0](https://github.com/matt-riley/lore/compare/lore-v0.15.2...lore-v0.16.0) (2026-09-08)
 
 

@@ -301,6 +301,33 @@ describe("conservative rule extraction", () => {
     ]);
   });
 
+  test("extracts the full quoted preference and directive grammar", () => {
+    const extraction = extract({
+      turns: [
+        { user_message: 'I always prefer "pnpm" for package management.' },
+        { user_message: 'I always use "node:test" for tests.' },
+        { user_message: 'My preference is "pnpm" for package management.' },
+        { user_message: 'API boundaries should validate "the wire type".' },
+        { user_message: 'The API boundary should validate "the wire type".' },
+        { user_message: 'Please format "the result" consistently.' },
+        { user_message: 'Reject "unsafe casts".' },
+        { user_message: 'Actually, that is wrong: use "pnpm".' },
+        { user_message: 'The phrase "API boundaries should validate" is an example.' },
+      ],
+    });
+
+    assert.deepEqual(extraction.semanticMemories.map(({ type, content }) => ({ type, content })), [
+      { type: "user_preference", content: 'I always prefer "pnpm" for package management.' },
+      { type: "user_preference", content: 'I always use "node:test" for tests.' },
+      { type: "user_preference", content: 'My preference is "pnpm" for package management.' },
+      { type: "directive", content: 'API boundaries should validate "the wire type".' },
+      { type: "directive", content: 'The API boundary should validate "the wire type".' },
+      { type: "user_preference", content: 'Please format "the result" consistently.' },
+      { type: "rejected_approach", content: 'Reject "unsafe casts".' },
+      { type: "user_preference", content: 'Actually, that is wrong: use "pnpm".' },
+    ]);
+  });
+
   test("extracts quoted and unquoted communication prohibitions but filters reports", () => {
     const extraction = extract({
       turns: [

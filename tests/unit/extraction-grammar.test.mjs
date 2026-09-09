@@ -36,6 +36,17 @@ describe("extraction grammar accuracy", () => {
     assert.equal(isNonDirectiveSentence('Across all projects, I prefer "small pure functions".'), false);
     assert.equal(isNonDirectiveSentence('Going forward, I prefer "small pure functions".'), false);
     assert.equal(isNonDirectiveSentence('If tests fail, never merge "main".', { allowConditions: true }), false);
+    assert.equal(isNonDirectiveSentence('I always prefer "pnpm" for package management.'), false);
+    assert.equal(isNonDirectiveSentence('I always use "node:test" for tests.'), false);
+    assert.equal(isNonDirectiveSentence('My preference is "pnpm" for package management.'), false);
+    assert.equal(isNonDirectiveSentence('API boundaries should validate "the wire type".'), false);
+    assert.equal(isNonDirectiveSentence('The API boundary should validate "the wire type".'), false);
+    assert.equal(isNonDirectiveSentence('Please format "the result" consistently.'), false);
+    assert.equal(isNonDirectiveSentence('Reject "unsafe casts".'), false);
+    assert.equal(isNonDirectiveSentence('Actually, that is wrong: use "pnpm".'), false);
+    assert.equal(isNonDirectiveSentence('We never use "mutable globals".'), false);
+    assert.equal(isNonDirectiveSentence('Please remember "small pure functions".'), false);
+    assert.equal(isNonDirectiveSentence('The phrase "API boundaries should validate" is an example.'), true);
   });
 
   test("still filters quoted instructions and reported examples", () => {
@@ -45,6 +56,7 @@ describe("extraction grammar accuracy", () => {
     assert.equal(isNonDirectiveSentence('The guide says “always use SQLite”.'), true);
     assert.equal(isNonDirectiveSentence('The guide says "always use SQLite.'), true);
     assert.equal(isNonDirectiveSentence('The example says “Always use `node:test`”.'), true);
+    assert.equal(isNonDirectiveSentence('The phrase "I always prefer pnpm" is quoted.'), true);
     assert.equal(isNonDirectiveSentence("I prefer 'release candidate’ tags."), true);
     assert.equal(isNonDirectiveSentence("I prefer ‘release candidate' tags."), true);
   });

@@ -27,12 +27,17 @@ describe("extraction grammar accuracy", () => {
 
   test("keeps quoted tool names inside genuine preferences and directives", () => {
     assert.equal(isNonDirectiveSentence('I prefer "pnpm" for package management.'), false);
-    assert.equal(isNonDirectiveSentence('Always use "node:test" for tests.'), false);
+    assert.equal(isNonDirectiveSentence('Always use "node test" for tests.'), false);
+    assert.equal(isNonDirectiveSentence('Always use “node:test” for tests.'), false);
+    assert.equal(isNonDirectiveSentence("I prefer 'release candidate' tags."), false);
   });
 
   test("still filters quoted instructions and reported examples", () => {
     assert.equal(isNonDirectiveSentence('"Always use SQLite for local development."'), true);
     assert.equal(isNonDirectiveSentence('The old guide says "always use SQLite".'), true);
+    assert.equal(isNonDirectiveSentence('The guide says "always use `node:test`".'), true);
+    assert.equal(isNonDirectiveSentence('The guide says “always use SQLite”.'), true);
+    assert.equal(isNonDirectiveSentence('The guide says "always use SQLite.'), true);
   });
 
   test("treats don't forget as a positive reminder and never a prohibition", () => {

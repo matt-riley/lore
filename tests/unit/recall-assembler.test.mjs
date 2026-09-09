@@ -19,6 +19,43 @@ function jsonResponse(body) {
 }
 
 describe("assembleRecall", () => {
+  test("budget filtering removes dropped directives from included trace rows", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        budgets: { total: 180 },
+        rollout: { memoryOperations: true, directives: true },
+      },
+    });
+    try {
+      for (let index = 1; index <= 3; index += 1) {
+        db.insertSemanticMemory({
+          id: `budget-directive-${index}`,
+          type: "directive",
+          content: `Directive ${index} ${"long policy text ".repeat(20)}`,
+          scope: "repo",
+          repository: "fixture-repo",
+          confidence: 1,
+          tags: ["directive"],
+        });
+      }
+      const result = await assembleRecall({
+        db,
+        prompt: "What policies apply?",
+        repository: "fixture-repo",
+        config,
+      });
+      const directives = result.trace.lookups.directives;
+      assert.equal(directives.rows.length, 3);
+      assert.equal(directives.includedRows.length, 1);
+      assert.equal((result.text.match(/Directive \d/gu) ?? []).length, 1);
+      assert.match(directives.includedRows[0].content, /Directive [123]/);
+      assert.match(result.text, new RegExp(directives.includedRows[0].content.slice(0, 12)));
+    } finally {
+      cleanup();
+    }
+  });
+
   test("LoreDb no longer renders Relevant Prior Work markdown", () => {
     assert.equal(DB_SOURCE.includes("## Relevant Prior Work"), false);
     assert.match(DB_SOURCE, /collectPromptContext\(/);

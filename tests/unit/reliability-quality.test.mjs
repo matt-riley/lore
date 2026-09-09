@@ -272,15 +272,18 @@ describe("independent reliability quality corpus", () => {
     assert.match(report, /RECALL MISS mandatory: clients=copilot/);
   });
 
-  test("mandatory recall failures make the quality result fail", async () => {
-    const source = RELIABILITY_CORPUS.find((item) => item.client === "copilot" && item.id === "global-style");
-    const result = await runQualityEvaluation({ scenarios: [{
-      ...source,
-      query: "zzzz no matching recall terms",
-      expected: [{ ...source.expected[0], anchors: ["never-matches"] }],
-    }] });
-    assert.equal(result.passed, false);
-    assert.deepEqual(result.metrics.mandatoryRecallFailures, ["copilot:global-style"]);
+  test("mandatory recall gate fails an existing miss without changing other metrics", async () => {
+    const scenarios = RELIABILITY_CORPUS.filter((item) => item.client === "copilot");
+    const baseline = await runQualityEvaluation({ scenarios });
+    assert.equal(baseline.passed, true);
+    const workerIndex = scenarios.findIndex((item) => item.id === "independent-worker-shutdown");
+    const mandatory = scenarios.map((item, index) => index === workerIndex ? { ...item, mandatoryRecall: true } : item);
+    const gated = await runQualityEvaluation({ scenarios: mandatory });
+    assert.equal(gated.passed, false);
+    assert.deepEqual(gated.metrics.mandatoryRecallFailures, ["copilot:independent-worker-shutdown"]);
+    assert.equal(gated.metrics.retentionRecall, baseline.metrics.retentionRecall);
+    assert.equal(gated.metrics.extractionPrecision, baseline.metrics.extractionPrecision);
+    assert.deepEqual(gated.metrics.recallMissesByScenario, baseline.metrics.recallMissesByScenario);
   });
 
   test("runs standing directive cases through the real multi-client corpus", async () => {

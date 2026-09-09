@@ -1,10 +1,9 @@
 /**
  * tests/unit/extension-shutdown.test.mjs
  *
- * Tests for the background-work tracking and bounded shutdown helpers defined
- * in extension.mjs.  Functions are loaded via the source-parser approach used
- * by the other extension hook tests so they can be tested without importing
- * the whole extension entrypoint (which depends on @github/copilot-sdk).
+ * Tests for the background-work tracking and bounded shutdown lifecycle.
+ * The lifecycle is imported from its production module so these tests cover
+ * the same implementation wired into the extension entrypoint.
  *
  * Covers:
  *   - trackBackgroundWork registers the promise and removes it on settlement
@@ -19,18 +18,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
+import { createRuntimeLifecycle } from "../../lib/lifecycle/runtime-lifecycle.mjs";
 import { makeSourceExtractor } from "../helpers/source-parser.mjs";
 
 const EXTENSION_SOURCE = readFileSync(new URL("../../extension.mjs", import.meta.url), "utf8");
 const extractFunctionSource = makeSourceExtractor(EXTENSION_SOURCE);
-
-function loadFunction(name, dependencies = {}) {
-  const functionSource = extractFunctionSource(name);
-  return Function(
-    ...Object.keys(dependencies),
-    `"use strict"; ${functionSource}; return ${name};`,
-  )(...Object.values(dependencies));
-}
 
 function loadFunctions(names, dependencies = {}) {
   const functionSources = names.map((name) => extractFunctionSource(name)).join("\n\n");
@@ -38,6 +30,10 @@ function loadFunctions(names, dependencies = {}) {
     ...Object.keys(dependencies),
     `"use strict"; ${functionSources}; return { ${names.join(", ")} };`,
   )(...Object.values(dependencies));
+}
+
+function makeLifecycle(runtime, dependencies = {}) {
+  return createRuntimeLifecycle(runtime, dependencies);
 }
 
 // ---------------------------------------------------------------------------
@@ -49,7 +45,7 @@ describe("trackBackgroundWork", () => {
     const pendingWork = new Set();
     const runtime = { pendingWork };
 
-    const trackBackgroundWork = loadFunction("trackBackgroundWork", { runtime });
+    const { trackBackgroundWork } = makeLifecycle(runtime);
 
     let resolve;
     const p = new Promise((res) => { resolve = res; });
@@ -69,7 +65,7 @@ describe("trackBackgroundWork", () => {
     const pendingWork = new Set();
     const runtime = { pendingWork };
 
-    const trackBackgroundWork = loadFunction("trackBackgroundWork", { runtime });
+    const { trackBackgroundWork } = makeLifecycle(runtime);
 
     const p = Promise.reject(new Error("test rejection")).catch(() => {});
     trackBackgroundWork(p);
@@ -90,10 +86,7 @@ describe("spawnTrackedMicrotask", () => {
     const pendingWork = new Set();
     const runtime = { pendingWork, shuttingDown: false };
 
-    const { spawnTrackedMicrotask, trackBackgroundWork } = loadFunctions(
-      ["spawnTrackedMicrotask", "trackBackgroundWork"],
-      { runtime },
-    );
+    const { spawnTrackedMicrotask } = makeLifecycle(runtime);
 
     let resolved = false;
     spawnTrackedMicrotask(async () => {
@@ -113,10 +106,7 @@ describe("spawnTrackedMicrotask", () => {
     const pendingWork = new Set();
     const runtime = { pendingWork, shuttingDown: true };
 
-    const { spawnTrackedMicrotask, trackBackgroundWork } = loadFunctions(
-      ["spawnTrackedMicrotask", "trackBackgroundWork"],
-      { runtime },
-    );
+    const { spawnTrackedMicrotask } = makeLifecycle(runtime);
 
     let ran = false;
     spawnTrackedMicrotask(async () => { ran = true; });
@@ -136,10 +126,7 @@ describe("spawnTrackedDeferredTask", () => {
     const pendingWork = new Set();
     const runtime = { pendingWork, shuttingDown: false };
 
-    const { spawnTrackedDeferredTask, trackBackgroundWork } = loadFunctions(
-      ["spawnTrackedDeferredTask", "trackBackgroundWork"],
-      { runtime },
-    );
+    const { spawnTrackedDeferredTask } = makeLifecycle(runtime);
 
     let ran = false;
     spawnTrackedDeferredTask(async () => { ran = true; });
@@ -156,10 +143,7 @@ describe("spawnTrackedDeferredTask", () => {
     const pendingWork = new Set();
     const runtime = { pendingWork, shuttingDown: true };
 
-    const { spawnTrackedDeferredTask, trackBackgroundWork } = loadFunctions(
-      ["spawnTrackedDeferredTask", "trackBackgroundWork"],
-      { runtime },
-    );
+    const { spawnTrackedDeferredTask } = makeLifecycle(runtime);
 
     let ran = false;
     spawnTrackedDeferredTask(async () => { ran = true; });
@@ -177,7 +161,6 @@ describe("spawnTrackedDeferredTask", () => {
 describe("shutdownRuntime", () => {
   test("sets shuttingDown, drains pending work, and calls db.close() once", async () => {
     const closeCalls = [];
-    let nulledDb = false;
     const runtime = {
       pendingWork: new Set(),
       shuttingDown: false,
@@ -187,14 +170,9 @@ describe("shutdownRuntime", () => {
     };
 
     const delays = [];
-    const { shutdownRuntime, trackBackgroundWork } = loadFunctions(
-      ["shutdownRuntime", "trackBackgroundWork"],
-      {
-        runtime,
-        async delay(ms) { delays.push(ms); },
-        Promise,
-      },
-    );
+    const { shutdownRuntime, trackBackgroundWork } = makeLifecycle(runtime, {
+      delay: async (ms) => { delays.push(ms); },
+    });
 
     // Add a fast-settling background job
     const p = Promise.resolve();
@@ -220,14 +198,7 @@ describe("shutdownRuntime", () => {
       },
     };
 
-    const { shutdownRuntime, trackBackgroundWork } = loadFunctions(
-      ["shutdownRuntime", "trackBackgroundWork"],
-      {
-        runtime,
-        async delay() {},
-        Promise,
-      },
-    );
+    const { shutdownRuntime } = makeLifecycle(runtime, { delay: async () => {} });
 
     const session = { async log() {} };
     await shutdownRuntime(session, 100);
@@ -246,14 +217,7 @@ describe("shutdownRuntime", () => {
       },
     };
 
-    const { shutdownRuntime, trackBackgroundWork } = loadFunctions(
-      ["shutdownRuntime", "trackBackgroundWork"],
-      {
-        runtime,
-        delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-        Promise,
-      },
-    );
+    const { shutdownRuntime, trackBackgroundWork } = makeLifecycle(runtime);
 
     // Add a work item that never settles within the grace period
     let resolveWork;
@@ -278,14 +242,7 @@ describe("shutdownRuntime", () => {
       db: null,
     };
 
-    const { shutdownRuntime } = loadFunctions(
-      ["shutdownRuntime", "trackBackgroundWork"],
-      {
-        runtime,
-        async delay() {},
-        Promise,
-      },
-    );
+    const { shutdownRuntime } = makeLifecycle(runtime, { delay: async () => {} });
 
     const session = { async log() {} };
     // Should not throw when db is null
@@ -317,12 +274,12 @@ describe("handleSessionEndHook empty-session shutdown", () => {
     runtime.pendingWork.add(work);
     work.then(() => runtime.pendingWork.delete(work));
 
-    const { handleSessionEndHook, shutdownRuntime, trackBackgroundWork } = loadFunctions(
-      ["handleSessionEndHook", "shutdownRuntime", "trackBackgroundWork"],
+    const { shutdownRuntime } = makeLifecycle(runtime);
+    const { handleSessionEndHook } = loadFunctions(
+      ["handleSessionEndHook"],
       {
         runtime,
-        delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-        Promise,
+        shutdownRuntime,
         getContext: async () => ({ runtime, workspace: "/fake/ws", repository: "owner/repo" }),
         hooksEnabled: () => true,
         readSessionEndExtraction: () => null,
@@ -364,7 +321,8 @@ describe("persistTraceSuccess trace-persistence warning", () => {
     const pendingWork = new Set();
     const runtime = { pendingWork, shuttingDown: false };
 
-    const { persistTraceSuccess, spawnTrackedMicrotask, trackBackgroundWork } = loadFunctions(
+    const { spawnTrackedMicrotask } = makeLifecycle(runtime);
+    const { persistTraceSuccess } = loadFunctions(
       [
         "resolveTraceSuccessRecord",
         "buildTraceSuccessUpdates",
@@ -376,11 +334,10 @@ describe("persistTraceSuccess trace-persistence warning", () => {
         "persistDurableTraceSample",
         "writeActivitySuccessUpdates",
         "persistTraceSuccess",
-        "spawnTrackedMicrotask",
-        "trackBackgroundWork",
       ],
       {
         runtime,
+        spawnTrackedMicrotask,
         session: fakeSession,
       },
     );

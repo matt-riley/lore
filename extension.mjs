@@ -48,8 +48,8 @@ import {
 } from "./lib/lifecycle/passive-hooks.mjs";
 import { createSubagentScopeTracker } from "./lib/lifecycle/subagent-scope-tracker.mjs";
 import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.mjs";
+import { createRuntimeLifecycle } from "./lib/lifecycle/runtime-lifecycle.mjs";
 import { consumeLatestMemoryHygieneSummary } from "./lib/memory/memory-hygiene.mjs";
-import { setTimeout as delay } from "node:timers/promises";
 
 let lastKnownCwd = process.cwd();
 
@@ -109,96 +109,11 @@ const runtime = {
 let loreSession = null;
 let ensureRuntimePromise = null;
 
-/**
- * Register a background promise in the runtime tracking set.
- * The promise is removed automatically when it settles so the set only
- * contains in-flight work.
- *
- * @param {Promise<unknown>} promise
- */
-function trackBackgroundWork(promise) {
-  runtime.pendingWork.add(promise);
-  promise.finally(() => {
-    runtime.pendingWork.delete(promise);
-  });
-}
-
-/**
- * Spawn a tracked microtask.  The async function is called via
- * Promise.resolve() so it runs in the next microtask checkpoint, equivalent
- * to queueMicrotask, but the resulting promise is registered in
- * runtime.pendingWork so shutdownRuntime can drain it.
- *
- * Returns without spawning if shutdown has already been requested.
- *
- * @param {() => Promise<unknown>} fn
- */
-function spawnTrackedMicrotask(fn) {
-  if (runtime.shuttingDown) {
-    return;
-  }
-  trackBackgroundWork(Promise.resolve().then(fn));
-}
-
-/**
- * Spawn a tracked deferred task via setTimeout(0).  Equivalent to the
- * existing setTimeout(async () => {...}, 0) pattern, but the resulting
- * promise is registered in runtime.pendingWork so shutdownRuntime can drain
- * it.
- *
- * Returns without spawning if shutdown has already been requested.
- *
- * @param {() => Promise<unknown>} fn
- */
-function spawnTrackedDeferredTask(fn) {
-  if (runtime.shuttingDown) {
-    return;
-  }
-  const p = new Promise((resolve, reject) => {
-    setTimeout(() => {
-      Promise.resolve().then(fn).then(resolve, reject);
-    }, 0);
-  });
-  trackBackgroundWork(p);
-}
-
-/**
- * Initiate a bounded shutdown of the extension runtime.
- *
- * Marks the runtime as shutting down (so no new background work is spawned),
- * waits up to gracePeriodMs for any in-flight background jobs to settle, then
- * closes the database exactly once.  Safe to call multiple times — the flag
- * ensures only the first invocation does real work.
- *
- * @param {object} session - Copilot session (used for graceful drain logs)
- * @param {number} [gracePeriodMs=4000]
- */
-async function shutdownRuntime(session, gracePeriodMs = 4000) {
-  if (runtime.shuttingDown) {
-    return;
-  }
-  runtime.shuttingDown = true;
-
-  if (runtime.pendingWork.size > 0) {
-    await Promise.race([
-      Promise.allSettled(runtime.pendingWork),
-      delay(gracePeriodMs),
-    ]);
-  }
-
-  try {
-    runtime.loreSession?.close?.();
-  } catch {
-    // best-effort close; never rethrow from shutdown path
-  }
-  try {
-    runtime.db?.close();
-  } catch {
-    // best-effort close; never rethrow from shutdown path
-  }
-  runtime.db = null;
-  runtime.loreSession = null;
-}
+const {
+  spawnTrackedMicrotask,
+  spawnTrackedDeferredTask,
+  shutdownRuntime,
+} = createRuntimeLifecycle(runtime);
 
 function recordMetric(values, value, windowSize) {
   values.push(value);

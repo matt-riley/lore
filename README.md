@@ -26,6 +26,8 @@ At a glance, Lore can:
 
 Lore has a stable core and an experimental ring. The support boundary for each surface lives in [`docs/support-matrix.md`](docs/support-matrix.md).
 
+When standing directives are enabled, explicit directives and extracted standing preferences and prohibitions can appear without matching the prompt's keywords. The section is capped at six eligible memories and respects repository scope, expiry, suppression, and the final output budget. Ordinary complaints and rejected task proposals do not qualify as standing policies.
+
 All five coding agents (GitHub Copilot CLI, Pi, Codex CLI, Claude Code, and Google Antigravity CLI) share the same unified memory engine, deterministic recall, and transcript extraction. Copilot and Pi expose nine canonical model tools (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`, and `lore_correct`), while extra capabilities and native CLI workflows run through `/lore <verb>` slash commands, `lore <verb>` in the shell, or the `$LORE_HOME/bin/lore` PATH shim (e.g. `export PATH="$LORE_HOME/bin:$PATH"`).
 
 ---
@@ -386,6 +388,8 @@ This uses the controlled backfill engine during Copilot session start, stays rea
 
 ## Validate
 
+`npm run test:reliability` reports extraction and recall quality, including mandatory recall failures. Text output limits failure and grouped recall details to 80 entries each and marks omitted or shortened details. Use `npm run test:reliability -- --json` for the complete evidence.
+
 Before trusting a config change, validate that the runtime defaults and schema still agree:
 
 ```sh
@@ -595,7 +599,9 @@ website/               # Separate Astro documentation site and interactive examp
 
 ## Docs and contributing
 
-The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 24.0.0+ and pnpm 11.25.0, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
+The [documentation website](website/README.md) is a separate Astro site with setup guides for all five agents and an interactive memory walkthrough. It requires Node.js 24.0.0+ and pnpm 12.2.1, unlike Lore's build-free runtime. Run it locally with `cd website && pnpm install --frozen-lockfile && pnpm dev`; its own README covers checks and Cloudflare Workers static-asset hosting.
+
+Release readiness also requires actual client evidence. Use `node scripts/verify-cli-hooks.mjs <codex|claude|antigravity> --mock --json` for isolated simulated checks; these leave native recall pending and never launch a host. See [the v1 release gate](docs/releasing.md#v1-candidate-gate) for authenticated certification and the 14-day candidate soak. Local test success does not complete those gates.
 
 If you want the deeper contract, these are the main references:
 

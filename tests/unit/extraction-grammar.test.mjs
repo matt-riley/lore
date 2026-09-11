@@ -25,9 +25,51 @@ describe("extraction grammar accuracy", () => {
     assert.equal(standingDirectiveType("is there a way to override this?"), null);
   });
 
+  test("keeps quoted tool names inside genuine preferences and directives", () => {
+    assert.equal(isNonDirectiveSentence('I prefer "pnpm" for package management.'), false);
+    assert.equal(isNonDirectiveSentence('Always use "node test" for tests.'), false);
+    assert.equal(isNonDirectiveSentence('Always use “node:test” for tests.'), false);
+    assert.equal(isNonDirectiveSentence("I prefer 'release candidate' tags."), false);
+    assert.equal(isNonDirectiveSentence("I prefer ‘release candidate’ tags."), false);
+    assert.equal(isNonDirectiveSentence('Never use "obviously" in error messages.'), false);
+    assert.equal(isNonDirectiveSentence('I prefer Node’s test runner.'), false);
+    assert.equal(isNonDirectiveSentence('Across all projects, I prefer "small pure functions".'), false);
+    assert.equal(isNonDirectiveSentence('Going forward, I prefer "small pure functions".'), false);
+    assert.equal(isNonDirectiveSentence('If tests fail, never merge "main".', { allowConditions: true }), false);
+    assert.equal(isNonDirectiveSentence('I always prefer "pnpm" for package management.'), false);
+    assert.equal(isNonDirectiveSentence('I always use "node:test" for tests.'), false);
+    assert.equal(isNonDirectiveSentence('My preference is "pnpm" for package management.'), false);
+    assert.equal(isNonDirectiveSentence('API boundaries should validate "the wire type".'), false);
+    assert.equal(isNonDirectiveSentence('The API boundary should validate "the wire type".'), false);
+    assert.equal(isNonDirectiveSentence('Please format "the result" consistently.'), false);
+    assert.equal(isNonDirectiveSentence('Reject "unsafe casts".'), false);
+    assert.equal(isNonDirectiveSentence('Actually, that is wrong: use "pnpm".'), false);
+    assert.equal(isNonDirectiveSentence('We never use "mutable globals".'), false);
+    assert.equal(isNonDirectiveSentence('Please remember "small pure functions".'), false);
+    assert.equal(isNonDirectiveSentence('The phrase "API boundaries should validate" is an example.'), true);
+  });
+
+  test("still filters quoted instructions and reported examples", () => {
+    assert.equal(isNonDirectiveSentence('"Always use SQLite for local development."'), true);
+    assert.equal(isNonDirectiveSentence('The old guide says "always use SQLite".'), true);
+    assert.equal(isNonDirectiveSentence('The guide says "always use `node:test`".'), true);
+    assert.equal(isNonDirectiveSentence('The guide says “always use SQLite”.'), true);
+    assert.equal(isNonDirectiveSentence('The guide says "always use SQLite.'), true);
+    assert.equal(isNonDirectiveSentence('The example says “Always use `node:test`”.'), true);
+    assert.equal(isNonDirectiveSentence('The phrase "I always prefer pnpm" is quoted.'), true);
+    assert.equal(isNonDirectiveSentence("I prefer 'release candidate’ tags."), true);
+    assert.equal(isNonDirectiveSentence("I prefer ‘release candidate' tags."), true);
+  });
+
   test("treats don't forget as a positive reminder and never a prohibition", () => {
     assert.notEqual(standingDirectiveType("Don't forget to monitor for review comments too"), "rejected_approach");
     assert.notEqual(standingDirectiveType("Do not forget to run migrations"), "rejected_approach");
+  });
+
+  test("recognizes direct communication prohibitions with quoted objects", () => {
+    assert.equal(standingDirectiveType('Never say "obviously" in responses.'), "rejected_approach");
+    assert.equal(standingDirectiveType("Never say obviously in responses."), "rejected_approach");
+    assert.equal(standingDirectiveType('The guide says "never say obviously".'), null);
   });
 
   test("does not treat bare imperative task language as standing policy", () => {

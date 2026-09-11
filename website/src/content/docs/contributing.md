@@ -18,7 +18,7 @@ git clone <repo-url> ~/dev/lore
 cd ~/dev/lore
 ```
 
-Lore is plain ESM with no build step. Node 24.0.0 or later is required. If you want to run the checkout as a live Copilot extension, preview and then run the development installer:
+Lore is plain ESM with no build step. Node 24.0.0 or later is required for both the core and website. Use pnpm 12.2.1 for development dependencies and website commands; both package manifests pin that version. If you want to run the checkout as a live Copilot extension, preview and then run the development installer:
 
 ```sh
 node scripts/dev-install.mjs --dry-run
@@ -41,6 +41,10 @@ npm run validate-schema
 ```
 
 Keep unit tests focused and fast. Use smoke tests for scripts, temporary homes, and subprocess behavior. Check rendered browser changes in a browser as well as in source.
+
+Run `npm run test:reliability` for extraction and recall quality, including mandatory recall cases and grouped recall misses. A passing aggregate score does not imply every proposition was recalled. For isolated native adapter checks, use `node scripts/verify-cli-hooks.mjs <codex|claude|antigravity> --mock --json`; mock mode never launches a host and leaves native recall pending. Actual authenticated certification and a 14-day candidate soak are separate [release gates](https://github.com/matt-riley/lore/blob/main/docs/releasing.md#v1-candidate-gate).
+
+Text output limits failure and grouped recall details to 80 entries each and marks omitted or shortened details. Use `npm run test:reliability -- --json` for the complete evidence.
 
 ## Style and scope
 

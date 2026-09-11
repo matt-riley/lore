@@ -13,6 +13,55 @@ const CLIENT_CONTEXT = Object.freeze({
   antigravity: "The completed Antigravity planner step carried this evidence into the transcript.",
 });
 
+// Keep standing policy language in a small, independently reviewed corpus so
+// quality scoring cannot silently omit the directive extraction type.
+export const STANDING_DIRECTIVE_CORPUS = Object.freeze([
+  {
+    id: "standing-mandatory-idempotency",
+    repository: "acme/standing-idempotency",
+    user: "Idempotency keys are mandatory for payment mutations.",
+    assistant: "Payment mutations will require idempotency keys.",
+    expected: [{ type: "directive", scope: "repo", anchors: ["idempotency", "keys", "mandatory", "payment", "mutations"] }],
+    query: "What is mandatory for payment mutations?",
+    mandatoryRecall: true,
+    grammarText: "Idempotency keys are mandatory for payment mutations.",
+    grammarType: "directive",
+  },
+  {
+    id: "standing-should-validate",
+    repository: "acme/standing-validation",
+    user: "API boundaries should validate the declared wire type.",
+    assistant: "API boundaries will validate the declared wire type.",
+    expected: [{ type: "directive", scope: "repo", anchors: ["API", "boundaries", "validate", "declared", "wire", "type"] }],
+    query: "What should API boundaries validate?",
+    mandatoryRecall: true,
+    grammarText: "API boundaries should validate the declared wire type.",
+    grammarType: "directive",
+  },
+  {
+    id: "standing-must-redact",
+    repository: "acme/standing-redaction",
+    user: "Debug logs must redact bearer tokens before storage.",
+    assistant: "Debug logs will redact bearer tokens before storage.",
+    expected: [{ type: "directive", scope: "repo", anchors: ["debug", "logs", "must", "redact", "bearer", "tokens", "storage"] }],
+    query: "What must debug logs redact before storage?",
+    mandatoryRecall: true,
+    grammarText: "Debug logs must redact bearer tokens before storage.",
+    grammarType: "directive",
+  },
+  {
+    id: "standing-must-not-leak",
+    repository: "acme/standing-examples",
+    user: "Credentials must not appear in synthetic examples.",
+    assistant: "Synthetic examples will use placeholders instead of credentials.",
+    expected: [{ type: "rejected_approach", scope: "repo", anchors: ["credentials", "must", "not", "appear", "synthetic", "examples"] }],
+    query: "What must not appear in synthetic examples?",
+    mandatoryRecall: true,
+    grammarText: "Credentials must not appear in synthetic examples.",
+    grammarType: "rejected_approach",
+  },
+]);
+
 const CASES = Object.freeze([
   {
     id: "repo-preference",
@@ -294,6 +343,7 @@ const CASES = Object.freeze([
     expected: [{ type: "rejected_approach", scope: "repo", anchors: ["do", "not", "remove", "footer", "link", "canonical"] }],
     query: "What footer link rule applies to the documentation page?",
   },
+  ...STANDING_DIRECTIVE_CORPUS,
 ]);
 
 // These conversations are intentionally independent of the adapter smoke

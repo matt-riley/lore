@@ -48,6 +48,8 @@ Lore reads Copilot's raw `session-store.db` for extraction and backfill. It neve
 
 Lore keeps global memories eligible across repositories. Repository-scoped memories are eligible for their repository; cross-repository results are bounded and require the relevant request or configuration. Workstream overlays can add active project context when the feature is enabled.
 
+When standing directives are enabled, explicit directives and extracted standing preferences and prohibitions can appear without matching the prompt's keywords. The section is capped at six eligible memories and respects scope, expiry, suppression, and the final output budget. Ordinary complaints and rejected task proposals do not qualify as standing policies. Recall diagnostics count only rows that survive the output budget.
+
 The shared retrieval concepts are exposed through adapter-specific interfaces:
 
 | Adapter | Tool | Use it for |

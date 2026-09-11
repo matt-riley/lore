@@ -11,10 +11,11 @@ import { buildCliHookConfig } from "../lib/clients/cli-hook-config.mjs";
 
 function parseArgs(argv) {
   const [client, ...rest] = argv;
-  const options = { json: false, globalProbe: false, testHome: null, sessions: 2 };
+  const options = { json: false, mock: false, globalProbe: false, testHome: null, sessions: 2 };
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (arg === "--json") options.json = true;
+    else if (arg === "--mock") options.mock = true;
     else if (arg === "--global-hook-probe") options.globalProbe = true;
     else if (arg === "--test-home") {
       if (!rest[i + 1] || rest[i + 1].startsWith("--")) throw new Error("--test-home requires a directory");
@@ -28,6 +29,7 @@ function parseArgs(argv) {
   }
   if (!["codex", "claude", "antigravity"].includes(client)) throw new Error("Client must be codex, claude, or antigravity");
   if (options.globalProbe && client !== "antigravity") throw new Error("--global-hook-probe is only valid for Antigravity");
+  if (options.mock && options.globalProbe) throw new Error("--mock cannot be combined with --global-hook-probe");
   return { client, options };
 }
 
@@ -83,7 +85,9 @@ async function main({ client, options }) {
   const env = { ...process.env, HOME: testHome, LORE_HOME: loreHome, LORE_CONFIG: config, LORE_ENABLED: "true", LORE_REPOSITORY: "lore-live-verification" };
   const report = { schemaVersion: 1, client, version: "unavailable", node: process.version, commit: "unknown", captureMode: "simulated", artifacts: directory, checks: {}, limitations: ["Captured transcripts are simulated; uninstall and every host UI path remain outside this certificate."] };
   try { report.commit = (await exec("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim(); } catch { /* evidence remains explicit */ }
-  try { const command = { codex: "codex", claude: "claude", antigravity: "agy" }[client]; report.version = (await exec(command, ["--version"], { timeout: 5000 })).stdout.trim().split("\n")[0].slice(0, 120); } catch { /* pending is reported by native recall */ }
+  if (!options.mock) {
+    try { const command = { codex: "codex", claude: "claude", antigravity: "agy" }[client]; report.version = (await exec(command, ["--version"], { timeout: 5000 })).stdout.trim().split("\n")[0].slice(0, 120); } catch { /* pending is reported by native recall */ }
+  }
   const seed = (name, args) => exec(process.execPath, [entry, "tool", name], {
     env, cwd: directory, input: JSON.stringify(args),
   }).then(({ stdout }) => stdout);
@@ -96,11 +100,12 @@ async function main({ client, options }) {
     const nativeId = `cert-${index}-${randomUUID().slice(0, 6)}`;
     const transcript = path.join(directory, `${nativeId}.jsonl`);
     const messages = client === "codex" ? [
+      { type: "session_meta", payload: { id: nativeId, cwd: directory } },
       { type: "response_item", timestamp: "2026-09-06T12:00:00Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: `quartzanchor session ${index}: remember focused tests.` }] } },
       { type: "response_item", timestamp: "2026-09-06T12:01:00Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "We decided to run focused tests." }] } },
     ] : client === "claude" ? [
-      { uuid: "a", parentUuid: null, type: "user", timestamp: "2026-09-06T12:00:00Z", message: { role: "user", content: `quartzanchor session ${index}: remember focused tests.` } },
-      { uuid: "b", parentUuid: "a", type: "assistant", timestamp: "2026-09-06T12:01:00Z", message: { role: "assistant", content: [{ type: "text", text: "We decided to run focused tests." }] } },
+      { uuid: "a", parentUuid: null, sessionId: nativeId, type: "user", timestamp: "2026-09-06T12:00:00Z", message: { role: "user", content: `quartzanchor session ${index}: remember focused tests.` } },
+      { uuid: "b", parentUuid: "a", sessionId: nativeId, type: "assistant", timestamp: "2026-09-06T12:01:00Z", message: { role: "assistant", content: [{ type: "text", text: "We decided to run focused tests." }] } },
     ] : [
       { step_index: 0, type: "USER_INPUT", source: "USER_EXPLICIT", status: "DONE", created_at: "2026-09-06T12:00:00Z", content: `quartzanchor session ${index}: remember focused tests.` },
       { step_index: 1, type: "PLANNER_RESPONSE", source: "MODEL", status: "DONE", created_at: "2026-09-06T12:01:00Z", content: "We decided to run focused tests." },
@@ -116,7 +121,7 @@ async function main({ client, options }) {
   const captured = db.prepare("SELECT session_id, scope, repository, source FROM episode_digest WHERE session_id LIKE ? ORDER BY session_id").all(`${client}:cert-%`);
   const distinctSessions = new Set(captured.map((row) => row.session_id)).size;
   report.checks.capture = captured.length === sessions.length ? status("pass", `${captured.length} sessions captured`) : status("fail", `expected ${sessions.length}, got ${captured.length}`);
-  report.checks.duplicateCapture = captured.length === distinctSessions ? status("pass", "one digest per captured session id") : status("fail", "duplicate session ids detected");
+  report.checks.duplicateCapture = captured.length === sessions.length && distinctSessions === sessions.length ? status("pass", "one digest per expected session after repeated capture") : status("fail", "missing or duplicate captured sessions");
   const globalMarker = `global-${randomUUID().slice(0, 8)}`;
   const otherRepoMarker = `other-repo-${randomUUID().slice(0, 8)}`;
   await seed("memory_save", { content: globalMarker, type: "user_preference", scope: "global" });
@@ -144,33 +149,37 @@ async function main({ client, options }) {
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, JSON.stringify(fragment));
   let cleanupProbe = async () => {};
-  if (options.globalProbe) {
-    const shared = path.join(testHome, ".gemini", "config", "hooks.json");
-    const original = await readFile(shared, "utf8").catch((error) => { if (error.code === "ENOENT") return null; throw error; });
-    const current = original === null ? {} : JSON.parse(original);
-    const key = `lore-verification-${randomUUID()}`;
-    current[key] = fragment.lore;
-    await mkdir(path.dirname(shared), { recursive: true });
-    await writeFile(shared, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
-    cleanupProbe = async () => {
-      let current = {};
-      try { current = JSON.parse(await readFile(shared, "utf8")); } catch (error) { if (error.code === "ENOENT") return; throw error; }
-      if (JSON.stringify(current[key]) !== JSON.stringify(fragment.lore)) return;
-      delete current[key];
-      if (original === null && Object.keys(current).length === 0) await unlink(shared).catch(() => {});
-      else await writeFile(shared, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
-    };
-    process.once("SIGINT", async () => { await cleanupProbe(); process.exit(130); });
-    process.once("SIGTERM", async () => { await cleanupProbe(); process.exit(143); });
-    report.limitations.push("Antigravity global probe uses only the explicitly supplied dedicated test home; credentials are never copied.");
-  }
   const prompt = "What is my quartzanchor verification word? Use the memory context already provided to you. Reply with only the word, do not call tools, do not read files, and do not guess if unavailable.";
   const args = { codex: ["exec", "--ignore-user-config", "--skip-git-repo-check", "--dangerously-bypass-hook-trust", "-s", "read-only", "-c", `hooks=${toml(fragment.hooks)}`, "--json", prompt], claude: ["--setting-sources", "", "--settings", target, "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--tools", "", "-p", prompt], antigravity: ["--add-dir", directory, "--mode", "plan", "--output-format", "json", "--print-timeout", "90s", "--print", prompt] }[client];
   try {
-    const result = await exec(command, args, { cwd: directory, env, timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
-    await writeFile(path.join(directory, "stdout.txt"), result.stdout, { mode: 0o600 });
-    await writeFile(path.join(directory, "stderr.txt"), result.stderr, { mode: 0o600 });
-    report.checks.nativeRecall = hasFinalAnswer(result.stdout, client, word) ? status("pass", "native client returned the exact recalled word as its final answer") : status("fail", "native client completed without returning the exact verification word as its final answer");
+    if (options.globalProbe) {
+      const shared = path.join(testHome, ".gemini", "config", "hooks.json");
+      const original = await readFile(shared, "utf8").catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+      const current = original === null ? {} : JSON.parse(original);
+      const key = `lore-verification-${randomUUID()}`;
+      current[key] = fragment.lore;
+      await mkdir(path.dirname(shared), { recursive: true });
+      cleanupProbe = async () => {
+        let current = {};
+        try { current = JSON.parse(await readFile(shared, "utf8")); } catch (error) { if (error.code === "ENOENT") return; throw error; }
+        if (JSON.stringify(current[key]) !== JSON.stringify(fragment.lore)) return;
+        delete current[key];
+        if (original === null && Object.keys(current).length === 0) await unlink(shared).catch(() => {});
+        else await writeFile(shared, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
+      };
+      await writeFile(shared, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
+      process.once("SIGINT", async () => { await cleanupProbe(); process.exit(130); });
+      process.once("SIGTERM", async () => { await cleanupProbe(); process.exit(143); });
+      report.limitations.push("Antigravity global probe uses only the explicitly supplied dedicated test home; credentials are never copied.");
+    }
+    if (options.mock) {
+      report.checks.nativeRecall = status("pending", "not requested in --mock mode; simulated checks cannot certify a host");
+    } else {
+      const result = await exec(command, args, { cwd: directory, env, timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+      await writeFile(path.join(directory, "stdout.txt"), result.stdout, { mode: 0o600 });
+      await writeFile(path.join(directory, "stderr.txt"), result.stderr, { mode: 0o600 });
+      report.checks.nativeRecall = hasFinalAnswer(result.stdout, client, word) ? status("pass", "native client returned the exact recalled word as its final answer") : status("fail", "native client completed without returning the exact verification word as its final answer");
+    }
   } catch (error) {
     await writeFile(path.join(directory, "stdout.txt"), error.stdout ?? "", { mode: 0o600 });
     await writeFile(path.join(directory, "stderr.txt"), error.stderr ?? error.message, { mode: 0o600 });

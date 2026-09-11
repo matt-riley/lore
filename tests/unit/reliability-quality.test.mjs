@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
   QUALITY_GATES,
+  MANDATORY_RECALL_SCENARIO_IDS,
+  renderQualityReport,
   currentGuidanceText,
   evaluateCandidateMemories,
   evaluateForeignRows,
@@ -14,7 +16,9 @@ import {
   RELIABILITY_BLUEPRINTS,
   RELIABILITY_CLIENTS,
   RELIABILITY_CORPUS,
+  STANDING_DIRECTIVE_CORPUS,
 } from "../fixtures/reliability-corpus.mjs";
+import { directiveSentences, standingDirectiveType } from "../../lib/sessions/extraction-grammar.mjs";
 import {
   isolatedEnvironment,
   checkpointDeltaWork,
@@ -28,9 +32,9 @@ describe("independent reliability quality corpus", () => {
     assert.ok(RELIABILITY_CORPUS.length >= 600);
     assert.deepEqual(
       Object.fromEntries(RELIABILITY_CLIENTS.map((client) => [client, RELIABILITY_CORPUS.filter((scenario) => scenario.client === client).length])),
-      { copilot: 156, pi: 156, codex: 156, claude: 156, antigravity: 156 },
+      { copilot: 160, pi: 160, codex: 160, claude: 160, antigravity: 160 },
     );
-    assert.equal(new Set(RELIABILITY_CORPUS.map((scenario) => scenario.scenarioId)).size, 780);
+    assert.equal(new Set(RELIABILITY_CORPUS.map((scenario) => scenario.scenarioId)).size, 800);
     assert.ok(RELIABILITY_CORPUS.some((scenario) => scenario.transcript.turns.length > 12));
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.family === "isolation"));
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.family === "suppression"));
@@ -140,6 +144,41 @@ describe("independent reliability quality corpus", () => {
     assert.ok(RELIABILITY_BLUEPRINTS.some((scenario) => scenario.id === "footer-link-do-not"));
   });
 
+  test("covers standing directive extraction types in the reliability corpus", () => {
+    assert.equal(STANDING_DIRECTIVE_CORPUS.length, 4);
+    for (const item of STANDING_DIRECTIVE_CORPUS) {
+      const [sentence] = directiveSentences(item.grammarText);
+      assert.equal(standingDirectiveType(sentence), item.grammarType, item.id);
+    }
+  });
+
+  test("counts unknown active extraction types as precision failures", () => {
+    const scenario = { repository: "acme/test", expected: [], forbidden: [] };
+    const result = evaluateCandidateMemories({
+      scenario,
+      extraction: { semanticMemories: [{ type: "future_memory_type", scope: "repo", repository: scenario.repository, content: "Unexpected proposal" }] },
+    });
+    assert.equal(result.candidateCount, 1);
+    assert.equal(result.falsePositiveCount, 1);
+  });
+
+  test("counts an unexpected forbidden directive as an extraction failure", () => {
+    const scenario = {
+      repository: "acme/test", expected: [],
+      forbidden: [{ type: "directive", anchors: ["always", "publish", "secrets"] }],
+    };
+    const result = evaluateCandidateMemories({
+      scenario,
+      extraction: { semanticMemories: [{
+        type: "directive", scope: "repo", repository: scenario.repository,
+        content: "Always publish secrets",
+      }] },
+    });
+    assert.equal(result.candidateCount, 1);
+    assert.equal(result.falsePositiveCount, 1);
+    assert.equal(result.negativeFalsePositives, 1);
+  });
+
   test("keeps the frozen gates explicit", () => {
     assert.deepEqual(QUALITY_GATES, {
       extractionPrecision: 0.95,
@@ -150,6 +189,7 @@ describe("independent reliability quality corpus", () => {
       maxCriticalFailures: 0,
       maxNegativeFalsePositives: 0,
     });
+    assert.deepEqual([...MANDATORY_RECALL_SCENARIO_IDS], ["global-style", "global-reversals"]);
   });
 
   test("benchmark embedding paths expose production cold and warm cache work", async () => {
@@ -211,6 +251,114 @@ describe("independent reliability quality corpus", () => {
     assert.equal(result.metrics.explicitPropositionRecall, 1);
     assert.equal(result.metrics.retentionRecall, 1);
     assert.deepEqual(result.metrics.criticalFailures, []);
+  });
+
+  test("reports recall misses by underlying scenario instead of truncating them", async () => {
+    const scenarios = RELIABILITY_CLIENTS.map((client) =>
+      {
+        const scenario = RELIABILITY_CORPUS.find((item) => item.client === client && item.id === "independent-worker-shutdown");
+        return { ...scenario, disableStandingDirectives: true };
+      }
+    );
+    const result = await runQualityEvaluation({ scenarios });
+    assert.deepEqual(result.metrics.recallMissesByScenario["independent-worker-shutdown"].clients, RELIABILITY_CLIENTS);
+    assert.equal(result.metrics.recallMissesByScenario["independent-worker-shutdown"].missingPropositions.length, 1);
+    assert.deepEqual(result.metrics.mandatoryRecallFailures, []);
+  });
+
+  test("renders recall-only failures and fails mandatory recall", () => {
+    const result = {
+      passed: false,
+      metrics: {
+        scenarioCount: 1,
+        independentSemanticScenarioCount: 0,
+        clients: { copilot: 1 },
+        extractionPrecision: 1,
+        explicitPropositionRecall: 1,
+        retentionRecall: 1,
+        mandatoryRecallFailures: ["copilot:mandatory"],
+        recallMissesByScenario: { mandatory: { clients: ["copilot"], missingPropositions: ["directive/repo: missing rule"] } },
+        falseGlobalPromotions: 0,
+        negativeFalsePositives: 0,
+        criticalFailures: [],
+        negativeQueryFailures: [],
+        forbiddenSemanticRowFailures: [],
+        forbiddenRenderedOutputFailures: [],
+      },
+      cases: [],
+    };
+    const report = renderQualityReport(result);
+    assert.match(report, /mandatory recall failures: 1/);
+    assert.match(report, /RECALL MISS mandatory: clients=copilot/);
+  });
+
+  test("bounds broad regression reports while preserving complete JSON evidence", () => {
+    const ids = Array.from({ length: 500 }, (_, index) => `case-${index}`);
+    const result = {
+      passed: false,
+      metrics: {
+        scenarioCount: ids.length, independentSemanticScenarioCount: ids.length,
+        clients: { copilot: ids.length }, extractionPrecision: 1,
+        explicitPropositionRecall: 1, retentionRecall: 0,
+        mandatoryRecallFailures: ids, criticalFailures: ids,
+        falseGlobalPromotions: 0, negativeFalsePositives: 0,
+        negativeQueryFailures: [], forbiddenSemanticRowFailures: [], forbiddenRenderedOutputFailures: [],
+        recallMissesByScenario: Object.fromEntries(ids.map((id) => [id, {
+          clients: ["copilot"], missingPropositions: ["x".repeat(5000)],
+        }])),
+      },
+      cases: ids.map((id) => ({
+        id,
+        extraction: { candidateCount: 1, matchedExpected: 1, expectedCount: 1, falsePositiveCount: 0, falseGlobalPromotions: 0 },
+        expectedRecall: 0, recallExpectedCount: 1,
+      })),
+    };
+    const completeEvidence = JSON.stringify(result);
+    const report = renderQualityReport(result);
+    assert.equal(report.split("\n").filter((line) => line.startsWith("FAIL ")).length, 80);
+    assert.equal(report.split("\n").filter((line) => line.startsWith("RECALL MISS ")).length, 80);
+    assert.match(report, /Failure details: showing 80 of 500; 420 omitted/);
+    assert.match(report, /Recall miss details: showing 80 of 500; 420 omitted/);
+    assert.match(report, /line shortened; use --json for full details/);
+    assert.ok(report.split("\n").every((line) => line.length <= 1000));
+    assert.ok(report.length < 180_000);
+    assert.equal(JSON.stringify(result), completeEvidence);
+    assert.ok(result.metrics.recallMissesByScenario["case-499"]);
+    assert.equal(result.cases.at(-1).id, "case-499");
+  });
+
+  test("mandatory recall gate fails an existing miss without changing other metrics", async () => {
+    const scenarios = RELIABILITY_CORPUS.filter((item) => item.client === "copilot").map((item) =>
+      item.id === "independent-worker-shutdown" ? { ...item, disableStandingDirectives: true } : item
+    );
+    const baseline = await runQualityEvaluation({ scenarios });
+    assert.equal(baseline.passed, true);
+    const workerIndex = scenarios.findIndex((item) => item.id === "independent-worker-shutdown");
+    const mandatory = scenarios.map((item, index) => index === workerIndex ? {
+      ...item,
+      mandatoryRecall: true,
+    } : item);
+    const gated = await runQualityEvaluation({ scenarios: mandatory });
+    assert.equal(gated.passed, false);
+    assert.deepEqual(gated.metrics.mandatoryRecallFailures, ["copilot:independent-worker-shutdown"]);
+    assert.equal(gated.metrics.extractionPrecision, baseline.metrics.extractionPrecision);
+    assert.equal(gated.metrics.falseGlobalPromotions, baseline.metrics.falseGlobalPromotions);
+    assert.equal(gated.metrics.negativeFalsePositives, baseline.metrics.negativeFalsePositives);
+  });
+
+  test("runs standing directive cases through the real multi-client corpus", async () => {
+    const representative = RELIABILITY_CORPUS.find((item) => item.client === "copilot" && item.id === STANDING_DIRECTIVE_CORPUS[0].id);
+    const evaluated = await runQualityEvaluation({ scenarios: [representative] });
+    assert.equal(evaluated.cases[0].expectedRecall, 1);
+    assert.equal(evaluated.cases[0].directiveTraceRows, 1);
+    for (const directive of STANDING_DIRECTIVE_CORPUS) {
+      for (const client of RELIABILITY_CLIENTS) {
+        const scenario = RELIABILITY_CORPUS.find((item) => item.client === client && item.id === directive.id);
+        assert.ok(scenario, `${client}:${directive.id}`);
+        assert.equal(scenario.mandatoryRecall, true);
+        assert.equal(scenario.expected[0].type, directive.expected[0].type);
+      }
+    }
   });
 
   test("full production pipeline meets the frozen quality gates", {

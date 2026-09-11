@@ -25,7 +25,17 @@ Status: **stabilisation implementation complete; host certification and release 
 | J independent safety review | Luna review completed; migration, schema validation, installer ownership and verifier issues addressed with regressions. Integrated verification passed below. |
 | K rendered dashboard/website QA | Completed with synthetic data on desktop/mobile Chrome; accessible filter labels and bounded long-memory previews fixed. |
 
-Implementation used isolated worktrees with focused Luna workers and coordinator review/integration. Baseline commit: `31081e193639d51089c78a0fc4641ff14fd53393` (824 tests passed, no skips). Work is on `feat/v1-stabilisation`; the original main checkout is unchanged.
+The original implementation used isolated worktrees with focused Luna workers and coordinator review/integration. Baseline commit: `31081e193639d51089c78a0fc4641ff14fd53393` (824 tests passed, no skips). The branch and verification results below describe that historical implementation; they do not certify subsequent changes.
+
+## Audit follow-up (2026-09-09)
+
+The native verifier's Codex and Claude simulated transcripts were missing the native session identities now required by ingestion. The fixtures now carry those identities, and duplicate-capture checks also reject missing sessions. `node scripts/verify-cli-hooks.mjs <client> --mock --json` exercises capture, repeated capture, scope isolation, and neutral error handling without launching or authenticating a host. It deliberately reports native recall as pending.
+
+Fresh isolated Codex and Claude probes at `bdeb9cc` passed their six simulated checks, including two captured sessions each. Both authenticated recall checks remained pending because the isolated profiles were not authenticated. Antigravity's six simulated checks passed in mock mode; its authenticated global-hook probe was not performed.
+
+The Copilot/Pi runner at `6b54a8c` passed seven supporting checks, with ten checks pending and none failed. Pi's executable shim could not resolve its installation inside the synthetic home. Copilot's isolated host loading and full lifecycle scenarios remained unperformed. These observations identify the remaining environment work; they do not replace certification on a frozen candidate.
+
+All five complete certifications and the 14-day candidate soak remain pending. The release-evidence checker described in [the release gate](releasing.md#v1-candidate-gate) validates the structure and completeness of reviewed evidence. A passing validator cannot establish that a human-supplied attestation actually occurred.
 
 ## Development verification (2026-09-06)
 

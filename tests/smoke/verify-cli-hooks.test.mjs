@@ -1,12 +1,43 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { once } from "node:events";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
+
+for (const client of ["codex", "claude", "antigravity"]) {
+  test(`${client} mock verification captures identified sessions without launching a host`, { skip: !FTS5_AVAILABLE, timeout: 30000 }, async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "lore-verifier-mock-"));
+    let artifacts;
+    try {
+      const bin = path.join(home, "bin");
+      await mkdir(bin);
+      for (const command of ["codex", "claude", "agy"]) {
+        await writeFile(path.join(bin, command), '#!/bin/sh\nprintf invoked > "$HOST_INVOCATION_MARKER"\nexit 1\n', { mode: 0o700 });
+      }
+      const marker = path.join(home, "host-invoked");
+      const { stdout } = await promisify(execFile)(process.execPath, [
+        fileURLToPath(new URL("../../scripts/verify-cli-hooks.mjs", import.meta.url)), client, "--mock", "--json",
+      ], { env: { ...process.env, HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOST_INVOCATION_MARKER: marker }, timeout: 25000 });
+      const report = JSON.parse(stdout);
+      artifacts = report.artifacts;
+      assert.equal(report.status, "partial");
+      assert.equal(report.captureMode, "simulated");
+      for (const check of ["capture", "duplicateCapture", "scopeIsolation", "malformedHook", "oversizedHook", "failedHook"]) {
+        assert.equal(report.checks[check].status, "pass", `${check}: ${JSON.stringify(report.checks[check])}`);
+      }
+      assert.equal(report.checks.nativeRecall.status, "pending");
+      await assert.rejects(readFile(marker), { code: "ENOENT" });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      if (artifacts?.startsWith(path.join(os.tmpdir(), `lore-live-${client}-`))) await rm(artifacts, { recursive: true, force: true });
+    }
+  });
+}
 
 test("Antigravity global probe refuses the personal home without a dedicated test home", { skip: !FTS5_AVAILABLE, timeout: 15000 }, async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "lore-probe-cleanup-"));

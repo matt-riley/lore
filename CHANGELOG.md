@@ -20,6 +20,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.16.2](https://github.com/matt-riley/lore/compare/lore-v0.16.1...lore-v0.16.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* drop unnecessary export on module-internal helpers in split db files ([d633811](https://github.com/matt-riley/lore/commit/d633811994a2b13cf2ead9951a8b1052cf49269e))
+* improve memory extraction, recall, and verification ([#128](https://github.com/matt-riley/lore/issues/128)) ([e6ee09c](https://github.com/matt-riley/lore/commit/e6ee09cca1a87b9ff30036d6af50bfe812d11dd1))
+* **pi:** resolve the lore worker from PATH instead of the Bun host binary ([767bcc5](https://github.com/matt-riley/lore/commit/767bcc572e320fa7b53146b1e27ed5fbb1042337))
+
 ## [0.16.1](https://github.com/matt-riley/lore/compare/lore-v0.16.0...lore-v0.16.1) (2026-09-09)
 
 

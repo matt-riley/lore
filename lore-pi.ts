@@ -25,7 +25,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolveRepositoryIdentity } from "./lib/utils/repository-identity.mjs";
 import { createPiServerClient } from "./lib/clients/pi-server-client.mjs";
@@ -82,25 +82,49 @@ const repoCache = new Map<string, string | null>();
 let recallCache: Map<string, { termKey: string; memoryVersion: number }> | null = null;
 let memoryVersion = 0;
 
+function nodeSupportsSqlite(bin: string): boolean {
+  try {
+    execFileSync(bin, [
+      "-e",
+      "import('node:sqlite').then(({ DatabaseSync }) => { const db = new DatabaseSync(':memory:'); db.exec('CREATE VIRTUAL TABLE lore_runtime_fts5_probe USING fts5(content)'); db.close(); }).catch(() => process.exit(1))",
+    ], { stdio: "ignore", timeout: 8000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Never resolve via process.execPath: pi ships as a Bun-compiled binary, so
+// execPath is pi itself, and spawning pi with the server path hangs until the
+// client times out. Pick node from LORE_NODE or PATH and verify it can serve
+// the database (node:sqlite + FTS5) before handing it the worker.
 function resolveNode(): string | null {
   if (nodeBin) {
     return nodeBin;
   }
-  if (process.env.LORE_NODE) {
-    nodeBin = process.env.LORE_NODE;
-    return nodeBin;
-  }
-  if (process.execPath) {
-    nodeBin = process.execPath;
-    return nodeBin;
+  const candidates: string[] = [];
+  const envNode = process.env.LORE_NODE?.trim();
+  if (envNode) {
+    candidates.push(envNode);
   }
   try {
-    const cmd = process.platform === "win32" ? "where node" : "which node";
-    nodeBin = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().split(/\r?\n/)[0] || null;
+    const cmd = process.platform === "win32" ? "where node" : "which -a node";
+    for (const line of execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().split(/\r?\n/)) {
+      const candidate = line.trim();
+      if (candidate && !candidates.includes(candidate)) {
+        candidates.push(candidate);
+      }
+    }
   } catch {
-    nodeBin = null;
+    // No node on PATH; fall through to the candidates collected so far.
   }
-  return nodeBin;
+  for (const candidate of candidates) {
+    if (nodeSupportsSqlite(candidate)) {
+      nodeBin = candidate;
+      return nodeBin;
+    }
+  }
+  return null;
 }
 
 function request<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 15000): Promise<T> {

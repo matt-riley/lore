@@ -20,6 +20,12 @@ const source = readFileSync(sourcePath, "utf8")
   );
 writeFileSync(adapterPath, source);
 
+// Simulate a Bun-compiled host (pi itself): process.execPath is not node, so
+// the adapter must resolve the worker from PATH or LORE_NODE instead.
+if (process.env.LORE_PI_FAKE_EXEC_PATH) {
+  process.execPath = process.env.LORE_PI_FAKE_EXEC_PATH;
+}
+
 const { default: registerLore } = await import(pathToFileURL(adapterPath));
 const handlers = new Map();
 const tools = new Map();

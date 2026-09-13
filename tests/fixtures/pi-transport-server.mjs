@@ -7,6 +7,7 @@ const launches = process.env.LORE_PI_TRANSPORT_LAUNCHES;
 const onceState = process.env.LORE_PI_TRANSPORT_ONCE_STATE;
 const decoder = new StringDecoder("utf8");
 let input = "";
+let fragmentQueue = Promise.resolve();
 
 if (launches) {
   appendFileSync(launches, "launch\n");
@@ -15,8 +16,15 @@ if (launches) {
 function writeFragmented(value) {
   const bytes = Buffer.from(`${JSON.stringify(value)}\n`, "utf8");
   const split = Math.max(1, Math.floor(bytes.length / 2));
-  process.stdout.write(bytes.subarray(0, split));
-  setImmediate(() => process.stdout.write(bytes.subarray(split)));
+  // Two overlapping fragmented writes interleave their halves into invalid
+  // JSON. Queue them so a response is always split but never interleaved.
+  fragmentQueue = fragmentQueue.then(() => new Promise((resolve) => {
+    process.stdout.write(bytes.subarray(0, split));
+    setImmediate(() => {
+      process.stdout.write(bytes.subarray(split));
+      resolve();
+    });
+  }));
 }
 
 if (mode === "fail-start") {

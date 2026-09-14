@@ -93,7 +93,7 @@ try {
       process.stdout.write(`${JSON.stringify(await runCliCapture(client, session, args))}\n`);
     }
   } else {
-    const { parseLoreArgv, dispatchSlash } = await import("./lib/runtime/slash-dispatch.mjs");
+    const { parseLoreArgv, dispatchSlashResult } = await import("./lib/runtime/slash-dispatch.mjs");
     let tokens = argv.slice();
     if (needsStdinJsonPayload(tokens)) {
       if (process.stdin.isTTY) {
@@ -129,12 +129,18 @@ try {
       if (!session.initialized) {
         throw session.lastError ?? new Error("lore unavailable");
       }
-      const text = await dispatchSlash(tokens, (name, args, extra) => session.dispatchTool(name, args, extra), {
+      const outcome = await dispatchSlashResult(tokens, (name, args, extra) => session.dispatchTool(name, args, extra), {
         surface: "cli",
         sessionId: session.sessionId,
       });
-      const output = String(text ?? "");
-      process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
+      const output = String(outcome.text ?? "");
+      const line = output.endsWith("\n") ? output : `${output}\n`;
+      if (outcome.ok) {
+        process.stdout.write(line);
+      } else {
+        process.stderr.write(line);
+        process.exitCode = 1;
+      }
     } finally {
       session.close();
     }

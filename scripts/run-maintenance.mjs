@@ -172,6 +172,10 @@ function formatRows(rows, render) {
   return rows.map(render).join("\n");
 }
 
+export function resolveSweepExitCode(result) {
+  return Number(result?.failedCount) > 0 || result?.status === "failed" ? 1 : 0;
+}
+
 function renderResult(result) {
   return [
     `status: ${result.status}`,
@@ -293,6 +297,7 @@ async function main() {
       dryRun: args.dryRun,
     });
     console.log(renderResult(result));
+    process.exitCode = resolveSweepExitCode(result);
   } finally {
     db.close();
   }

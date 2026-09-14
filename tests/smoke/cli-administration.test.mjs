@@ -144,6 +144,26 @@ test("human invalid administration actions are rejected before creating a store"
   } finally { f.cleanup(); }
 });
 
+test("human CLI failures exit nonzero on stderr while successes render on stdout", () => {
+  const f = fixture();
+  try {
+    const missingType = spawnSync(process.execPath, [entry, "retain"], { cwd: f.home, env: f.env, encoding: "utf8", timeout: 10000 });
+    assert.notEqual(missingType.status, 0);
+    assert.match(missingType.stderr, /type must be a non-empty string/);
+    assert.equal(missingType.stdout, "");
+
+    const retained = spawnSync(process.execPath, [entry, "retain", "--type", "user_preference", "Prefer sable fixtures."], { cwd: f.home, env: f.env, encoding: "utf8", timeout: 10000 });
+    assert.equal(retained.status, 0, retained.stderr);
+    assert.match(retained.stdout, /semantic memory/);
+    const memoryId = retained.stdout.trim().split(/\s+/).at(-1);
+
+    const stale = spawnSync(process.execPath, [entry, "correct", "--json", JSON.stringify({ memoryId, content: "Prefer reviewed sable fixtures.", action: "apply", planFingerprint: "stale-fingerprint" })], { cwd: f.home, env: f.env, encoding: "utf8", timeout: 10000 });
+    assert.notEqual(stale.status, 0);
+    assert.match(stale.stderr, /fingerprint is stale/i);
+    assert.equal(stale.stdout, "");
+  } finally { f.cleanup(); }
+});
+
 test("native correction APPLY returns a manual replacement and purge APPLY rejects stale replay", () => {
   const f = fixture();
   try {

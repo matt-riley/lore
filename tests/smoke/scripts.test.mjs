@@ -29,6 +29,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
+import { resolveSweepExitCode } from "../../scripts/run-maintenance.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -548,6 +549,20 @@ describe("run-browser read-only open", () => {
       if (child) child.kill("SIGKILL");
       rmSync(tempHome, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run-maintenance.mjs — exit-code mapping
+// ---------------------------------------------------------------------------
+
+describe("run-maintenance exit mapping", () => {
+  test("failed sweeps exit nonzero while clean, attention, and skipped runs exit zero", () => {
+    assert.equal(resolveSweepExitCode({ status: "completed", failedCount: 0 }), 0);
+    assert.equal(resolveSweepExitCode({ status: "needs_attention", failedCount: 0, needsAttentionCount: 2 }), 0);
+    assert.equal(resolveSweepExitCode({ status: "skipped", failedCount: 0 }), 0);
+    assert.equal(resolveSweepExitCode({ status: "failed", failedCount: 1 }), 1);
+    assert.equal(resolveSweepExitCode({ status: "failed", failedCount: 0 }), 1);
   });
 });
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { readFileSync } from "node:fs";
 
-import { detectPromptContextNeed } from "../../lib/context/prompt-need.mjs";
+import { detectPromptContextNeed, extractQueryTerms } from "../../lib/context/prompt-need.mjs";
 import { makeSourceExtractor } from "../helpers/source-parser.mjs";
 
 const PROMPT_NEED_SOURCE = readFileSync(new URL("../../lib/context/prompt-need.mjs", import.meta.url), "utf8");
@@ -125,4 +125,12 @@ test("explicit calendar dates activate temporal recall", () => {
   for (const prompt of ["What did we do on 2026-08-20?", "What happened on August 21, 2026?"]) {
     assert.equal(detectPromptContextNeed(prompt).hasTemporalSignal, true, prompt);
   }
+});
+
+test("constructor is an ordinary prompt term rather than an inherited alias key", () => {
+  assert.deepStrictEqual(extractQueryTerms("constructor pattern"), ["constructor", "pattern"]);
+
+  const need = detectPromptContextNeed("explain the constructor pattern");
+  assert.equal(need.identityOnly, false);
+  assert.equal(typeof need.requiresLookup, "boolean");
 });

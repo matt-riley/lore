@@ -32,6 +32,26 @@ test("prompt recall does not require every alias to appear in a matching memory"
   } finally { f.cleanup(); }
 });
 
+test("explicit search and recall treat constructor as an ordinary query term", async () => {
+  const f = await withFixtureDb();
+  try {
+    const id = f.db.insertSemanticMemory({ type: "user_preference", content: "The constructor pattern initialises objects with a prototype chain.", repository: "team/current", scope: "repo" });
+
+    assert.deepEqual(
+      f.db.searchSemantic({ query: "constructor", repository: "team/current" }).map((row) => row.id),
+      [id],
+    );
+    assert.deepEqual(
+      f.db.searchSemantic({ query: "constructor", repository: "team/current", expandAliases: false }).map((row) => row.id),
+      [id],
+    );
+    assert.deepEqual(
+      f.db.buildPromptSemanticContext({ prompt: "constructor prototype pattern", repository: "team/current", limit: 6 }).memories.map((row) => row.id),
+      [id],
+    );
+  } finally { f.cleanup(); }
+});
+
 test("prompt fallback reaches older FTS matches beyond the bounded recent corpus slice", async () => {
   const f = await withFixtureDb();
   try {

@@ -10,6 +10,8 @@
  *   - extractTemporalContentTerms: scaffold-term removal, boolean-operator
  *     stripping, stemming rules (ies→y, ing→drop, ed→drop, s→drop), and
  *     minimum-length filtering.
+ *   - alias expansion: own-key lookups keep prototype keys such as
+ *     "constructor" as ordinary query terms.
  *
  * All tests are pure/deterministic.  A fixed NOW is injected so weekday and
  * relative-date tests never depend on the wall clock.
@@ -28,6 +30,7 @@ import {
   extractTemporalContentTerms,
   extractFtsTerms,
   GENERIC_QUERY_TERMS,
+  lookupAliasTerms,
   STOPWORDS,
   sanitizeFtsQuery,
   normalizeFtsToken,
@@ -298,4 +301,25 @@ test("calendar dates and recall scaffolding are not topical search terms", () =>
   assert.deepEqual(extractTemporalContentTerms("What happened on August 21, 2026?"), []);
   assert.deepEqual(extractTemporalContentTerms("Recall our work on 2026-08-22."), []);
   assert.deepEqual(extractTemporalContentTerms("Redis retries on 2026-08-20"), ["redi", "retry"]);
+});
+
+describe("alias expansion — prototype-key safety", () => {
+  test("sanitizes constructor and prototype-related terms without throwing", () => {
+    assert.strictEqual(sanitizeFtsQuery("constructor"), "constructor");
+    assert.strictEqual(sanitizeFtsQuery("prototype"), "prototype");
+    assert.strictEqual(sanitizeFtsQuery("__proto__"), "proto");
+  });
+
+  test("keeps constructor when alias expansion is disabled with a plain object", () => {
+    assert.deepStrictEqual(
+      extractFtsTerms("constructor prototype", { aliases: {} }),
+      ["constructor", "prototype"],
+    );
+  });
+
+  test("ignores inherited alias keys while still expanding own entries", () => {
+    assert.deepStrictEqual(lookupAliasTerms({}, "constructor"), []);
+    assert.deepStrictEqual(lookupAliasTerms({ constructor: ["initializer"] }, "constructor"), ["initializer"]);
+    assert.deepStrictEqual(lookupAliasTerms(undefined, "constructor"), []);
+  });
 });

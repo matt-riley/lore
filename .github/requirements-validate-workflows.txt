@@ -1,0 +1,4 @@
+# Pinned validator dependency for .github/workflows/validate-workflows.yml.
+# Renovate updates PyYAML here so workflow validation uses a reviewed version
+# instead of resolving fresh tooling at run time.
+PyYAML==6.0.3

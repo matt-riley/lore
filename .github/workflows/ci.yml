@@ -69,7 +69,7 @@ jobs:
           pnpm install --frozen-lockfile
 
       - name: Run knip
-        run: npx --yes knip@6
+        run: npm run knip
 
   test:
     name: Tests (Node ${{ matrix.node }}, ${{ matrix.os }})

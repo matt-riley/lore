@@ -21,7 +21,7 @@
 
 import { it, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -180,6 +180,67 @@ describe("buildOkfGraph", () => {
       { source: "artifacts/a1", target: "artifacts/a2" },
     ]);
     assert.deepEqual(backlinksById.get("artifacts/a2"), ["artifacts/a1", "artifacts/a1", "artifacts/a1"]);
+  });
+});
+
+describe("readOkfBundle bounds", () => {
+  it("skips oversized documents and reports truncation with honest counts", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      writeFileSync(path.join(tmpDir, "small.md"), "# Small\n\nok");
+      writeFileSync(path.join(tmpDir, "huge.md"), `# Huge\n\n${"x".repeat(4096)}`);
+      const bundle = await readOkfBundle(tmpDir, { limits: { maxFileBytes: 512 } });
+      assert.equal(bundle.totalConceptFileCount, 2);
+      assert.equal(bundle.readConceptFileCount, 1);
+      assert.equal(bundle.concepts.length, 1);
+      assert.equal(bundle.truncated, true);
+      assert.deepEqual(bundle.truncationReasons, ["file_size_limit"]);
+      assert.deepEqual(bundle.skippedFiles, ["huge.md"]);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stops reading at the aggregate byte budget", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      for (let index = 0; index < 5; index += 1) {
+        writeFileSync(path.join(tmpDir, `${index}.md`), `# Doc ${index}\n\n${"y".repeat(400)}`);
+      }
+      const bundle = await readOkfBundle(tmpDir, { limits: { maxFileBytes: 1024, maxTotalBytes: 900 } });
+      assert.equal(bundle.truncated, true);
+      assert.ok(bundle.truncationReasons.includes("total_bytes_limit"));
+      assert.ok(bundle.concepts.length >= 1 && bundle.concepts.length < 5);
+      assert.equal(bundle.readConceptFileCount, bundle.concepts.length);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds traversal entries and directory depth", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      mkdirSync(path.join(tmpDir, "a/b/c/d"), { recursive: true });
+      for (let index = 0; index < 10; index += 1) {
+        writeFileSync(path.join(tmpDir, `f${index}.md`), "# f");
+      }
+      writeFileSync(path.join(tmpDir, "a/b/c/d/deep.md"), "# deep");
+
+      const entries = await readOkfBundle(tmpDir, { limits: { maxTraversalEntries: 3 } });
+      assert.equal(entries.truncated, true);
+      assert.ok(entries.truncationReasons.includes("traversal_limit"));
+
+      const deep = await readOkfBundle(tmpDir, { limits: { maxDepth: 1 } });
+      assert.equal(deep.truncated, true);
+      assert.ok(deep.truncationReasons.includes("traversal_limit"));
+      assert.equal(deep.concepts.some((concept) => concept.relativePath.includes("deep")), false);
+
+      const normal = await readOkfBundle(tmpDir, {});
+      assert.equal(normal.truncated, false);
+      assert.deepEqual(normal.truncationReasons, []);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -142,4 +142,20 @@ describe("formatOkfImportResult", () => {
     const output = formatOkfImportResult({ bundleDir: "tmp/x" });
     assert.match(output, /repository: global/);
   });
+
+  test("reports bounded-read truncation status and skipped files", () => {
+    const output = formatOkfImportResult({
+      bundleDir: "tmp/x",
+      readConceptCount: 1,
+      totalConceptCount: 2,
+      truncated: true,
+      truncationReasons: ["file_size_limit"],
+      skippedFiles: ["huge.md"],
+    });
+    assert.match(output, /conceptsRead: 1/);
+    assert.match(output, /truncated: true/);
+    assert.match(output, /truncationReasons: file_size_limit/);
+    assert.match(output, /skippedFiles: huge.md/);
+    assert.match(output, /split or shrink the bundle/);
+  });
 });

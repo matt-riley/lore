@@ -38,6 +38,8 @@ function startServer(home, configPath, extraEnv = {}) {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const readline = createInterface({ input: proc.stdout });
+  const stderrChunks = [];
+  proc.stderr.on("data", (chunk) => stderrChunks.push(chunk.toString()));
   const pending = new Map();
   readline.on("line", (line) => {
     try {
@@ -73,7 +75,7 @@ function startServer(home, configPath, extraEnv = {}) {
       proc.stdin.end();
     });
   }
-  return { proc, request, exit };
+  return { proc, request, exit, stderr: () => stderrChunks.join("") };
 }
 
 test("lore server tool/lifecycle/slash RPC covers the shared verb surface", { skip: SKIP_NO_FTS5 }, async () => {
@@ -187,6 +189,7 @@ test("lore server handles status/save/recall/extract, backfill, and graceful EOF
     const result = await server.exit();
     assert.equal(result.code, 0, `server exited with ${JSON.stringify(result)}`);
   }
+  assert.doesNotMatch(server.stderr(), /\[lore-server\] imported /, "routine archive imports should stay quiet");
 
   try {
     assert.equal(existsSync(`${dbPath}.pi-archive-cursor.json`), true, "archive cursor should live beside derived DB");

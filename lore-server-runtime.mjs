@@ -233,11 +233,6 @@ async function runArchiveQueue() {
     try {
       const result = await extractPiSession(candidate.path, candidate.repository ?? null, { useEnvironmentRepository: false });
       if (result.runnablePending) archiveQueue.push(candidate);
-      if (result.extracted) {
-        console.error(
-          `[lore-server] imported ${candidate.sessionId?.slice(0, 8)}: ${result.memoryCount} memories, ${result.turns} turns`,
-        );
-      }
     } catch (error) {
       const sessionId = String(candidate.sessionId ?? "unknown").slice(0, 8);
       const filename = path.basename(candidate.path).replace(/[\r\n]/g, "");

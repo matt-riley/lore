@@ -1469,121 +1469,6 @@ async function recordUserPromptBypassObservation({
   });
 }
 
-const handlers = {
-  onSessionEnd: async (input, invocation) => {
-    lastKnownCwd = input.cwd || lastKnownCwd;
-    subagentScopeTracker.reset();
-    return handleSessionEndHook({ session, invocation, input });
-  },
-
-  onErrorOccurred: async (input, invocation) => {
-    const startedAt = Date.now();
-    try {
-      const activeRuntime = runtime;
-      if (!readErrorTelemetryEnabled(activeRuntime.config)) {
-        return;
-      }
-      if (!activeRuntime.initialized || !activeRuntime.db || !hooksEnabled(activeRuntime.config)) {
-        return;
-      }
-      const record = buildErrorTelemetryRecord(input, invocation?.sessionId);
-      if (!record) {
-        return;
-      }
-      spawnTrackedDeferredTask(async () => {
-        try {
-          activeRuntime.db.insertErrorTelemetry(record);
-          maybeCompactErrorTelemetry(activeRuntime);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          await session.log(`lore error telemetry persistence warning: ${message}`, {
-            ephemeral: true,
-            level: "warning",
-          });
-        }
-      });
-    } catch {
-      // fail open — passive hook must never throw to the SDK
-    } finally {
-      recordMetric(
-        metrics.errorTelemetryMs,
-        Date.now() - startedAt,
-        runtime.config?.limits?.metricWindowSize ?? 200,
-      );
-    }
-  },
-
-  onPostToolUse: async (input, _invocation) => {
-    const startedAt = Date.now();
-    try {
-      const activeRuntime = runtime;
-      if (!readPostToolUseEnabled(activeRuntime.config)) {
-        return;
-      }
-      if (!activeRuntime.initialized || !activeRuntime.db || !hooksEnabled(activeRuntime.config)) {
-        return;
-      }
-      const observation = buildPostToolUseObservation(input);
-      if (!observation) {
-        return;
-      }
-      const scopeMeta = readSubagentScopeTrackingEnabled(activeRuntime.config)
-        ? subagentScopeTracker.getActiveScopeMetadata()
-        : null;
-      spawnTrackedDeferredTask(async () => {
-        try {
-          activeRuntime.db.insertTrajectoryArtifact({
-            kind: "passive_hook_observation",
-            repository: null,
-            summary: `${observation.toolCategory}/${observation.success ? "success" : "failure"}`,
-            severity: observation.success ? "info" : "warning",
-            outcome: "captured",
-            context: {
-              hookKind: "onPostToolUse",
-              toolCategory: observation.toolCategory,
-              success: observation.success,
-              argsShape: observation.argsShape,
-              ...(scopeMeta ? { activeSubagent: scopeMeta.activeSubagent.name } : {}),
-            },
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          await session.log(`lore post-tool observation warning: ${message}`, {
-            ephemeral: true,
-            level: "warning",
-          });
-        }
-      });
-    } catch {
-      // fail open — passive hook must never throw to the SDK
-    } finally {
-      recordMetric(
-        metrics.postToolUseMs,
-        Date.now() - startedAt,
-        runtime.config?.limits?.metricWindowSize ?? 200,
-      );
-    }
-  },
-
-  onPreToolUse: async (input, _invocation) => {
-    const startedAt = Date.now();
-    try {
-      return await runPreToolUseGuardrail(input, {
-        config: runtime.config,
-        scopeTracker: subagentScopeTracker,
-      });
-    } catch {
-      // fail open — pre-tool hook must never throw to the SDK
-      return undefined;
-    } finally {
-      recordMetric(
-        metrics.preToolUseMs,
-        Date.now() - startedAt,
-        runtime.config?.limits?.metricWindowSize ?? 200,
-      );
-    }
-  },
-};
 function maybeCompactErrorTelemetry(activeRuntime) {
   activeRuntime.errorTelemetryWrites = (activeRuntime.errorTelemetryWrites ?? 0) + 1;
   if (activeRuntime.errorTelemetryWrites % 20 !== 0) {
@@ -1614,7 +1499,6 @@ const session = await joinSession({
   ],
 
   hooks: buildLoreHooks({
-    ...handlers,
     onSessionStart: async (input, invocation) => {
       lastKnownCwd = input.cwd || lastKnownCwd;
       subagentScopeTracker.reset(); // clear any stale state from previous session

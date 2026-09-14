@@ -232,4 +232,12 @@ describe("extension hook activity helpers", () => {
     assert.equal(second.assembled.text, "capsule-1");
     assert.equal(first.assembled.trace.includeTrace, true);
   });
+
+  test("each Copilot lifecycle hook is defined exactly once in the registered hooks object", () => {
+    for (const hook of ["onSessionStart", "onUserPromptSubmitted", "onSessionEnd", "onErrorOccurred", "onPostToolUse", "onPreToolUse"]) {
+      const definitions = EXTENSION_SOURCE.match(new RegExp(`^\\s{4}${hook}:`, "gm")) ?? [];
+      assert.equal(definitions.length, 1, `${hook} must be registered exactly once, found ${definitions.length}`);
+    }
+    assert.doesNotMatch(EXTENSION_SOURCE, /\.\.\.handlers/, "the superseded handlers spread must stay removed");
+  });
 });

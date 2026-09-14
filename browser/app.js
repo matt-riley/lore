@@ -9,10 +9,12 @@ const state = {
     scope: "",
     repository: "",
     canonicalKey: "",
+    query: "",
     state: "active",
     page: 1,
     pageSize: 25,
   },
+  memoriesPageCount: 1,
   drilldown: {
     entity: null,
     id: null,
@@ -123,6 +125,10 @@ function renderDrilldownAction(entity, id, label = "Drill down") {
 
 function renderEmptyBlock(message) {
   return `<div class="row-muted empty-state">${escapeHtml(message)}</div>`
+}
+
+function renderMemoriesError(message) {
+  return `<div class="row-muted empty-state error-state" role="alert">${escapeHtml(message)}</div>`
 }
 
 function renderActivityTable(activityRows) {
@@ -298,6 +304,8 @@ function renderMemoriesFilters(filterData) {
 
   return `
     <div class="controls">
+      <input id="mem-filter-query" type="search" aria-label="Search memory content" placeholder="search content…" />
+
       <select id="mem-filter-type" aria-label="Memory type">
         <option value="">type: any</option>
         ${types.map((row) => `<option value="${escapeHtml(row.type)}">${escapeHtml(row.type)} (${row.count})</option>`).join("")}
@@ -329,10 +337,29 @@ function renderMemoriesFilters(filterData) {
   `
 }
 
-function renderMemoriesTable(data) {
+function memoryPageCount(data) {
+  const pageSize = Math.max(1, Number(data?.pageSize) || 25)
+  const total = Math.max(0, Number(data?.total) || 0)
+  return Math.max(1, Math.ceil(total / pageSize))
+}
+
+function renderMemoriesPagination(data) {
+  const page = Math.max(1, Number(data?.page) || 1)
+  const totalPages = memoryPageCount(data)
+  const total = Math.max(0, Number(data?.total) || 0)
+  return `
+    <nav class="pagination" aria-label="Memory result pages">
+      <button type="button" id="mem-prev" class="action-btn" aria-label="Previous page" ${page <= 1 ? "disabled" : ""}>‹ Prev</button>
+      <span class="small">page ${page} of ${totalPages} · ${total} ${total === 1 ? "memory" : "memories"}</span>
+      <button type="button" id="mem-next" class="action-btn" aria-label="Next page" ${page >= totalPages ? "disabled" : ""}>Next ›</button>
+    </nav>
+  `
+}
+
+function renderMemoriesTable(data, query = "") {
   const rows = data?.rows ?? []
   return `
-    <div class="small">total=${data?.total ?? 0} · page=${data?.page ?? 1} · pageSize=${data?.pageSize ?? 25}</div>
+    ${renderMemoriesPagination(data)}
     <div class="table-wrap" role="region" aria-label="Memory results" tabindex="0">
       <table class="table">
         <thead>
@@ -348,7 +375,7 @@ function renderMemoriesTable(data) {
           </tr>
         </thead>
         <tbody>
-          ${renderMemoryTableRows(rows)}
+          ${renderMemoryTableRows(rows, query)}
         </tbody>
       </table>
     </div>
@@ -365,9 +392,12 @@ function resolveMemoryDrilldownEntity(row) {
   return row.type === "workstream_overlay" ? "workstream" : "memory"
 }
 
-function renderMemoryTableRows(rows) {
+function renderMemoryTableRows(rows, query = "") {
   if (rows.length === 0) {
-    return '<tr><td colspan="8" class="row-muted">No memories match filters.</td></tr>'
+    const emptyMessage = query
+      ? `No memories match “${escapeHtml(query)}” and the current filters.`
+      : "No memories match the current filters."
+    return `<tr><td colspan="8" class="row-muted">${emptyMessage}</td></tr>`
   }
   return rows.map((row) => `
     <tr>
@@ -392,6 +422,7 @@ async function applyMemoriesFiltersFromDom() {
   state.memoriesFilters.scope = readMemoriesFilterValue("mem-filter-scope")
   state.memoriesFilters.repository = readMemoriesFilterValue("mem-filter-repo")
   state.memoriesFilters.canonicalKey = readMemoriesFilterValue("mem-filter-canonical")
+  state.memoriesFilters.query = readMemoriesFilterValue("mem-filter-query")
   state.memoriesFilters.state = readMemoriesFilterValue("mem-filter-state", "active")
   state.memoriesFilters.page = 1
   await loadMemories()
@@ -411,21 +442,58 @@ function applyMemoriesFilterControls() {
   bind("mem-filter-scope", "scope")
   bind("mem-filter-repo", "repository")
   bind("mem-filter-canonical", "canonicalKey")
+  bind("mem-filter-query", "query")
   bind("mem-filter-state", "state")
 
   const button = document.getElementById("mem-apply")
   if (button) {
     button.onclick = async () => applyMemoriesFiltersFromDom()
   }
+
+  const queryInput = document.getElementById("mem-filter-query")
+  if (queryInput) {
+    queryInput.onkeydown = (event) => {
+      if (event.key !== "Enter") {
+        return
+      }
+      event.preventDefault()
+      return applyMemoriesFiltersFromDom()
+    }
+  }
+
+  const previous = document.getElementById("mem-prev")
+  if (previous) {
+    previous.onclick = () => gotoMemoriesPage(-1)
+  }
+  const next = document.getElementById("mem-next")
+  if (next) {
+    next.onclick = () => gotoMemoriesPage(1)
+  }
+}
+
+function gotoMemoriesPage(delta) {
+  const current = Number(state.memoriesFilters.page) || 1
+  const target = Math.min(Math.max(current + delta, 1), Math.max(1, state.memoriesPageCount))
+  if (target === current) {
+    return Promise.resolve()
+  }
+  state.memoriesFilters.page = target
+  return loadMemories()
 }
 
 async function loadMemories() {
-  const [filtersResponse, memoriesResponse] = await Promise.all([
-    fetchJson("/api/memories/filters"),
-    fetchJson(`/api/memories?${new URLSearchParams(state.memoriesFilters).toString()}`),
-  ])
-  views.memories.innerHTML = `${renderMemoriesFilters(filtersResponse.data)}${renderMemoriesTable(memoriesResponse.data)}`
-  applyMemoriesFilterControls()
+  try {
+    const [filtersResponse, memoriesResponse] = await Promise.all([
+      fetchJson("/api/memories/filters"),
+      fetchJson(`/api/memories?${new URLSearchParams(state.memoriesFilters).toString()}`),
+    ])
+    state.memoriesPageCount = memoryPageCount(memoriesResponse.data)
+    views.memories.innerHTML = `${renderMemoriesFilters(filtersResponse.data)}${renderMemoriesTable(memoriesResponse.data, state.memoriesFilters.query)}`
+    applyMemoriesFilterControls()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    views.memories.innerHTML = renderMemoriesError(`Memories could not be loaded: ${message}`)
+  }
 }
 
 function renderMaintenanceDueTasks(dueTasks) {

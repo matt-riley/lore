@@ -1288,25 +1288,41 @@ function queryMemoryFilters({ db }) {
   }
 }
 
+const MAX_MEMORY_SEARCH_TERM_LENGTH = 200
+
+function normalizeMemorySearchTerm(value) {
+  const term = String(value ?? "").trim().slice(0, MAX_MEMORY_SEARCH_TERM_LENGTH)
+  return term || null
+}
+
+function escapeLikePattern(term) {
+  return term.replace(/[\\%_]/g, (char) => `\\${char}`)
+}
+
 function buildMemoryQueryParams(url) {
   return {
     type: url.searchParams.get("type")?.trim() || null,
     scope: url.searchParams.get("scope")?.trim() || null,
     repository: normalizeRepository(url.searchParams.get("repository")),
     canonicalKey: url.searchParams.get("canonicalKey")?.trim() || null,
+    query: normalizeMemorySearchTerm(url.searchParams.get("query")),
     state: (url.searchParams.get("state") || "active").trim().toLowerCase(),
     page: clampInteger(url.searchParams.get("page"), 1, { min: 1, max: 2000 }),
     pageSize: clampInteger(url.searchParams.get("pageSize"), 25, { min: 1, max: 100 }),
   }
 }
 
-function buildMemoryFilters({ type, scope, repository, canonicalKey, state }) {
+function buildMemoryFilters({ type, scope, repository, canonicalKey, query, state }) {
   const clauses = []
   const params = []
   if (type) { clauses.push("type = ?"); params.push(type) }
   if (scope) { clauses.push("scope = ?"); params.push(scope) }
   if (repository) { clauses.push("repository = ?"); params.push(repository) }
   if (canonicalKey) { clauses.push("canonical_key = ?"); params.push(canonicalKey) }
+  if (query) {
+    clauses.push("content LIKE ? ESCAPE '\\'")
+    params.push(`%${escapeLikePattern(query)}%`)
+  }
   if (state === "active") {
     clauses.push("superseded_by IS NULL")
   } else if (state === "superseded") {
@@ -1316,9 +1332,9 @@ function buildMemoryFilters({ type, scope, repository, canonicalKey, state }) {
 }
 
 function queryMemories({ db, url }) {
-  const { type, scope, repository, canonicalKey, state, page, pageSize } = buildMemoryQueryParams(url)
+  const { type, scope, repository, canonicalKey, query, state, page, pageSize } = buildMemoryQueryParams(url)
   const offset = (page - 1) * pageSize
-  const { clauses, params } = buildMemoryFilters({ type, scope, repository, canonicalKey, state })
+  const { clauses, params } = buildMemoryFilters({ type, scope, repository, canonicalKey, query, state })
   const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""
 
   const countRow = db.db.prepare(`

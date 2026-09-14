@@ -32,7 +32,8 @@ This document defines which surfaces are **supported**, **experimental**, or **u
 
 All five adapters provide automatic recall and session capture over the shared Lore runtime.
 Codex, Claude Code, and Antigravity use `lore-cli.mjs`, not MCP.
-Nine canonical model tools are exposed on Copilot and Pi (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`, and `lore_correct`).
+Nine canonical model tools are exposed on Copilot and Pi (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`, and `lore_correct`); legacy names such as `memory_save` remain input aliases for `/lore <verb>` and `lore tool <name>`.
+Every surface — human CLI, protocol `lore tool`, `/lore` slash commands, and the Pi worker — dispatches operations through `lib/runtime/operation-dispatch.mjs`, which canonicalizes the name, resolves exactly one registered tool, and returns a structured outcome each adapter maps to its own transport contract.
 All remaining capabilities (administration, backfill, maintenance, doctor, reflection, etc.) remain accessible across Copilot, Pi, and native CLIs as `/lore <verb>` slash commands or `lore <verb>` shell subcommands (with `lore tool <name>` JSON-on-stdin preserved for scripts).
 `/lore search` and `lore search` invoke `lore_search`; `/lore recall` and `lore recall` invoke `lore_recall`.
 The canonical lists are `LORE_CLIENT_HOOKS` and `LORE_CLI_TOOL_NAMES` in `lib/capabilities/capability-manifest.mjs`.

@@ -11,7 +11,7 @@
 //   <- { id, ok: true, result } | { id, ok: false, error }
 //
 // Methods:
-//   tool             - createLoreSession.dispatchTool(name, args)
+//   tool             - createLoreSession.dispatchOperation(name, args) mapped to the protocol
 //   lifecycle        - createLoreSession.handleLifecycle(event, payload)
 //   slash            - createLoreSession.dispatchSlash(args)
 //   status           - store statistics (alias; prefer tool lore_status)
@@ -30,6 +30,7 @@ import path from "node:path";
 import { resolveLorePaths } from "./lib/core/lore-paths.mjs";
 import { seedOnboardingMemories } from "./lib/memory/onboarding.mjs";
 import { createLoreSession } from "./lib/runtime/lore-runtime.mjs";
+import { requireDispatchOutcome } from "./lib/runtime/operation-dispatch.mjs";
 import { retainMemory } from "./lib/memory/memory-operations.mjs";
 import { assembleRecall } from "./lib/context/recall-assembler.mjs";
 import { EpisodeSessionSource } from "./lib/runtime/session-source.mjs";
@@ -296,8 +297,10 @@ async function dispatch(method, params) {
         throw new Error("lore unavailable");
       }
       const name = String(params.name ?? "");
-      const text = await session.dispatchTool(name, params.args ?? {}, invocationExtra(params, params.surface ?? "tool"));
-      return toolResultText(text);
+      const result = await session.dispatchOperation(name, params.args ?? {}, invocationExtra(params, params.surface ?? "tool"));
+      // Explicit error contract: unknown/unavailable tools stay as text,
+      // handler failures become protocol errors (ok:false) for the adapter.
+      return toolResultText(requireDispatchOutcome(result, { name }));
     }
     case "lifecycle": {
       if (!session) {

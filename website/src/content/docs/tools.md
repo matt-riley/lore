@@ -9,31 +9,44 @@ Lore has a small supported core and a larger experimental ring. Experimental int
 
 ## Pi tools and commands
 
-Pi's agent tools are:
+Pi registers the same canonical nine model tools as Copilot —
+`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`,
+`lore_status`, `lore_explain`, `lore_validate`, and `lore_correct` — plus the
+legacy `lore_save` input alias for `lore_retain`. Every surface routes through
+the same validated dispatch path, so an operation behaves the same in chat, in
+`/lore <verb>`, and through the local server.
 
 | Tool | What it does |
 | --- | --- |
-| `lore_save` | Saves a decision, pattern, preference, gotcha, blocker, or open loop |
+| `lore_recall` | Recalls memories with provenance and semantic matching |
+| `lore_retain` | Saves a decision, preference, gotcha, blocker, or open loop; requires a `type` |
+| `lore_search` | Keyword search over the memory store |
 | `lore_onboard` | Saves your preferred name and Lore's interaction profile |
-| `lore_recall` | Searches local memory for a query |
+| `lore_forget` | Soft-deletes a memory by ID |
 | `lore_status` | Shows memory counts, database path, and schema version |
+| `lore_explain` | Explains what prompt context would be injected and why |
+| `lore_validate` | Validates store integrity and schema parity |
+| `lore_correct` | Previews a manual memory correction |
 
 The `/lore` command provides the same daily workflow:
 
 ```text
 /lore status
-/lore save Use the narrow adapter boundary for this integration.
+/lore retain --type decision "Use the narrow adapter boundary for this integration."
 /lore search adapter boundary
 ```
 
-These Pi names are adapter names. Pi does not expose the Copilot extension's `memory_*` tools as native Pi tools.
+Pi also accepts the legacy `lore_save` name as an input alias, but the retain
+payload still requires an explicit `type`. Pi does not expose the Copilot
+extension's `memory_*` legacy names as native tools; they remain available as
+input aliases through `/lore <verb>` and the local server's `tool` method.
 
 Copilot and Pi provide the supported native adapter surfaces. Their shared store
 also supports the experimental native hook adapters, but capabilities differ:
 
 | Capability | Copilot CLI | Pi | Native CLI adapters |
 |---|---|---|---|
-| Registered tools | Full Copilot tool surface | `lore_*` tools | None; commands run through the shell |
+| Registered tools | Canonical nine + `/lore` legacy aliases | Canonical nine + `lore_save` alias | None; commands run through the shell |
 | Automatic recall and capture | Supported | Supported | Experimental and host-event dependent |
 | Archive backfill | Copilot store, experimental | Pi sessions, experimental | Not wired |
 | Maintenance and diagnostics | Full supported diagnostics | `lore_status` | `memory_status`; Copilot-only diagnostics unavailable |

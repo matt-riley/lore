@@ -94,6 +94,7 @@ try {
     }
   } else {
     const { parseLoreArgv, dispatchSlashResult } = await import("./lib/runtime/slash-dispatch.mjs");
+    const { classifyOperation } = await import("./lib/runtime/operation-dispatch.mjs");
     let tokens = argv.slice();
     if (needsStdinJsonPayload(tokens)) {
       if (process.stdin.isTTY) {
@@ -114,10 +115,9 @@ try {
       throw new Error(formatRuntimeDiagnostics(runtime));
     }
     const { createLoreSession } = await import("./lib/runtime/lore-runtime.mjs");
-    const { resolveCliToolAccess } = await import("./lib/clients/cli-runtime.mjs");
     // Validate and classify administration invocations before touching
     // storage so previews stay read-only and bad requests leave files alone.
-    const access = resolveCliToolAccess(parsed.name, parsed.args);
+    const access = classifyOperation(parsed.name, parsed.args);
     const session = await createLoreSession({
       client: resolveCliClient(),
       surface: "cli",

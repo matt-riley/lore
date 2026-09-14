@@ -45,6 +45,7 @@ async function loadDiagnosticsHotspots() {
       .replace(/from "\.\.\/memory\/procedural-memory\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "memory", "procedural-memory.mjs")).href}"`)
       .replace(/from "\.\.\/rollout\/rollout-flags\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "rollout", "rollout-flags.mjs")).href}"`)
       .replace(/from "\.\.\/utils\/filtered-reason-summary\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "utils", "filtered-reason-summary.mjs")).href}"`)
+      .replace(/from "\.\.\/db\/db\.mjs"/g, `from "${pathToFileURL(path.join(REPO_ROOT, "lib", "db", "db.mjs")).href}"`)
       .replace("function evaluateCase(definition, explanation) {", "export function evaluateCase(definition, explanation) {")
       .replace("function classifyReplayMiss(definition, explanation, evidence) {", "export function classifyReplayMiss(definition, explanation, evidence) {")
       .replace("function persistReplayFailureArtifact({", "export function persistReplayFailureArtifact({");
@@ -133,6 +134,50 @@ describe("runValidationSet", () => {
           trendDeltaMs: 0,
         },
       });
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("runs against an isolated copy and never retires a matching live memory", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          memoryOperations: true,
+          temporalQueryNormalization: true,
+          directives: true,
+          hybridRetrieval: true,
+        },
+      },
+    });
+    try {
+      const realId = db.insertSemanticMemory({
+        id: "real-identity",
+        type: "user_identity",
+        content: "The user's preferred name is Taylor.",
+        scope: "global",
+        confidence: 1,
+        metadata: { source: "lore_retain", preferredName: "Taylor" },
+      });
+      const before = db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get(realId).superseded_by;
+      assert.equal(before, null);
+
+      // An unknown case id selects nothing; before isolation this still seeded,
+      // deduplicated onto the real row, and retired it in cleanup.
+      const result = await runValidationSet({
+        runtime: { db, config, repository: "diagnostics/current-repo", sessionStore: null, metrics: {} },
+        caseIds: ["unknown-case-id"],
+      });
+      assert.equal(result.total, 0);
+      assert.equal(
+        db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get(realId).superseded_by,
+        null,
+        "matching live memory must stay active",
+      );
+      // Synthetic seeds and identity reads exist only in the disposable copy.
+      const seeded = db.db.prepare("SELECT COUNT(*) n FROM semantic_memory WHERE content LIKE '%diagnostics_seed%' OR id LIKE 'diagnostics%'").get().n;
+      assert.equal(seeded, 0);
     } finally {
       cleanup();
     }
@@ -280,6 +325,9 @@ describe("diagnostics hotspot helpers", () => {
       ],
       seedDiagnosticsMemories() {
         return ["seed-base"];
+      },
+      createIsolatedDiagnosticsRuntime(runtime) {
+        return { runtime, close() {} };
       },
       seedExtraDiagnosticsMemories(_runtime, memories) {
         return memories.map((memory) => memory.id);

@@ -29,7 +29,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
-import { resolveSweepExitCode } from "../../scripts/run-maintenance.mjs";
+import { resolveSweepExitCode, parseArgs as parseMaintenanceArgs } from "../../scripts/run-maintenance.mjs";
+import { parseArgs as parseBrowserArgs } from "../../scripts/run-browser.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -563,6 +564,54 @@ describe("run-maintenance exit mapping", () => {
     assert.equal(resolveSweepExitCode({ status: "skipped", failedCount: 0 }), 0);
     assert.equal(resolveSweepExitCode({ status: "failed", failedCount: 1 }), 1);
     assert.equal(resolveSweepExitCode({ status: "failed", failedCount: 0 }), 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shared-args.mjs — strict parsing
+// ---------------------------------------------------------------------------
+
+describe("strict shared argument parsing", () => {
+  test("rejects unknown flags, missing values, and option-like values", () => {
+    assert.throws(() => parseMaintenanceArgs(["--dryrun", "--repositroy", "fixture"]), /Unknown option '--dryrun'/);
+    assert.throws(() => parseMaintenanceArgs(["--tasks"]), /argument missing/);
+    assert.throws(() => parseMaintenanceArgs(["--repository", "--dry-run"]), /ambiguous/);
+    assert.throws(() => parseMaintenanceArgs(["--derived-store-path"]), /argument missing/);
+    assert.throws(() => parseMaintenanceArgs(["stray"]), /Unexpected argument/);
+    assert.throws(() => parseBrowserArgs(["--prot", "43111"]), /Unknown option '--prot'/);
+  });
+
+  test("still accepts valid flags, booleans, and short help", () => {
+    assert.deepEqual(parseMaintenanceArgs(["--dry-run", "--tasks", "validationCorpus,backlogReview"]), {
+      action: "run", dryRun: true, force: false, tasks: ["validationCorpus", "backlogReview"],
+    });
+    assert.equal(parseMaintenanceArgs(["-h"]).action, "help");
+    assert.deepEqual(parseBrowserArgs(["--port", "43111", "--host", "localhost"]), {
+      host: "localhost", port: 43111, repository: null,
+    });
+  });
+
+  test("mis-spelled flags fail before storage is opened", () => {
+    const tempHome = makeTempDir();
+    const env = { ...process.env, LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" };
+    try {
+      const maintenance = run("run-maintenance.mjs", ["--dryrun", "--repositroy", "fixture"], { env });
+      assert.notEqual(maintenance.status, 0);
+      assert.match(maintenance.stderr, /Unknown option '--dryrun'/);
+      assert.equal(existsSync(path.join(tempHome, "lore.db")), false);
+
+      const missingValue = run("run-maintenance.mjs", ["--tasks"], { env });
+      assert.notEqual(missingValue.status, 0);
+      assert.match(missingValue.stderr, /argument missing/);
+      assert.equal(existsSync(path.join(tempHome, "lore.db")), false);
+
+      const browser = run("run-browser.mjs", ["--prot", "43111"], { env });
+      assert.notEqual(browser.status, 0);
+      assert.match(browser.stderr, /Unknown option '--prot'/);
+      assert.equal(existsSync(path.join(tempHome, "lore.db")), false);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   });
 });
 

@@ -1,3 +1,4 @@
+import { parseArgs } from "node:util";
 import { resolveLorePaths } from "../lib/core/lore-paths.mjs";
 import path from "node:path";
 
@@ -34,20 +35,25 @@ export const COMMON_PATH_ARG_HANDLERS = Object.freeze({
   "--raw-store-path": { key: "rawStorePath", transform: resolveArgPath },
 });
 
+// Strict, schema-driven parsing: unknown flags, missing values, option-like
+// values, and stray positionals all fail before any storage is opened.
 export function parseArgsWith(handlers, defaults, argv) {
+  const options = {};
+  const valueHandlers = new Map();
+  for (const [flag, handler] of Object.entries(handlers)) {
+    const name = flag.replace(/^--?/, "");
+    options[name] = { type: handler.key ? "string" : "boolean" };
+    valueHandlers.set(name, handler);
+  }
+  const parsed = parseArgs({ args: argv, options, strict: true, allowPositionals: false });
   const args = { ...defaults };
-  for (let index = 0; index < argv.length; index += 1) {
-    const handler = handlers[argv[index]];
-    if (!handler) {
-      continue;
-    }
-    if (handler.assign) {
+  for (const [name, handler] of valueHandlers) {
+    const value = parsed.values[name];
+    if (handler.assign && value === true) {
       Object.assign(args, handler.assign);
     }
-    if (handler.key) {
-      const value = argv[index + 1];
+    if (handler.key && value !== undefined) {
       args[handler.key] = handler.transform ? handler.transform(value, args) : value;
-      index += 1;
     }
   }
   return args;

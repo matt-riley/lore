@@ -57,6 +57,51 @@ describe("assembleRecall", () => {
     }
   });
 
+  test("does not inject an auto-global directive without explicit cross-project scope", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: { memoryOperations: true, directives: true },
+      },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "leaked-video-directive",
+        type: "directive",
+        content: "The output should be saved in @copilot/assets/video/.",
+        scope: "global",
+        metadata: { source: "rule_extractor", confidenceBasis: "standing_policy_sentence" },
+        confidence: 0.78,
+        tags: ["directive", "policy", "user"],
+      });
+      db.insertSemanticMemory({
+        id: "explicit-global-directive",
+        type: "directive",
+        content: "For any project, always use plain ESM.",
+        scope: "global",
+        metadata: { source: "rule_extractor", confidenceBasis: "standing_policy_sentence" },
+        confidence: 0.78,
+        tags: ["directive", "policy", "user"],
+      });
+
+      const result = await assembleRecall({
+        db,
+        prompt: "Fix the config loader",
+        repository: "fixture-repo",
+        config,
+      });
+
+      assert.doesNotMatch(result.text, /copilot\/assets\/video/);
+      assert.match(result.text, /For any project, always use plain ESM/);
+      assert.deepEqual(
+        result.trace.lookups.directives.includedRows.map((row) => row.id),
+        ["explicit-global-directive"],
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   test("filters rejection provenance before the standing-policy limit", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: { enabled: true, rollout: { memoryOperations: true, directives: true } },

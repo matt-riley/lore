@@ -119,4 +119,22 @@ describe("rule-extractor extraction accuracy and scoping", () => {
     assert.equal(phraseGlobalPref.scope, MEMORY_SCOPE.GLOBAL);
     assert.equal(phraseGlobalPref.repository, null);
   });
+
+  test("unknown-repository directives stay out of global scope", () => {
+    const result = extractTurn(
+      "The output should be saved in @copilot/assets/video/.",
+      { repository: null },
+    );
+    const directives = result.semanticMemories.filter((memory) => memory.type === "directive");
+    assert.equal(directives.length, 1);
+    assert.equal(directives[0].scope, MEMORY_SCOPE.REPO);
+    assert.equal(directives[0].repository, null);
+
+    const explicitGlobal = extractTurn(
+      "For any project, always use plain ESM.",
+      { repository: null },
+    ).semanticMemories.filter((memory) => memory.type === "user_preference");
+    assert.equal(explicitGlobal.length, 1);
+    assert.equal(explicitGlobal[0].scope, MEMORY_SCOPE.GLOBAL);
+  });
 });

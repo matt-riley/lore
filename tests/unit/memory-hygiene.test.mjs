@@ -108,6 +108,38 @@ describe("evaluateMemoryHygieneCandidate", () => {
     assert.equal(result.reason, "later_episode_still_open");
   });
 
+  test("rejects negated, conditional, quoted, and partial completion claims", async () => {
+    const cases = [
+      ["negated", "PR #123 is not merged."],
+      ["future", "PR #123 will be merged after review."],
+      ["conditional", "PR #123 should be merged once CI passes."],
+      ["quoted", 'The release notes example says "PR #123 is merged" as a sample.'],
+      ["partial", "PR #123 is partially merged."],
+    ];
+    for (const [label, line] of cases) {
+      const result = await evaluateMemoryHygieneCandidate({
+        memory: buildMemory({ content: "Merge PR #123 after review." }),
+        episodes: [buildEpisode({ summary: line })],
+        repository: "matt-riley/lore",
+        isCommitAncestor: async () => false,
+      });
+      assert.notEqual(result.disposition, "resolved", `${label}: ${line}`);
+      assert.equal(result.reason, "no_high_confidence_evidence", `${label}: ${line}`);
+    }
+  });
+
+  test("still resolves a plain affirmative completion for the same target", async () => {
+    const result = await evaluateMemoryHygieneCandidate({
+      memory: buildMemory({ content: "Merge PR #123 after review." }),
+      episodes: [buildEpisode({ summary: "PR #123 is merged." })],
+      repository: "matt-riley/lore",
+      isCommitAncestor: async () => false,
+    });
+
+    assert.equal(result.disposition, "resolved");
+    assert.equal(result.reason, "repo_explicit_completion");
+  });
+
   test("does not complete an unrelated open_loop from all tests green", async () => {
     const result = await evaluateMemoryHygieneCandidate({
       memory: buildMemory({

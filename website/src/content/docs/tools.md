@@ -141,6 +141,6 @@ The supported hooks are `onSessionStart`, `onUserPromptSubmitted`, and `onSessio
 
 ## Picking a tool
 
-In Pi, start with `/lore status`, save a note with `/lore save <text>`, and search with `/lore search <query>`; the agent equivalents are `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status`. In Copilot CLI, use `memory_search` for a known keyword, `lore_recall` for prompt-aware context, and `memory_explain` when you need to understand a match. Use `lore_reflect` for a synthesis request, and label any resulting decision as yours until you review its evidence.
+In Pi, start with `/lore status`, save a note with `/lore retain --type decision "<text>"`, and search with `/lore search <query>`; the agent equivalents are the canonical nine tools (`lore_retain`, `lore_onboard`, `lore_recall`, `lore_status`, …) plus the legacy `lore_save` alias. In Copilot CLI, use `lore_search` for a known keyword, `lore_recall` for prompt-aware context, and `lore_explain` when you need to understand a match. Use `lore_reflect` for a synthesis request, and label any resulting decision as yours until you review its evidence.
 
 For lifecycle definitions and the complete matrix, see the repository's support matrix. [How memory works](/guides/how-memory-works/) explains the retrieval path in plain language.

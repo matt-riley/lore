@@ -72,15 +72,15 @@ On startup, Pi should show a `lore: memory ready` notification. Run:
 /lore status
 ```
 
-The adapter exposes `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status` to the agent, plus the `/lore` command. The three useful slash-command forms are:
+The adapter exposes the canonical model tools — `lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`, and `lore_correct` — plus the legacy `lore_save` alias, and the `/lore` command. The three useful slash-command forms are:
 
 ```text
 /lore status
-/lore save The API client uses the retry budget agreed today.
+/lore retain --type decision "The API client uses the retry budget agreed today."
 /lore search retry budget
 ```
 
-`/lore save <text>` records the note for the current repository and uses the `user_preference` type. `lore_save` also accepts a memory type, an explicit repository, and an explicit scope when the agent calls it; Lore may classify scope from the content and type when scope is omitted. Use `lore_onboard` to save your preferred name and interaction style.
+`/lore retain` requires an explicit `type` (for example `decision` or `user_preference`); the legacy `lore_save` and `/lore save` shapes require one too. Pass an explicit `repository` or `scope` when you need to control classification; otherwise Lore derives them from the content, type, and working directory. Use `lore_onboard` to save your preferred name and interaction style.
 
 ## If Pi cannot find Node
 

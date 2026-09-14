@@ -70,7 +70,7 @@ the deterministic fallback.
 
 ## Writing and retiring memories
 
-In Copilot CLI, use `lore_retain` for a structured memory with scope and category, `memory_save` for an explicit freeform note or decision, and `memory_forget` to soft-delete a memory by marking it superseded. In Pi, use `lore_save` and provide an explicit `scope` when you need to control classification. For Codex CLI, Claude Code, and Antigravity CLI, run `lore_retain`, `memory_save`, or `memory_forget` through `lore-cli.mjs tool`. Lore keeps provenance so a later review can understand where a result came from.
+In Copilot CLI, use `lore_retain` for a structured memory with scope and category, or `lore_forget` to soft-delete a memory by marking it superseded. In Pi, use `lore_retain` (the legacy `lore_save` alias also works) with an explicit `type`, and provide an explicit `scope` when you need to control classification. For Codex CLI, Claude Code, and Antigravity CLI, run `lore_retain` or `lore_forget` through `lore-cli.mjs tool`. Lore keeps provenance so a later review can understand where a result came from.
 
 ## Reflection is advisory
 

@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, test } from "node:test";
 
 import {
@@ -308,6 +312,78 @@ describe("maintenance scheduler task execution", () => {
       assert.equal(summaryArtifacts[0].context.candidateCount, 1);
     } finally {
       cleanup();
+    }
+  });
+
+  test("memory hygiene proves Git ancestry from the checkout, not session-state storage", { skip: SKIP_NO_FTS5 }, async () => {
+    const checkout = mkdtempSync(path.join(os.tmpdir(), "lore-hygiene-checkout-"));
+    const sessionState = mkdtempSync(path.join(os.tmpdir(), "lore-hygiene-session-"));
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        maintenanceScheduler: {
+          enabled: true,
+          memoryHygiene: { mode: "apply", maxItems: 10, includeGlobal: false },
+          tasks: { deferredExtraction: false, memoryHygiene: true },
+        },
+      },
+    });
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: checkout });
+      execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: checkout });
+      execFileSync("git", ["config", "user.name", "Fixture"], { cwd: checkout });
+      writeFileSync(path.join(checkout, "file.txt"), "one\n");
+      execFileSync("git", ["add", "file.txt"], { cwd: checkout });
+      execFileSync("git", ["commit", "-qm", "first"], { cwd: checkout });
+      const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: checkout, encoding: "utf8" }).trim();
+
+      // Session-state storage is not a Git checkout; the checkout path is.
+      const statelessDir = path.join(sessionState, "session-1");
+      mkdirSync(statelessDir);
+      writeFileSync(path.join(statelessDir, "workspace.yaml"), "cwd: /elsewhere\n");
+      db.insertSemanticMemory({
+        id: "checkout-goal",
+        type: "open_loop",
+        content: `Promote commit ${commit} into main.`,
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 0.9,
+      });
+
+      const runtime = buildRuntime(db, config);
+      runtime.workspacePath = statelessDir;
+      runtime.checkoutPath = checkout;
+      const resolved = await runMaintenanceSweep({ runtime, repository: "fixture-repo", trigger: "session_start" });
+      assert.equal(resolved.status, "completed");
+      assert.equal(resolved.tasks[0].summary.items[0].reason, "repo_commit_is_ancestor");
+      assert.ok(
+        db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("checkout-goal").superseded_by,
+        "ancestry proven from the checkout must resolve the goal",
+      );
+
+      // The inverse: a Git checkout hidden behind workspacePath must not count.
+      db.insertSemanticMemory({
+        id: "workspace-only-goal",
+        type: "open_loop",
+        content: `Land commit ${commit} on main.`,
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 0.9,
+      });
+      const inverted = buildRuntime(db, config);
+      inverted.workspacePath = checkout;
+      inverted.checkoutPath = statelessDir;
+      const unresolved = await runMaintenanceSweep({ runtime: inverted, repository: "fixture-repo", trigger: "session_start" });
+      assert.equal(unresolved.status, "completed");
+      assert.equal(
+        db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("workspace-only-goal").superseded_by,
+        null,
+        "session-state paths must never prove commit ancestry",
+      );
+    } finally {
+      cleanup();
+      rmSync(checkout, { recursive: true, force: true });
+      rmSync(sessionState, { recursive: true, force: true });
     }
   });
 });

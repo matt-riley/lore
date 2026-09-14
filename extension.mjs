@@ -968,7 +968,7 @@ async function handleSessionStartHook({
 }) {
   const startedAt = Date.now();
   const context = await getContext(session, invocation.sessionId, input.cwd);
-  const { runtime: activeRuntime, repository, workspacePath } = context;
+  const { runtime: activeRuntime, repository, workspacePath, cwd: checkoutPath } = context;
 
   if (isHookRuntimeUnavailable(activeRuntime)) {
     return;
@@ -985,7 +985,7 @@ async function handleSessionStartHook({
   }
 
   await maybeSeedSessionStartOnboarding(session, activeRuntime, invocation.sessionId);
-  await maybeRunMaintenanceScheduler(session, activeRuntime, repository, workspacePath);
+  await maybeRunMaintenanceScheduler(session, activeRuntime, repository, workspacePath, checkoutPath);
   await maybeRunSessionStartBackfill(session, activeRuntime, repository);
   maybeHydrateOverlay(session, activeRuntime, workspacePath, repository, invocation.sessionId);
 
@@ -1130,7 +1130,7 @@ async function maybeProcessDeferredExtractions(session, activeRuntime, repositor
   });
 }
 
-async function maybeRunMaintenanceScheduler(session, activeRuntime, repository, workspacePath) {
+async function maybeRunMaintenanceScheduler(session, activeRuntime, repository, workspacePath, checkoutPath = null) {
   const maintenanceConfig = activeRuntime.config?.maintenanceScheduler;
   if (maintenanceConfig?.enabled === false) {
     await maybeProcessDeferredExtractions(session, activeRuntime, repository);
@@ -1151,6 +1151,7 @@ async function maybeRunMaintenanceScheduler(session, activeRuntime, repository, 
           ...activeRuntime,
           repository,
           workspacePath,
+          checkoutPath,
           metrics: buildLatencyMetrics(activeRuntime.config),
         },
         repository,

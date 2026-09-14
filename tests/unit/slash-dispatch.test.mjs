@@ -224,7 +224,7 @@ describe("Copilot /lore intercept", () => {
     assert.deepEqual(calls[0], { args: "forget id-2", extra: { sessionId: "s2", surface: "slash" } });
     assert.equal(logs[0].options.ephemeral, true);
     assert.match(LORE_SLASH_ADVERTISEMENT, /\/lore/);
-    assert.match(LORE_SLASH_ADVERTISEMENT, /remain registered until the Copilot \/lore TUI gate/);
+    assert.match(LORE_SLASH_ADVERTISEMENT, /Extra capabilities run through \/lore <verb>/);
     assert.match(LORE_SLASH_USAGE, /correct <memoryId>/);
     assert.match(LORE_SLASH_USAGE, /--json/);
   });

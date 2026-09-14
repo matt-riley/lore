@@ -28,7 +28,7 @@ Lore has a stable core and an experimental ring. The support boundary for each s
 
 When standing directives are enabled, explicit directives and extracted standing preferences and prohibitions can appear without matching the prompt's keywords. The section is capped at six eligible memories and respects repository scope, expiry, suppression, and the final output budget. Ordinary complaints and rejected task proposals do not qualify as standing policies.
 
-All five coding agents (GitHub Copilot CLI, Pi, Codex CLI, Claude Code, and Google Antigravity CLI) share the same unified memory engine, deterministic recall, and transcript extraction. Copilot and Pi expose nine canonical model tools (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`, and `lore_correct`), while extra capabilities and native CLI workflows run through `/lore <verb>` slash commands, `lore <verb>` in the shell, or the `$LORE_HOME/bin/lore` PATH shim (e.g. `export PATH="$LORE_HOME/bin:$PATH"`).
+All five coding agents (GitHub Copilot CLI, Pi, Codex CLI, Claude Code, and Google Antigravity CLI) share the same unified memory engine, deterministic recall, and transcript extraction. Lore defines nine canonical model tools (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`, `lore_status`, `lore_explain`, `lore_validate`, and `lore_correct`). Copilot currently registers that set plus legacy aliases until its `/lore` discovery gate completes; Pi registers the canonical set plus the `lore_save` alias. Extra capabilities and native CLI workflows run through `/lore <verb>` slash commands, `lore <verb>` in the shell, or the `$LORE_HOME/bin/lore` PATH shim (e.g. `export PATH="$LORE_HOME/bin:$PATH"`).
 
 ---
 
@@ -170,7 +170,7 @@ installation, direct memory commands, verification, and limitations.
 
 ### Pi (coding agent)
 
-Lore also ships an adapter for [Pi](https://pi.dev), the terminal coding agent. [`lore-pi.ts`](lore-pi.ts) maps Lore's hooks onto Pi events and exposes the shared memory store through `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status`, plus a `/lore` command. It uses the same default config and database as the other adapters; no Copilot installation is required.
+Lore also ships an adapter for [Pi](https://pi.dev), the terminal coding agent. [`lore-pi.ts`](lore-pi.ts) maps Lore's hooks onto Pi events and exposes the canonical model tools (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_status`, and the rest of the nine) plus the legacy `lore_save` alias and a `/lore` command. It uses the same default config and database as the other adapters; no Copilot installation is required.
 
 Install by cloning the repository into Pi's global extensions directory:
 
@@ -188,7 +188,7 @@ git -C ~/.pi/agent/extensions/lore pull
 
 then `/reload` again.
 
-After [enabling Lore](#configure), verify it loaded: you should see a `lore: memory ready` notification on startup, and `/lore status` should print memory counts and store information. The `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status` tools are then available to the agent.
+After [enabling Lore](#configure), verify it loaded: you should see a `lore: memory ready` notification on startup, and `/lore status` should print memory counts and store information. The canonical model tools (including `lore_retain`, `lore_recall`, `lore_onboard`, and `lore_status`) are then available to the agent; `lore_save` remains as a legacy alias for `lore_retain` and still requires a memory `type`.
 
 Requirements and notes:
 
@@ -222,7 +222,7 @@ For a new file, start with:
 
 For an existing file, merge that key without replacing other settings. Restart your client, or `/reload` Pi, after enabling Lore.
 
-[`lore.example.json`](lore.example.json) is a fuller example, not a minimal or "all features on" config. It enables the maintenance scheduler, session-start archive import, and several rollout-gated experimental surfaces, but leaves local inference disabled. Review and merge only the features you need; adapter-specific limits still apply.
+[`lore.example.json`](lore.example.json) is a minimal example, not an "all features on" config: it contains only `$schema` and `enabled`. Optional surfaces such as the maintenance scheduler, session-start archive import, and rollout-gated features are described in [Configuration](website/src/content/docs/configuration.md) and [`docs/support-matrix.md`](docs/support-matrix.md); review and merge only the features you need. Adapter-specific limits still apply.
 
 `LORE_HOME` overrides the Lore directory, while `LORE_CONFIG` overrides the config file path without relocating the database. `LORE_COPILOT_HOME` changes where Lore looks for Copilot inputs such as `session-store.db` and instructions; legacy fallback still applies when no new Lore home exists.
 
@@ -442,7 +442,7 @@ The canonical breakdown lives in [`docs/support-matrix.md`](docs/support-matrix.
 - stable diagnostics such as `memory_status`, `memory_explain`, and `memory_validate`
 - experimental reflection, backfill, portability, maintenance, browser, and self-diagnostic surfaces gated by rollout flags
 
-Pi exposes `lore_save`, `lore_onboard`, `lore_recall`, and `lore_status`, plus `/lore status`, `/lore save <text>`, and `/lore search <query>`.
+Pi exposes the canonical model tools (`lore_retain`, `lore_onboard`, `lore_recall`, `lore_status`, and the rest of the nine) plus the legacy `lore_save` alias, and `/lore status`, `/lore retain --type <type> "<text>"`, and `/lore search <query>`. The `retain` payload requires an explicit `type`; the old `/lore save <text>` shape without a type is no longer valid.
 
 The experimental Codex, Claude Code, and Antigravity adapters expose these shell commands through `lore-cli.mjs tool <name>`: `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, `memory_status`, `memory_correct`, `memory_repair`, and `memory_purge`. They do not expose `memory_explain`, `memory_validate`, or the other experimental Copilot tools. Their native event names and lifecycle mappings are listed in the [CLI integration guide](docs/cli-integrations.md#lifecycle-behavior).
 

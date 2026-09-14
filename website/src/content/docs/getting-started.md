@@ -38,7 +38,7 @@ For a new file, start with this minimal config:
 { "enabled": true }
 ```
 
-You can review `lore.example.json` for a fuller example, but it enables session-start maintenance, gradual archive import, and several experimental rollout features. Local inference remains disabled. Merge any settings you need into an existing config rather than copying over it.
+You can review `lore.example.json` for a minimal example, but it contains only `$schema` and `enabled`: it does not enable session-start maintenance, archive import, or experimental rollout features. Merge any settings you need into an existing config rather than copying over it.
 
 See [Configuration](/guides/configuration/) before changing optional features.
 

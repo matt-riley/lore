@@ -53,7 +53,7 @@ try {
       if (options.remove) console.log("Only Lore-owned hooks and runtime copies with intact ownership metadata are eligible; memories, configuration, unrelated hooks, and modified content are preserved.");
       else {
         console.log("Existing settings are merged; replaced files/installations are backed up. Keep this checkout and Node installation in place for native hooks.");
-        console.log("Recalled memories become context for each client's configured model. No experimental rollout flags are enabled by setup.");
+        console.log("Recalled memories become context for each client's configured model. Setup writes only `enabled: true`; effective runtime defaults still enable some non-core surfaces — review docs/support-matrix.md.");
         if (plan.shim?.homeBin) console.log(`PATH shim: ${plan.shim.homeBin}`);
         if (plan.shim?.pathCopy) console.log(`PATH copy: ${plan.shim.pathCopy}`);
         if (plan.pathExport) console.log(`No writable directory on PATH. Add Lore with:\n  ${plan.pathExport}`);

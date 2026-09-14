@@ -58,6 +58,32 @@ test("Claude assistant branch replacement retires only the abandoned answer", as
   });
 });
 
+test("Claude branch retirement preserves capture generation and provenance metadata", async () => {
+  await fixture("claude", async ({ db, file, run, active }) => {
+    await writeFile(file, claude("u", null, "user", "For this repository, I prefer focused unit tests.")
+      + claude("a", "u", "assistant", "We decided to use PostgreSQL because we need concurrent writers."));
+    while ((await run()).pending) {}
+    await appendFile(file, claude("b", "u", "assistant", "We decided to use SQLite because we need simple embedded storage."));
+    while ((await run()).pending) {}
+
+    const retired = db.db.prepare(`SELECT se.metadata_json, se.retired_at FROM session_evidence se
+      JOIN memory_evidence me ON me.evidence_key = se.evidence_key
+      JOIN semantic_memory sm ON sm.id = me.memory_id
+      WHERE sm.content LIKE '%PostgreSQL%' LIMIT 1`).get();
+    assert.ok(retired, "abandoned answer evidence stays in the ledger");
+    assert.notEqual(retired.retired_at, null);
+    const metadata = JSON.parse(retired.metadata_json || "{}");
+    assert.equal(typeof metadata.captureGeneration, "string", "retirement keeps the capture generation");
+    assert.equal(typeof metadata.captureNodeRevision, "string");
+    assert.ok(Array.isArray(metadata.captureBranchLinks) && metadata.captureBranchLinks.length > 0);
+    assert.equal(active().some((text) => text.includes("PostgreSQL")), false);
+
+    await appendFile(file, claude("c", "a", "user", "Continue from that choice."));
+    while ((await run()).pending) {}
+    assert.ok(active().some((text) => text.includes("PostgreSQL")), "restoration still reactivates retired evidence");
+  });
+});
+
 test("Claude branch retirement reaches evidence older than the rolling turn window", async () => {
   await fixture("claude", async ({ file, run, active }) => {
     const entries = [claude("u0", null, "user", "For this repository, I prefer small pure functions.")];

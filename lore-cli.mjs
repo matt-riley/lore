@@ -114,11 +114,16 @@ try {
       throw new Error(formatRuntimeDiagnostics(runtime));
     }
     const { createLoreSession } = await import("./lib/runtime/lore-runtime.mjs");
+    const { resolveCliToolAccess } = await import("./lib/clients/cli-runtime.mjs");
+    // Validate and classify administration invocations before touching
+    // storage so previews stay read-only and bad requests leave files alone.
+    const access = resolveCliToolAccess(parsed.name, parsed.args);
     const session = await createLoreSession({
       client: resolveCliClient(),
       surface: "cli",
       cwd: process.cwd(),
       sessionId: `cli:${process.pid}`,
+      readOnly: access.readOnly,
     });
     try {
       if (!session.initialized) {

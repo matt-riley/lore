@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { shellQuote, buildCliHookConfig } from "../../lib/clients/cli-hook-config.mjs";
+import { shellQuote, buildCliHookConfig, mergeCliHookConfig } from "../../lib/clients/cli-hook-config.mjs";
 
 test("shellQuote quotes and escapes strings for POSIX platforms", () => {
   assert.equal(shellQuote("simple", "darwin"), "'simple'");
@@ -31,4 +31,31 @@ test("Codex SessionEnd uses a 10s timeout like other capture hooks", () => {
   assert.equal(codex.hooks.Stop[0].hooks[0].timeout, 10);
   const claude = buildCliHookConfig("claude", { nodePath: "/bin/node", entryPath: "/app/lore-cli.mjs" });
   assert.equal(claude.hooks.SessionEnd[0].hooks[0].timeout, 10);
+});
+
+test("antigravity install never overwrites an unowned or modified lore group", () => {
+  const fragment = buildCliHookConfig("antigravity", { nodePath: "/bin/node", entryPath: "/app/lore-cli.mjs" });
+  const ownedCommands = Object.values(fragment.lore).flatMap((value) => value.flatMap((hook) => hook.command || hook.hooks?.[0]?.command));
+
+  // Absent group installs normally.
+  assert.deepEqual(mergeCliHookConfig({}, fragment, "antigravity"), { lore: fragment.lore });
+
+  // An exact owned rerun is idempotent.
+  const installed = mergeCliHookConfig({}, fragment, "antigravity");
+  assert.deepEqual(mergeCliHookConfig(installed, fragment, "antigravity", { ownedCommands }), installed);
+
+  // An unrelated first-time group is refused rather than overwritten.
+  const unrelated = { lore: { Stop: [{ type: "command", command: "echo keep-my-hook" }] } };
+  assert.throws(
+    () => mergeCliHookConfig(unrelated, fragment, "antigravity"),
+    /unrelated or modified 'lore' hook group/,
+  );
+
+  // A modified owned group is also refused, on install and on removal.
+  const modified = { lore: { Stop: [...fragment.lore.Stop, { type: "command", command: "echo keep-my-hook" }] } };
+  assert.throws(() => mergeCliHookConfig(modified, fragment, "antigravity", { ownedCommands }), /unrelated or modified/);
+  assert.throws(() => mergeCliHookConfig(modified, fragment, "antigravity", { remove: true, ownedCommands }), /unrelated or modified/);
+
+  // Removal only deletes a fully owned group.
+  assert.deepEqual(mergeCliHookConfig(installed, fragment, "antigravity", { remove: true, ownedCommands }), {});
 });

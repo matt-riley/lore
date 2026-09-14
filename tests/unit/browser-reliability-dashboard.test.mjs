@@ -304,4 +304,66 @@ describe("reliability dashboard renderers", () => {
       db.close();
     }
   });
+
+  test("memories endpoint searches content and pages beyond the first window", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "lore-browser-memories-search-fixture-"));
+    const config = buildFixtureConfig(home, { enabled: true });
+    const db = new LoreDb(config);
+    db.initialize();
+    const memories = [];
+    for (let index = 0; index < 26; index += 1) {
+      memories.push({ type: "user_preference", content: `Alpha fixture note ${index}.`, scope: "repo", repository: "owner/repo" });
+    }
+    memories.push({ type: "user_preference", content: "Postgres tuning keeps a literal 50% headroom.", scope: "repo", repository: "owner/repo" });
+    memories.push({ type: "user_preference", content: "under_score naming stays literal.", scope: "repo", repository: "owner/repo" });
+    memories.push({ type: "user_preference", content: "underXscore variant is different.", scope: "repo", repository: "owner/repo" });
+    db.reconcileGeneratedMemories({ sessionId: "codex:memories-search", repository: "owner/repo", memories });
+
+    const { server } = startLoreBrowserServer({ db, host: "127.0.0.1", port: 0, repository: "owner/repo" });
+    await new Promise((resolve) => server.once("listening", resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const fetchMemories = async (query) => {
+      const responseValue = await fetch(`${base}/api/memories?${query}`);
+      assert.equal(responseValue.status, 200);
+      return (await responseValue.json()).data;
+    };
+
+    try {
+      const firstWindow = await fetchMemories("pageSize=10");
+      assert.equal(firstWindow.page, 1);
+      assert.equal(firstWindow.pageSize, 10);
+      assert.equal(firstWindow.total, 29);
+      assert.equal(firstWindow.rows.length, 10);
+
+      const thirdPage = await fetchMemories("pageSize=10&page=3");
+      assert.equal(thirdPage.page, 3);
+      assert.equal(thirdPage.rows.length, 9);
+
+      const pastEnd = await fetchMemories("pageSize=10&page=4");
+      assert.equal(pastEnd.total, 29);
+      assert.deepEqual(pastEnd.rows, []);
+
+      const postgres = await fetchMemories("query=postgres");
+      assert.equal(postgres.total, 1);
+      assert.match(postgres.rows[0].content, /Postgres tuning/);
+
+      const literalPercent = await fetchMemories(`query=${encodeURIComponent("50%")}`);
+      assert.equal(literalPercent.total, 1);
+      assert.match(literalPercent.rows[0].content, /50%/);
+
+      const literalUnderscore = await fetchMemories("query=under_score");
+      assert.equal(literalUnderscore.total, 1);
+      assert.match(literalUnderscore.rows[0].content, /under_score/);
+
+      const injection = await fetchMemories(`query=${encodeURIComponent("' OR 1=1 --")}`);
+      assert.equal(injection.total, 0);
+
+      const oversized = await fetchMemories(`query=${"x".repeat(500)}`);
+      assert.equal(oversized.total, 0);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      db.close();
+    }
+  });
 });

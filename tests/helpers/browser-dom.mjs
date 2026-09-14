@@ -73,7 +73,7 @@ function createResponse(payload) {
   };
 }
 
-export function createBrowserTestEnvironment() {
+export function createBrowserTestEnvironment({ elementIds = [] } = {}) {
   const elements = new Map();
   const tabButtons = ["overview", "memories", "maintenance", "episodes", "drilldown"].map((tab) =>
     createElement({ dataset: { tab }, classes: ["tab"] }),
@@ -89,6 +89,11 @@ export function createBrowserTestEnvironment() {
     "tabs",
   ]) {
     elements.set(id, createElement({ id }));
+  }
+  for (const id of elementIds) {
+    if (!elements.has(id)) {
+      elements.set(id, createElement({ id }));
+    }
   }
   const document = {
     body: createElement(),

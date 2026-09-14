@@ -20,6 +20,33 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.17.0](https://github.com/matt-riley/lore/compare/lore-v0.16.2...lore-v0.17.0) (2026-09-14)
+
+
+### Features
+
+* **browser:** add memory search and working pagination ([#160](https://github.com/matt-riley/lore/issues/160)) ([b74769c](https://github.com/matt-riley/lore/commit/b74769c9c7156792964893bc20de473f1e63f6f7)), closes [#143](https://github.com/matt-riley/lore/issues/143)
+
+
+### Bug Fixes
+
+* **browser:** open dashboard and maintenance previews read-only ([4f3acaf](https://github.com/matt-riley/lore/commit/4f3acaf061ed27cc31ea7261c9854c422b699365)), closes [#150](https://github.com/matt-riley/lore/issues/150)
+* **capture:** preserve evidence metadata when retiring Claude branches ([8dbb269](https://github.com/matt-riley/lore/commit/8dbb269829e4da8ce4f47088605b6663ab66d9f9)), closes [#151](https://github.com/matt-riley/lore/issues/151)
+* **cli:** fail closed on unknown or incomplete maintenance flags ([2ca16f0](https://github.com/matt-riley/lore/commit/2ca16f00e2808c4ee7fff0371acdc978d83d1abf)), closes [#149](https://github.com/matt-riley/lore/issues/149)
+* **cli:** keep administration previews read-only before initialization ([fc4fbe2](https://github.com/matt-riley/lore/commit/fc4fbe220475d7b1dd46d6139eb2e282d44e19e1)), closes [#133](https://github.com/matt-riley/lore/issues/133)
+* **cli:** propagate command failures as nonzero exit statuses ([5b0d17f](https://github.com/matt-riley/lore/commit/5b0d17f0e46760c0f9a0ad4ded2d79f9d22adeed)), closes [#134](https://github.com/matt-riley/lore/issues/134)
+* **copilot:** use the checkout directory for maintenance Git ancestry checks ([c77741b](https://github.com/matt-riley/lore/commit/c77741bb9a051dbff5c1fb52914449cbe332f4b7)), closes [#152](https://github.com/matt-riley/lore/issues/152)
+* **diagnostics:** isolate validation and replay from the live store ([fe3f209](https://github.com/matt-riley/lore/commit/fe3f20948a87df2522aec5dea354d417c98d0a6a)), closes [#148](https://github.com/matt-riley/lore/issues/148)
+* **maintenance:** reject negated or conditional completion evidence ([4c6c9c6](https://github.com/matt-riley/lore/commit/4c6c9c6d229a74f4c99ec830764ad4e98a0773e9)), closes [#147](https://github.com/matt-riley/lore/issues/147)
+* **maintenance:** restore recall eligibility when rolling back hygiene ([ca19943](https://github.com/matt-riley/lore/commit/ca1994334e6315d4fcd424570a6cc2ae0505e38c)), closes [#139](https://github.com/matt-riley/lore/issues/139)
+* **okf:** bound import bytes, traversal entries, and depth ([335b969](https://github.com/matt-riley/lore/commit/335b96900eedc95c10cb90c73f0b9d44e91dd72c)), closes [#145](https://github.com/matt-riley/lore/issues/145)
+* **pi:** honor PI_CODING_AGENT_DIR when locating session archives ([9f9eeb3](https://github.com/matt-riley/lore/commit/9f9eeb333a6c8f0d51b5dbebdd02f5639fdeedad)), closes [#146](https://github.com/matt-riley/lore/issues/146)
+* **proposals:** verify the complete index independently of inspection limits ([6f595fd](https://github.com/matt-riley/lore/commit/6f595fd7b1f578f41b1f40cd6881fa0c3c8877a3)), closes [#155](https://github.com/matt-riley/lore/issues/155)
+* **repair:** keep session selectors narrow when repository is supplied ([23e8319](https://github.com/matt-riley/lore/commit/23e8319a7974d5b31a029ccaadb36a6556744203)), closes [#138](https://github.com/matt-riley/lore/issues/138)
+* **search:** handle constructor as an ordinary query term ([#158](https://github.com/matt-riley/lore/issues/158)) ([7ebae7d](https://github.com/matt-riley/lore/commit/7ebae7d3323062ea3ed524c6f0c50efdb80a097d)), closes [#140](https://github.com/matt-riley/lore/issues/140)
+* **setup:** preserve unowned Antigravity lore hook groups ([6a7de5b](https://github.com/matt-riley/lore/commit/6a7de5b7139b59a2bd4717f2e17973a3ced0d424)), closes [#135](https://github.com/matt-riley/lore/issues/135)
+* **setup:** remove recorded installs and clean moved config targets ([b2f77f7](https://github.com/matt-riley/lore/commit/b2f77f7a9bfc91153a762d3b0c1adb510e601c71)), closes [#136](https://github.com/matt-riley/lore/issues/136) [#137](https://github.com/matt-riley/lore/issues/137)
+
 ## [0.16.2](https://github.com/matt-riley/lore/compare/lore-v0.16.1...lore-v0.16.2) (2026-09-13)
 
 

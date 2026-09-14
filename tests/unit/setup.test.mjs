@@ -11,6 +11,8 @@ import {
   applySetup,
   planRemove,
   applyRemove,
+  selectClients,
+  listInstalledClients,
   buildLorePathShimScript,
   isLorePathShim,
   formatLorePathExport,
@@ -191,6 +193,77 @@ for (const client of ["codex", "claude", "antigravity"]) {
     } finally { rmSync(home, { recursive: true, force: true }); }
   });
 }
+
+test("selectClients allows recorded installs for removal while installs stay strict", () => {
+  const clients = [
+    { id: "codex", executablePath: "/bin/codex" },
+    { id: "pi", executablePath: null },
+  ];
+  assert.deepEqual(selectClients("codex", clients), ["codex"]);
+  assert.throws(() => selectClients("pi", clients), /Select only detected or previously installed/);
+  assert.deepEqual(selectClients("pi", clients, { allowedExtra: ["pi"] }), ["pi"]);
+  assert.deepEqual(selectClients("all", clients, { allowedExtra: ["pi"] }), ["codex", "pi"]);
+  assert.deepEqual(selectClients("1", clients, { allowedExtra: ["pi"] }), ["codex"]);
+  assert.throws(() => selectClients("claude", clients, { allowedExtra: ["pi"] }), /Select only detected/);
+});
+
+test("recorded installs can be removed after the host executable disappears", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-remove-off-path-"));
+  try {
+    const env = { HOME: home };
+    applySetup(planSetup(["codex"], { home, env }));
+    const target = path.join(home, ".codex/hooks.json");
+    assert.equal(existsSync(target), true);
+
+    const goneEnv = { ...env, PATH: "" };
+    assert.deepEqual(listInstalledClients({ home, env: goneEnv }), ["codex"]);
+    const ids = selectClients("codex", [], { allowedExtra: listInstalledClients({ home, env: goneEnv }) });
+    assert.deepEqual(ids, ["codex"]);
+    applyRemove(planRemove(ids, { home, env: goneEnv }));
+    assert.equal(readFileSync(target, "utf8").includes("lore-cli.mjs"), false);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("moving a client config directory cleans the old target and moves ownership", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-target-move-"));
+  try {
+    const envA = { HOME: home, CODEX_HOME: path.join(home, "codex-a") };
+    const envB = { HOME: home, CODEX_HOME: path.join(home, "codex-b") };
+    applySetup(planSetup(["codex"], { home, env: envA }));
+    const oldTarget = path.join(home, "codex-a/hooks.json");
+    const newTarget = path.join(home, "codex-b/hooks.json");
+    assert.equal(existsSync(oldTarget), true);
+
+    const plan = planSetup(["codex"], { home, env: envB });
+    assert.ok(plan.changes.some((change) => change.target === oldTarget), "plan must clean the old target");
+    assert.ok(plan.changes.some((change) => change.target === newTarget), "plan must install at the new target");
+    applySetup(plan);
+    assert.equal(existsSync(newTarget), true);
+    assert.equal(readFileSync(oldTarget, "utf8").includes("lore-cli.mjs"), false, "old target has no lore hooks left");
+    const manifest = JSON.parse(readFileSync(path.join(home, ".config/lore/install-manifest.json"), "utf8"));
+    assert.equal(manifest.installs.codex.target, newTarget);
+    applyRemove(planRemove(["codex"], { home, env: envB }));
+    assert.equal(readFileSync(newTarget, "utf8").includes("lore-cli.mjs"), false);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("moving a client config directory preserves unrelated hooks at the old target", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-target-move-keep-"));
+  try {
+    const envA = { HOME: home, CODEX_HOME: path.join(home, "codex-a") };
+    const envB = { HOME: home, CODEX_HOME: path.join(home, "codex-b") };
+    applySetup(planSetup(["codex"], { home, env: envA }));
+    const oldTarget = path.join(home, "codex-a/hooks.json");
+    const value = JSON.parse(readFileSync(oldTarget, "utf8"));
+    value.hooks.Custom = [{ hooks: [{ type: "command", command: "echo keep-my-hook" }] }];
+    writeFileSync(oldTarget, JSON.stringify(value, null, 2));
+
+    applySetup(planSetup(["codex"], { home, env: envB }));
+    const preserved = JSON.parse(readFileSync(oldTarget, "utf8"));
+    assert.equal(JSON.stringify(preserved).includes("keep-my-hook"), true);
+    assert.equal(JSON.stringify(preserved).includes("lore-cli.mjs"), false);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
 
 test("malformed ownership manifests fail with an actionable error before setup or removal writes", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-invalid-manifest-"));

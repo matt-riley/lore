@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { detectClients, selectClients, planSetup, applySetup, planRemove, applyRemove } from "../lib/clients/setup.mjs";
+import { detectClients, selectClients, listInstalledClients, planSetup, applySetup, planRemove, applyRemove } from "../lib/clients/setup.mjs";
 import { checkRuntime, formatRuntimeDiagnostics } from "../lib/core/runtime.mjs";
 
 try {
@@ -21,12 +21,17 @@ try {
     if (!runtime.ok) throw new Error(formatRuntimeDiagnostics(runtime));
   }
   const clients = detectClients();
+  // Removal choices come from recorded installs as well as detected hosts, so
+  // uninstalling Codex/Pi/etc. first does not strand its Lore install.
+  const recorded = options.remove ? listInstalledClients() : [];
   const available = clients.filter((client) => client.executablePath);
   console.log("Lore setup — one memory, your choice of coding agents\n");
   for (const [index, client] of available.entries()) console.log(`  ${index + 1}. ${client.name} (${client.id}) — ${client.executablePath}`);
-  const missing = clients.filter((client) => !client.executablePath);
+  const recordedOffPath = clients.filter((client) => !client.executablePath && recorded.includes(client.id));
+  if (recordedOffPath.length) console.log(`Previously installed (host executable not on PATH; select by name): ${recordedOffPath.map((client) => `${client.name} (${client.id})`).join(", ")}`);
+  const missing = clients.filter((client) => !client.executablePath && !recorded.includes(client.id));
   if (missing.length) console.log(`Not found on PATH: ${missing.map((client) => client.name).join(", ")}`);
-  if (!available.length) throw new Error("No supported CLIs found. Install a supported client and make its executable available on PATH, then rerun setup.");
+  if (!available.length && !recorded.length) throw new Error("No supported CLIs found. Install a supported client and make its executable available on PATH, then rerun setup.");
   if (options.yes && options.clients === null) throw new Error("--yes requires --clients; setup never selects clients silently.");
   // An async iterator keeps piped answers queued between prompts as well as
   // supporting a real terminal, without losing early confirmation input.
@@ -39,7 +44,7 @@ try {
   };
   try {
     const selection = options.clients ?? await ask("\nChoose clients (numbers or names, comma-separated; all; Enter cancels): ");
-    const ids = selectClients(selection, clients);
+    const ids = selectClients(selection, clients, { allowedExtra: recorded });
     if (!ids.length) { console.log("Cancelled. No changes made."); }
     else {
       const plan = options.remove ? planRemove(ids) : planSetup(ids);

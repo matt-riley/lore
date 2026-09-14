@@ -35,7 +35,7 @@ test("read-only facade reports missing stores without creating directories", asy
     db.close();
     const missing = path.join(path.dirname(config.paths.derivedStorePath), "missing", "lore.db");
     const readonly = new LoreDb({ ...config, paths: { ...config.paths, derivedStorePath: missing } });
-    assert.throws(() => readonly.openReadOnly(), (error) => error.code === "DATABASE_UNAVAILABLE");
+    assert.throws(() => readonly.openReadOnly(), (error) => error.code === "DATABASE_UNAVAILABLE" && /lore status/.test(error.message) && /unavailable/i.test(error.message));
     assert.equal(existsSync(path.dirname(missing)), false);
   } finally { cleanup(); }
 });
@@ -47,7 +47,7 @@ test("read-only facade rejects old schemas without upgrading them", async () => 
     db.close();
     const bytes = readFileSync(config.paths.derivedStorePath);
     const readonly = new LoreDb(config);
-    assert.throws(() => readonly.openReadOnly(), (error) => error.code === "SCHEMA_UPGRADE_REQUIRED");
+    assert.throws(() => readonly.openReadOnly(), (error) => error.code === "SCHEMA_UPGRADE_REQUIRED" && /lore status/.test(error.message) && /schema upgrade required/i.test(error.message));
     assert.equal(readonly.db, null);
     assert.deepEqual(readFileSync(config.paths.derivedStorePath), bytes);
   } finally { cleanup(); }

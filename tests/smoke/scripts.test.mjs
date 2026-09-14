@@ -20,8 +20,9 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
@@ -87,6 +88,59 @@ function makeTempDir() {
 function makeEmptySqlite(filePath) {
   const db = new DatabaseSync(filePath);
   db.close();
+}
+
+/**
+ * Initialize a Lore store through the public write path in a child process.
+ * Preview commands must never do this themselves, so tests seed storage first
+ * and then assert the preview left it untouched.
+ */
+function initLoreStore(env) {
+  const source = `
+    const { LoreDb } = await import(${JSON.stringify(new URL("../../lib/db/db.mjs", import.meta.url).href)});
+    const { loadConfig } = await import(${JSON.stringify(new URL("../../lib/core/config.mjs", import.meta.url).href)});
+    const db = new LoreDb(await loadConfig());
+    db.initialize();
+    db.close();
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", source], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    env,
+    timeout: 15_000,
+  });
+  assert.equal(result.status, 0, `initLoreStore failed: ${result.stderr}`);
+}
+
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+function waitForOutput(child, pattern, timeoutMs = 10_000) {
+  return new Promise((resolve, reject) => {
+    let buffer = "";
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(buffer);
+    };
+    const timer = setTimeout(() => finish(new Error(`timed out waiting for ${pattern}\n${buffer}`)), timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      buffer += chunk;
+      if (pattern.test(buffer)) finish();
+    });
+    child.once("exit", (code) => finish(new Error(`process exited early (${code})\n${buffer}`)));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -334,15 +388,19 @@ describe("run-maintenance --recommended-schedule", () => {
 // ---------------------------------------------------------------------------
 
 describe("run-maintenance --dry-run", () => {
-  test("exits 0 and reports dryRun:true", { skip: SKIP_NO_FTS5 }, () => {
+  test("exits 0, reports dryRun:true, and leaves store bytes unchanged", { skip: SKIP_NO_FTS5 }, () => {
     const tempHome = makeTempDir();
     const rawStorePath = path.join(tempHome, "session-store.db");
     makeEmptySqlite(rawStorePath);
+    const env = { ...process.env, LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" };
     try {
+      initLoreStore(env);
+      const dbPath = path.join(tempHome, "lore.db");
+      const before = readFileSync(dbPath);
       const result = run(
         "run-maintenance.mjs",
         ["--dry-run", "--raw-store-path", rawStorePath],
-        { env: { LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" } },
+        { env },
       );
       assert.strictEqual(
         result.status,
@@ -357,6 +415,26 @@ describe("run-maintenance --dry-run", () => {
         result.stdout.includes("trigger: script"),
         `Expected 'trigger: script' in stdout.\nActual: ${result.stdout}`,
       );
+      assert.deepEqual(readFileSync(dbPath), before, "dry-run must not mutate the store");
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed without creating a store when storage is absent", { skip: SKIP_NO_FTS5 }, () => {
+    const tempHome = makeTempDir();
+    const rawStorePath = path.join(tempHome, "session-store.db");
+    makeEmptySqlite(rawStorePath);
+    try {
+      const result = run(
+        "run-maintenance.mjs",
+        ["--dry-run", "--raw-store-path", rawStorePath],
+        { env: { ...process.env, LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" } },
+      );
+      assert.notEqual(result.status, 0, "previews must not create a missing store");
+      assert.match(result.stderr, /unavailable/i);
+      assert.match(result.stderr, /lore status/);
+      assert.equal(existsSync(path.join(tempHome, "lore.db")), false);
     } finally {
       rmSync(tempHome, { recursive: true, force: true });
     }
@@ -364,15 +442,19 @@ describe("run-maintenance --dry-run", () => {
 });
 
 describe("run-maintenance --status", () => {
-  test("exits 0 and reports trigger:status", { skip: SKIP_NO_FTS5 }, () => {
+  test("exits 0, reports trigger:status, and leaves store bytes unchanged", { skip: SKIP_NO_FTS5 }, () => {
     const tempHome = makeTempDir();
     const rawStorePath = path.join(tempHome, "session-store.db");
     makeEmptySqlite(rawStorePath);
+    const env = { ...process.env, LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" };
     try {
+      initLoreStore(env);
+      const dbPath = path.join(tempHome, "lore.db");
+      const before = readFileSync(dbPath);
       const result = run(
         "run-maintenance.mjs",
         ["--status", "--raw-store-path", rawStorePath],
-        { env: { LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" } },
+        { env },
       );
       assert.strictEqual(
         result.status,
@@ -388,7 +470,82 @@ describe("run-maintenance --status", () => {
         result.stdout.includes("dryRun: true"),
         `Expected 'dryRun: true' in stdout.\nActual: ${result.stdout}`,
       );
+      assert.deepEqual(readFileSync(dbPath), before, "status must not mutate the store");
     } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run-browser.mjs — read-only open
+// ---------------------------------------------------------------------------
+
+describe("run-browser read-only open", () => {
+  test("fails closed without creating a store when storage is absent", async () => {
+    const tempHome = makeTempDir();
+    try {
+      const port = await getFreePort();
+      const result = run(
+        "run-browser.mjs",
+        ["--port", String(port)],
+        { env: { ...process.env, LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" } },
+      );
+      assert.notEqual(result.status, 0, "browser preview must not create a missing store");
+      assert.match(result.stderr, /unavailable/i);
+      assert.match(result.stderr, /lore status/);
+      assert.equal(existsSync(path.join(tempHome, "lore.db")), false);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a legacy store without migrating it", async () => {
+    const tempHome = makeTempDir();
+    try {
+      const dbPath = path.join(tempHome, "lore.db");
+      const legacy = new DatabaseSync(dbPath);
+      legacy.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT); INSERT INTO schema_version VALUES(18,'2026-01-01');");
+      legacy.close();
+      const before = readFileSync(dbPath);
+      const port = await getFreePort();
+      const result = run(
+        "run-browser.mjs",
+        ["--port", String(port)],
+        { env: { ...process.env, LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" } },
+      );
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /schema upgrade required/i);
+      assert.match(result.stderr, /lore status/);
+      assert.deepEqual(readFileSync(dbPath), before);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  test("serves an existing store without mutating it", { skip: SKIP_NO_FTS5 }, async () => {
+    const tempHome = makeTempDir();
+    const rawStorePath = path.join(tempHome, "session-store.db");
+    makeEmptySqlite(rawStorePath);
+    const env = { ...process.env, LORE_COPILOT_HOME: tempHome, LORE_HOME: tempHome, LORE_CONFIG: "" };
+    let child = null;
+    try {
+      initLoreStore(env);
+      const dbPath = path.join(tempHome, "lore.db");
+      const before = readFileSync(dbPath);
+      const port = await getFreePort();
+      child = spawn(process.execPath, [path.join(SCRIPTS_DIR, "run-browser.mjs"), "--port", String(port)], {
+        cwd: REPO_ROOT,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      await waitForOutput(child, /local read-only server started/);
+      child.kill("SIGTERM");
+      await new Promise((resolve) => child.once("exit", resolve));
+      child = null;
+      assert.deepEqual(readFileSync(dbPath), before, "browser preview must not mutate the store");
+    } finally {
+      if (child) child.kill("SIGKILL");
       rmSync(tempHome, { recursive: true, force: true });
     }
   });

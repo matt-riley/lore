@@ -75,7 +75,13 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const config = buildConfig(args);
   const db = new LoreDb(config);
-  db.initialize();
+  try {
+    db.openReadOnly();
+  } catch (error) {
+    db.close();
+    console.error(`[lore-browser] ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
 
   const { server, host, port } = startLoreBrowserServer({
     db,

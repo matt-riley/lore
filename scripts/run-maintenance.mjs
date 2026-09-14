@@ -221,9 +221,10 @@ function buildEmptyLatencyMetric() {
   };
 }
 
-export function buildScriptRuntime({ args, config }) {
+export function buildScriptRuntime({ args, config, readOnly = false }) {
   const db = new LoreDb(config);
-  db.initialize();
+  if (readOnly) db.openReadOnly();
+  else db.initialize();
   const sessionStore = new SessionStoreReader(config, {
     resolveRepositoryIdentity: (identity) => resolveRepositoryIdentity({ ...identity, mappings: db.getRepositoryMappings() }),
     identityResolverCacheVersion: () => JSON.stringify(db.getRepositoryMappings()),
@@ -277,7 +278,10 @@ async function main() {
     console.log(renderRecommendedSchedule(config));
     return;
   }
-  const { db, runtime } = buildScriptRuntime({ args, config });
+  // Status and dry-run are previews: they must neither create nor migrate a
+  // store. Fail closed with the open-path guidance when storage is absent.
+  const readOnly = args.action === "status" || args.dryRun;
+  const { db, runtime } = buildScriptRuntime({ args, config, readOnly });
 
   try {
     const result = await runMaintenanceSweep({

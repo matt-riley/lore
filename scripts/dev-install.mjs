@@ -2,16 +2,20 @@
 /**
  * scripts/dev-install.mjs
  *
- * Copies a Lore checkout into the Copilot CLI extensions directory as a real
- * directory install.
+ * Refreshes a Lore development checkout into the Copilot CLI extensions
+ * directory through the same preserving installer used by `npm run setup`.
  *
  * The primary supported distribution flow is to clone Lore directly into
  * ~/.copilot/extensions/lore. This helper exists for contributors who prefer to
  * work from a checkout elsewhere and copy that checkout into the live extension
  * directory.
  *
- * Copilot CLI has proven more reliable at discovering directory installs than
- * symlinked extension roots, so the helper always uses a copied checkout.
+ * Unlike the old copy helper, this wrapper:
+ *   - refuses unrelated or modified destinations instead of deleting them
+ *   - copies only the runtime files (not website/, tests/, .git, or worktrees)
+ *   - writes ownership metadata compatible with `npm run setup -- --remove`
+ *   - backs up and rolls back on failure
+ *   - never installs the PATH shim (that belongs to full setup)
  *
  * Usage:
  *   node scripts/dev-install.mjs [--dry-run] [--copilot-home <path>]
@@ -21,28 +25,21 @@
  * Pass --copilot-home <path> to override the ~/.copilot home directory.
  */
 
-import {
-  cpSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { planSetup, applySetup } from "../lib/clients/setup.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
-const COPY_EXCLUDES = new Set([".git", "node_modules", ".DS_Store"]);
 
 function parseArgs(argv) {
   const args = { dryRun: false, copilotHome: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--dry-run") { args.dryRun = true; continue; }
     if (argv[i] === "--copilot-home") { args.copilotHome = argv[i + 1]; i++; continue; }
+    throw new Error(`Unknown or incomplete argument: ${argv[i]}`);
   }
   return args;
 }
@@ -61,20 +58,6 @@ function describeTarget(targetPath) {
   return { exists: true, type: "other" };
 }
 
-function copyLoreInstall(sourcePath, targetPath) {
-  cpSync(sourcePath, targetPath, {
-    recursive: true,
-    force: true,
-    filter: (currentPath) => {
-      const baseName = path.basename(currentPath);
-      if (COPY_EXCLUDES.has(baseName)) {
-        return false;
-      }
-      return true;
-    },
-  });
-}
-
 function isSameInstall(sourcePath, targetPath) {
   if (!existsSync(sourcePath) || !existsSync(targetPath)) {
     return false;
@@ -86,49 +69,21 @@ function isSameInstall(sourcePath, targetPath) {
   return realpathSync(sourcePath) === realpathSync(targetPath);
 }
 
-function logInstallSummary(label, installTarget) {
-  console.log(`${label}Lore dev-install`);
-  console.log(`  repo root   : ${REPO_ROOT}`);
-  console.log(`  install dir : ${installTarget}`);
-  console.log(`  mode        : directory-copy`);
-}
-
 function logDryRunNoChanges() {
   console.log("[dry-run] Copilot CLI discovery is more reliable with a real directory install than a symlink.");
   console.log("[dry-run] No changes made.");
 }
 
-function describeTargetAction(targetType, label) {
-  if (targetType === "symlink") {
-    console.log(`${label}Replacing existing symlink with a real directory install.`);
-    return;
-  }
-  if (targetType === "directory") {
-    console.log(`${label}Refreshing existing Lore install directory.`);
-    return;
-  }
-  console.log(`${label}Installing Lore into Copilot extensions.`);
-}
-
-function ensureExtensionsDir(extensionsDir, dryRun, label) {
-  if (existsSync(extensionsDir)) {
-    return;
-  }
-  console.log(`${label}Creating extensions dir: ${extensionsDir}`);
-  if (!dryRun) {
-    mkdirSync(extensionsDir, { recursive: true });
-  }
-}
-
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  const copilotHome = args.copilotHome ?? path.join(os.homedir(), ".copilot");
-  const extensionsDir = path.join(copilotHome, "extensions");
-  const installTarget = path.join(extensionsDir, "lore");
+  const copilotHome = path.resolve(args.copilotHome ?? path.join(os.homedir(), ".copilot"));
+  const installTarget = path.join(copilotHome, "extensions", "lore");
   const label = args.dryRun ? "[dry-run] " : "";
-  const targetState = describeTarget(installTarget);
 
-  logInstallSummary(label, installTarget);
+  console.log(`${label}Lore dev-install`);
+  console.log(`  repo root   : ${REPO_ROOT}`);
+  console.log(`  install dir : ${installTarget}`);
+  console.log(`  mode        : directory install (shared preserving installer)`);
 
   if (isSameInstall(REPO_ROOT, installTarget)) {
     console.log(`${label}Lore is already running from the install directory.`);
@@ -139,28 +94,31 @@ function main() {
     return;
   }
 
-  ensureExtensionsDir(extensionsDir, args.dryRun, label);
-
-  if (targetState.type === "other") {
-    console.error(`ERROR: ${installTarget} exists but is not a directory or symlink.`);
-    console.error("Remove or rename it manually, then re-run this script.");
-    process.exit(1);
-  }
-
-  describeTargetAction(targetState.type, label);
+  const plan = planSetup(["copilot"], {
+    env: { ...process.env, LORE_COPILOT_HOME: copilotHome },
+    home: os.homedir(),
+    source: REPO_ROOT,
+    shim: false,
+  });
 
   if (args.dryRun) {
+    console.log(`${label}Would refresh the Copilot extension directory through the shared preserving installer.`);
+    console.log(`${label}Unrelated or modified destinations are refused, never deleted in place; runtime files only.`);
     logDryRunNoChanges();
     return;
   }
 
-  rmSync(installTarget, { recursive: true, force: true });
-  mkdirSync(installTarget, { recursive: true });
-  copyLoreInstall(REPO_ROOT, installTarget);
-  writeFileSync(path.join(installTarget, ".lore-install.json"), `${JSON.stringify({ version: 1, client: "copilot", source: REPO_ROOT }, null, 2)}\n`, { mode: 0o600 });
-
-  console.log("✓ Installed Lore as a directory copy.");
+  const backup = applySetup(plan);
+  console.log("✓ Installed Lore as a real directory copy.");
+  if (backup) {
+    console.log(`Recoverable backups: ${backup}`);
+  }
   console.log("Restart the Copilot CLI process to force extension rediscovery.");
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(`ERROR: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}

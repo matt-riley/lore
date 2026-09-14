@@ -6,6 +6,12 @@ import { checkRuntime } from "../../lib/core/runtime.mjs";
 const read = (file) => readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
 const root = JSON.parse(read("package.json"));
 const website = JSON.parse(read("website/package.json"));
+const prerequisiteDocs = [
+  ["AGENTS.md", "website/package.json"],
+  ["README.md", "website/package.json"],
+  ["website/README.md", "package.json"],
+  ["website/src/content/docs/contributing.md", "package.json"],
+];
 
 test("runtime, website, and contributor guides agree on supported prerequisites", async () => {
   assert.equal(website.engines.node, root.engines.node);
@@ -13,20 +19,16 @@ test("runtime, website, and contributor guides agree on supported prerequisites"
   assert.ok(minimum, "declare an explicit minimum Node version");
   const manager = root.packageManager.split("+")[0];
   assert.equal(website.packageManager.split("+")[0], manager);
-  const pnpm = manager.match(/^pnpm@(\d+\.\d+\.\d+)$/u)?.[1];
-  assert.ok(pnpm, "pin the package manager version");
+  assert.match(manager, /^pnpm@\d+\.\d+\.\d+$/u, "pin an explicit pnpm version");
   const probe = await checkRuntime({
     version: minimum,
     loadSqlite: async () => ({ DatabaseSync: class { exec() {} close() {} } }),
   });
-  assert.equal(probe.ok, true, "the documented minimum must pass runtime preflight");
-  for (const file of ["AGENTS.md", "README.md", "website/README.md", "website/src/content/docs/contributing.md"]) {
+  assert.equal(probe.ok, true, "the supported minimum must pass runtime preflight");
+  for (const [file, source] of prerequisiteDocs) {
     const text = read(file);
-    const nodeVersions = [...text.matchAll(/Node(?:\.js)?\s+(\d+\.\d+\.\d+)/gu)].map((match) => match[1]);
-    const pnpmVersions = [...text.matchAll(/pnpm\s+(\d+\.\d+\.\d+)/gu)].map((match) => match[1]);
-    assert.ok(nodeVersions.length > 0 && pnpmVersions.length > 0, `${file} must document both prerequisites`);
-    assert.ok(nodeVersions.every((version) => version === minimum), `${file}: stale Node prerequisite`);
-    assert.ok(pnpmVersions.every((version) => version === pnpm), `${file}: stale pnpm prerequisite`);
+    assert.match(text, /Node(?:\.js)?/u, `${file} must document Node.js`);
+    assert.match(text, /pnpm/u, `${file} must document pnpm`);
+    assert.ok(text.includes(source), `${file} must point to ${source}`);
   }
-  assert.ok(read("website/README.md").includes(`| \`PNPM_VERSION\` | \`${pnpm}\` |`));
 });

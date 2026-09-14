@@ -4,7 +4,7 @@ An Astro static site with a Blender-authored archive sculpture, an optional Thre
 
 ## Work locally
 
-Use Node.js 24.0.0 or later and pnpm 12.3.2. From this directory:
+Use the Node.js and pnpm versions pinned in [`package.json`](package.json). From this directory:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -34,8 +34,8 @@ Connect the repository to a Cloudflare Workers project using these settings:
 | Root directory | `website` |
 | Build command | `pnpm build` |
 | Deploy command | `pnpm exec wrangler deploy` |
-| `NODE_VERSION` | `24.0.0` or a newer supported release |
-| `PNPM_VERSION` | `12.3.2` |
+| `NODE_VERSION` | Match `engines.node` in [`package.json`](package.json) |
+| `PNPM_VERSION` | Match `packageManager` in [`package.json`](package.json) |
 | `SITE_URL` | Your final public origin, including `https://` |
 
 `SITE_URL` is optional during local development. Set it to the production domain when deploying so canonical metadata uses the correct origin. This is a static Astro site, so it does not need the `@astrojs/cloudflare` adapter. `public/_headers` applies caching and standard response headers. The `assets.not_found_handling` setting in `wrangler.jsonc` serves the generated `404.html` page.

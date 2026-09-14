@@ -166,6 +166,56 @@ describe("proposal generator integrity checks", () => {
     }
   });
 
+  test("verification and repair keep the complete index beyond the inspection limit", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          evolutionLedger: true,
+          proposalGeneration: true,
+          generatedArtifactIntegrity: true,
+        },
+      },
+    });
+    const proposalsRoot = proposalDocsRoot(config);
+    const indexPath = path.join(proposalsRoot, "PROPOSAL_INDEX.md");
+    const originalIndex = await readIfExists(indexPath);
+    try {
+      const runtime = buildRuntime(db, config);
+      const ids = [];
+      for (let index = 0; index < 21; index += 1) {
+        ids.push(db.upsertImprovementArtifact({
+          sourceCaseId: `index-limit-${index}`,
+          sourceKind: "signal",
+          title: `Index limit proposal ${index}`,
+          summary: `Keep the complete index for artifact ${index}.`,
+        }));
+      }
+      const generated = await generateProposalArtifacts({ runtime, ids, limit: 10 });
+      assert.equal(generated.generatedCount, 21);
+      const indexContent = await readFile(indexPath, "utf8");
+      const entryCount = (indexContent.match(/artifact=`/g) ?? []).length;
+      assert.equal(entryCount, 21, "generated index lists every proposal");
+
+      // An inspection limit of 10 must not look like index drift.
+      const verified = await verifyProposalArtifacts({ runtime, limit: 10, dryRun: true });
+      assert.deepEqual(verified.issues, []);
+      assert.equal(verified.repairedCount, 0);
+
+      const repaired = await verifyProposalArtifacts({ runtime, limit: 10, repair: true });
+      assert.deepEqual(repaired.issues, []);
+      assert.equal(await readFile(indexPath, "utf8"), indexContent, "repair is complete and stable");
+      assert.equal((await readFile(indexPath, "utf8")).match(/artifact=`/g).length, 21);
+
+      const reverified = await verifyProposalArtifacts({ runtime, limit: 10, dryRun: true });
+      assert.deepEqual(reverified.issues, []);
+    } finally {
+      await rm(proposalsRoot, { recursive: true, force: true });
+      await restoreFile(indexPath, originalIndex);
+      cleanup();
+    }
+  });
+
   test("verifyProposalArtifacts does not repair missing files during dry-run mode", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

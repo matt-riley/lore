@@ -45,7 +45,7 @@ import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.m
 import { readPiSessionHeader } from "./pi-session-reader.mjs";
 import { reconcileCaptureEvidence } from "./lib/clients/cli-capture-evidence.mjs";
 import { ingestCliTranscript } from "./lib/clients/cli-transcript-ingestion.mjs";
-import { PiArchiveScanner, parseBackfillSettings } from "./lib/sessions/pi-archive-scanner.mjs";
+import { PiArchiveScanner, parseBackfillSettings, resolvePiSessionDir } from "./lib/sessions/pi-archive-scanner.mjs";
 
 const RECALL_TYPES = [
   "commitment",
@@ -85,8 +85,7 @@ function expandHome(p) {
 }
 
 function piSessionDir() {
-  const configured = db?.config?.paths?.piSessionDir;
-  return expandHome(configured) || path.join(os.homedir(), ".pi", "agent", "sessions");
+  return resolvePiSessionDir({ paths: db?.config?.paths });
 }
 
 function archiveCursorPath() {

@@ -28,10 +28,13 @@ function makeSession(directory, id, cwd) {
   return filePath;
 }
 
-function startServer(home, configPath) {
+function startServer(home, configPath, extraEnv = {}) {
+  const env = { ...process.env, HOME: home, LORE_COPILOT_HOME: path.dirname(configPath), LORE_CONFIG: configPath, ...extraEnv };
+  // Keep a developer's real Pi profile out of isolated fixtures.
+  if (!("PI_CODING_AGENT_DIR" in extraEnv)) delete env.PI_CODING_AGENT_DIR;
   const proc = spawn(process.execPath, [SERVER], {
     cwd: REPO_ROOT,
-    env: { ...process.env, HOME: home, LORE_COPILOT_HOME: path.dirname(configPath), LORE_CONFIG: configPath },
+    env,
     stdio: ["pipe", "pipe", "pipe"],
   });
   const readline = createInterface({ input: proc.stdout });
@@ -195,6 +198,56 @@ test("lore server handles status/save/recall/extract, backfill, and graceful EOF
     } finally {
       db.close();
     }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("Pi archive scanning honors PI_CODING_AGENT_DIR when config omits piSessionDir", { skip: SKIP_NO_FTS5 }, async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-env-sessions-"));
+  const copilotHome = path.join(home, ".copilot");
+  const agentDir = path.join(home, "custom-agent");
+  const sessions = path.join(agentDir, "sessions");
+  const project = path.join(home, "project");
+  mkdirSync(copilotHome, { recursive: true });
+  mkdirSync(sessions, { recursive: true });
+  mkdirSync(project, { recursive: true });
+  const configPath = path.join(copilotHome, "lore.json");
+  const dbPath = path.join(copilotHome, "lore.db");
+  writeFileSync(configPath, JSON.stringify({
+    enabled: true,
+    paths: {
+      copilotHome,
+      rawStorePath: path.join(copilotHome, "session-store.db"),
+      derivedStorePath: dbPath,
+      backupDir: path.join(copilotHome, "backups"),
+      instructionsPath: path.join(copilotHome, "copilot-instructions.md"),
+      scopedInstructionsDir: path.join(copilotHome, "instructions"),
+    },
+  }));
+  writeFileSync(path.join(copilotHome, "copilot-instructions.md"), "");
+  const extractPath = makeSession(sessions, "env-session", project);
+
+  const server = startServer(home, configPath, { PI_CODING_AGENT_DIR: agentDir });
+  try {
+    const status = await server.request("status");
+    assert.equal(status.ok, true);
+    const backfill = await server.request("backfill", { max: 1, currentSessionId: "current-session" });
+    assert.equal(backfill.ok, true);
+  } finally {
+    const result = await server.exit();
+    assert.equal(result.code, 0, `server exited with ${JSON.stringify(result)}`);
+  }
+
+  try {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const row = db.prepare("SELECT session_id FROM episode_digest WHERE session_id = ?").get("env-session");
+      assert.ok(row, "archive under PI_CODING_AGENT_DIR/sessions should be extracted");
+    } finally {
+      db.close();
+    }
+    assert.equal(existsSync(extractPath), true, "source archives must be preserved");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

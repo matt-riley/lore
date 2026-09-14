@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, wr
 import os from "node:os";
 import path from "node:path";
 
-import { PiArchiveScanner, parseBackfillSettings } from "../../lib/sessions/pi-archive-scanner.mjs";
+import { PiArchiveScanner, parseBackfillSettings, resolvePiSessionDir } from "../../lib/sessions/pi-archive-scanner.mjs";
 
 function session(id) {
   return `${JSON.stringify({ type: "session", id, cwd: "/tmp/project", timestamp: "2026-01-01T00:00:00.000Z" })}\n`;
@@ -101,6 +101,50 @@ test("persists scan progress for a replacement worker", async () => {
     await replacement.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pi session root prefers explicit config, then PI_CODING_AGENT_DIR, then the default profile", () => {
+  assert.equal(
+    resolvePiSessionDir({ paths: { piSessionDir: "/custom/sessions" }, env: { PI_CODING_AGENT_DIR: "/env/agent" }, home: "/home/u" }),
+    path.resolve("/custom/sessions"),
+  );
+  assert.equal(
+    resolvePiSessionDir({ env: { PI_CODING_AGENT_DIR: "/env/agent" }, home: "/home/u" }),
+    path.join(path.resolve("/env/agent"), "sessions"),
+  );
+  assert.equal(resolvePiSessionDir({ env: {}, home: "/home/u" }), path.join("/home/u", ".pi", "agent", "sessions"));
+  assert.equal(
+    resolvePiSessionDir({ paths: { piSessionDir: "~/pi/sessions" }, env: {}, home: "/home/u" }),
+    path.join("/home/u", "pi", "sessions"),
+  );
+  assert.equal(
+    resolvePiSessionDir({ env: { PI_CODING_AGENT_DIR: "~/pi/agent" }, home: "/home/u" }),
+    path.join("/home/u", "pi", "agent", "sessions"),
+  );
+});
+
+test("a cursor bound to another archive root never blocks a fresh cycle", async () => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), "lore-pi-archive-root-change-"));
+  const rootZ = path.join(parent, "z-root");
+  const rootA = path.join(parent, "a-root");
+  const cursorPath = path.join(parent, "cursor.json");
+  try {
+    mkdirSync(rootZ);
+    mkdirSync(rootA);
+    writeFileSync(path.join(rootZ, "session.jsonl"), session("z-session"));
+    writeFileSync(path.join(rootA, "session.jsonl"), session("a-session"));
+    const first = new PiArchiveScanner({ rootDir: rootZ, cursorPath, scanCap: 1, minAgeMs: 0, maxFileBytes: 1024 });
+    await first.scan({ maxCandidates: 1 });
+    await first.close();
+    assert.equal(JSON.parse(readFileSync(cursorPath, "utf8")).rootDir, path.resolve(rootZ));
+
+    const replacement = new PiArchiveScanner({ rootDir: rootA, cursorPath, scanCap: 1, minAgeMs: 0, maxFileBytes: 1024 });
+    const result = await replacement.scan({ maxCandidates: 1 });
+    assert.deepEqual(result.candidates.map((candidate) => candidate.sessionId), ["a-session"]);
+    await replacement.close();
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 

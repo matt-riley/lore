@@ -1,176 +1,199 @@
 # Summary of Lore v2 Model Opinions
 
-**Sources:** `Claude-Opus.md`, `Fable.md`, `Gemini.md`, and `Grok.md` in this directory.
+**Sources:** `Astra.md`, `Claude-Opus.md`, `Fable.md`, `Gemini.md`, `GLM.md`, `Grok.md`, and `Kimi.md` in this directory.
 
 **Review date:** 2026-09-14
 
-**Citation format:** citations such as `Grok.md:24-43` identify the source file and the relevant line range. The format is intentionally plain text so the document is easy to grep.
+**Citation format:** citations such as `Grok.md:24-43` identify the source file and relevant line range. Citations are intentionally plain text so this document is easy to grep.
 
 ## Executive summary
 
-The four reviews agree that Lore v2 should prove a long-lived, per-user daemon that owns the store and scheduler, moves ingestion and memory-side embedding off the prompt path, and preserves the existing safety contracts. They also agree that Slice 3's exact-query, cache-only vector path will usually miss on real interactive prompts and therefore risks turning semantic recall into lexical-only recall.
+All seven reviews consider the v2 direction credible: a single per-user daemon should own the store and scheduler, move memory-side background work away from prompt handling, and preserve repository isolation, suppression, expiry, manual authority, idempotency, and honest socket trust boundaries. (`Astra.md:11-26`, `Claude-Opus.md:8-18`, `Fable.md:7-14`, `Gemini.md:8-27`, `GLM.md:9-19`, `Grok.md:8-20`, `Kimi.md:7-23`)
 
-The strongest disagreement is about implementation order rather than the desired architecture:
+The sharpest shared warning is Slice 3's exact-query, cache-only vector path. Exact prompt repeats are rare and `PrepareQuery` followed immediately by `Recall` usually loses the race, so semantic retrieval could become lexical-only for normal interactive use. Six reviews explicitly recommend changing or pre-planning an alternative; Kimi is the important nuance, calling cache-only the best proof extreme while still requesting recurrence instrumentation and a fallback decision. (`Astra.md:30-50`, `Claude-Opus.md:30-37`, `Fable.md:58-68`, `Gemini.md:33-50`, `GLM.md:78-112`, `Grok.md:22-43`, `Kimi.md:15-17`, `Kimi.md:33-39`)
 
-- Gemini accepts Rust as the core implementation and proposes exploiting it for in-process embeddings and an in-memory vector cache.
-- Claude Opus, Fable, and Grok recommend proving the daemon boundary in Node first, then choosing Rust only if measurements or a distribution goal justify a second implementation.
-
-There is also broad support for making JSON over a Unix socket a first-class transport, or at least comparing it seriously with gRPC before committing to protobuf/code-generation overhead.
+The main implementation disagreement is Rust timing. Gemini is Rust-forward and sees in-process inference as a major benefit. Claude Opus, Fable, GLM, and Grok want the daemon boundary proven in Node first; Astra says Rust is reasonable but unproven, while Kimi approves slices 1–3 without making language the central issue. (`Gemini.md:8-18`, `Gemini.md:47-50`, `Claude-Opus.md:20-28`, `Fable.md:38-47`, `GLM.md:114-136`, `Grok.md:68-72`, `Astra.md:11-15`, `Kimi.md:5-9`)
 
 ## Where the models agree
 
-### 1. The daemon boundary is the right architectural direction
+### 1. The daemon boundary is the right architectural bet
 
-All four reviews support a single per-user process that owns SQLite access, scheduling, and background work. They connect this to the same v1 problems: repeated process/database setup, competing clients, prompt-path embedding, and the absence of a shared scheduler.
+The reviews consistently support one long-lived per-user process with one authoritative store writer, shared scheduling, and background work. They connect this to v1's independent client processes, SQLite contention, prompt-path embedding, and lack of a shared scheduler.
 
-- Claude Opus: the daemon design and safety contracts are sound, while v1 lacks a shared background worker (`Claude-Opus.md:8-18`).
-- Fable: one long-lived process removes the structural causes of v1's latency and contention (`Fable.md:7-20`).
-- Gemini: a single Rust daemon gives predictable scheduling, resource bounds, and decoupled heavy work (`Gemini.md:8-27`).
-- Grok: one writer owning memory, suppression, and jobs is the thing worth proving (`Grok.md:8-20`).
+- Astra supports one authoritative writer, a separate v2 store, and a small proof API (`Astra.md:17-28`).
+- Claude Opus says the safety thinking is sound and identifies the missing shared background worker as a v1 problem (`Claude-Opus.md:8-18`).
+- Fable says the architectural bet is right because a single process removes the structural source of the latency and contention (`Fable.md:7-20`).
+- Gemini identifies the clean process boundary and decoupled heavy work as core strengths (`Gemini.md:22-27`).
+- GLM says slices 1–3 should prove the shared scheduler/store architecture (`GLM.md:7-19`).
+- Grok frames one writer owning memory, suppression, and jobs as the central thing to prove (`Grok.md:10-20`).
+- Kimi endorses the per-user daemon, durable background work, and disciplined proof gates (`Kimi.md:7-19`).
 
-### 2. v2 must preserve the safety contracts
+### 2. Safety and coexistence rules are load-bearing
 
-The reviews consistently defend separate v2 state, no implicit v1 migration, repository scoping, suppression/expiry/supersession filtering, manual-memory authority, bounded inputs, and honest same-user socket trust. These are treated as proof obligations, not optional polish.
+All seven treat safety semantics as acceptance criteria rather than optional features. The shared protected set is: separate v2 state, no implicit migration or fallback writes, repository scoping, suppression/supersession/expiry before and after ranking, manual-memory authority, durable idempotency, bounded input, and an honest same-user Unix-socket trust boundary.
 
-- Claude Opus: keep the safety contracts and verify them through the revised sequence (`Claude-Opus.md:52-59`).
-- Fable: lists separate storage, filtering, manual authority, idempotency, byte budgets, status semantics, embedding identity, TTLs, and the no-TCP boundary as decisions to keep (`Fable.md:24-35`).
-- Gemini: identifies repository isolation, manual precedence, suppression, expiry, and v1-store isolation as core strengths (`Gemini.md:12-18`, `Gemini.md:22-27`).
-- Grok: explicitly keeps the separate store, fail-closed schema handling, scope filters, transactional outbox, query-text TTL, and same-user socket caveat (`Grok.md:74-84`).
+- Astra emphasizes policy enforcement on every retrieval path and explicit migration (`Astra.md:19-26`).
+- Claude Opus says to keep the safety contracts and add fixtures for a possible global-scope leak (`Claude-Opus.md:46-59`).
+- Fable lists separate storage, filtering, manual authority, idempotency, byte budgets, TTLs, and the no-TCP boundary as decisions to keep (`Fable.md:24-35`).
+- Gemini names repository isolation, manual precedence, suppression, expiry, and v1-store isolation as strengths (`Gemini.md:22-27`).
+- GLM specifically defends no automatic v1 writes, idempotent Retain, embedding identity, bounded messages, durability, and suppression (`GLM.md:21-46`).
+- Grok keeps the separate store, fail-closed schema handling, policy filters, transactional outbox, query-text TTL, and same-user trust caveat (`Grok.md:74-84`).
+- Kimi praises the safety invariants, trust-boundary honesty, and disciplined v1 coexistence policy (`Kimi.md:17-23`).
 
-### 3. Exact-query cache-only semantic recall is not viable for normal prompts
+### 3. The proof must measure quality as well as latency
 
-This is the clearest technical consensus. The proposed cache key is exact query text, but interactive prompts are usually unique. `PrepareQuery` followed immediately by `Recall` is expected to lose a race, so a cache miss will usually return lexical results without semantic results.
+The models agree with the staged go/no-go approach, but repeatedly ask for realistic prompt traces, v1 comparisons, explicit quality metrics, and failure-path evidence before committing to later extraction, migration, or parity work. (`Astra.md:38-50`, `Claude-Opus.md:10-18`, `Fable.md:70-79`, `Gemini.md:12-18`, `GLM.md:90-112`, `Grok.md:86-90`, `Kimi.md:27-39`)
 
-- Claude Opus: predicts a near-zero realistic hit rate and recommends changing the go/no-go criterion (`Claude-Opus.md:30-37`).
-- Fable: calls the failure predictable and says the alternative must be planned before Slice 3 (`Fable.md:58-68`).
-- Gemini: says the design would effectively regress to FTS-only retrieval for interactive prompts (`Gemini.md:33-50`).
-- Grok: says ambient recall is one unique prompt per turn and that repeated-query benchmarks would hide the regression (`Grok.md:22-43`).
+The common measurement principle is: do not let a relaxed p95 target or repeated-query benchmark make a degraded retrieval system look successful. Compare cold and warm behavior, realistic unique prompts, provider failure/latency, policy outcomes, and a measured v1 baseline.
 
-The shared remedy is lexical fallback plus one of these options:
+### 4. Exact-query cache-only recall is a central product risk
+
+The proposed exact UTF-8 query cache is useful as an experiment or optimization, but the reviews agree that `PrepareQuery` cannot be assumed to make semantic results available for the prompt immediately following it. The proposed remedies all preserve lexical fail-open behavior:
 
 - bounded synchronous query embedding;
-- an in-process local encoder;
-- or an explicitly documented acceptance of a semantic-quality regression.
+- a local/in-process query encoder;
+- more realistic cache instrumentation and an explicit acceptance of any quality regression if neither is chosen.
 
-The models differ on the preferred option and timeout, but not on the problem. Suggested budgets range from roughly 30-50 ms (`Grok.md:34-41`) through 50-150 ms (`Claude-Opus.md:34-36`) and 50-120 ms (`Gemini.md:47-50`) to 150-300 ms (`Fable.md:62-68`).
+The suggested budgets vary substantially: Grok suggests roughly 30–50 ms, Claude Opus 50–150 ms, Gemini 50–120 ms, and Fable 150–300 ms. (`Grok.md:34-43`, `Claude-Opus.md:30-37`, `Gemini.md:47-50`, `Fable.md:62-68`)
 
-### 4. JSON over a Unix socket deserves first-class treatment
+Kimi is the outlier in framing, not in risk detection: it calls the cache-only decision “brave” and appropriate for protecting the prompt path, but also says exact-query recurrence must be measured before relying on it. (`Kimi.md:13-17`, `Kimi.md:33-39`)
 
-No review accepts the current gRPC-first direction without qualification. Fable, Gemini, and Grok directly recommend elevating JSON/JSON-RPC/REST over a Unix socket; Claude Opus recommends a side-by-side JSON-versus-gRPC spike.
+### 5. JSON over a Unix socket deserves a serious comparison with gRPC
 
-- Claude Opus: compare JSON-lines over a Unix socket and gRPC rather than treating JSON as only a fallback (`Claude-Opus.md:38-45`).
-- Fable: flip the default to JSON over the socket and reserve protobuf for a measured need (`Fable.md:49-56`).
-- Gemini: prefer JSON-RPC or REST over UDS for zero dependencies and easy debugging (`Gemini.md:54-64`).
-- Grok: treat gRPC as a spike and start from the existing JSON-over-socket shape (`Grok.md:50-51`).
+Fable, Gemini, and Grok directly recommend making JSON/JSON-RPC/REST over Unix sockets first-class. Claude Opus asks for a side-by-side spike; GLM says dependency and debugging cost across all five clients must be an ADR criterion; Astra retains HTTP/JSON as the documented alternative. (`Fable.md:49-56`, `Gemini.md:54-64`, `Grok.md:50-51`, `Claude-Opus.md:38-45`, `GLM.md:150-161`, `Astra.md:52-64`)
 
-### 5. Memory-side embedding should be background work
+The shared reasons are zero or low client dependency cost, compatibility with the existing JSON-lines worker, human-debuggability, and avoiding code-generation overhead before a measured need exists.
 
-The reviews agree that durable memory embedding belongs in the daemon's background work, with leases/reconciliation and status coverage rather than prompt-path blocking. Fable states this explicitly; Claude and Grok also reject making a full embedding queue reject an otherwise valid memory write (`Fable.md:64-68`, `Claude-Opus.md:46-49`, `Grok.md:45-48`).
+### 6. Derived embedding work should not make authoritative memory hostage to backlog
 
-The narrower consensus is: `Retain` should not fail merely because disposable derived embedding work is backpressured. The write and its intent should remain durable, while status reports the coverage gap.
+A strong majority rejects coupling a full disposable embedding queue to failure of an otherwise valid `Retain`. Their common direction is to commit the authoritative memory and durable embedding intent, expose degraded coverage in `Status`, and let reconciliation recover derived work. (`Astra.md:102-110`, `Claude-Opus.md:46-49`, `GLM.md:48-76`, `Grok.md:45-48`, `Kimi.md:47-51`)
+
+Kimi proposes evicting the oldest retryable jobs by priority; Astra prefers a durable per-memory “needs embedding” state; GLM, Claude Opus, and Grok favor acknowledging the memory while reporting the coverage gap. These are variations on the same authority principle.
 
 ## Where the models disagree
 
 ### 1. Rust now versus Node first
 
-This is the main implementation disagreement.
+**Gemini:** keep Rust as the core implementation and use it for an in-process quantized encoder, SIMD scoring, and a high-performance daemon (`Gemini.md:8-18`, `Gemini.md:47-50`, `Gemini.md:67-75`).
 
-**Gemini's position:** the Rust daemon is the right architectural bet now. Rust enables an in-process quantized embedding model and fast SIMD scoring (`Gemini.md:8-18`, `Gemini.md:47-50`).
+**Claude Opus, Fable, GLM, and Grok:** prove the daemon independently in Node, reusing the existing policy and worker code, then choose Rust only if measurements, a static-binary distribution goal, or a demonstrated resource constraint justifies the second implementation (`Claude-Opus.md:20-28`, `Fable.md:38-47`, `GLM.md:114-136`, `Grok.md:68-72`).
 
-**Claude Opus, Fable, and Grok's position:** prove the daemon independently of the language in Node, reusing the existing runtime and policy code. Rust should follow measurements, a static-binary requirement, or a demonstrated resource problem (`Claude-Opus.md:20-28`, `Fable.md:36-47`, `Grok.md:68-72`).
+**Astra:** treats Rust as reasonable but not demonstrated, and asks the plan to separate the daemon, language, and transport decisions (`Astra.md:11-15`, `Astra.md:52-64`). **Kimi** approves the proof slices as written without making a competing language recommendation (`Kimi.md:5-9`).
 
-The practical reason for the Node-first majority view is policy-parity risk: copying scope and suppression rules into a second codebase creates another place for memory leaks and drift (`Claude-Opus.md:20-28`, `Fable.md:20-22`, `Grok.md:71-72`).
+The Node-first position is mainly about policy-parity and maintenance risk: suppression, expiry, repository identity, and eligibility would otherwise exist in a second implementation (`Claude-Opus.md:20-28`, `Fable.md:20-22`, `GLM.md:120-136`, `Grok.md:71-72`).
 
-### 2. How to solve query embedding
+### 2. How to repair query embedding
 
-The models agree that cache-only is inadequate, but propose different implementations:
+The models agree on the problem but not the first implementation:
 
-- Claude Opus: allow bounded online query embedding against a warm provider, with lexical fallback (`Claude-Opus.md:30-37`).
-- Fable: make bounded synchronous embedding the default, keep the provider warm, and retain an in-process encoder as a possible Rust justification (`Fable.md:62-68`, `Fable.md:44-47`).
-- Gemini: prefer an in-process local encoder in Rust, with canonicalized query caching as an additional optimization (`Gemini.md:47-50`).
-- Grok: use a short, configurable, fail-open provider budget, or choose an in-process encoder if zero provider I/O is required (`Grok.md:34-43`).
+- Claude Opus prefers bounded online embedding against a warm provider with lexical fallback (`Claude-Opus.md:30-37`).
+- Fable makes bounded synchronous embedding the default and recommends keeping the provider warm (`Fable.md:62-68`).
+- Gemini prefers an in-process Rust encoder, with query canonicalization as a cache optimization (`Gemini.md:47-50`).
+- GLM wants the quality metric and fallback ADR frozen before Rust is written, with either bounded cancellable online embedding or a local encoder (`GLM.md:90-112`).
+- Grok allows a short configurable provider budget, but says a local encoder is the alternative if Recall must never perform provider I/O (`Grok.md:34-43`).
+- Astra prefers keeping `PrepareQuery` experimental until realistic replay shows it useful, then reviewing bounded online embedding if needed (`Astra.md:38-50`).
+- Kimi retains cache-only as the proof posture but asks for recurrence measurement before treating it as a production-quality decision (`Kimi.md:33-45`).
 
-The unresolved product choice is therefore not whether to improve query recall, but whether the first proof should use bounded external/local-provider inference or make local inference part of the daemon.
+The unresolved product choice is therefore bounded external/local inference versus local inference built into the daemon, with cache-only remaining either a deliberately measured proof extreme or an explicitly accepted quality trade-off.
 
-### 3. In-memory vector cache versus paged SQLite reads
+### 3. In-memory vectors versus paged SQLite reads
 
-Gemini recommends loading a contiguous, scope-filtered vector buffer into memory so recall avoids reading and deserializing thousands of SQLite BLOBs (`Gemini.md:67-75`). Grok recommends the opposite operational trade-off: page vectors from SQLite and avoid heap-loading the corpus so the 100 MiB RSS target is not defeated (`Grok.md:65-66`).
+Gemini recommends a contiguous, scope-filtered in-memory vector buffer to avoid reading thousands of SQLite BLOBs on every query (`Gemini.md:67-75`). Grok recommends paging vectors from SQLite to protect the 100 MiB RSS target and avoid heap-loading the corpus (`Grok.md:65-66`). Kimi adds a related concern: measure foreground `Retain` latency during vector commits (`Kimi.md:63-67`).
 
-This is a direct unresolved trade-off between query latency and memory footprint. It should be measured with the target corpus size and RSS budget rather than settled from synthetic cosine-scoring numbers alone.
+This is a direct latency-versus-memory trade-off. It should be settled with the target corpus, dimensions, I/O behavior, and RSS budget rather than the cosine-scoring cost alone.
 
-### 4. Daemon lifecycle and startup behavior
+### 4. Daemon startup and lifecycle
 
-The reviews agree that client ergonomics matter, but differ on the concrete lifecycle:
+The reviews agree that client ergonomics and fail-open behavior matter, but differ on the contract:
 
-- Gemini proposes lazy auto-spawn, a short socket probe, up to 200 ms readiness wait, then fail-open behavior (`Gemini.md:78-90`).
-- Fable prefers a client-spawned, idle-exiting daemon and argues that service managers can be removed from the proof (`Fable.md:81-83`).
-- Grok wants a throwaway prompt-hook client in Slice 2 to exercise missing sockets, startup deadlines, and daemon death early (`Grok.md:53-54`).
-- Claude Opus highlights the opposite risk: cold subprocess and gRPC setup may cost more than the daemon saves for shell-launched clients, so it calls for a spike (`Claude-Opus.md:38-45`).
+- Gemini proposes a socket probe, lazy auto-spawn, a 200 ms readiness wait, then fail-open (`Gemini.md:78-90`).
+- Fable proposes a client-spawned, idle-exiting daemon and argues that service-manager work can be removed from the proof (`Fable.md:81-83`).
+- Grok wants a fake prompt-hook client early, covering missing sockets, deadlines, and daemon death (`Grok.md:53-54`).
+- Claude Opus warns that cold CLI subprocess and gRPC setup could erase the daemon's gains and asks for a spike (`Claude-Opus.md:38-45`).
 
-These ideas are compatible at a high level, but the startup deadline, ownership of spawning, idle-exit policy, and service-manager scope still need one explicit contract.
+These can be combined, but startup ownership, readiness budget, idle exit, and formal service-manager scope still need one explicit contract.
 
-### 5. How much of the plan should be front-loaded
+### 5. How much to front-load before the first useful proof
 
-Gemini considers the vertical slices and go/no-go gates a major strength (`Gemini.md:12-18`, `Gemini.md:22-27`). Claude Opus, Fable, and Grok all want an earlier, smaller proof or spike before the full hardening sequence:
+Gemini views the vertical slices and gates as major strengths. Claude Opus wants a quick Bun, cold-subprocess, and transport spike; Fable proposes a concrete Slice 0; Grok wants a realistic prompt-hook client moved earlier. Astra keeps the seven-slice structure but adds experiments and contract work before proceeding beyond Slice 3. Kimi approves Slices 1–3 as written. (`Gemini.md:12-18`, `Claude-Opus.md:38-45`, `Fable.md:70-79`, `Grok.md:53-54`, `Astra.md:164-177`, `Kimi.md:5-9`)
 
-- Claude Opus: run a quick Bun, cold-subprocess, and transport spike first (`Claude-Opus.md:38-45`).
-- Fable: add a Slice 0 with a Node socket daemon, four operations, two clients, and real-prompt measurements (`Fable.md:70-79`).
-- Grok: move a realistic prompt-hook client into Slice 2 and measure first unique prompts, not only repeated queries (`Grok.md:53-54`, `Grok.md:86-90`).
-
-The useful synthesis is to keep Gemini's gates but place a small, executable boundary proof before the more expensive portability and hardening work.
+The practical synthesis is to preserve the gates while running a small executable boundary proof before expensive portability and hardening work.
 
 ## Distinctive or outlier ideas by reviewer
 
-These are ideas that are especially characteristic of one review in this set. “Distinctive” does not mean the idea is wrong or that no other reviewer could support it.
+“Distinctive” means especially characteristic of one review in this set; it does not mean the idea is necessarily unsupported elsewhere.
+
+### Astra
+
+- **Response-budget arithmetic:** 20 valid 64 KiB memories already exceed the 1 MiB response cap, so structured-response and rendering budgets need separate, explicit rules (`Astra.md:66-82`).
+- **Executable deletion/restoration semantics:** test that backup restore, re-extraction, deliberate manual re-save, and uncertain Retain retries cannot resurrect forgotten data incorrectly (`Astra.md:84-100`).
+- **Lease fencing and provider-state recovery:** use claim generations/tokens, define terminal-failure recovery, avoid reconciliation retry loops, and pause provider-wide failures as shared state (`Astra.md:112-124`).
+- **Lower-layer bounds and identity:** bound decoded vector memory, database work, cancellation, WAL growth, capacity fairness, coherent snapshots, and socket-to-store identity (`Astra.md:126-151`).
 
 ### Claude Opus
 
-- **Baseline v1 before setting v2 targets.** Add measured v1 problems and compare v2 against the actual lexical and semantic baselines rather than accepting a target that could be much slower than v1 (`Claude-Opus.md:10-18`).
-- **Shared fixtures for v1 and v2.** Make `tests/v2/fixtures` a shared specification so policy behavior cannot quietly drift between implementations (`Claude-Opus.md:20-28`).
-- **Bun and cold-subprocess validation.** The Pi/Bun path, shell-launched hooks, and startup/channel costs should be tested before committing to the transport or language (`Claude-Opus.md:38-45`).
-- **Previous-turn query vectors.** Consider reusing the vector prepared on the previous turn for tool-initiated recalls (`Claude-Opus.md:34-36`).
-- **Global-default leakage fixture.** Add a fixture for the observed case where standing directives from another project appeared in this repository's session, and tighten what qualifies as global (`Claude-Opus.md:46-50`).
+- **Measured v1 baseline:** plain lexical recall is cited at about 1.1 ms p95 for 10k prompts, so v2's 100 ms target could pass while being much slower than v1 (`Claude-Opus.md:10-18`).
+- **Shared behavioral fixtures:** run the same `tests/v2/fixtures` specification against v1 and v2 to prevent policy drift (`Claude-Opus.md:20-28`).
+- **Bun and cold-subprocess risk:** test Pi under Bun and shell-launched Claude Code/Codex hooks before assuming a daemon or gRPC saves time (`Claude-Opus.md:38-45`).
+- **Global-default leakage fixture and previous-turn vectors:** test cross-repository standing-directive leakage and consider using a prior-turn vector for tool-initiated recalls (`Claude-Opus.md:34-36`, `Claude-Opus.md:46-50`).
 
 ### Fable
 
-- **Add `Forget` to the executable proof.** The proof should exercise the real suppression write path rather than relying only on fixture-seeded suppression (`Fable.md:81-87`).
-- **Client-spawned idle-exit as the process model.** Fable argues that a service manager, installer, and much of Slice 7 can be deferred or removed if clients spawn the daemon and it exits when idle (`Fable.md:81-83`).
-- **Make Slice 0 concrete.** The proposed first slice includes Retain, Recall, Status, Forget, a warm provider, bounded query embedding, two clients, and real transcript latency measurements (`Fable.md:70-79`, `Fable.md:100-109`).
-- **Durability and migration precision.** It calls out the exact meaning of `synchronous=FULL`, timestamp conversion from v1 ISO strings, repository identity mapping, and retired session evidence as specific migration/proof obligations (`Fable.md:89-98`).
+- **Concrete Slice 0:** start with a Node socket daemon, JSON-lines, Retain/Recall/Status/Forget, two clients, a warm provider, and real-prompt latency measurements (`Fable.md:70-79`, `Fable.md:100-109`).
+- **Client-spawned idle exit:** use the already-working Pi process model to avoid making service management and installers prerequisites for the proof (`Fable.md:81-83`).
+- **Add Forget to the proof:** exercise the real suppression write path instead of relying only on fixture-seeded suppression (`Fable.md:85-87`).
+- **Migration precision:** call out `synchronous=FULL`, timestamp conversion, legacy repository identity mapping, and retired session evidence as explicit obligations (`Fable.md:89-98`).
 
 ### Gemini
 
-- **In-process contiguous vector buffer.** Keep vectors in memory and score them without recurring SQLite BLOB reads, subject to validating the RSS cost (`Gemini.md:67-75`).
-- **Query canonicalization.** Normalize whitespace, case, and trailing punctuation so the query cache is not limited to exact UTF-8 identity (`Gemini.md:47-50`).
-- **Lazy auto-spawn protocol.** Define a concrete probe, spawn, readiness wait, and fail-open sequence for client adapters (`Gemini.md:78-90`).
-- **Extraction as modular workers/plugins.** Keep volatile transcript parsing and extraction rules outside a monolithic Rust daemon, interacting through Retain/BatchRetain APIs (`Gemini.md:94-101`).
-- **Explicit Rust-local-inference upside.** Gemini is the most positive about using Rust to run a quantized encoder in-process and quotes a low-millisecond CPU inference target (`Gemini.md:47-50`).
+- **In-memory contiguous vector buffer:** keep scope-filtered vectors in `lored` and score without recurring SQLite BLOB reads (`Gemini.md:67-75`).
+- **Query canonicalization:** normalize whitespace, case, and trailing punctuation to make cache reuse less brittle (`Gemini.md:47-50`).
+- **Lazy auto-spawn protocol:** specify probe, spawn, readiness wait, and fail-open behavior in the client contract (`Gemini.md:78-90`).
+- **Modular extraction workers/plugins:** keep volatile transcript parsing and extraction rules outside a monolithic Rust daemon, using Retain/BatchRetain APIs (`Gemini.md:94-101`).
+- **Rust-local-inference upside:** uniquely emphasizes a quantized in-process encoder and a low-millisecond CPU inference target as a reason to choose Rust (`Gemini.md:47-50`).
+
+### GLM
+
+- **Named retrieval-quality metric:** use `recall@k` / MRR on `tests/fixtures/reliability-corpus.mjs`, comparing lexical-only and warm fusion before deciding that cache-only quality is unacceptable (`GLM.md:90-112`).
+- **Pre-rewrite v1 prefetch experiment:** add prompt-time query-vector prefetch to the existing Node worker to measure the real `PrepareQuery` hit rate before freezing v2 semantics (`GLM.md:106-112`).
+- **Hybrid language option:** consider a Rust transport/shell with policy logic ported fixture-by-fixture from v1 tests (`GLM.md:114-130`).
+- **Contract details for grep-stable behavior:** enumerate Status reason codes, make read-your-writes explicit, and list bundled FTS5 and `synchronous=FULL` requirements (`GLM.md:163-180`).
 
 ### Grok
 
-- **Stable adapter-level client IDs.** `client_id` should be `pi`, `copilot`, `codex`, and so on, rather than a new identity for each process, so reconnect retries remain idempotent (`Grok.md:56-57`).
-- **Short default socket paths.** Account for macOS `sockaddr_un` limits and provide an explicit socket override instead of assuming a long home or temporary path will work (`Grok.md:59-60`).
-- **Operator-controlled model generation.** Require a configured `modelRevision` generation instead of trusting an endpoint's mutable `latest` tag for cache identity (`Grok.md:62-63`).
-- **Do not heap-load the vector corpus.** Protect the RSS budget by paging from SQLite, directly opposing Gemini's in-memory vector-buffer proposal (`Grok.md:65-66`).
-- **Dual-maintenance risk as a release concern.** Freeze non-critical v1 movement or document the cost of maintaining a moving v1 and an in-progress v2 through slices 4-7 (`Grok.md:68-72`).
-- **Early failure-mode client.** Use a fake `UserPromptSubmit` client in Slice 2 to test missing sockets, startup deadlines, and mid-recall daemon death (`Grok.md:53-54`).
+- **Adapter-level client IDs:** use stable IDs such as `pi` and `codex`, not process-instance IDs, so reconnect retries remain idempotent (`Grok.md:56-57`).
+- **Short socket paths and operator model generations:** account for macOS `sockaddr_un` limits and require an explicit configured model revision rather than trusting a mutable `latest` tag (`Grok.md:59-63`).
+- **RSS-conscious vector paging:** page from SQLite instead of heap-loading the corpus, directly opposing Gemini's in-memory-buffer proposal (`Grok.md:65-66`).
+- **Dual-maintenance release risk:** freeze non-critical v1 movement or explicitly budget for a long period of v1/v2 maintenance (`Grok.md:68-72`).
+- **Early failure-mode client:** exercise missing sockets, startup deadlines, and mid-recall daemon death with a throwaway `UserPromptSubmit` client (`Grok.md:53-54`).
 
-## Recommended combined direction
+### Kimi
 
-The reviews support this lowest-regret sequence:
+- **Cache-only as a deliberate proof extreme:** unlike the other reviews, Kimi calls the strict cache-only decision the bravest and best call, while still requiring exact-query recurrence measurement before relying on it (`Kimi.md:13-17`, `Kimi.md:33-39`).
+- **Memory-only query-text encryption:** consider a daemon-generated in-memory key so optional query jobs cannot leave plaintext prompts at rest across restarts (`Kimi.md:41-45`).
+- **Priority eviction for derived jobs:** when the queue is full, obsolete the oldest retryable memory jobs instead of rejecting authoritative Retain (`Kimi.md:47-51`).
+- **Targeted contention tests:** sweep the read-pool size and measure Retain latency during vector commits, not only Recall during provider slowness (`Kimi.md:53-67`).
+- **Backup permissions:** ensure database backups inherit the socket/database sensitivity rules (`Kimi.md:69-75`).
 
-1. Preserve the v2 safety boundary: separate store, no implicit migration, one writer, strict scope/suppression/expiry checks, bounded inputs, and fail-open prompt behavior where appropriate.
-2. Build a small Node daemon proof around the existing server runtime and JSON over a Unix socket. Include Retain, Recall, Status, and Forget, with two clients and real prompt traces.
-3. Make memory-side embedding fully background and durable. A full derived-data queue must affect coverage/status, not reject a valid Retain.
-4. Replace cache-only query semantics with bounded query embedding plus lexical fallback, while retaining exact-query caching as an optimization. Measure cache hit rate on realistic prompts.
-5. Test startup, Bun, cold subprocesses, missing sockets, daemon death, stable client IDs, path limits, and model-generation invalidation before freezing the protocol.
-6. Decide whether Rust is justified by measured latency/RSS, a static-binary distribution requirement, or the value of in-daemon inference. If Rust is selected, port behind the frozen protocol and use shared behavioral fixtures to protect policy parity.
+## Lowest-regret synthesis
 
-This preserves the broad architectural agreement while keeping the main disagreements measurable rather than implicit.
+The combined evidence supports this sequence:
+
+1. Preserve the safety boundary: separate store, no implicit migration or fallback writes, one writer, policy checks before and after ranking, bounded inputs, and honest fail-open behavior.
+2. Run a small Node daemon proof over JSON on a Unix socket, with Retain, Recall, Status, and Forget, two clients, real prompt traces, and a v1 baseline.
+3. Keep memory-side embedding durable and background; queue pressure should degrade coverage/status rather than silently lose intent or block valid manual saves.
+4. Treat exact-query caching as an experiment/optimization. Measure realistic recurrence and retrieval quality, and pre-agree the bounded-inference or local-encoder fallback.
+5. Test Bun, cold subprocesses, startup/death behavior, stable client IDs, response limits, repository identity, deletion semantics, model generations, and worker recovery before adapter rollout.
+6. Decide Rust from measured latency/RSS, static-binary distribution needs, or the value of in-daemon inference. If selected, port behind the frozen protocol and protect policy parity with shared fixtures.
+
+This preserves the broad agreement while turning the remaining disagreements into explicit, measurable decisions.
 
 ## Source index
 
-- `Claude-Opus.md` — baseline measurements, Node-versus-Rust spike, cache behavior, Bun/cold-start risks, queue semantics, and global-scope leakage (`Claude-Opus.md:10-59`).
-- `Fable.md` — Node-first daemon proposal, JSON transport, bounded query embedding, Slice 0, lifecycle simplification, and migration details (`Fable.md:7-111`).
+- `Astra.md` — retrieval-quality gates, response/idempotency contracts, deletion and identity fixtures, worker recovery, resource bounds, and consistency (`Astra.md:30-177`).
+- `Claude-Opus.md` — v1 baseline, Node-versus-Rust and transport spikes, cache behavior, Bun/cold-start risks, queue semantics, and global-scope leakage (`Claude-Opus.md:10-59`).
+- `Fable.md` — Node-first daemon, JSON transport, bounded query embedding, Slice 0, lifecycle simplification, Forget, and migration details (`Fable.md:7-111`).
 - `Gemini.md` — Rust-forward architecture, in-process embeddings, vector cache, lazy auto-spawn, and modular extraction (`Gemini.md:8-114`).
-- `Grok.md` — product-proof framing, bounded query embeddings, client contracts, resource limits, and dual-maintenance risks (`Grok.md:8-90`).
+- `GLM.md` — queue decoupling, retrieval metrics, language ADR, v1 baseline, transport cost, and contract details (`GLM.md:7-199`).
+- `Grok.md` — product-proof framing, bounded query embedding, client contracts, resource limits, and dual-maintenance risks (`Grok.md:8-90`).
+- `Kimi.md` — proof-gate discipline, cache-only defense plus timing concern, query privacy, queue eviction, pool sizing, and write contention (`Kimi.md:7-79`).

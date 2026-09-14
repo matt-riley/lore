@@ -8,6 +8,7 @@ import {
   rollbackMemoryHygiene,
   runMemoryHygiene,
 } from "../../lib/memory/memory-hygiene.mjs";
+import { LoreDb } from "../../lib/db/db.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
 const SKIP_NO_FTS5 = !FTS5_AVAILABLE
@@ -229,9 +230,60 @@ describe("runMemoryHygiene", () => {
     assert.deepStrictEqual(forgotten, [{
       id: "memory-1",
       supersededBy: "auto-hygiene:run-123",
+      actor: "memory_hygiene",
+      reason: "auto-hygiene:run-123",
     }]);
     assert.equal(artifacts[0].outcome, "resolved");
     assert.equal(artifacts[0].context.marker, "auto-hygiene:run-123");
+  });
+
+  test("rollback reverses this run's suppression so retrieval works again after restart", async () => {
+    const { db, config, cleanup } = await withFixtureDb();
+    const query = "bdfb41e";
+    try {
+      db.insertSemanticMemory({ id: "hygiene-goal", type: "open_loop", content: `Promote commit ${query} into main.`, repository: "matt-riley/lore", scope: "repo", confidence: 0.9 });
+      assert.equal(db.searchSemantic({ query, repository: "matt-riley/lore" }).length, 1);
+
+      await runMemoryHygiene({ db, repository: "matt-riley/lore", mode: "apply", runId: "run-restore", isCommitAncestor: async () => true });
+      assert.equal(db.searchSemantic({ query, repository: "matt-riley/lore" }).length, 0, "hygiene suppression blocks retrieval");
+      const suppression = db.db.prepare("SELECT actor, reason FROM memory_suppression WHERE memory_id = ?").get("hygiene-goal");
+      assert.equal(suppression.actor, "memory_hygiene");
+      assert.equal(suppression.reason, "auto-hygiene:run-restore");
+
+      const rolled = rollbackMemoryHygiene({ db, marker: "auto-hygiene:run-restore", actor: "operator", reason: "false positive" });
+      assert.deepEqual(rolled.restoredMemoryIds, ["hygiene-goal"]);
+      assert.equal(db.db.prepare("SELECT COUNT(*) n FROM memory_suppression WHERE memory_id = ?").get("hygiene-goal").n, 0, "run suppressions are reversed");
+      assert.equal(db.searchSemantic({ query, repository: "matt-riley/lore" }).length, 1, "memory is retrievable after rollback");
+
+      db.close();
+      const reopened = new LoreDb(config);
+      reopened.initialize();
+      try {
+        assert.equal(reopened.searchSemantic({ query, repository: "matt-riley/lore" }).length, 1, "retrieval eligibility survives restart");
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("rollback leaves manual forget suppressions blocking retrieval", async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      db.insertSemanticMemory({ id: "hygiene-goal", type: "open_loop", content: "Promote commit bdfb41e into main.", repository: "matt-riley/lore", scope: "repo", confidence: 0.9 });
+      db.insertSemanticMemory({ id: "manual-goal", type: "open_loop", content: "Promote commit feedface into main.", repository: "matt-riley/lore", scope: "repo", confidence: 0.9 });
+      db.forgetMemory({ id: "manual-goal", actor: "user", reason: "manual_forget" });
+
+      await runMemoryHygiene({ db, repository: "matt-riley/lore", mode: "apply", runId: "run-mixed", isCommitAncestor: async () => true });
+      const rolled = rollbackMemoryHygiene({ db, marker: "auto-hygiene:run-mixed", actor: "operator", reason: "false positive" });
+      assert.deepEqual(rolled.restoredMemoryIds, ["hygiene-goal"]);
+      assert.equal(db.searchSemantic({ query: "bdfb41e", repository: "matt-riley/lore" }).length, 1);
+      assert.equal(db.searchSemantic({ query: "feedface", repository: "matt-riley/lore" }).length, 0, "manual forget stays durable");
+      assert.equal(db.db.prepare("SELECT COUNT(*) n FROM memory_suppression WHERE memory_id = ? AND actor = 'user'").get("manual-goal").n, 1);
+    } finally {
+      cleanup();
+    }
   });
 });
 

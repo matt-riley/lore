@@ -49,8 +49,8 @@ describe("mocked Copilot joinSession /lore wiring", () => {
 
     assert.equal(joined.commands.length, 1);
     assert.equal(joined.commands[0].name, "lore");
-    assert.ok(joined.tools.length > DEFAULT_MODEL_TOOL_NAMES.length, "extras stay registered until the TUI gate");
-    assert.equal(COPILOT_MODEL_LIST_SHRINK_READY, false);
+    assert.equal(joined.tools.length, DEFAULT_MODEL_TOOL_NAMES.length, "the canonical nine are the registered model list after the /lore gate");
+    assert.equal(COPILOT_MODEL_LIST_SHRINK_READY, true);
     assert.equal(listModelTools({ getRuntime: async () => ({}) }).length, 9);
 
     await joined.commands[0].handler({ args: "status", sessionId: "copilot-session" });
@@ -88,7 +88,7 @@ describe("mocked Copilot joinSession /lore wiring", () => {
 });
 
 describe("extension.mjs Copilot transport", () => {
-  test("always registers /lore commands, intercepts /^\\/lore\\b/, and does not shrink extras", () => {
+  test("always registers /lore commands, intercepts /^\\/lore\\b/, and shrinks the model list", () => {
     assert.match(EXTENSION_SOURCE, /createLoreSession\(/);
     assert.match(EXTENSION_SOURCE, /client:\s*"copilot"/);
     assert.match(EXTENSION_SOURCE, /commands:\s*\[/);

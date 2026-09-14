@@ -7,8 +7,8 @@ import {
   DEFAULT_MODEL_TOOL_NAMES,
   listCopilotJoinTools,
   listModelTools,
-  listRegisteredTools,
 } from "../../lib/runtime/tool-registry.mjs";
+import { resolveLoreToolName } from "../../lib/capabilities/capability-manifest.mjs";
 import { createTempHome } from "../helpers/temp-home.mjs";
 import { enabledConfig } from "../helpers/fixture-config.mjs";
 import { FTS5_AVAILABLE } from "../helpers/fixture-db.mjs";
@@ -89,18 +89,25 @@ describe("tool registry", () => {
     assert.equal(tools.length, 9);
   });
 
-  test("Copilot join tools keep extras until the /lore TUI gate", () => {
-    assert.equal(COPILOT_MODEL_LIST_SHRINK_READY, false);
-    const registered = listRegisteredTools({ getRuntime: async () => ({}) });
+  test("Copilot join tools shrink to the canonical nine after the /lore gate", () => {
+    assert.equal(COPILOT_MODEL_LIST_SHRINK_READY, true);
     const joined = listCopilotJoinTools({ getRuntime: async () => ({}) });
-    const names = joined.map((tool) => tool.name);
-    assert.deepEqual(names, registered.map((tool) => tool.name));
-    assert.ok(joined.length > DEFAULT_MODEL_TOOL_NAMES.length);
-    for (const name of DEFAULT_MODEL_TOOL_NAMES) {
-      assert.ok(names.includes(name), `missing default model tool ${name}`);
+    assert.deepEqual(joined.map((tool) => tool.name), [...DEFAULT_MODEL_TOOL_NAMES]);
+  });
+
+  test("legacy Copilot tool names remain input aliases after the shrink", () => {
+    for (const [legacy, canonical] of [
+      ["memory_save", "lore_retain"],
+      ["memory_search", "lore_search"],
+      ["memory_forget", "lore_forget"],
+      ["memory_status", "lore_status"],
+      ["memory_explain", "lore_explain"],
+      ["memory_validate", "lore_validate"],
+      ["memory_correct", "lore_correct"],
+      ["memory_repair", "lore_repair"],
+      ["memory_purge", "lore_purge"],
+    ]) {
+      assert.equal(resolveLoreToolName(legacy), canonical, `${legacy} must resolve to ${canonical}`);
     }
-    assert.ok(names.includes("lore_doctor"));
-    assert.ok(names.includes("memory_save"));
-    assert.ok(names.includes("lore_repair"));
   });
 });

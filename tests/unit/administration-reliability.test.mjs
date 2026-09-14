@@ -155,6 +155,31 @@ test("repair memory selectors intersect repository scope without broadening sour
   } finally { f.cleanup(); }
 });
 
+test("repair session selectors stay narrow when a repository constraint is supplied", async () => {
+  const f = await withFixtureDb();
+  try {
+    transcript(f.db, f.config, "session-a", [user("For this repository, I prefer small pure functions.")]);
+    transcript(f.db, f.config, "session-b", [user("For this repository, I prefer descriptive names.")]);
+    save(f.db, "a-memory", "Old false output", { sourceSessionId: "session-a" });
+
+    const before = memoryRepair(f.db, { sessionIds: ["session-a"], repository: repo });
+    assert.deepEqual(before.affected.semantic_memory.map((row) => row.id), ["a-memory"]);
+    assert.deepEqual(before.repairCandidates.map((candidate) => candidate.sessionId), ["session-a"]);
+
+    for (let index = 0; index < 30; index += 1) {
+      save(f.db, `unrelated-${index}`, `Unrelated repository row ${index}`, { sourceSessionId: "session-b" });
+    }
+    const after = memoryRepair(f.db, { sessionIds: ["session-a"], repository: repo });
+    assert.deepEqual(after.affected.semantic_memory.map((row) => row.id), ["a-memory"]);
+    assert.ok(!after.affected.semantic_memory.some((row) => row.id.startsWith("unrelated-")));
+    assert.equal(after.planFingerprint, before.planFingerprint, "unrelated repository rows must not affect the plan");
+
+    save(f.db, "foreign-output", "Old foreign output", { sourceSessionId: "session-a", repository: "foreign/repo" });
+    const foreign = memoryRepair(f.db, { sessionIds: ["session-a"], repository: repo });
+    assert.ok(foreign.unresolvedCandidates.some((item) => item.code === "FOREIGN_TARGET"), JSON.stringify(foreign.unresolvedCandidates));
+  } finally { f.cleanup(); }
+});
+
 test("repair rejects a selected session whose checkpoint belongs to another repository", async () => {
   const f = await withFixtureDb();
   try {

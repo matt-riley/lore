@@ -1,106 +1,100 @@
-# Slice 3: background embeddings and indexing
+# Slice 3: background embeddings and bounded semantic recall
 
-Status: planned. Depends on: [Slice 2](02-daemon-core.md).
+Status: planned. Depends on G2. Exit: G3. Decision: [ADR-004/005/006](architecture-decisions.md).
 
 ## Objective
 
-Embedding/indexing runs independently of agent prompts. Recall remains responsive while models are cold, unavailable, slow, or processing a backlog. Successful vector work survives restart; stale results cannot make retired memories visible.
+Keep memory indexing independent of prompts while supplying semantic matches for previously unseen queries when the configured provider can respond within budget. Lexical recall and valid manual saves remain available during a provider outage or a large backlog.
 
-## Critical design tradeoff: query embeddings
+The old strict cache-only design is superseded. Recall may embed its query, but never memories, transcripts or pending index work. No durable query jobs or PrepareQuery RPC are implemented.
 
-Precomputing memory vectors does not eliminate the need to embed a new query. This proof chooses strict cache-only vector recall:
+## Query path and deadline accounting
 
-- Recall uses lexical retrieval immediately.
-- An exact-query cache hit may add vector results.
-- A cache miss remains lexical-only; Recall does not synchronously compute or enqueue a vector.
-- Add an optional `PrepareQuery` RPC for clients/tests to request background query-vector preparation. It returns an acknowledgement, never waits for inference.
-- A client may call PrepareQuery when a completed prompt is submitted, then Recall immediately. It must not wait for preparation, send partial keystrokes, or claim that the first query gets semantic results.
+1. The adapter starts its 200 ms timer before process/connection/repository work and sends the smaller of remaining budget and the 160 ms server maximum. Native CLI startup counts.
+2. Start a bounded speculative lexical lookup and exact query-cache lookup. The cache key includes exact UTF-8 query bytes, repository, cross-repository setting and complete model/preprocessing identity.
+3. On miss, attempt immediate admission to one of two query-provider slots. If unavailable, use `QUERY_CAPACITY`; do not wait behind a memory batch. Identical active keys can coalesce, with a bounded waiter list counted in foreground admission.
+4. Inference allowance is min(100 ms, remaining request budget minus the 30 ms final-work reserve). It includes slot admission, connection/model startup, request, response read, parse and vector validation. If nonpositive, skip inference. Do not retry within Recall.
+5. On timeout, disconnect or malformed output, cancel transport work and use lexical fallback. Coalesced work is cancelled when no live waiter remains; each waiter keeps its own deadline. Late results from cancelled work do not update cache.
+6. After a valid vector or fallback, read final authoritative state in a bounded snapshot. Recompute lexical candidates if the speculative revision changed, page eligible vectors if budget permits, fuse, check policy and render. The response reports this snapshot's revision/time.
+7. Valid completed query vectors enter the memory-only LRU. No raw query or query hash/vector is written to SQLite, logs, metrics, backups or a retry queue.
 
-This deliberately trades first-query semantic recall for strict prompt latency. Evaluate retrieval quality alongside latency. If unacceptable, stop and review alternatives (bounded online query embedding or local lightweight query encoder) rather than quietly adding inference back into Recall.
+If final vector scoring exhausts its work allowance, discard incomplete vector ranking and return the complete lexical ranking with `VECTOR_BUDGET`. A deterministic candidate-count cap may produce partial vector coverage and is reported separately. Underlying cancelled work must stop before releasing its worker permit.
 
-## Durable job model
+The external provider may continue computing after a connection closes; the daemon can bound its own work but cannot promise provider-side cancellation. Use a configured local endpoint by default. Remote inference requires an explicit opt-in covering both memory and submitted-query text.
 
-Extend the slice-2 transaction intent into a persistent queue. Initial job kinds: `memory_embedding`, `query_embedding`.
+## Embedding intents and job lifecycle
 
-Job fields: ID, kind, target ID/query hash, target revision, model identity, state, attempts, available time, lease owner/expiry, error category, created/updated times. Uniqueness covers target, revision, and model identity.
+Retain commits one current embedding intent per memory with desired revision/content hash/model identity. A disabled provider leaves the intent disabled; enabling it changes desired coverage through bounded reconciliation. A full materialized queue never rejects an otherwise valid Retain.
 
-States:
+Intent states: `disabled`, `pending`, `queued`, `running`, `retry_wait`, `failed`, `current`, `obsolete`. Materialized jobs use:
 
 ```text
 queued -> running -> complete
-                 -> retry_wait -> queued
-                 -> failed
-                 -> obsolete
+                  -> retry_wait -> queued
+                  -> failed
+                  -> obsolete
 ```
 
-- Memory creation and embedding intent commit atomically.
-- Claim jobs transactionally with expiring leases.
-- A crashed worker's lease expires and work becomes eligible again.
-- Provider calls happen outside SQLite transactions and locks.
-- At commit, compare target revision/content hash and model identity again. Discard obsolete output.
-- Completed memory jobs may be compacted after the vector commit; failed/retry state remains inspectable.
-- A periodic bounded reconciliation scan repairs missing/stale vector coverage without requiring another prompt or relying on queue emptiness.
+Job identity is kind + target ID + target revision/hash + model identity. A new memory revision coalesces the desired intent; old claims become obsolete. Persist the failed identity and attempt count so reconciliation cannot manufacture a fresh retry budget for the same target.
 
-## Scheduling and bounds
+Claim transaction sets a fresh random lease token, owner instance, incremented attempt and expiry. Renew every 10 seconds while an active call runs, up to its bounded deadline. Provider calls are outside SQLite transactions. Completion compares lease token, ownership, expiry, source revision/hash, model identity and current eligibility in one writer transaction before storing a vector and closing the intent/job.
 
-Initial provider concurrency: one request. Memory batch maximum: 24 inputs, further bounded to 256 KiB serialized input. Query preparation gets priority, but after four query jobs service at least one memory batch to prevent starvation.
+On daemon restart, claims owned by an old process instance are reclaimed after exclusive store ownership is established; no old process may commit. During normal execution an expired claim gets a new token before reuse. Use monotonic timers for live deadlines and persisted UTC times for retries. After sleep, re-evaluate lease expiry/configuration before accepting results; clock jumps never validate an old token.
 
-Provider deadline: 30 seconds, configurable. Retry transient network/429/5xx errors with exponential backoff and jitter (base 1 second, cap 60 seconds, maximum five attempts). Respect bounded Retry-After. Invalid model/dimensions/authentication errors become failed with an actionable category; do not hot-loop.
+Successful/obsolete materialized jobs can be compacted after their target status is durable. Retain bounded categorical terminal history; never delete a failed intent merely because it lacks a vector.
 
-Maximum outstanding memory jobs: 10,000. If the queue is full, reject Retain atomically with `RESOURCE_EXHAUSTED`; do not acknowledge a write while silently losing required intent. Query preparation is optional: cap at 1,000 outstanding jobs and reject excess without affecting Recall.
+## Scheduling and provider failure
 
-Long-running provider calls must never occupy the foreground SQLite executor. Vector validation, hashing, and scoring use bounded blocking/CPU execution rather than blocking the async reactor.
+Use one memory-embedding request at a time, at most 24 inputs and 256 KiB serialized. The query lane has independent transport/concurrency admission. No model warmup probe is required: reuse connections and warm from normal background work. Optional explicit provider diagnostics can run later; Status never starts a model.
 
-## Provider and cache identity
+Service pending memories round-robin by repository with a global-scope bucket, oldest intent first within a bucket. Use 256-target keyset reconciliation pages every 30 seconds with a persisted cursor. Count pending intents independently of materialized jobs and show oldest pending age.
 
-Use the existing OpenAI-compatible embeddings endpoint contract. Keep chat and embedding models separate: Gemma4 is not a replacement for embeddinggemma.
+Retry transient connection/429/5xx failures with full jitter, 1 second base, 60 second cap and five attempts. Bound Retry-After to 60 seconds. Provider-wide outages open a shared breaker: after three consecutive transient failures pause dispatch for 30 seconds, then admit one background probe; increase repeated pause up to 60 seconds. Queries fall back while the breaker is open rather than becoming probes on every prompt.
 
-Cache identity includes endpoint/provider, model ID, explicit model revision/generation, dimensions, content hash, and preprocessing version. For mutable model tags, require an operator-controlled generation or discover a trustworthy digest; changing it invalidates cache entries. Never reuse same-dimension vectors from an unknown model generation.
+Authentication, missing/invalid model and incompatible dimensions pause that provider generation immediately. Invalid individual input fails only that target; a malformed batch response commits no partial vectors. `lore jobs retry --provider <id>` resets selected failed intents after explicit action; a relevant validated credential/configuration change can reset them once in a new generation. Normal reconciliation never resets terminal failures.
 
-Validate response count/order, numeric finite values, nonzero norm, expected dimensions, and response size. Reject malformed/partial responses safely; do not pair vectors with the wrong target. Bound provider responses (initial 16 MiB) while reading, not after allocating an unlimited body. Send only necessary text to the configured provider; remote endpoints require explicit opt-in and documented privacy implications.
+Persist explicit retry selection/epoch before acknowledging it. Reconciliation applies each epoch once per selected failed identity, preserving previously current vectors. Distinguish credential/configuration recovery generation from model generation: repairing credentials alone must not demand re-embedding valid vectors.
 
-## Query cache privacy
+If the provider serializes query work behind memory batches internally, record fallback and semantic availability. G3 includes that scenario. Correct fallback alone does not pass the healthy-provider quality gate.
 
-Query text is sensitive. Persist it only while its preparation job needs it, with a maximum one-hour TTL; erase it after completion or expiry. Cache only the hash, vector, model identity, and timestamps afterward.
+## Provider identity and response validation
 
-Use exact UTF-8 query bytes plus repository/scope context and model identity as the key. No fuzzy reuse or broad normalization that could conflate requests. Initial cache cap: 1,000 vectors with a 24-hour TTL and LRU eviction. No query text in diagnostics. These deletions are not secure erasure from WAL/backups; document that limit.
+Configure separate embedding and optional chat providers. Chat models cannot substitute for embeddings. Identity is provider endpoint fingerprint + model ID + operator model generation or verified immutable digest + dimensions + preprocessing version. A mutable tag such as latest requires an explicit generation. Never infer model compatibility from equal dimensions alone.
 
-## Retrieval integration
+Requests follow the configured OpenAI-compatible embeddings endpoint with explicit input indices. Disable redirects and implicit proxy use for local providers; remote HTTPS opt-in must not send credentials across hosts. Sanitize displayed endpoint identities; persist an endpoint hash, not secret URL material.
 
-- Lexical policy from slice 2 remains authoritative.
-- Query cache lookup performs no provider calls and no mutation.
-- Score only eligible, current memory vectors. Missing/stale vectors are absent, not an error.
-- Use reciprocal-rank fusion with stable ties; calibrate result quality on frozen fixtures.
-- Every merged result must pass current scope, suppression, expiry, and supersession checks.
-- Report cache hit/miss, indexed/stale counts, whether vector candidate coverage was capped, and lexical-only fallback.
-- Initial vector scoring cap: 10,000 eligible vectors; report partial coverage beyond that. ANN indexes are deferred until measurement justifies them.
+Bound responses to 16 MiB while streaming and decoded dimensions to 3,072. Validate complete response count, unique in-range indices, finite numeric values, expected dimension, nonzero finite norm and no missing targets. Map reordered results by validated index, not array position. Normalize to float32 only after finite/range validation; revalidate after conversion. Store one little-endian vector per current target identity.
 
-Do not describe vectors as an authoritative memory store. Deleting/rebuilding them must not delete memories or resurrect suppressed content.
+Cache and stored vectors invalidate on input, endpoint, generation, dimensions or preprocessing changes. Memory eligibility can change independently of vector mathematical validity; tombstones and current policy always win. A query vector does not invalidate just because another memory was retained.
 
-## TDD implementation sequence
+## Ranking and relevance
 
-1. Fail tests for atomic memory/job writes and duplicate job coalescing.
-2. Implement durable claim/lease/retry transitions using a fake clock and fake provider.
-3. Add restart/failpoint tests for claim, provider response, and vector commit boundaries.
-4. Validate malformed, oversized, reordered, wrong-dimension, timeout, and offline responses.
-5. Race model-generation changes and memory revision/suppression changes against in-flight jobs. Verify obsolete outputs cannot become usable.
-6. Add PrepareQuery bounds/TTL and exact-key isolation tests.
-7. Assert Recall makes zero provider calls on both cache hit and cache miss, and never inserts a preparation job.
-8. Run lexical/vector fusion and policy tests against frozen synthetic fixtures.
-9. Run load tests with a large backlog and a provider deliberately sleeping for 30 seconds; foreground latency must still meet the roadmap targets.
-10. Opt-in local-provider integration test against an isolated synthetic store; never use personal memories for CI.
+Query FTS for at most 200 eligible candidates. Page memory vectors in stable memory-ID order, filtering scope, expiry, suppression, evidence retirement and current identity in SQL before applying the 10,000 eligible-vector cap. Read at most 128 vectors/2 MiB per page and keep a bounded top candidate heap; do not load the corpus.
 
-## Acceptance gate
+Use cosine similarity and a model-specific minimumSimilarity. Calibration on the frozen training split selects the highest-recall threshold that satisfies the negative/irrelevance gate, with the stricter threshold winning ties. Freeze it before held-out evaluation. Initial compatibility default is v1's 0.35 until calibration; that number is not a universal model guarantee. RRF alone cannot establish relevance.
 
-- Zero provider calls or embedding jobs initiated by Recall.
-- Retain stays durable while the provider is offline; capacity exhaustion is explicit and atomic.
-- All committed jobs are accounted for as completed, queued/retrying, failed, or obsolete after forced termination.
-- Queue size, raw query retention, response allocation, and concurrent provider work remain bounded.
-- Cache invalidation covers content, model generation, endpoint, dimensions, preprocessing, expiry, and suppression.
-- Status distinguishes no work from missing coverage, failed work, and active processing.
-- Four-client recall benchmark passes under backlog without hiding failures or dropping safety filters.
-- Report first-query lexical-only quality versus warm-query fusion, and obtain a go/no-go before porting ingestion/extraction.
+Fuse lexical and qualifying vector lists using reciprocal-rank fusion, constant 60, equal weights, stable memory-ID ties. A semantic list below threshold contributes nothing. The policy/context layer handles manual authority and mandatory sections; RRF cannot promote extracted content over an explicit correction.
 
-## Deferred
+Diagnostics distinguish query-cache hit rate, inference attempt/success/fallback, semantic availability, vector contribution, stale/missing coverage, capped coverage and no relevant vectors. No individual query hash labels or provider bodies.
 
-Inference serving inside the daemon, GPU integration, ANN indexes, semantic query reuse, speculative keystroke preparation, chat-based extraction, and production adapter rollout. The daemon schedules model work; rewriting it in Rust does not make the external model faster.
+## TDD and failure matrix
+
+1. Atomic memory/intent writes with full runnable queue; explicit store quota remains a separate failure.
+2. Coalescing, claim token fencing, retry/backoff and fairness under a fake clock/provider.
+3. Crash after claim, after response, before vector commit, after vector commit; account for every intent on restart.
+4. Expired lease with late success; sleep/resume; model/config changes; memory mutation/Forget during inference; no stale output becomes eligible.
+5. Five terminal attempts followed by repeated reconciliation; provider auth failure pauses once; repair/retry resumes without a storm.
+6. Malformed JSON, oversized bodies, duplicate/missing/reordered indices, wrong dimensions, zero norm, nonfinite and float32 overflow values.
+7. Unique-query cache miss performs at most one bounded query request and zero memory requests. Cache hit performs none. Queue saturation, offline provider and cancellation meet deadlines.
+8. Memory-only cache isolation/eviction/TTL, coalesced waiter deadlines and no raw query persistence across restart.
+9. Frozen lexical/fusion/relevance fixtures including unrelated prompts and policy exclusions.
+10. Four-client load with a 30-second sleeping provider, instantly returning provider, large backlog, largest allowed vectors and sustained writes; measure Retain and Recall.
+11. Opt-in isolated local-provider integration and ordered cold-query replay; report provider-side serialization explicitly.
+
+## Acceptance and handoff
+
+G3 requires all safety/recovery fixtures, bounded resource use and the quality/latency criteria in [validation](validation.md). Offline Recall must match the lexical baseline; healthy first-seen semantic recall must meet the agreed v1 comparison without prewarming query vectors.
+
+Report pending intent and failed coverage even when runnable jobs are zero. Retain remains durable throughout provider outage until an explicit authoritative quota/storage failure. Failed G3 blocks the extraction port; changing a provider deployment or threshold requires a new report with the old failure retained.
+
+Deferred: embedded/GPU inference, ANN, full in-memory corpus, semantic cache normalization, prior-turn substitution, keystroke uploads and PrepareQuery. These cannot be introduced as an unreported workaround for a failed gate.

@@ -1,121 +1,171 @@
-# Slice 1: protocol and storage contracts
+# Slice 1: protocol and compatibility contracts
 
-Status: planned. Depends on: none. Exit: interoperable contract and runnable fixtures, not a production daemon.
+Status: planned. Depends on the [decisions](architecture-decisions.md), [limits/storage](configuration-storage.md) and [validation](validation.md). Exit: G1.
 
-## Purpose
+## Deliverables and first executable proof
 
-Define the smallest stable boundary that lets clients stop owning memory infrastructure. Freeze a v2 API major version and additive evolution rules; do not prematurely freeze all v1 behavior into a new protocol.
+Create a Cargo workspace under `daemon/` with `lored` and `lore` binaries, shared protocol types, pinned toolchain and Cargo.lock. Define JSON Schema 2020-12 request/response documents under `schemas/v2/`; schema definitions and golden JSON are the language-independent contract. Rust types and adapter validation must pass the same fixtures. Do not introduce protobuf or a Node production daemon.
 
-## Deliverables
+Start with a tiny Rust Status server, a Node/Bun client and the Rust CLI on an isolated Unix socket. Test host loading, connect/disconnect, deadline and cold-process overhead before adding storage handlers. Then freeze contract fixtures under `tests/v2/fixtures/` for stages 2-3. No live hooks or databases are touched.
 
-- `proto/lore/v2/lore.proto`: Status, Recall, Retain and their message types.
-- `daemon/`: Rust crate, pinned toolchain/MSRV and Cargo.lock selected at implementation time.
-- Generated Rust and Node test bindings with reproducible generation/check commands.
-- `tests/v2/fixtures/`: synthetic requests, expected policy outcomes, malformed and incompatible inputs.
-- An architecture decision record for transport, process ownership, and storage separation.
-- A Node/Rust Unix-socket interoperability check; no real client installation changes.
+## HTTP framing and versioning
 
-## RPC contract
+- HTTP/1.1 POST only for RPCs; `Content-Type: application/json`. UTF-8, no compression, redirects, upgrades, pipelining or batch envelopes. A persistent connection can make sequential requests.
+- Routes: `/v2/status`, `/v2/retain`, `/v2/recall`, `/v2/forget`. Later routes are listed below; an unimplemented route returns `UNIMPLEMENTED`.
+- Major version is in the path. Status reports `apiMajor: 2`, `apiMinor: 0` initially. A breaking scope, acknowledgement, deletion or authority change needs a new major, even if JSON parses.
+- Reject unknown request fields and enum values. Additive request features require advertised capability negotiation before sending; old clients continue sending their existing shape. Ignore unknown additive response fields. Never reinterpret an old field.
+- Require explicit Content-Length in shipped clients; a standards-compliant HTTP parser may accept chunked bodies under the same streaming byte cap. Reject conflicting framing, invalid UTF-8, duplicate JSON keys, NaN/infinity, unsafe numeric integers and excessive nesting.
+- Enforce body/header limits while reading, including peers that never finish a body. Header/body receive deadline is 1 second, independent of operation execution deadline; close partial/oversized requests.
+- Use a fixed HTTP Host header `lore.local`, independent of the socket path. Reject other Host values and Origin-bearing requests. Never use proxy environment variables for socket transport.
+- Request execution time starts at admission after a complete validated body. The client measures the complete deadline from before identity resolution and process/connection setup, sends remaining `timeoutMs`, and destroys the request when its own deadline expires.
 
-### Common conventions
+## Common envelope
 
-- Package `lore.v2`. Breaking semantics require a new package major.
-- Every request carries a client identifier, optional native session identifier, and request ID for diagnostics.
-- Client identifiers are attribution, not authentication or permission boundaries.
-- Explicit `repository` is a canonical identity, not a daemon working-directory inference. An absent repository means global-only retrieval; it never means all repositories.
-- Store timestamps as UTC epoch milliseconds in protobuf and document conversion to SQLite.
-- Validate enum values, lengths, timestamp ranges, counts, and scope combinations on the server.
-- No raw prompt or memory content in ordinary logs or metrics.
-- Initial request/response message cap: 1 MiB. Retained content cap: 64 KiB UTF-8. Recall query cap: 16 KiB UTF-8. Reject, never silently truncate, invalid inputs.
-- No streaming RPC in this proof. Clients set deadlines and propagate cancellation.
+All keys use camelCase. All successful responses include `ok`, `requestId`, `storeId`, and `result`. Errors include the same identifiers where available and `error: {code, reason, retryable, message}`. Error messages are safe summaries; clients branch on code/reason.
 
-### Status
+```json
+{
+  "meta": {
+    "clientId": "pi",
+    "requestId": "request-uuid",
+    "sessionId": "native-session-id",
+    "expectedStoreId": "store-uuid",
+    "timeoutMs": 160,
+    "requiredCapabilities": ["recall.lexical"]
+  },
+  "params": {
+    "query": "How are repository identities normalized?",
+    "repository": "github.com/matt-riley/lore",
+    "includeOtherRepositories": false,
+    "limit": 6,
+    "contextBytes": 8192
+  }
+}
+```
 
-Request: common metadata and optional expected API major.
+`clientId` is stable across restarts/upgrades: `copilot`, `pi`, `codex`, `claude`, `antigravity`, `cli`, `dashboard`, or `test.<name>`. Allow 1-64 ASCII letters/digits/dot/underscore/hyphen for configured integrations. It is attribution, not authentication. Request IDs are unique diagnostics, 1-128 bytes; session IDs are optional, at most 256 bytes. Required capabilities are unique strings, at most 32.
 
-Response:
+Initial Status may omit expectedStoreId. All other requests require it; mismatch is `STORE_MISMATCH`. Missing timeout uses the operation's server default. Server clamps the deadline to its maximum, never extends the caller's remaining time. Nonpositive timeout is rejected before work.
 
-- API major/minor, daemon version, schema version, supported capabilities.
-- Readiness: `ready`, `degraded`, or `unavailable`, plus categorical reasons.
-- Memory count, current memory revision, uptime.
-- Embedding provider/model identity and queue counts: `queued`, `running`, `retry_wait`, `failed`.
-- Embedding coverage of eligible memories, stale count, oldest queued age, last success time.
-- Last provider error category without provider response bodies.
+Repository identities are at most 1,024 UTF-8 bytes. Resolve Git remote host plus full path, normalized across supported transports; preserve host, nested path and case-sensitive repository path. Local repositories use a hash of the canonical Git common directory, unifying linked worktrees. Explicit legacy mappings require one unambiguous destination. No basename matching or cwd inference inside the daemon. The CLI/shared adapter resolver must pass existing repository-identity fixtures.
 
-Status must not start a model, mutate memory, perform ingestion, or scan all vectors. Expensive integrity checks belong to a future explicit diagnostic operation. Zero jobs is not proof of fully imported history.
+## Status
 
-### Retain
+Params: optional expectedApiMajor. Result contains:
 
-Request:
+- API major/minor, daemon version, schema version, storeId, processInstanceId, uptimeMs.
+- Implemented capability IDs and enabled/disabled state; a disabled or planned feature is not advertised as usable.
+- Readiness `ready | degraded | unavailable`, and stable reason codes.
+- Memory revision and derived generation as unsigned decimal strings; counts of active/retired memories.
+- Embedding configuration identity without credentials/secret URL components; provider state, coverage counters, counterObservedAtMs and counterRevision.
+- Queued, running, retryWait, failed and pendingIntent counts, oldest work age, last success and last categorical error.
+- Source states/progress after stage 4, resource pressure and bounded histogram summaries.
 
-- Required idempotency key, memory type, content, scope.
-- Repository required for `repo` and `transferable`; forbidden for `global`.
-- Optional bounded confidence, expiry, source session attribution, and tags.
-- Initial scope: explicit manual semantic writes only. No generated extraction writes, overlays, domains, or arbitrary client-supplied authority metadata.
+Ready means authoritative reads/writes can be served. Disabled optional providers are normal. Degraded means lexical/manual operations remain available but enabled indexing/capture or resource targets are impaired. Unavailable means the requested core cannot operate safely. During startup before binding, missing socket is the readiness signal.
 
-Response: stable memory ID, committed revision, write result (`created` or `deduplicated`), embedding status (`queued` or `disabled`).
+Reasons include `PROVIDER_OFFLINE`, `PROVIDER_AUTH`, `PROVIDER_MODEL_INVALID`, `EMBEDDING_BACKLOG`, `EMBEDDING_FAILED`, `SOURCE_UNAVAILABLE`, `SOURCE_SKIPPED`, `SOURCE_AMBIGUOUS`, `DISK_PRESSURE`, `WAL_PRESSURE`, `CONFIG_RELOAD_REJECTED`, `MIGRATION_INCOMPLETE` and `SHUTTING_DOWN`.
 
-Rules:
+An explicitly disabled installation reports unavailable with `CONFIG_DISABLED`; optional providers disabled inside an enabled installation do not make it unavailable.
 
-- Manual content remains authoritative; never lower its authority because a background worker later sees similar text.
-- Key namespace includes client ID. Same key plus identical normalized request returns the original result. Same key with different payload is `ALREADY_EXISTS`.
-- Retain acknowledgement follows the durable transaction containing memory, idempotency result, and embedding invalidation/job intent.
-- A timeout is not evidence of rollback. Retrying the same key is the recovery mechanism.
-- Persist idempotency records without automatic expiry during the proof; enforce a configurable store quota rather than deleting retry safety records silently.
+Status does not warm models, scan vectors, ingest transcripts, migrate, or run integrity checks. Coverage denominator is currently eligible memories for the active embedding configuration across the store, evaluated by the bounded reconciler at the reported time/revision. It is not import completion.
 
-### Recall
+## Retain
 
-Request: query, repository, optional explicit cross-repository consent, result limit, context byte budget.
+Proof params: `idempotencyKey`, `type`, `content`, `scope`, `repository`, optional `confidence`, `expiresAtMs`, `tags`, `sourceSessionId`. Proof supports manual semantic writes only. Type is a nonempty 1-64 byte identifier; confidence is finite 0-1, default 1. Expiry is null by default; a past expiry is permitted and immediately ineligible. Omitted tags normalize to an empty array.
 
-Response:
+Scope is `global | repo | transferable`. Global requires repository null; repo/transferable require a canonical repository. Reject incompatible combinations. Clients cannot supply authority, suppression bypass, extraction provenance or daemon job state. Stage 5A adds explicitly typed domain/workstream operations without weakening this boundary.
 
-- Structured memories with ID, type, content, scope, repository, confidence, expiry, and supported provenance.
-- Rendered context produced by the daemon; adapters must not reinterpret scope or rebuild rankings.
-- Memory revision and diagnostics: lexical/vector contribution, query cache hit/miss, stale/missing vector coverage, bounded-work indicators.
+Result: `memoryId`, `committedRevision`, `writeResult: created`, `embeddingStatus: disabled | pending`. Pending means durable intent, whether or not a runnable job exists.
 
-Rules:
+Idempotency rules:
 
-- Default limit 6, maximum 20; rendered context default 8 KiB, maximum 32 KiB. Use bytes for protocol budgeting; do not claim exact tokenizer accounting.
-- Global plus same-repository rows are eligible by default. Explicit cross-repository consent admits transferable rows, not private foreign repo rows.
-- Suppression, supersession, and expiry filtering precede ranking and final rendering.
-- Slice 2 returns lexical results only. Slice 3 may use a previously computed exact-query vector, never synchronous inference.
-- First-seen queries may return lexical-only results; report that limitation explicitly.
-- No implicit full-result cache in the proof. If added later, revision, scope, expiry, and suppression must invalidate it.
+1. Namespace keys by store ID, stable client ID and canonical operation. Keys are 1-128 ASCII bytes. New manual saves use fresh random keys.
+2. Hash a deterministic canonical semantic payload: explicit defaults, sorted unique tags, repository/scope, confidence, expiry, source attribution, and exact content bytes. Exclude request ID, timeout, capability requirements and transport metadata. Reject unsupported fields before hashing.
+3. After bounded validation/admission, look up an existing receipt before applying new-write quotas. Same payload returns the original acknowledgement, including original embedding status; do not recompute it as a new deduplication result.
+4. Different payload under the same key is `IDEMPOTENCY_CONFLICT`. Concurrent identical requests create one record and receipt.
+5. Commit memory, FTS change, revision, receipt and embedding intent atomically before acknowledgement. The current index status belongs in Status, not a modified retry receipt.
+6. Retrying a save whose memory was later forgotten returns its original receipt but never recreates the row. Different keys are independent deliberate writes; no fuzzy deduplication.
+7. Timeout/disconnect is uncertain, not rollback. Preserve the original key until resolved. Never retry against a different store or v1.
 
-### Error and compatibility behavior
+## Forget
 
-Use standard gRPC statuses: `INVALID_ARGUMENT`, `ALREADY_EXISTS`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `CANCELLED`, `UNAVAILABLE`, `FAILED_PRECONDITION`, `INTERNAL`.
+Params: `idempotencyKey`, `memoryId`, optional `reason` (at most 512 bytes). Acts on one existing semantic memory in the proof. Later dependency handling extends to all context forms as specified in stages 5A/6B.
 
-Unknown API major or unsupported required capability fails explicitly. Unknown additive protobuf fields remain compatible. Reserve removed field numbers and names. Never reuse enum values. Clients must not parse error prose for control flow. Internal errors contain a request ID, not SQL or source content.
+In one transaction mark the original ID forgotten, write scoped ID/canonical/evidence/content tombstones, retire its context eligibility, invalidate embedding intent/vector usability, advance memory revision and store the receipt. A repeated Forget with a new key for an already forgotten known ID returns `alreadyForgotten` without another memory revision. An unknown ID returns `NOT_FOUND`; it does not create an unspecific tombstone.
 
-## Storage contract
+Result: `memoryId`, `committedRevision`, `writeResult: forgotten | alreadyForgotten`. Old IDs stay hidden even when their authority was manual. Fingerprint suppression prevents automatic re-extraction; a fresh deliberate manual save with a new ID/key is allowed. A Retain retry is not such a save. Preserve these distinctions on restore.
 
-- Default experimental data root: `<resolved Lore home>/v2/`; database `lore-v2.db`. Respect explicit configuration and never reinterpret v1 paths as v2 targets.
-- Storage version and wire version are independent.
-- Proposed schema entities: manual semantic memories, suppression records, idempotency results, metadata/revision, embedding jobs, memory vectors, query-vector cache. Define exact DDL alongside slice-2/3 tests, not speculative v1 table copies.
-- SQLite foreign keys on, WAL mode, synchronous FULL for acknowledged writes. Crash tests verify this rather than trusting defaults.
-- One daemon owns writes. Readers use consistent snapshots. Embeddings are disposable derived data; memories, suppression, and idempotency results are not.
-- Source revision/content hash, provider endpoint identity, model identifier, configured model revision, vector dimensions, and preprocessing version form embedding validity. A mutable `latest` tag alone cannot prove model identity.
-- A separate explicit fixture loader accepts only synthetic proof data. Real v1 migration is slice 5.
+## Recall
 
-## Socket and process contract
+Params: query, repository (nullable), includeOtherRepositories (default false), limit and contextBytes. Only stage 6A compatibility translation accepts v1's `prompt` spelling; the wire schema uses `query`.
 
-- Unix socket directory mode 0700; socket and database mode 0600; restrictive umask before creation.
-- Prefer an owned XDG runtime directory on Linux; otherwise an owned per-user runtime directory. Allow an explicit socket path for tests and long home paths.
-- Reject unsafe ownership, symlinks at managed endpoints, and overlong socket paths with actionable errors.
-- Acquire an OS-held exclusive lock for the canonical v2 store before binding. A second instance fails cleanly.
-- Remove a stale socket only after acquiring the lock and confirming it is an owned socket in the expected directory. Never unlink an arbitrary path.
-- No TCP fallback. Same-user process access is the stated trust boundary.
+Default eligibility is explicit global evidence plus same-repository evidence. Without a repository, only global evidence qualifies, even with includeOtherRepositories. With a repository and explicit cross-repository consent, foreign transferable evidence may qualify; private foreign repo rows never do. Expiry, tombstones, supersession and active evidence are enforced before ranking and final rendering. No model/provider response can alter scope.
 
-## TDD implementation sequence
+Result includes:
 
-1. Write wire round-trip and invalid-input fixtures before handlers.
-2. Prove Node client -> Rust server on a temporary Unix socket: success, deadline, cancellation, oversized message, disconnect, and reconnect.
-3. Add additive-field and API-major mismatch tests.
-4. Specify policy fixtures for scope, expiry, suppression, manual authority, and idempotency.
-5. Add generation drift checks and schema version fixtures.
-6. Record dependencies, licenses, MSRV, and transport decision.
+- Complete structured records: ID, type/kind, content, scope/repository, authority, confidence, expiry and bounded provenance.
+- `context` and ordered `sections` with represented IDs and any explicit excerpts/omissions.
+- `memoryRevision`, `evaluatedAtMs`, `derivedGeneration` and diagnostics.
+- Diagnostics: `retrievalMode: lexical | hybrid`, cache state `hit | miss | disabled`, vector contribution count, coverage observation, bounded-work reasons and fallback reason.
 
-## Acceptance gate
+Lexical-only stage 2 performs no provider work. Stage 3 permits bounded query embedding per [embeddings](03-background-embeddings.md). Fallback reasons include `DISABLED`, `CACHE_MISS` (cache-only evaluation), `QUERY_TIMEOUT`, `QUERY_CAPACITY`, `PROVIDER_OFFLINE`, `PROVIDER_INVALID`, `NO_CURRENT_VECTORS`, `VECTOR_BUDGET` and `NO_RELEVANT_VECTOR`. Zero topical hits is valid.
 
-CI on macOS and Linux generates/checks bindings and passes interoperability and policy-contract tests. A reviewer can identify which v1 behaviors are supported, deferred, or explicitly rejected. No live Lore database, config, or agent settings are touched. If the transport needs custom unsafe framing or extensive adapter-specific shims, reconsider it before slice 2.
+Read-your-writes means a mutation acknowledged before the final read snapshot affects the returned eligibility. The final memory rows, policy state and returned revision come from one snapshot; expiry is evaluated at its start. A concurrent mutation after that snapshot may affect the next recall, not retroactively this response. Do not promise that already-delivered context is revoked.
+
+### Output budgeting
+
+The 1 MiB cap covers the fully JSON-encoded body, including escaping, structured content, rendered text and diagnostics. Build within a bounded serializer before sending headers. Take complete records in final ranking order while they fit; reserve envelope/diagnostic space first. Never return half a structured memory. Report `RESPONSE_BYTES` and the omitted count, distinct from candidate-work truncation.
+
+Rendering has its own contextBytes cap. Required context sections precede topical sections once implemented. Within a section retain deterministic rank order. A single long memory may produce a UTF-8-safe excerpt explicitly marked as partial and linked to its complete structured record; no invented provenance or unlabeled sentence changes. Include headers and omission markers in the byte count. Records absent from the structured list cannot appear unreferenced in rendered context. Test heavily escaped 64 KiB content, 20 maximum-size rows, emoji, and an insufficient budget for mandatory sections.
+
+## Errors
+
+| HTTP | Code | Typical reason / recovery |
+| --- | --- | --- |
+| 400 | INVALID_ARGUMENT | INVALID_JSON, INVALID_SCOPE, INVALID_REPOSITORY, UNKNOWN_FIELD, INVALID_DEADLINE; correct input |
+| 404 | NOT_FOUND | MEMORY_NOT_FOUND or RUN_NOT_FOUND |
+| 405 / 415 | INVALID_ARGUMENT | METHOD_NOT_ALLOWED / UNSUPPORTED_MEDIA_TYPE |
+| 409 | ALREADY_EXISTS | IDEMPOTENCY_CONFLICT; do not change the key to hide a conflict |
+| 412 | FAILED_PRECONDITION | API_MAJOR_MISMATCH, STORE_MISMATCH, CAPABILITY_REQUIRED, SCHEMA_UNSUPPORTED, PREVIEW_STALE |
+| 413 | RESOURCE_EXHAUSTED | REQUEST_BYTES; reduce input, never blindly retry |
+| 429 | RESOURCE_EXHAUSTED | REQUEST_CAPACITY, CLIENT_CAPACITY, STORE_QUOTA, JOURNAL_FULL |
+| 503 | UNAVAILABLE | STARTING, SHUTTING_DOWN, STORE_CORRUPT, IO_FAILURE, ENDPOINT_IN_USE |
+| 504 | DEADLINE_EXCEEDED | REQUEST_DEADLINE; write outcome may be uncertain |
+| 501 | UNIMPLEMENTED | ROUTE_UNIMPLEMENTED or OPERATION_UNIMPLEMENTED |
+| 500 | INTERNAL | INTERNAL_FAILURE; request ID only, no SQL/payload |
+
+Connection cancellation has local code `CANCELLED`; a disconnected peer need not receive an HTTP response. Retryable indicates whether the same request may be retried, never proof that it did not commit. Reads may retry only within the original deadline; writes always preserve their key. Decode errors, schema/identity mismatch and store corruption are not transient retries.
+
+## Later interface additions
+
+Stage 3 adds `/v2/jobs/status`, `/v2/jobs/retry` and `/v2/config/reload`. Jobs/status accepts providerId, state and a bounded cursor (default 50/max 200 results). Jobs/retry requires an idempotencyKey and either providerId or at most 200 memoryIds; it acknowledges a durable retry epoch, with the bounded reconciler resetting only selected terminal failures. It does not invalidate already-current vectors or run inference inline. Config/reload takes an idempotencyKey and revalidates the originally configured file; it cannot choose a new filesystem path. Failed reload keeps the active generation.
+
+Stage 4 adds `/v2/sources/register`, `/v2/sources/hint`, and `/v2/sources/status`. Stage 5A adds complete context/domain/workstream behavior and optional Recall `timezone` (validated IANA identifier, default UTC), negotiated through `recall.temporal`. Stage 5B introduces local offline migration/recovery commands, not remotely callable filesystem mutation.
+
+Stage 6 exposes `/v2/operations/<canonicalName>` for the fixed capability inventory and `/v2/runs/get`, `/v2/runs/cancel`, `/v2/runs/retry` for durable operations. Alias normalization maps to one canonical handler; the four proof routes and their operation equivalents share that handler and receipt namespace. No arbitrary function invocation. All mutations require idempotencyKey in the envelope's params alongside operation arguments.
+
+All long work is acknowledged by run ID and polled with bounded pages. Cancellation stops uncommitted future work; already committed per-item effects remain and are reported. New operations must define schema, capability, mutability, scope, snapshot behavior, cancellation and fixture coverage in the same commit.
+
+Stage 6B also adds explicit `/v2/analysis` for non-durable query expansion/context compression, and fixed read-only `/v2/views/<name>` routes. Analysis is the documented exception to durable long runs because original query text must remain memory-only; see the administration plan for timeout/restart behavior.
+
+| Initial capability IDs | Introduced when implemented |
+| --- | --- |
+| status.basic | 1 |
+| memory.retain.manual, memory.forget, recall.lexical | 2 |
+| recall.semantic.bounded, embedding.status, embedding.retry, config.reload | 3 |
+| sources.register, sources.hint, sources.status | 4 |
+| recall.context, recall.temporal, memory.retain.domain, memory.retain.workstream | 5A |
+| operation.<canonicalName>, runs.get, runs.cancel, runs.retry | 6A/6B; each individual operation only after its handler is complete |
+| analysis.queryExpansion, analysis.contextCompression, views.<name> | 6B |
+
+Capabilities are exact strings, not wildcard permissions. The operation/view notation in this table expands to one ID per fixed registry entry. Store schema support and binary/service commands are not falsely advertised as model tools.
+
+## TDD and acceptance
+
+1. Fail JSON round-trip, duplicate-key, enum/default, malformed framing and response-size tests before handlers.
+2. Prove Rust/Node/Bun exchange over temporary sockets, cold CLI execution, deadlines, disconnect/reconnect, major mismatch and additive responses.
+3. Freeze stable client, repository, scope, idempotency, output and deletion fixtures. Normalize only intended wire defaults, never expected semantic outcomes.
+4. Test socket/store mismatch, two stores targeting one live socket, slow bodies and bounded overload.
+5. Add schema/type drift checks to macOS/Linux CI with Cargo caching and the current supported Node floor.
+
+G1 passes only when all clients use one protocol without host-specific framing shims, the Rust CLI path works without Node, and the published evidence identifies dependency versions and unsupported capabilities. G1 validates contracts; durable behavior remains G2.

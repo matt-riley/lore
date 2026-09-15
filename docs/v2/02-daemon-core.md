@@ -1,101 +1,79 @@
 # Slice 2: Rust daemon core
 
-Status: planned. Depends on: [Slice 1](01-contracts.md).
+Status: planned. Depends on G1. Exit: G2. Contracts: [protocol](01-contracts.md), [storage/limits](configuration-storage.md).
 
-## Objective
+## Objective and process interface
 
-Run one foreground `lored` process that durably serves Status, Retain, and lexical Recall to multiple clients. Prove the boundary without ingestion, extraction, model calls, or production installers.
-
-## Initial process interface
+Serve Status, Retain, Forget and lexical Recall from one foreground `lored` to independent clients. Prove actual write/deletion paths, read-your-writes, restart safety and bounded foreground work before adding inference.
 
 ```text
-lored --data-dir <isolated-v2-directory> --socket <absolute-socket-path>
+lored --config <isolated-config> --data-dir <isolated-directory> --socket <absolute-socket>
+lore --config <isolated-config> status --json
+lore --config <isolated-config> tool lore_retain
 ```
 
-Production service management is deferred. Tests launch the foreground process and own its temporary directory. Provide a small test client/CLI for invoking the three RPCs; this is not yet a replacement for every `lore` command.
+The final command reads one JSON object from stdin. The initial CLI implements only these proof operations plus help/version; unavailable commands say so. Test processes own their temporary homes. Service installation, real host settings and v1 migration do not belong here.
 
-Startup order: validate arguments and paths -> acquire exclusive store lock -> open/version-check database -> apply supported v2 migrations transactionally -> bind socket -> report ready. A future schema fails closed. No automatic v1 detection/import.
+Startup: parse and validate configuration -> resolve canonical paths -> acquire store lock -> acquire endpoint lock -> validate owned endpoint -> open/create/version-check store -> apply supported v2 migrations -> validate FTS5 -> bind socket -> publish readiness. Future schemas, corrupted stores, unsafe paths and live socket conflicts stop startup without changing the target.
 
-Shutdown: reject new requests -> drain accepted writes within a configurable deadline (default 5 seconds) -> close database and socket -> release lock. If forcibly terminated, unacknowledged clients retry idempotently. Never delete a lock or socket belonging to a replacement process.
+Shutdown: stop admission -> cancel queued reads/background work -> drain accepted writes for up to five seconds -> interrupt remaining reads -> close connections/store -> remove only the socket inode created by this instance -> release locks. Never unlink a replacement endpoint. A force-kill can leave uncertain writes; receipts settle them after restart.
 
-## Minimal module boundaries
+## Modules and execution
 
-Suggested modules: `main`, `rpc`, `store`, `policy`, `retrieval`. Add a background module in slice 3. Prefer plain functions and concrete types over a generic plugin framework or repository abstraction.
+Keep modules `protocol`, `rpc`, `store`, `policy`, `retrieval`, `config` and `diagnostics` concrete. One shared core library serves the CLI and daemon without exposing SQL to adapters. Add `jobs` in stage 3, `ingestion` in stage 4 and `extraction` in stage 5A. No generic plugin/repository framework.
 
-Use one bounded SQLite write executor and a small read pool (initial maximum four). Do not run blocking SQLite operations on Tokio reactor threads. Limit foreground in-flight requests to 32 and return `RESOURCE_EXHAUSTED` rather than buffering indefinitely. Propagate cancellation before starting queued work; a transaction already committed remains committed even if its client disconnects.
+Use one dedicated SQLite writer and four bounded read workers. Every connection enables required pragmas and policy functions; a read handle is never used concurrently. CPU scoring and serialization use explicit bounded work, not unlimited spawn_blocking. Read cancellation reaches SQLite progress/interrupt hooks; cancelled workers retain admission permits until stopped. Reset interrupt state before reusing a connection.
 
-## Retain transaction
+Use the reserved request classes and per-client shares in the limits document. Reject excess rather than buffering beyond those limits. Writer selection prefers queued foreground mutations over background commits, but after eight foreground transactions allows one ready background transaction. Reserved admission prevents background completion from crowding out prompt requests.
 
-1. Validate complete request and canonical scope combinations.
-2. Look up idempotency key and compare normalized request hash.
-3. Insert manual semantic memory with stable ID and authority metadata.
-4. Update FTS index in the same transaction.
-5. Increment authoritative memory revision.
-6. Persist idempotent response and an embedding intent row, initially disabled until slice 3.
-7. Commit before returning success.
+## Authoritative transactions
 
-Use parameterized SQL exclusively. Map disk-full, corruption, lock contention, and incompatible-schema errors to explicit status categories. Never report success after a failed commit. Different keys do not imply semantic equivalence: do not add fuzzy deduplication in this slice.
+Retain transaction:
 
-## Lexical Recall
+1. Validate schema, bounds, canonical scope and semantic payload before queueing.
+2. Check an existing idempotency receipt on a reserved read path; confirm again under the writer transaction to settle races.
+3. Check new-write quota only when no matching receipt exists.
+4. Insert memory UUID and authority, update FTS, increment memory revision, and record current embedding intent (disabled in this slice).
+5. Store the exact acknowledgement under the unique receipt key.
+6. Commit durably, then respond. A lost response cannot lose the receipt.
 
-Port the minimum shared query normalization and eligibility behavior needed by the contract. Read existing `lib/db/db-retrieval-policy.mjs` and recall fixtures before implementing; do not copy SQL without its caller assumptions.
+Forget transaction uses the same receipt sequence, writes ID and scoped fingerprint suppression, marks the target ineligible, removes it from active FTS and advances memory revision atomically. Suppression records are not garbage-collected with derived data. A previously manual row is still hidden by its ID tombstone; manual authority only exempts a new deliberate manual save from proposition-level automatic suppression.
 
-- Build safe FTS expressions from normalized terms; user input is not executable FTS syntax.
-- Enforce scope, expiry, supersession, and suppression in candidate selection.
-- Empty/scaffolding-only queries get an explicit deterministic behavior tested in fixtures, not an accidental broad scan. Initial behavior: no topical hits.
-- Rank deterministically with a stable ID tie-breaker.
-- Apply eligibility again before output when merging candidates.
-- Render within byte budget without splitting UTF-8 sequences or inventing provenance.
-- Return only supported sections. Full persona/episode/day-summary parity is deferred to slice 5.
+Retain and Forget must roll back together with FTS, intent, revision and receipt on any failure. SQLite commit failure is never a successful RPC. Disk full, schema mismatch and corruption use explicit categories; avoid blind transaction retries after an uncertain commit.
 
-Candidate work must be bounded and report truncation. Do not apply a limit to unfiltered rows and then silently claim complete eligible coverage.
+## Lexical retrieval and consistency
 
-Suppression and expired/superseded records can be seeded by test fixtures even though administrative mutation RPCs are not implemented yet. Their omission from the public proof API is not permission to ignore them during reads.
+Use existing query normalization and repository-policy fixtures as behavioral evidence. Convert input into safe FTS terms; do not execute raw user FTS syntax. Empty/scaffolding-only queries have no topical results. Later mandatory sections are assembled independently.
 
-## Observability
+Apply global/repository/transferable policy, tombstones, supersession and expiry before candidate limits. Rank deterministically using lexical relevance and stable ID ties. A rejected candidate does not consume the eligible-result limit. Recheck eligibility in the final result snapshot; return its memory revision and evaluation time.
 
-Status exposes counts, readiness, memory revision, and capabilities. Structured stderr logs include operation, request ID, duration, status, and categorical failure. No memory/query text, vectors, source paths, or model response bodies by default.
+The slice-2 implementation can perform lexical selection and rendering from one bounded read snapshot. In stage 3 any early speculative lexical read is only a candidate hint: after inference finishes or times out, start a final snapshot, check revision and rerun lexical selection if it changed, then score vectors and render from that snapshot. Do not hold a transaction during inference. If work cannot fit the remaining budget, return an explicit bounded result or deadline error; never mix old content with a newer revision.
 
-Track request latency and queue wait separately. Use bounded in-memory histograms/counters rather than a mandatory metrics server. No terminal progress spam from routine successful background work.
+Queries use indexes for scope, active rows and suppression. Include EXPLAIN QUERY PLAN evidence for sparse eligible repositories, not just a dense single-repository corpus. The database deadline/VM interrupt bounds work when an index cannot avoid a large search. Report candidate truncation and lower-layer deadlines; do not pretend a capped scan was complete.
 
-## Test-first sequence
+## Observability and health
 
-### A. Storage and policy
+Use bounded in-memory histograms for operation duration, admission wait, writer wait, SQLite time, cancellation and response bytes. Record per-operation aggregates, not a metric label per query, source path or memory ID. Logs contain operation, request ID, duration, code/reason and process instance; no user text.
 
-Failing unit tests for scope combinations, expiry boundary timestamps, suppression, Unicode budgets, malformed queries, and deterministic ranking. Implement minimal policy and store functions.
+Status reads maintained counters with their freshness. It does not run an integrity scan or block behind provider work. Explicit Validate/Doctor arrive later. A counter failure cannot become a reason to expose raw SQL or return invented zero counts.
 
-### B. Durability and retries
+Validate store file/sidecar permissions, checkpoint behavior, free space and pressure conditions. Failed checkpoints are observable. Old read snapshots cannot grow WAL indefinitely; use the bounded reader gap described in configuration/storage.
 
-Integration tests against real SQLite:
+## TDD sequence
 
-- Acknowledged Retain survives restart and is visible through an independent connection.
-- Same key and payload returns same ID/revision; different payload is rejected.
-- Concurrent identical requests create one record.
-- Failpoints before commit and after commit/before response prove retry safety.
-- Failed writes roll back FTS, revision, idempotency result, and job intent together.
-- Disk failure and incompatible schema never create a success response.
+1. Unit tests: scope combinations, explicit global versus inferred unscoped directives, expiry at exactly now, invalid expiry, manual/new-ID restoration, repository mappings, FTS metacharacters, Unicode and deterministic ties.
+2. SQLite integration: successful transactions visible from an independent connection; exact receipts; concurrent identical keys; conflicting payload; complete rollback after every injected failure.
+3. Retry races: commit then drop response, exhaust quota, retry successfully; Forget after uncertain Retain, retry Retain without resurrection; repeat Forget after restart.
+4. Policy races: Forget before snapshot is absent; Forget after snapshot follows documented snapshot semantics; no old content with newer returned revision.
+5. Lifecycle subprocesses: store/endpoint double ownership, stale socket, different stores/same socket, unsafe permissions/symlinks, long paths, SIGTERM drain, SIGKILL and restart.
+6. Load/cancellation: request floods, fast vector-shaped commit simulation, sparse scope, slow readers, Status/retry reservation and queued/running read interruption.
+7. Two independent Node clients plus Rust CLI: A retains, B recalls after acknowledgement, B forgets, A sees absence. One client disconnects without killing the daemon.
+8. Freeze v1/v2 lexical latency and resource comparison using [validation](validation.md).
 
-### C. Process lifecycle and security
+## Acceptance and handoff
 
-Subprocess tests for two daemon instances, stale socket recovery, unsafe directory ownership/mode, symlink refusal, cancellation, bounded overload, SIGTERM, and SIGKILL/restart. Use dedicated temporary homes only.
+G2 requires zero policy failures, durable acknowledged writes across process kills, actual Forget coverage, bounded cancelled work and correct endpoint ownership on both OS families. Publish cold/warm lexical results, write latency, CPU/RSS, DB/WAL size and error rates. No inference dependency exists on Recall yet.
 
-### D. Client interoperability
+The commit must include storage migrations, protocol/schema fixtures, the executable synthetic fixture loader and its safety guard (explicit isolated destination only). Do not accept a test that only mocks SQLite commits. Power-loss claims require additional evidence beyond SIGKILL.
 
-Two independent Node clients connect to one daemon. Client A retains; client B recalls after acknowledgement. Disconnect one client without killing daemon or affecting the other. Use deadline and invalid-protobuf cases from slice 1.
-
-### E. Performance baseline
-
-Load 10,000 deterministic synthetic memories, run four clients, and report cold/warm Recall latency, idle/peak RSS, CPU, DB size, queue waits, and error rates. Run a comparable v1 lexical workload with local inference disabled; document feature differences. Use release Rust builds and preserve machine-readable results.
-
-## Acceptance gate
-
-- All supported policy fixtures pass with no foreign/private or suppressed memory leaks.
-- Restart and failpoint tests prove durability, not just process exit success.
-- No inference dependency or network request exists on Recall's call path.
-- Overload remains bounded and cancellation does not leak work indefinitely.
-- API/version/scope behavior is identical across test clients.
-- Performance meets the provisional targets in [the roadmap](README.md), or the milestone is explicitly blocked with measurements.
-
-## Deferred
-
-Production adapters, launchd/systemd units, automatic daemon spawning, full extraction semantics, actual embedding execution, v1 migrations, vector search, dashboards, remote access, and Windows support.
+No production adapters, ingestion, automatic spawning, installers, real database import or dashboard in this slice. Their complete plans are downstream; this gate does not waive them.

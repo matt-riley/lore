@@ -105,6 +105,38 @@ describe("proposal generator integrity checks", () => {
     }
   });
 
+  test("verifyProposalArtifacts stays clean when no proposals exist and no index has been written", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: {
+          evolutionLedger: true,
+          generatedArtifactIntegrity: true,
+        },
+      },
+    });
+    const indexPath = path.join(proposalDocsRoot(config), "PROPOSAL_INDEX.md");
+    const originalIndex = await readIfExists(indexPath);
+    try {
+      await rm(indexPath, { force: true });
+
+      const runtime = buildRuntime(db, config);
+      const result = await verifyProposalArtifacts({ runtime, dryRun: true });
+
+      assert.equal(
+        db.listImprovementArtifacts({ hasProposal: true, limit: 10 }).length,
+        0,
+        "precondition: this fixture store holds no proposals to index",
+      );
+      assert.deepEqual(result.issues, []);
+      assert.equal(result.issueCount, 0);
+      assert.equal(result.repairedCount, 0);
+    } finally {
+      await restoreFile(indexPath, originalIndex);
+      cleanup();
+    }
+  });
+
   test("verifyProposalArtifacts flags drift when the stored proposal hash is stale", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

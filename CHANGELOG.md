@@ -20,6 +20,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.17.4](https://github.com/matt-riley/lore/compare/lore-v0.17.3...lore-v0.17.4) (2026-09-16)
+
+
+### Bug Fixes
+
+* **deps:** restore the pnpm 12.4.0 pin reverted by release-please ([9b9cc4a](https://github.com/matt-riley/lore/commit/9b9cc4aaf79684f7e1bfde0e5b3c842e10665ef9))
+
 ## [0.17.3](https://github.com/matt-riley/lore/compare/lore-v0.17.2...lore-v0.17.3) (2026-09-16)
 
 

@@ -353,6 +353,46 @@
         }
       }
     },
+    "typesafe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "model": {
+          "type": "string",
+          "default": "jev-latest"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000,
+          "default": 10000
+        },
+        "apiKey": {
+          "type": "string",
+          "default": ""
+        },
+        "rerank": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "maxCandidates": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 12,
+              "default": 6
+            }
+          }
+        }
+      }
+    },
     "deferredExtraction": {
       "type": "object",
       "additionalProperties": false,

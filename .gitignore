@@ -7,3 +7,4 @@ pnpm-debug.log*
 
 .worktrees/
 .fallow/
+.pi/cache/

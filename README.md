@@ -305,7 +305,35 @@ The provider and each consuming surface have separate opt-ins:
 - When embeddings are enabled, Lore embeds generated claims in a second bounded pass and discards claims below `groundingMinSimilarity`. If no grounded insight remains, Lore returns the deterministic reflection.
 - Embedding-based semantic memory search is opt-in via `embeddings.enabled` + `model`. When enabled, `lore_recall` fuses meaning-ranked hits into the lexical list with reciprocal rank fusion. Memory vectors are cached in the local `memory_embedding` table and reused across searches, so only the query and any new memories are re-embedded. Search fails open to lexical-only when the endpoint is unavailable.
 
-Prompt-context hooks make no model calls by default. In the Copilot adapter, enabling query expansion or context compression permits bounded loopback-only inference during context assembly and can add latency. Codex, Claude Code, and Antigravity automatic recall remains deterministic; their explicit `lore_recall` command can use optional local query expansion and embeddings. Invalid output, missing citations, ungrounded claims, timeouts, or an unavailable model server are reported while Lore preserves its deterministic retrieval, capsule, extraction, or reflection result. Embedding vectors are cached locally in `memory_embedding`; Lore's inference requests go only to the configured loopback endpoint and refuse redirects. Recalled context can separately reach your coding agent's model, as explained under [Privacy and security](#privacy-and-security).
+Prompt-context hooks make no model calls by default. In the Copilot adapter, enabling query expansion or context compression permits bounded loopback-only inference during context assembly and can add latency. Codex, Claude Code, and Antigravity automatic recall remains deterministic; their explicit `lore_recall` command can use optional local query expansion and embeddings. Invalid output, missing citations, ungrounded claims, timeouts, or an unavailable model server are reported while Lore preserves its deterministic retrieval, capsule, extraction, or reflection result. Embedding vectors are cached locally in `memory_embedding`; Lore's local inference requests go only to the configured loopback endpoint and refuse redirects. Recalled context can separately reach your coding agent's model, as explained under [Privacy and security](#privacy-and-security).
+
+### `typesafe`
+
+`typesafe` optionally reranks prompt-recall shortlists with [TypeSafe](https://docs.typesafe.ai)'s Jev model (System One). Embeddings rank memories by similarity; Jev grades each candidate's usefulness against the actual prompt, and Lore reorders the shortlist by that score in code. It is deliberately disabled in both runtime defaults and `lore.example.json`, sends requests to `api.typesafe.ai`, and fails open: any transport or response error leaves the fused order untouched.
+
+```json
+{
+  "typesafe": {
+    "enabled": true,
+    "model": "jev-latest",
+    "timeoutMs": 10000,
+    "rerank": {
+      "enabled": true,
+      "maxCandidates": 6
+    }
+  }
+}
+```
+
+Provide the API key with `LORE_TYPESAFE_API_KEY` (preferred, not stored in config) or `typesafe.apiKey`. Reranking runs during prompt-recall assembly, so it adds one bounded provider round-trip to prompts with at least two candidate memories; `maxCandidates` caps the per-request cost and `timeoutMs` caps the wait. The `rerank` lookup in trace output records the scores and why reranking did or did not apply.
+
+Preview the effect on your own store before enabling it:
+
+```sh
+LORE_TYPESAFE_API_KEY=... node scripts/rerank-preview.mjs --prompt "how should I structure the auth flow?"
+```
+
+The preview assembles recall twice — with and without reranking — and prints both shortlists, Jev's scores, and position changes. Reranking sends the prompt and candidate memory content to TypeSafe; memories are otherwise local, as described under [Privacy and security](#privacy-and-security).
 
 ### `traceRecorder`
 

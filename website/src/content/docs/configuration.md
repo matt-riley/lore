@@ -34,11 +34,15 @@ Lore keeps using legacy files under `~/.copilot` only when no Lore home is confi
 
 `enabled` must be `true` for Lore to initialise. `budgets` limits the amount of procedural, semantic, episode, commitment, and working-profile context assembled for a prompt. `limits` bounds searches, prompt context, cross-repository results, and metric windows.
 
-The runtime defaults are intentionally conservative: local inference, maintenance, embeddings, and trace recording are off. Some rollout-gated surfaces are enabled by default but remain experimental. The checked-in `lore.example.json` enables archive import, maintenance, and several experimental features, but leaves local inference disabled. Merge only the features you intend to enable.
+The runtime defaults are intentionally conservative: local inference, TypeSafe reranking, maintenance, embeddings, and trace recording are off. Some rollout-gated surfaces are enabled by default but remain experimental. The checked-in `lore.example.json` enables archive import, maintenance, and several experimental features, but leaves local inference disabled. Merge only the features you intend to enable.
 
 ## Deferred extraction
 
 The default configuration can enqueue extraction at session end and process it at session start. `deferredExtraction.processCurrentRepositoryOnly` keeps automatic work focused. `useLocalInference` requires both this setting and `localInference.enabled`.
+
+## TypeSafe reranking
+
+`typesafe.enabled` + `typesafe.rerank.enabled` opt prompt recall into reranking by TypeSafe's Jev model. Embeddings rank memories by similarity; Jev grades each candidate's usefulness against the actual prompt, and Lore reorders the shortlist by that score in code. It is off by default, sends the prompt and candidate memory content to `api.typesafe.ai`, and fails open to the fused order on any provider error. Set the API key with `LORE_TYPESAFE_API_KEY` (preferred) or `typesafe.apiKey`, then preview the effect on your own store with `node scripts/rerank-preview.mjs --prompt "..."`.
 
 ## Maintenance scheduler
 

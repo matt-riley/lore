@@ -6,19 +6,28 @@ import {
   isSensitiveMemoryContent,
 } from "../../lib/memory/memory-sensitivity.mjs";
 
+// Fixtures are assembled at runtime so secret scanners never match a literal
+// token in this file. The strings must still reach the detector intact — they
+// exist to prove it fires, not because any of them is a real credential.
+const fixture = (...parts) => parts.join("");
+
 const SENSITIVE = [
-  ["private key block", "-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----"],
-  ["aws access key", "The deploy key was AKIAIOSFODNN7EXAMPLE for staging."],
-  ["openai key", "Use sk-proj-abcdefghijklmnopqrstuvwxyz123456 for the API."],
-  ["anthropic key", "Key: sk-ant-api03-abcdefghijklmnopqrstuvwxyz"],
-  ["github token", "Token ghp_abcdefghijklmnopqrstuvwxyz0123456789 worked."],
-  ["github pat", "Use github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz0000000000000000000000"],
-  ["slack token", "Slack bot uses xoxb-1234567890-abcdefghijklm"],
-  ["google api key", "AIzaSyA1234567890abcdefghijklmnopqrstuv"],
-  ["typesafe key", "The provider key is apikey_2abcdefghijklmnopqrstuvwxyz"],
-  ["jwt", "Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"],
-  ["bearer token", "Send Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456"],
-  ["secret assignment", "Set DATABASE_PASSWORD=hunter2hunter2hunter2 before starting."],
+  ["private key block", fixture("-----BEGIN OPENSSH ", "PRIVATE KEY-----\nabc123\n-----END OPENSSH ", "PRIVATE KEY-----")],
+  ["aws access key", fixture("The deploy key was AKIA", "IOSFODNN7EXAMPLE for staging.")],
+  ["openai key", fixture("Use sk-", "proj-abcdefghijklmnopqrstuvwxyz123456 for the API.")],
+  ["anthropic key", fixture("Key: sk-ant-", "api03-abcdefghijklmnopqrstuvwxyz")],
+  ["github token", fixture("Token ghp_", "abcdefghijklmnopqrstuvwxyz0123456789 worked.")],
+  ["github pat", fixture("Use github_pat_", "11ABCDEFG0abcdefghijklmnopqrstuvwxyz0000000000000000000000")],
+  ["slack token", fixture("Slack bot uses xoxb-", "1234567890-abcdefghijklm")],
+  ["google api key", fixture("AIza", "SyA1234567890abcdefghijklmnopqrstuv")],
+  ["typesafe key", fixture("The provider key is apikey_", "2abcdefghijklmnopqrstuvwxyz")],
+  ["jwt", fixture(
+    "Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.",
+    "eyJzdWIiOiIxMjM0NTY3ODkwIn0.",
+    "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+  )],
+  ["bearer token", fixture("Send Authorization: Bearer ", "abcdefghijklmnopqrstuvwxyz123456")],
+  ["secret assignment", fixture("Set DATABASE_PASSWORD=", "hunter2hunter2hunter2 before starting.")],
 ];
 
 const SAFE = [

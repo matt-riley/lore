@@ -409,7 +409,7 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 24,
-              "default": 8
+              "default": 24
             }
           }
         }
@@ -499,7 +499,11 @@
           "properties": {
             "mode": {
               "type": "string",
-              "enum": ["off", "shadow", "apply"],
+              "enum": [
+                "off",
+                "shadow",
+                "apply"
+              ],
               "default": "off"
             },
             "maxItems": {
@@ -761,12 +765,12 @@
         "errorTelemetry": {
           "type": "boolean",
           "default": false,
-          "description": "Enable passive error telemetry hook (onErrorOccurred). Persists only privacy-minimised categorical metadata — no raw messages or stacks. Default-off."
+          "description": "Enable passive error telemetry hook (onErrorOccurred). Persists only privacy-minimised categorical metadata \u2014 no raw messages or stacks. Default-off."
         },
         "postToolUse": {
           "type": "boolean",
           "default": false,
-          "description": "Enable passive post-tool-use observation hook (onPostToolUse). Records only categorical tool kind and success/failure — no raw args or results. Default-off."
+          "description": "Enable passive post-tool-use observation hook (onPostToolUse). Records only categorical tool kind and success/failure \u2014 no raw args or results. Default-off."
         },
         "subagentScopeTracking": {
           "type": "boolean",

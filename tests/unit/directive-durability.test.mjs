@@ -248,6 +248,18 @@ describe("TypeSafe directive durability filtering", () => {
         // and the judgment still applies to this run.
         assert.doesNotMatch(result.text, /live Env key/);
         assert.equal(result.trace.lookups.directives.durability.persistFailures, 1);
+
+        // A store that stays locked must not cost a provider call per prompt:
+        // the failed id is remembered for this process.
+        const second = durabilityFetch({ "one-off": 0.1 });
+        await assembleRecall({
+          db,
+          prompt: "Fix the config loader",
+          repository: "fixture-repo",
+          config,
+          fetchImpl: second.fetchImpl,
+        });
+        assert.equal(second.calls.length, 0, "a failed write must not be retried every prompt");
       } finally {
         db.setSemanticMemoryMetadata = originalWrite;
       }

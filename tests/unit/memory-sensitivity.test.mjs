@@ -13,7 +13,7 @@ import {
 const fixture = (...parts) => parts.join("");
 
 const SENSITIVE = [
-  ["private key block", fixture("-----BEGIN OPENSSH ", "PRIVATE KEY-----\nabc123\n-----END OPENSSH ", "PRIVATE KEY-----")],
+  ["private key block", fixture("-----BEGIN OPENSSH ", "PRIVATE KEY-----\n", "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAE", "\n-----END OPENSSH ", "PRIVATE KEY-----")],
   ["aws access key", fixture("The deploy key was AKIA", "IOSFODNN7EXAMPLE for staging.")],
   ["openai key", fixture("Use sk-", "proj-abcdefghijklmnopqrstuvwxyz123456 for the API.")],
   ["anthropic key", fixture("Key: sk-ant-", "api03-abcdefghijklmnopqrstuvwxyz")],
@@ -29,6 +29,14 @@ const SENSITIVE = [
   )],
   ["bearer token", fixture("Send Authorization: Bearer ", "abcdefghijklmnopqrstuvwxyz123456")],
   ["secret assignment", fixture("Set DATABASE_PASSWORD=", "hunter2hunter2hunter2 before starting.")],
+  ["compound aws secret", fixture("AWS_SECRET_ACCESS_KEY=", "wJalrXUtnFEMIK7MDENGbPxRfiCY")],
+  ["compound private key name", fixture("private_key=", "c2VjcmV0bWF0ZXJpYWxmb3J0ZXN0")],
+  ["gitlab token", fixture("Token glpat-", "abcdefghijklmnopqrst")],
+  ["npm token", fixture("Token npm_", "abcdefghijklmnopqrstuvwx")],
+  ["pypi token", fixture("Token pypi-", "abcdefghijklmnopqrstuvwx")],
+  ["slack app token", fixture("Use xapp-", "1-A0123456789-abcdefghijkl")],
+  ["bare basic auth", fixture("Basic ", "dXNlcjpwYXNzd29yZDEyMzQ1Ng==")],
+  ["url credentials", fixture("https://user:", "hunter2hunter2", "@internal.example/app")],
   ["json secret assignment", fixture('{"api_key": "', "abcdefghijklmnopqrstuv", '"}')],
   ["dotted secret value", fixture("password: ab.", "cdefghijklmnopqrstuv")],
   ["stripe key", fixture("Use sk_live_", "abcdefghijklmnopqrstuvwxyz")],
@@ -105,5 +113,20 @@ describe("redactSensitiveContent", () => {
     assert.equal(redactSensitiveContent(""), "");
     assert.equal(redactSensitiveContent(null), "");
     assert.equal(redactSensitiveContent(42), "42");
+  });
+
+  test("removes the whole private key body, not just the header", () => {
+    const body = fixture("b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAE", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo");
+    const pem = fixture("-----BEGIN OPENSSH ", "PRIVATE KEY-----\n", body, "\n-----END OPENSSH ", "PRIVATE KEY-----");
+    const redacted = redactSensitiveContent(pem);
+    assert.equal(redacted, "[redacted]");
+    assert.equal(redacted.includes(body), false, "the key material must be gone, not just the header");
+  });
+
+  test("removes the secret value, leaving the name", () => {
+    const secret = "wJalrXUtnFEMIK7MDENGbPxRfiCY";
+    const redacted = redactSensitiveContent(`AWS_SECRET_ACCESS_KEY=${secret} in the deploy env`);
+    assert.equal(redacted.includes(secret), false);
+    assert.doesNotMatch(redacted, /AWS_SECRET_ACCESS_KEY=wJalr/);
   });
 });

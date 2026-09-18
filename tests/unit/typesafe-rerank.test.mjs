@@ -418,6 +418,70 @@ describe("rerankMemories", () => {
     assert.deepEqual(result.trace.rows.map((row) => row.id).at(-1), "mem-b");
   });
 
+  test("holds several withheld candidates at their fused positions", async () => {
+    const rowsWithTwoSecrets = [
+      memory("mem-a", "Prefer oxlint over eslint for this repo."),
+      memory("mem-1", `First secret ${AWS_KEY}`),
+      memory("mem-b", "Always write tests before merging."),
+      memory("mem-2", `Second secret ${AWS_KEY}`),
+    ];
+    const { fetchImpl, calls } = makeFetch(() => scoreAnswers({ memory_0: 0.4, memory_1: 1.8 }));
+    const result = await rerankMemories({
+      prompt: "How should I lint?",
+      rows: rowsWithTwoSecrets,
+      config: typesafeConfig(),
+      fetchImpl,
+      env: ENV,
+    });
+
+    assert.deepEqual(calls[0].body.state.memories.map((entry) => entry.id), ["mem-a", "mem-b"]);
+    // Withheld rows sit at their fused indices (1 and 3); the scored rows fill
+    // the remaining slots in rank order (mem-b above mem-a).
+    assert.deepEqual(result.trace.rows.map((row) => row.id), ["mem-b", "mem-1", "mem-a", "mem-2"]);
+    assert.equal(result.trace.excludedSensitive, 2);
+  });
+
+  test("keeps the remainder after the candidate window", async () => {
+    const many = [
+      memory("mem-a", `Secret ${AWS_KEY}`),
+      memory("mem-b", "Alpha memory"),
+      memory("mem-c", "Beta memory"),
+      memory("mem-d", "Gamma memory"),
+    ];
+    const { fetchImpl, calls } = makeFetch(() => scoreAnswers({ memory_0: 0.5, memory_1: 1.5 }));
+    const result = await rerankMemories({
+      prompt: "Anything",
+      rows: many,
+      config: typesafeConfig({ rerank: { maxCandidates: 3 } }),
+      fetchImpl,
+      env: ENV,
+    });
+
+    assert.equal(calls[0].body.state.memories.length, 2, "one candidate is withheld inside the window");
+    assert.deepEqual(result.rows.map((row) => row.id).sort(), ["mem-a", "mem-b", "mem-c", "mem-d"]);
+    assert.equal(result.trace.rows.at(-1).id, "mem-d", "the row beyond maxCandidates stays last");
+  });
+
+  test("redacts a key that a serializer escaped", async () => {
+    const awkwardKey = "apikey_parta/partb+partc=";
+    const fetchImpl = async () => ({
+      ok: false,
+      status: 401,
+      text: async () => `{"detail":"bad key apikey_parta\\/partb+partc= (${awkwardKey.toUpperCase()})"}`,
+    });
+    const result = await rerankMemories({
+      prompt: "Which database?",
+      rows,
+      config: typesafeConfig({ apiKey: awkwardKey }),
+      fetchImpl,
+      env: {},
+    });
+    assert.equal(result.applied, false);
+    const error = String(result.error);
+    assert.equal(error.includes(awkwardKey), false);
+    assert.match(error, /\[redacted\]/);
+  });
+
   test("uses the configured model when provided", async () => {
     const { fetchImpl, calls } = makeFetch(() => scoreAnswers({ memory_0: 1, memory_1: 0 }));
     await rerankMemories({

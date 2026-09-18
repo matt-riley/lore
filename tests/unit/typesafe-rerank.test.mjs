@@ -323,6 +323,27 @@ describe("rerankMemories", () => {
     assert.equal(providerOff.trace.enabled, false);
   });
 
+  test("never sends sensitive memory content to the provider", async () => {
+    const rowsWithSecret = [
+      memory("mem-a", "Always write tests before merging."),
+      memory("mem-b", "The staging deploy key is AKIAIOSFODNN7EXAMPLE"),
+      memory("mem-c", "Prefer oxlint over eslint for this repo."),
+    ];
+    const { fetchImpl, calls } = makeFetch(() => scoreAnswers({ memory_0: 1, memory_1: 2 }));
+    const result = await rerankMemories({
+      prompt: "How should I lint?",
+      rows: rowsWithSecret,
+      config: typesafeConfig(),
+      fetchImpl,
+      env: ENV,
+    });
+
+    assert.deepEqual(calls[0].body.state.memories.map((entry) => entry.id), ["mem-a", "mem-c"]);
+    assert.equal(result.trace.excludedSensitive, 1);
+    assert.equal(result.scores.some((entry) => entry.id === "mem-b"), false);
+    assert.deepEqual([...result.rows.map((row) => row.id)].sort(), ["mem-a", "mem-b", "mem-c"]);
+  });
+
   test("uses the configured model when provided", async () => {
     const { fetchImpl, calls } = makeFetch(() => scoreAnswers({ memory_0: 1, memory_1: 0 }));
     await rerankMemories({

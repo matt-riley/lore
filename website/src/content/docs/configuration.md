@@ -42,7 +42,7 @@ The default configuration can enqueue extraction at session end and process it a
 
 ## TypeSafe reranking
 
-`typesafe.enabled` + `typesafe.rerank.enabled` opt prompt recall into reranking by TypeSafe's Jev model. Embeddings rank memories by similarity; Jev grades each candidate's usefulness against the actual prompt, and Lore reorders the shortlist by that score in code. It is off by default, sends the prompt and candidate memory content to `api.typesafe.ai`, and fails open to the fused order on any provider error. Set the API key with `LORE_TYPESAFE_API_KEY` (preferred) or `typesafe.apiKey`, then preview the effect on your own store with `node scripts/rerank-preview.mjs --prompt "..."`.
+`typesafe.enabled` + `typesafe.rerank.enabled` opt prompt recall into reranking by TypeSafe's Jev model. Embeddings rank memories by similarity; Jev grades each candidate's usefulness against the actual prompt, and Lore reorders the shortlist by that score in code. `typesafe.features.enabled` additionally scores rows once and stores the result: standing directives below `features.minDurability` (one-off instructions like *"there should be a live env key"*) are kept out of the always-on list, and credential-looking content is never sent to the provider. Both are off by default, send the prompt and candidate memory content to `api.typesafe.ai`, and fail open to the fused order on any provider error. Set the API key with `LORE_TYPESAFE_API_KEY` (preferred) or `typesafe.apiKey`, then preview the effect on your own store with `node scripts/rerank-preview.mjs --prompt "..."`.
 
 ## Maintenance scheduler
 

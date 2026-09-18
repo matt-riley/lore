@@ -390,6 +390,28 @@
               "default": 6
             }
           }
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "minDurability": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.5
+            },
+            "maxMemoriesPerRun": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 24,
+              "default": 8
+            }
+          }
         }
       }
     },

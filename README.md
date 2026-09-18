@@ -320,12 +320,24 @@ Prompt-context hooks make no model calls by default. In the Copilot adapter, ena
     "rerank": {
       "enabled": true,
       "maxCandidates": 6
+    },
+    "features": {
+      "enabled": true,
+      "minDurability": 0.5,
+      "maxMemoriesPerRun": 8
     }
   }
 }
 ```
 
 Provide the API key with `LORE_TYPESAFE_API_KEY` (preferred, not stored in config) or `typesafe.apiKey`. Reranking runs during prompt-recall assembly, so it adds one bounded provider round-trip to prompts with at least two candidate memories; `maxCandidates` caps the per-request cost and `timeoutMs` caps the wait. The `rerank` lookup in trace output records the scores and why reranking did or did not apply.
+
+`features` scores memory rows once and stores the result on the row, so later decisions read a number instead of re-asking a model:
+
+- **Durability.** Standing directives are graded "durable policy" versus "one-off instruction" before the six-row cap, and statements below `minDurability` are dropped from the rendered section. This keeps session-specific requests such as *"there should be a live env key"* out of the always-on directive list. Scores are persisted in the row's metadata, so each memory is judged once and reused; unscored rows and scoring failures are kept, exactly as before the feature existed.
+- **Specificity.** Stored alongside durability for later use (for example hygiene review); nothing filters on it yet.
+
+Candidates whose content looks sensitive — credentials, private-key blocks, provider tokens, JWTs, secret assignments — are **never sent** to TypeSafe, by either reranking or feature scoring. Detection is local and deterministic (`lib/memory/memory-sensitivity.mjs`); a sensitivity judgment cannot come from the provider because asking would require sending the payload first. Those memories keep their existing order and are simply not scored.
 
 Preview the effect on your own store before enabling it:
 

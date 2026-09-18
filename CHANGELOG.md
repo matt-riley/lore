@@ -20,6 +20,25 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.19.0](https://github.com/matt-riley/lore/compare/lore-v0.18.0...lore-v0.19.0) (2026-09-18)
+
+
+### Features
+
+* **typesafe:** spend the specificity score we already pay for ([fb24522](https://github.com/matt-riley/lore/commit/fb2452223d62df67bed90323bdeb3dd890ab59c3))
+
+
+### Bug Fixes
+
+* **memory:** close the redaction gaps that still leaked key material ([e505552](https://github.com/matt-riley/lore/commit/e505552e773900db55a6f11261da21ef33b601bd))
+* **recall:** redact credential-shaped content from assembled context ([c8ac2e8](https://github.com/matt-riley/lore/commit/c8ac2e8afa963f4e8ae0ab6fa3bfd77cdfa12131))
+* **recall:** stop paying a provider call per prompt when writes fail ([d590e42](https://github.com/matt-riley/lore/commit/d590e423298f9ca02ed6ffa6617a1253f2f35416))
+* **typesafe:** cut the prompt-path timeout to three seconds ([4077bd0](https://github.com/matt-riley/lore/commit/4077bd0bbb23eb27a423bdf12275b7696586fb7c))
+* **typesafe:** fail open on partial answers and hold withheld rows in place ([b8ef3fb](https://github.com/matt-riley/lore/commit/b8ef3fb063cc30496864577941607f1c928fb765))
+* **typesafe:** keep directive filtering working when scoring or writes fail ([e75de58](https://github.com/matt-riley/lore/commit/e75de58baa67bdaf64946c9f7e2936cd70433d8d))
+* **typesafe:** re-score stale judgments and filter only directives ([8d6b920](https://github.com/matt-riley/lore/commit/8d6b920059d23859c2c16a963f1c31ece769fe56))
+* **typesafe:** redact provider error bodies and widen credential detection ([e055e52](https://github.com/matt-riley/lore/commit/e055e52f26f4509c01987dd19b7655ee525f094d))
+
 ## [0.18.0](https://github.com/matt-riley/lore/compare/lore-v0.17.4...lore-v0.18.0) (2026-09-18)
 
 

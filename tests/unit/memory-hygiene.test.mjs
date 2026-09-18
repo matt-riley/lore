@@ -8,6 +8,7 @@ import {
   rollbackMemoryHygiene,
   runMemoryHygiene,
 } from "../../lib/memory/memory-hygiene.mjs";
+import { FEATURE_PROMPT_VERSION } from "../../lib/inference/typesafe-features.mjs";
 import { LoreDb } from "../../lib/db/db.mjs";
 import { FTS5_AVAILABLE, withFixtureDb } from "../helpers/fixture-db.mjs";
 
@@ -175,6 +176,150 @@ describe("evaluateMemoryHygieneCandidate", () => {
 
     assert.equal(result.disposition, "ambiguous");
     assert.equal(result.reason, "commit_not_ancestor");
+  });
+});
+
+describe("TypeSafe vagueness signal", () => {
+  const featureConfig = () => ({
+    typesafe: {
+      enabled: true,
+      apiKey: "hygiene-key",
+      timeoutMs: 1000,
+      features: { enabled: true, minDurability: 0.5, minSpecificity: 0.5, maxMemoriesPerRun: 24 },
+    },
+  });
+
+  function scoringFetch(specificities, calls = []) {
+    const fetchImpl = async (_url, options = {}) => {
+      const body = JSON.parse(String(options.body));
+      calls.push(body);
+      const answers = {};
+      body.state.memories.forEach((memory, index) => {
+        answers[`durable_${index}`] = { type: "noul", noul: 0.9 };
+        answers[`specific_${index}`] = { type: "score", score: specificities[memory.id] ?? 0.3, confidence: 0.8 };
+      });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ model: "jev-latest", answers, usage: { input_tokens: 10, output_tokens: 2 } }),
+      };
+    };
+    return { fetchImpl, calls };
+  }
+
+  test("flags a vague memory without resolving it", async () => {
+    const evaluation = await evaluateMemoryHygieneCandidate({
+      memory: buildMemory({ metadata: { typesafe: { specificity: 0.2, promptVersion: FEATURE_PROMPT_VERSION } } }),
+      episodes: [],
+      minSpecificityValue: 0.5,
+    });
+    assert.equal(evaluation.disposition, "vague");
+    assert.equal(evaluation.reason, "low_specificity");
+    assert.equal(evaluation.evidenceValue, 0.2);
+  });
+
+  test("leaves a specific memory to the evidence rules", async () => {
+    const evaluation = await evaluateMemoryHygieneCandidate({
+      memory: buildMemory({ metadata: { typesafe: { specificity: 1.6, promptVersion: FEATURE_PROMPT_VERSION } } }),
+      episodes: [],
+      minSpecificityValue: 0.5,
+    });
+    assert.notEqual(evaluation.disposition, "vague");
+  });
+
+  test("ignores stale scores from an older question", async () => {
+    const evaluation = await evaluateMemoryHygieneCandidate({
+      memory: buildMemory({ metadata: { typesafe: { specificity: 0.1, promptVersion: 1 } } }),
+      episodes: [],
+      minSpecificityValue: 0.5,
+    });
+    assert.notEqual(evaluation.disposition, "vague");
+  });
+
+  test("never supersedes a vague memory, even in apply mode", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      db.insertSemanticMemory({
+        id: "vague-loop",
+        type: "open_loop",
+        content: "Improve that gate.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+        metadata: { typesafe: { specificity: 0.1, promptVersion: FEATURE_PROMPT_VERSION } },
+      });
+      const { fetchImpl } = scoringFetch({});
+      const result = await runMemoryHygiene({
+        db,
+        repository: "fixture-repo",
+        mode: "apply",
+        config: featureConfig(),
+        fetchImpl,
+      });
+      assert.equal(result.vagueCount, 1);
+      assert.equal(result.resolvedCount, 0);
+      const rows = db.searchSemantic({ query: "", repository: "fixture-repo", limit: 5 });
+      assert.equal(rows.some((row) => row.id === "vague-loop"), true, "a model score must not delete a memory");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("scores unscored memories once and reuses them", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      db.insertSemanticMemory({
+        id: "loop",
+        type: "open_loop",
+        content: "Promote commit bdfb41e into main.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+      });
+      const first = scoringFetch({ loop: 0.2 });
+      await runMemoryHygiene({ db, repository: "fixture-repo", mode: "shadow", config: featureConfig(), fetchImpl: first.fetchImpl });
+      assert.equal(first.calls.length, 1);
+
+      const stored = db.searchSemantic({ query: "", repository: "fixture-repo", limit: 5 })
+        .find((row) => row.id === "loop");
+      assert.equal(stored.metadata.typesafe.specificity, 0.2);
+
+      const second = scoringFetch({ loop: 0.2 });
+      const rerun = await runMemoryHygiene({ db, repository: "fixture-repo", mode: "shadow", config: featureConfig(), fetchImpl: second.fetchImpl });
+      assert.equal(second.calls.length, 0, "stored specificity must be reused");
+      assert.equal(rerun.vagueCount, 1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("does not score anything when the feature is off", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      db.insertSemanticMemory({
+        id: "loop",
+        type: "open_loop",
+        content: "Promote commit bdfb41e into main.",
+        repository: "fixture-repo",
+        scope: "repo",
+        confidence: 1,
+      });
+      let requested = false;
+      const result = await runMemoryHygiene({
+        db,
+        repository: "fixture-repo",
+        mode: "shadow",
+        config: { typesafe: { enabled: true, apiKey: "k", features: { enabled: false } } },
+        fetchImpl: async () => {
+          requested = true;
+          throw new Error("should not be called");
+        },
+      });
+      assert.equal(requested, false);
+      assert.equal(result.vagueCount, 0);
+    } finally {
+      cleanup();
+    }
   });
 });
 

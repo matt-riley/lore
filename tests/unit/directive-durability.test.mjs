@@ -377,6 +377,41 @@ describe("TypeSafe directive durability filtering", () => {
     }
   });
 
+  test("prefers specific directives when more than six qualify", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withDirectiveFixture();
+    try {
+      for (let index = 0; index < 8; index += 1) {
+        insertDirective(db, `dir-${index}`, `For any project, standard ${index} applies.`);
+      }
+      const fetchImpl = async (_url, options = {}) => {
+        const body = JSON.parse(String(options.body));
+        const answers = {};
+        body.state.memories.forEach((memory, position) => {
+          const index = Number(String(memory.id).split("-")[1]);
+          answers[`durable_${position}`] = { type: "noul", noul: 0.9 };
+          answers[`specific_${position}`] = { type: "score", score: 0.1 + index * 0.2, confidence: 0.8 };
+        });
+        return jsonResponse({ model: "jev-latest", answers, usage: { input_tokens: 10, output_tokens: 2 } });
+      };
+
+      const result = await assembleRecall({
+        db,
+        prompt: "Fix the config loader",
+        repository: "fixture-repo",
+        config,
+        fetchImpl,
+      });
+
+      const rendered = result.trace.lookups.directives.includedRows.map((row) => row.id);
+      assert.equal(rendered.length, 6);
+      // The two least specific rows lose their slots, and the rest come most
+      // specific first.
+      assert.deepEqual(rendered, ["dir-7", "dir-6", "dir-5", "dir-4", "dir-3", "dir-2"]);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("does nothing when the features switch is off", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withDirectiveFixture();
     try {

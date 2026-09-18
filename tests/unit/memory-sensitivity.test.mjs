@@ -28,6 +28,12 @@ const SENSITIVE = [
   )],
   ["bearer token", fixture("Send Authorization: Bearer ", "abcdefghijklmnopqrstuvwxyz123456")],
   ["secret assignment", fixture("Set DATABASE_PASSWORD=", "hunter2hunter2hunter2 before starting.")],
+  ["json secret assignment", fixture('{"api_key": "', "abcdefghijklmnopqrstuv", '"}')],
+  ["dotted secret value", fixture("password: ab.", "cdefghijklmnopqrstuv")],
+  ["stripe key", fixture("Use sk_live_", "abcdefghijklmnopqrstuvwxyz")],
+  ["azure account key", fixture("AccountKey=", "abcdefghijklmnopqrstuvwxyz0123456789+/==")],
+  ["basic auth header", fixture("Authorization: Basic ", "dXNlcjpwYXNzd29yZA==")],
+  ["connection string", fixture("postgres://user:", "hunter2hunter2", "@db.internal:5432/app")],
 ];
 
 const SAFE = [
@@ -39,6 +45,8 @@ const SAFE = [
   ["email", "Contact matt@example.com for access requests."],
   ["selection guidance", "Keep primary keys stable and avoid composite keys where a surrogate works."],
   ["phrase with equals", "Use key=value pairs for the config file."],
+  ["prose that names a quoted key", 'The config key "api_key" must be set in the environment, never committed.'],
+  ["short json value", '{"api_key": "short"}'],
 ];
 
 describe("detectSensitiveContent", () => {

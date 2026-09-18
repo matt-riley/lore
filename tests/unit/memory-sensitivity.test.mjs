@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   detectSensitiveContent,
   isSensitiveMemoryContent,
+  redactSensitiveContent,
 } from "../../lib/memory/memory-sensitivity.mjs";
 
 // Fixtures are assembled at runtime so secret scanners never match a literal
@@ -68,5 +69,41 @@ describe("detectSensitiveContent", () => {
     assert.deepEqual(detectSensitiveContent(""), { sensitive: false, reason: null });
     assert.deepEqual(detectSensitiveContent(null), { sensitive: false, reason: null });
     assert.equal(isSensitiveMemoryContent(undefined), false);
+  });
+});
+
+describe("redactSensitiveContent", () => {
+  for (const [label, text] of SENSITIVE) {
+    test(`redacts ${label}`, () => {
+      const redacted = redactSensitiveContent(text);
+      assert.match(redacted, /\[redacted\]/, label);
+      // The point of redaction: what remains can no longer trip the gate.
+      assert.equal(isSensitiveMemoryContent(redacted), false, label);
+    });
+  }
+
+  for (const [label, text] of SAFE) {
+    test(`leaves ${label} intact`, () => {
+      assert.equal(redactSensitiveContent(text), text, label);
+    });
+  }
+
+  test("redacts every occurrence, not just the first", () => {
+    const twice = fixture("password=", "hunter2hunter2hunter2", " and backup ", "password=", "correcthorsebattery");
+    const redacted = redactSensitiveContent(twice);
+    assert.equal(redacted.match(/\[redacted\]/g).length, 2);
+    assert.equal(isSensitiveMemoryContent(redacted), false);
+  });
+
+  test("keeps surrounding prose readable", () => {
+    const key = fixture("AKIA", "IOSFODNN7EXAMPLE");
+    const redacted = redactSensitiveContent(`Never commit a key like ${key} to the repo.`);
+    assert.equal(redacted, "Never commit a key like [redacted] to the repo.");
+  });
+
+  test("handles empty and non-string input", () => {
+    assert.equal(redactSensitiveContent(""), "");
+    assert.equal(redactSensitiveContent(null), "");
+    assert.equal(redactSensitiveContent(42), "42");
   });
 });

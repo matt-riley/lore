@@ -163,7 +163,10 @@ describe("TypeSafe directive durability filtering", () => {
 
       assert.deepEqual(calls[0].state.memories.map((memory) => memory.id), ["durable"]);
       assert.equal(result.trace.lookups.directives.durability.withheldSensitive, 1);
-      assert.ok(result.text.includes(AWS_KEY));
+      // The row stays in the section, but its content never reaches the model:
+      // keeping it away from TypeSafe is only half the gate.
+      assert.match(result.text, /deploy key is \[redacted\]/);
+      assert.equal(result.text.includes(AWS_KEY), false);
     } finally {
       cleanup();
     }

@@ -20,6 +20,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.18.0](https://github.com/matt-riley/lore/compare/lore-v0.17.4...lore-v0.18.0) (2026-09-18)
+
+
+### Features
+
+* **recall:** rerank prompt recall with TypeSafe System One ([b916a08](https://github.com/matt-riley/lore/commit/b916a0846cccf61de82b1237e538ed6e85d71b00))
+* **scripts:** add rerank-preview harness for TypeSafe recall ([4106d46](https://github.com/matt-riley/lore/commit/4106d46c33fbbad1de2db7327bfce5d035b4d29c))
+* **typesafe:** score durable memory features and drop one-off directives ([14feaf4](https://github.com/matt-riley/lore/commit/14feaf463436dae7aac66c4eaeefe80bfcbda67e))
+* **typesafe:** withhold credential-like memories from provider calls ([d49f958](https://github.com/matt-riley/lore/commit/d49f9580f8aee757c0cd9b026954beee1732444f))
+
 ## [0.17.4](https://github.com/matt-riley/lore/compare/lore-v0.17.3...lore-v0.17.4) (2026-09-16)
 
 

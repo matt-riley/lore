@@ -141,7 +141,7 @@ describe("rerankMemories", () => {
     assert.deepEqual(result.scores.map((entry) => entry.afterIndex), [2, 0, 1]);
   });
 
-  test("keeps unscored candidates after scored ones in their original order", async () => {
+  test("fails open when any requested candidate has no usable answer", async () => {
     const { fetchImpl } = makeFetch(() => scoreAnswers({
       memory_1: 2.0,
       memory_2: 0.5,
@@ -153,12 +153,12 @@ describe("rerankMemories", () => {
       fetchImpl,
       env: ENV,
     });
-    assert.equal(result.applied, true);
-    assert.deepEqual(result.rows.map((row) => row.id), ["mem-b", "mem-c", "mem-a"]);
-    assert.equal(result.scores.find((entry) => entry.id === "mem-a").score, null);
+    assert.equal(result.applied, false);
+    assert.equal(result.reason, "incomplete_answers");
+    assert.deepEqual(result.rows.map((row) => row.id), ["mem-a", "mem-b", "mem-c"]);
   });
 
-  test("treats out-of-range and non-numeric scores as unscored", async () => {
+  test("treats out-of-range and non-numeric scores as malformed", async () => {
     const { fetchImpl } = makeFetch(() => scoreAnswers({
       memory_0: RERANK_SCORE_LEVELS.length + 5,
       memory_1: "high",
@@ -171,8 +171,34 @@ describe("rerankMemories", () => {
       fetchImpl,
       env: ENV,
     });
-    assert.deepEqual(result.rows.map((row) => row.id), ["mem-c", "mem-a", "mem-b"]);
-    assert.equal(result.scores.find((entry) => entry.id === "mem-c").score, 1.5);
+    assert.equal(result.applied, false);
+    assert.equal(result.reason, "incomplete_answers");
+    assert.deepEqual(result.rows.map((row) => row.id), ["mem-a", "mem-b", "mem-c"]);
+  });
+
+  test("clamps confidence and ignores non-numeric values", async () => {
+    const fetchImpl = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "jev-latest",
+        answers: {
+          memory_0: { type: "score", score: 1, confidence: 7 },
+          memory_1: { type: "score", score: 1, confidence: null },
+          memory_2: { type: "score", score: 1, confidence: 0.5 },
+        },
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    });
+    const result = await rerankMemories({
+      prompt: "Which database?",
+      rows,
+      config: typesafeConfig(),
+      fetchImpl,
+      env: ENV,
+    });
+    assert.equal(result.applied, true);
+    assert.deepEqual(result.scores.map((entry) => entry.confidence), [1, null, 0.5]);
   });
 
   test("fails open with the original order when no answer is usable", async () => {
@@ -343,7 +369,53 @@ describe("rerankMemories", () => {
     assert.deepEqual(calls[0].body.state.memories.map((entry) => entry.id), ["mem-a", "mem-c"]);
     assert.equal(result.trace.excludedSensitive, 1);
     assert.equal(result.scores.some((entry) => entry.id === "mem-b"), false);
-    assert.deepEqual([...result.rows.map((row) => row.id)].sort(), ["mem-a", "mem-b", "mem-c"]);
+    assert.deepEqual(result.rows.map((row) => row.id).sort(), ["mem-a", "mem-b", "mem-c"]);
+  });
+
+  test("redacts the API key from provider error bodies", async () => {
+    const fetchImpl = async () => ({
+      ok: false,
+      status: 401,
+      text: async () => `invalid key: ${TEST_KEY} (Bearer ${TEST_KEY})`,
+    });
+    const result = await rerankMemories({
+      prompt: "Which database?",
+      rows,
+      config: typesafeConfig(),
+      fetchImpl,
+      env: ENV,
+    });
+    assert.equal(result.applied, false);
+    assert.equal(result.reason, "request_failed");
+    assert.doesNotMatch(String(result.error), new RegExp(TEST_KEY));
+    assert.match(String(result.error), /\[redacted\]/);
+  });
+
+  test("holds withheld candidates at their fused position", async () => {
+    const rowsWithLeadingSecret = [
+      memory("mem-secret", `The staging deploy key is ${AWS_KEY}`),
+      memory("mem-b", "Prefer oxlint over eslint for this repo."),
+      memory("mem-c", "Always write tests before merging."),
+    ];
+    const { fetchImpl, calls } = makeFetch(() => scoreAnswers({ memory_0: 0.4, memory_1: 1.8 }));
+    const result = await rerankMemories({
+      prompt: "How should I lint?",
+      rows: rowsWithLeadingSecret,
+      config: typesafeConfig(),
+      fetchImpl,
+      env: ENV,
+    });
+
+    // mem-secret is withheld, so only the two safe rows are scored; ranking
+    // them must not push the withheld row to the tail.
+    assert.deepEqual(calls[0].body.state.memories.map((entry) => entry.id), ["mem-b", "mem-c"]);
+    assert.deepEqual(result.rows.map((row) => row.id), ["mem-secret", "mem-c", "mem-b"]);
+    assert.deepEqual(result.trace.rows.map((row) => [row.id, row.score, row.fusedScore]), [
+      ["mem-secret", undefined, 0.42],
+      ["mem-c", 1.8, undefined],
+      ["mem-b", 0.4, undefined],
+    ]);
+    assert.deepEqual(result.trace.rows.map((row) => row.id).at(-1), "mem-b");
   });
 
   test("uses the configured model when provided", async () => {

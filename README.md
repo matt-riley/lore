@@ -316,7 +316,7 @@ Prompt-context hooks make no model calls by default. In the Copilot adapter, ena
   "typesafe": {
     "enabled": true,
     "model": "jev-latest",
-    "timeoutMs": 10000,
+    "timeoutMs": 3000,
     "rerank": {
       "enabled": true,
       "maxCandidates": 6
@@ -324,18 +324,19 @@ Prompt-context hooks make no model calls by default. In the Copilot adapter, ena
     "features": {
       "enabled": true,
       "minDurability": 0.5,
-      "maxMemoriesPerRun": 8
+      "minSpecificity": 0.5,
+      "maxMemoriesPerRun": 24
     }
   }
 }
 ```
 
-Provide the API key with `LORE_TYPESAFE_API_KEY` (preferred, not stored in config) or `typesafe.apiKey`. Reranking runs during prompt-recall assembly, so it adds one bounded provider round-trip to prompts with at least two candidate memories; `maxCandidates` caps the per-request cost and `timeoutMs` caps the wait. The `rerank` lookup in trace output records the scores and why reranking did or did not apply.
+Provide the API key with `LORE_TYPESAFE_API_KEY` (preferred, not stored in config) or `typesafe.apiKey`. Reranking runs during prompt-recall assembly, so it adds one bounded provider round-trip to prompts with at least two candidate memories; `maxCandidates` caps the per-request cost and `timeoutMs` caps the wait at 3 seconds by default — the observed median call is around 100 ms, and a stale provider should not hold a prompt for ten. The `rerank` lookup in trace output records the scores and why reranking did or did not apply.
 
 `features` scores memory rows once and stores the result on the row, so later decisions read a number instead of re-asking a model:
 
 - **Durability.** Standing directives are graded "durable policy" versus "one-off instruction" before the six-row cap, and statements below `minDurability` are dropped from the rendered section. This keeps session-specific requests such as *"there should be a live env key"* out of the always-on directive list. Scores are persisted in the row's metadata, so each memory is judged once and reused; unscored rows and scoring failures are kept, exactly as before the feature existed.
-- **Specificity.** Stored alongside durability for later use (for example hygiene review); nothing filters on it yet.
+- **Specificity.** When more than six directives qualify, the specific ones take the slots. Memory hygiene also scores open loops and assistant goals in the background (bounded per run, never on the prompt path) and reports those below `minSpecificity` as **vague** review candidates. A vagueness score never supersedes a memory, in any mode — a model judgment is a review signal, not a deletion.
 
 Candidates whose content looks sensitive — credentials, private-key blocks, provider tokens, JWTs, secret assignments — are **never sent** to TypeSafe, by either reranking or feature scoring, and their content is **redacted before the assembled context reaches the model**. Detection is local and deterministic (`lib/memory/memory-sensitivity.mjs`); a sensitivity judgment cannot come from the provider because asking would require sending the payload first. Withheld memories keep their existing order and are simply not scored, and the stored row is never modified: redaction is a rendering decision applied once to the assembled payload, so every recalled section is covered rather than just the one TypeSafe scores. Traces and the database keep the real content, since they never leave the machine.
 

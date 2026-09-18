@@ -332,6 +332,8 @@ describe("maintenance scheduler task execution", () => {
       execFileSync("git", ["init", "-q"], { cwd: checkout });
       execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: checkout });
       execFileSync("git", ["config", "user.name", "Fixture"], { cwd: checkout });
+      // Signing is a machine setting: a locked agent must never fail the suite.
+      execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: checkout });
       writeFileSync(path.join(checkout, "file.txt"), "one\n");
       execFileSync("git", ["add", "file.txt"], { cwd: checkout });
       execFileSync("git", ["commit", "-qm", "first"], { cwd: checkout });

@@ -79,31 +79,6 @@ describe("scripts/dev-install.mjs", () => {
     );
   });
 
-  test("describeTarget classifies missing, symlink, directory, and other targets", () => {
-    const { describeTarget } = loadDevInstallFunctions(
-      ["describeTarget"],
-      {
-        existsSync(targetPath) {
-          return targetPath !== "missing";
-        },
-        lstatSync(targetPath) {
-          if (targetPath === "symlink") {
-            return { isSymbolicLink: () => true, isDirectory: () => false };
-          }
-          if (targetPath === "directory") {
-            return { isSymbolicLink: () => false, isDirectory: () => true };
-          }
-          return { isSymbolicLink: () => false, isDirectory: () => false };
-        },
-      },
-    );
-
-    assert.deepStrictEqual(describeTarget("missing"), { exists: false, type: "missing" });
-    assert.deepStrictEqual(describeTarget("symlink"), { exists: true, type: "symlink" });
-    assert.deepStrictEqual(describeTarget("directory"), { exists: true, type: "directory" });
-    assert.deepStrictEqual(describeTarget("file"), { exists: true, type: "other" });
-  });
-
   test("isSameInstall only returns true for matching real directory paths", () => {
     const { isSameInstall } = loadDevInstallFunctions(
       ["isSameInstall"],

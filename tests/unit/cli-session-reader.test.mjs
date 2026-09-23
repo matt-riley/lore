@@ -64,3 +64,46 @@ test("bounded latest Antigravity prompt works beyond 32 MiB and ignores incomple
     assert.equal(await readLatestCliPrompt(file, { client: "antigravity" }), "latest 🥝");
   } finally { await rm(home, { recursive: true, force: true }); }
 });
+
+test("Claude slash-command echo with only injected content produces no turn", () => {
+  const parsed = parse("claude", [
+    { uuid: "1", parentUuid: null, type: "user", isMeta: false, message: { role: "user", content: "<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args></command-args>" } },
+  ]);
+  assert.equal(parsed.turns.length, 0);
+});
+
+test("Claude message with slash-command and real content preserves only the real content", () => {
+  const parsed = parse("claude", [
+    { uuid: "1", parentUuid: null, type: "user", isMeta: false, message: { role: "user", content: "Please fix the bug\n<command-name>/debug</command-name>\n<local-command-stdout>Error found</local-command-stdout>\nThank you" } },
+  ]);
+  assert.equal(parsed.turns.length, 1);
+  assert.equal(parsed.turns[0].user_message, "Please fix the bug\n\nThank you");
+  assert(!parsed.turns[0].user_message.includes("command-name"));
+  assert(!parsed.turns[0].user_message.includes("Error found"));
+});
+
+test("Codex AGENTS.md instructions with only injected content produces no turn", () => {
+  const parsed = parse("codex", [
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "# AGENTS.md instructions for lib/utils\n<INSTRUCTIONS>Use utility functions</INSTRUCTIONS>\n<environment_context>Node 24.0.0</environment_context>" }] } },
+  ]);
+  assert.equal(parsed.turns.length, 0);
+});
+
+test("Codex message with AGENTS.md instructions and real content preserves only the real content", () => {
+  const parsed = parse("codex", [
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Check the implementation.\n# AGENTS.md instructions for test\n<INSTRUCTIONS>Read carefully</INSTRUCTIONS>\nLet me know." }] } },
+  ]);
+  assert.equal(parsed.turns.length, 1);
+  assert.equal(parsed.turns[0].user_message, "Check the implementation.\n\nLet me know.");
+  assert(!parsed.turns[0].user_message.includes("AGENTS.md"));
+  assert(!parsed.turns[0].user_message.includes("INSTRUCTIONS"));
+});
+
+test("Claude message with system-reminder blocks strips them", () => {
+  const parsed = parse("claude", [
+    { uuid: "1", parentUuid: null, type: "user", isMeta: false, message: { role: "user", content: "Test the changes\n<system-reminder>Do not capture</system-reminder>" } },
+  ]);
+  assert.equal(parsed.turns.length, 1);
+  assert.equal(parsed.turns[0].user_message, "Test the changes");
+  assert(!parsed.turns[0].user_message.includes("system-reminder"));
+});

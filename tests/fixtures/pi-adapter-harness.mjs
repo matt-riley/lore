@@ -9,7 +9,6 @@ const sourcePath = path.join(root, "lore-pi.ts");
 const fixturePath = path.join(root, "tests", "fixtures", "pi-transport-server.mjs");
 const tempDir = mkdtempSync(path.join(os.tmpdir(), "lore-pi-adapter-"));
 const adapterPath = path.join(tempDir, "lore-pi.ts");
-const clientUrl = pathToFileURL(path.join(root, "lib", "clients", "pi-server-client.mjs")).href;
 const configUrl = pathToFileURL(path.join(root, "lib", "core", "config.mjs")).href;
 const source = readFileSync(sourcePath, "utf8")
   .replaceAll(/from "(\.\/lib\/[^"]+)"/g, (_match, rel) => `from "${pathToFileURL(path.join(root, rel)).href}"`)

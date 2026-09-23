@@ -116,7 +116,7 @@ function makeCapsuleDbStub({
       });
     },
     findRelevantEpisodes({
-      repository,
+      _repository,
       includeOtherRepositories = false,
       scopes = [],
     } = {}) {

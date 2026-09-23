@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { withFixtureDb } from "../helpers/fixture-db.mjs";
 import {
   previewMemoryAdministration,

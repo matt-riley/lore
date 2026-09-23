@@ -23,7 +23,7 @@ const { DEFAULT_MODEL_TOOL_NAMES } = await import(pathToFileURL(path.join(root, 
 const { LORE_SLASH_DESCRIPTION } = await import(pathToFileURL(path.join(root, "lib/runtime/slash-dispatch.mjs")).href);
 
 assert.deepEqual(
-  [...tools.filter((name) => name !== "lore_save")].sort(),
+  tools.filter((name) => name !== "lore_save").sort(),
   [...DEFAULT_MODEL_TOOL_NAMES].sort(),
 );
 assert.equal(tools.includes("lore_save"), true);

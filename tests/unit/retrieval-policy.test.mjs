@@ -192,7 +192,7 @@ test("deadline failures return sorted partial semantic rows with diagnostics", a
       db: fixture.db,
       query: "partial",
       deadlineMs: 10_000,
-      fetchImpl: async (_url, options) => ({
+      fetchImpl: async (_url, _options) => ({
         ok: true,
         status: 200,
         json: async () => ({ data: [{ index: 0, embedding: [1, 0] }] }),

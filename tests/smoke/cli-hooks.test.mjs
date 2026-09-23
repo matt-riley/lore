@@ -93,6 +93,42 @@ test("native hooks capture, recall across clients, refresh once, preserve source
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+test("PostToolUse/PostToolUseFailure hooks skip opening the database when both rollout flags are off", { skip: !FTS5_AVAILABLE }, () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-hook-lazy-db-"));
+  const env = { ...process.env, HOME: home, LORE_HOME: home, LORE_CONFIG: path.join(home, "lore.json"), LORE_ENABLED: "true" };
+  const dbPath = path.join(home, "lore.db");
+  const payload = { session_id: "lazy-session", cwd: home, transcript_path: path.join(home, "missing.jsonl") };
+  const run = (event, extra = {}) => spawnSync(process.execPath, [entry, "hook", "claude", event], { env, input: JSON.stringify({ ...payload, ...extra }), encoding: "utf8", timeout: 10000 });
+  try {
+    // Rollout defaults (postToolUse: false, errorTelemetry: false) mean
+    // neither PostToolUse nor PostToolUseFailure has any work to do; the
+    // database must never be opened or created for them.
+    writeFileSync(env.LORE_CONFIG, JSON.stringify({ enabled: true }));
+
+    let result = run("PostToolUse", { tool_name: "Bash", toolCall: { name: "run_command" } });
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /\[lore\]/, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {});
+    assert.equal(existsSync(dbPath), false, "PostToolUse must not open/create the database when both gating rollout flags are off");
+
+    result = run("PostToolUseFailure", { tool_name: "Bash", toolCall: { name: "run_command" }, error: "boom" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(dbPath), false, "PostToolUseFailure must not open/create the database when errorTelemetry is off");
+
+    // Flipping either gating flag on must resume opening the database and
+    // performing the corresponding write, proving the skip above was a real
+    // fast path and not a behavior regression.
+    writeFileSync(env.LORE_CONFIG, JSON.stringify({ enabled: true, rollout: { postToolUse: true } }));
+    result = run("PostToolUse", { tool_name: "Bash", toolCall: { name: "run_command" } });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(dbPath), true, "enabling postToolUse rollout flag must resume opening/creating the database");
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      assert.ok(db.prepare("SELECT id FROM trajectory_artifact WHERE kind = 'passive_hook_observation'").get());
+    } finally { db.close(); }
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
 test("installer dry runs, preserves other hooks/settings, is idempotent, and removes only Lore", () => {
   const project = mkdtempSync(path.join(os.tmpdir(), "lore-hook-install-'"));
   try {

@@ -88,8 +88,8 @@ All remaining tools are **`/lore` extras** (and `lore <verb>` CLI subcommands). 
 | Tool | Status | Notes |
 |---|---|---|
 | `lore_status` | 🟢 Supported | Overview of DB health, row counts, latency metrics, and maintenance state. CLI / `lore tool` aliases for one deprecation cycle: `memory_status`. |
-| `lore_explain` | 🟢 Supported | Explains what context would be injected for a given prompt and why. Copilot alias for one deprecation cycle: `memory_explain`. |
-| `lore_validate` | 🟢 Supported | Validates DB integrity and schema parity. Copilot alias for one deprecation cycle: `memory_validate`. |
+| `lore_explain` | 🟢 Supported | Explains what context would be injected for a given prompt and why. CLI / `lore tool` aliases for one deprecation cycle: `memory_explain`. |
+| `lore_validate` | 🟢 Supported | Validates DB integrity and schema parity. CLI / `lore tool` aliases for one deprecation cycle: `memory_validate`. |
 
 ### Memory administration
 

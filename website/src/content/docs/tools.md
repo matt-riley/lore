@@ -49,7 +49,7 @@ also supports the experimental native hook adapters, but capabilities differ:
 | Registered tools | Canonical nine + `/lore` legacy aliases | Canonical nine + `lore_save` alias | None; commands run through the shell |
 | Automatic recall and capture | Supported | Supported | Experimental and host-event dependent |
 | Archive backfill | Copilot store, experimental | Pi sessions, experimental | Not wired |
-| Maintenance and diagnostics | Full supported diagnostics | `lore_status` | `memory_status`; Copilot-only diagnostics unavailable |
+| Maintenance and diagnostics | Full supported diagnostics | `lore_status` | `memory_status`, `memory_explain`, `memory_validate`; Copilot-only experimental diagnostics unavailable |
 
 ## Copilot CLI tools
 
@@ -131,9 +131,9 @@ stdin is `{"cwd":"<source-cwd>","transcriptPath":"<absolute-transcript-path>"}`.
 printf '%s\n' '{"prompt":"What did we decide about storage?"}' | node /absolute/path/to/lore/lore-cli.mjs tool lore_recall
 ```
 
-The available commands are `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, `memory_status`, `memory_correct`, `memory_repair`, and `memory_purge`. They accept JSON arguments on stdin and signal failures with a nonzero exit status. Run from your project or supply an explicit `repository` argument. Injected context explains these commands to the agent, but normal host shell permissions still apply.
+The available commands are `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, `memory_status`, `memory_explain`, `memory_validate`, `memory_correct`, `memory_repair`, and `memory_purge`. They accept JSON arguments on stdin and signal failures with a nonzero exit status. Run from your project or supply an explicit `repository` argument. Injected context explains these commands to the agent, but normal host shell permissions still apply.
 
-These adapters do not expose the full Copilot tool set: `memory_explain`, `memory_validate`, `memory_skill_validate`, and Copilot-only experimental tools such as `lore_reflect` and `memory_backfill` are not CLI commands. The administration commands listed above are available through the native CLI. See the [native lifecycle table](/guides/cli-integrations/#what-happens-during-a-session) for each client's events and limits.
+These adapters do not expose the full Copilot tool set: `memory_skill_validate` and Copilot-only experimental tools such as `lore_reflect` and `memory_backfill` are not CLI commands. The administration commands listed above are available through the native CLI. See the [native lifecycle table](/guides/cli-integrations/#what-happens-during-a-session) for each client's events and limits.
 
 ## Copilot CLI hooks
 

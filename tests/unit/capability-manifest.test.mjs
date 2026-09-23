@@ -292,7 +292,8 @@ describe("LORE_CAPABILITY_SPECS", () => {
         `surfaces.cli mismatch for ${spec.name}`,
       );
     }
-    assert.equal(LORE_CLI_TOOL_NAMES.includes("lore_explain"), false);
+    assert.equal(LORE_CLI_TOOL_NAMES.includes("lore_explain"), true);
+    assert.equal(LORE_CLI_TOOL_NAMES.includes("lore_validate"), true);
     assert.equal(LORE_CLI_TOOL_NAMES.includes("lore_save"), true);
   });
 

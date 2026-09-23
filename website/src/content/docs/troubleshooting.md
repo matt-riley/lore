@@ -26,7 +26,7 @@ Lore depends on Copilot CLI extension support for `onSessionStart`, `onUserPromp
 
 Save a small test note with `memory_save`, then search it with `memory_search`. If that works but ambient recall does not, use `memory_explain` for the exact prompt: it reports eligible scopes and filtered branches. Repository-scoped memories do not automatically cross repository boundaries.
 
-The `memory_explain` and `memory_validate` advice on this page is for Copilot CLI. Native CLI adapters expose a smaller [command set](/guides/tools/#native-cli-commands); use `memory_status` and `lore_recall` there.
+Native CLI adapters expose the same `memory_explain` and `memory_validate` diagnostics through `lore tool <name>` (see the [command set](/guides/tools/#native-cli-commands)).
 
 ## Native CLI hooks do not recall or capture
 

@@ -1,18 +1,18 @@
-import { createServer } from "node:http"
-import { readFile } from "node:fs/promises"
-import path from "node:path"
-import { fileURLToPath } from "node:url"
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { buildMaintenancePlan } from "../lib/maintenance/maintenance-scheduler.mjs"
-import { embeddingProviderIdentity, semanticSearchEnabled, validatedCachedEmbeddingVector } from "../lib/memory/semantic-search.mjs"
-import { clampInteger } from "../lib/utils/numeric-utils.mjs"
-import { parseJsonArray } from "../lib/utils/json-array-utils.mjs"
-import { parseJsonObject } from "../lib/utils/json-object-utils.mjs"
-import { normalizeRepository } from "../lib/utils/repository-utils.mjs"
+import { buildMaintenancePlan } from "../lib/maintenance/maintenance-scheduler.mjs";
+import { embeddingProviderIdentity, semanticSearchEnabled, validatedCachedEmbeddingVector } from "../lib/memory/semantic-search.mjs";
+import { clampInteger } from "../lib/utils/numeric-utils.mjs";
+import { parseJsonArray } from "../lib/utils/json-array-utils.mjs";
+import { parseJsonObject } from "../lib/utils/json-object-utils.mjs";
+import { normalizeRepository } from "../lib/utils/repository-utils.mjs";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const STATIC_ROOT = __dirname
-const LORE_CLI_PATH = path.resolve(__dirname, "..", "lore-cli.mjs")
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STATIC_ROOT = __dirname;
+const LORE_CLI_PATH = path.resolve(__dirname, "..", "lore-cli.mjs");
 
 const MEMORY_ROW_SELECT = `
   SELECT
@@ -21,7 +21,7 @@ const MEMORY_ROW_SELECT = `
     superseded_by, canonical_key, reinforcement_count, last_seen_at,
     expires_at, metadata_json
   FROM semantic_memory
-`
+`;
 
 const EPISODE_ROW_SELECT = `
   SELECT
@@ -30,12 +30,12 @@ const EPISODE_ROW_SELECT = `
     refs_json, significance, themes_json, open_items_json,
     source, date_key, created_at, updated_at
   FROM episode_digest
-`
+`;
 
 const DAY_ROW_SELECT = `
   SELECT date_key, repository, summary, episode_ids_json, computed_at
   FROM day_summary
-`
+`;
 
 const IMPROVEMENT_ROW_SELECT = `
   SELECT
@@ -44,46 +44,46 @@ const IMPROVEMENT_ROW_SELECT = `
     proposal_path, proposal_hash, review_state, reviewer_decision,
     reviewer_notes_json, created_at, updated_at, resolved_at
   FROM improvement_backlog
-`
+`;
 
 class HttpError extends Error {
   constructor(statusCode, code, message) {
-    super(message)
-    this.name = "HttpError"
-    this.statusCode = statusCode
-    this.code = code
+    super(message);
+    this.name = "HttpError";
+    this.statusCode = statusCode;
+    this.code = code;
   }
 }
 
 function splitTags(value) {
   if (typeof value !== "string") {
-    return []
+    return [];
   }
-  return value.split(/\s+/).filter(Boolean)
+  return value.split(/\s+/).filter(Boolean);
 }
 
 function truncateText(value, max = 140) {
-  const text = String(value ?? "").trim()
+  const text = String(value ?? "").trim();
   if (text.length <= max) {
-    return text
+    return text;
   }
-  return `${text.slice(0, max - 1)}…`
+  return `${text.slice(0, max - 1)}…`;
 }
 
 function summarizeList(values, max = 4) {
   if (!Array.isArray(values) || values.length === 0) {
-    return []
+    return [];
   }
   return values
     .map((value) => (typeof value === "string" ? value.trim() : ""))
     .filter(Boolean)
-    .slice(0, max)
+    .slice(0, max);
 }
 
 function computeLatencyTrend(rows) {
   const latencies = rows
     .map((row) => Number(row.latencyMs))
-    .filter((value) => Number.isFinite(value))
+    .filter((value) => Number.isFinite(value));
   if (latencies.length === 0) {
     return {
       sampleCount: 0,
@@ -91,23 +91,23 @@ function computeLatencyTrend(rows) {
       previousAverageMs: 0,
       deltaMs: 0,
       trend: "no_samples",
-    }
+    };
   }
 
-  const windowSize = Math.max(1, Math.min(10, Math.floor(latencies.length / 2) || 1))
-  const recent = latencies.slice(-windowSize)
-  const previous = latencies.slice(-(windowSize * 2), -windowSize)
-  const average = (values) => Math.round(values.reduce((sum, item) => sum + item, 0) / values.length)
-  const recentAverageMs = average(recent)
-  const previousAverageMs = previous.length > 0 ? average(previous) : 0
-  const deltaMs = previous.length > 0 ? recentAverageMs - previousAverageMs : 0
+  const windowSize = Math.max(1, Math.min(10, Math.floor(latencies.length / 2) || 1));
+  const recent = latencies.slice(-windowSize);
+  const previous = latencies.slice(-(windowSize * 2), -windowSize);
+  const average = (values) => Math.round(values.reduce((sum, item) => sum + item, 0) / values.length);
+  const recentAverageMs = average(recent);
+  const previousAverageMs = previous.length > 0 ? average(previous) : 0;
+  const deltaMs = previous.length > 0 ? recentAverageMs - previousAverageMs : 0;
   const trend = previous.length === 0
     ? "insufficient_history"
     : Math.abs(deltaMs) <= 5
       ? "flat"
       : deltaMs > 0
         ? "rising"
-        : "falling"
+        : "falling";
 
   return {
     sampleCount: latencies.length,
@@ -115,7 +115,7 @@ function computeLatencyTrend(rows) {
     previousAverageMs,
     deltaMs,
     trend,
-  }
+  };
 }
 
 const SECURITY_HEADERS = Object.freeze({
@@ -123,78 +123,78 @@ const SECURITY_HEADERS = Object.freeze({
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
   "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
-})
+});
 
-const ALLOWED_LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"])
+const ALLOWED_LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
 export function isAllowedHostHeader(hostHeader) {
   if (typeof hostHeader !== "string") {
-    return false
+    return false;
   }
-  const rawHost = hostHeader.trim().toLowerCase()
+  const rawHost = hostHeader.trim().toLowerCase();
   if (!rawHost) {
-    return false
+    return false;
   }
   if (rawHost.startsWith("[")) {
-    const closing = rawHost.indexOf("]")
+    const closing = rawHost.indexOf("]");
     if (closing === -1) {
-      return false
+      return false;
     }
-    const ip = rawHost.slice(0, closing + 1)
-    const remainder = rawHost.slice(closing + 1)
+    const ip = rawHost.slice(0, closing + 1);
+    const remainder = rawHost.slice(closing + 1);
     if (remainder.length > 0 && !/^:\d+$/.test(remainder)) {
-      return false
+      return false;
     }
-    return ip === "[::1]"
+    return ip === "[::1]";
   }
   if (rawHost === "::1") {
-    return true
+    return true;
   }
-  const colonIndex = rawHost.indexOf(":")
+  const colonIndex = rawHost.indexOf(":");
   if (colonIndex !== -1) {
     if (rawHost.indexOf(":", colonIndex + 1) !== -1) {
-      return false
+      return false;
     }
-    const hostname = rawHost.slice(0, colonIndex)
-    const portPart = rawHost.slice(colonIndex + 1)
+    const hostname = rawHost.slice(0, colonIndex);
+    const portPart = rawHost.slice(colonIndex + 1);
     if (!/^\d+$/.test(portPart)) {
-      return false
+      return false;
     }
-    return hostname === "localhost" || hostname === "127.0.0.1"
+    return hostname === "localhost" || hostname === "127.0.0.1";
   }
-  return ALLOWED_LOOPBACK_HOSTS.has(rawHost)
+  return ALLOWED_LOOPBACK_HOSTS.has(rawHost);
 }
 
 function jsonResponse(res, statusCode, payload) {
-  const body = JSON.stringify(payload, null, 2)
+  const body = JSON.stringify(payload, null, 2);
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
     "Content-Length": Buffer.byteLength(body),
     ...SECURITY_HEADERS,
-  })
-  res.end(body)
+  });
+  res.end(body);
 }
 
 function notFound(res) {
   jsonResponse(res, 404, {
     ok: false,
     error: "not_found",
-  })
+  });
 }
 
 function methodNotAllowed(res) {
   jsonResponse(res, 405, {
     ok: false,
     error: "method_not_allowed",
-  })
+  });
 }
 
 function buildReadOnlyPayload(payload = {}) {
   return {
     mode: "read_only",
     ...payload,
-  }
+  };
 }
 
 const STATIC_CONTENT_TYPES = new Map([
@@ -207,45 +207,45 @@ const STATIC_CONTENT_TYPES = new Map([
   [".json", "application/json; charset=utf-8"],
   [".woff", "font/woff"],
   [".woff2", "font/woff2"],
-])
+]);
 
-const ALLOWED_STATIC_EXTENSIONS = new Set(STATIC_CONTENT_TYPES.keys())
+const ALLOWED_STATIC_EXTENSIONS = new Set(STATIC_CONTENT_TYPES.keys());
 
 function getStaticContentType(filePath) {
-  const ext = path.extname(filePath).toLowerCase()
-  return STATIC_CONTENT_TYPES.get(ext) ?? "text/plain; charset=utf-8"
+  const ext = path.extname(filePath).toLowerCase();
+  return STATIC_CONTENT_TYPES.get(ext) ?? "text/plain; charset=utf-8";
 }
 
 async function serveStatic(res, pathname) {
-  const candidate = pathname === "/" ? "/index.html" : pathname
-  const resolved = path.resolve(STATIC_ROOT, `.${candidate}`)
-  const relative = path.relative(STATIC_ROOT, resolved)
+  const candidate = pathname === "/" ? "/index.html" : pathname;
+  const resolved = path.resolve(STATIC_ROOT, `.${candidate}`);
+  const relative = path.relative(STATIC_ROOT, resolved);
   if (
     (!resolved.startsWith(STATIC_ROOT + path.sep) && resolved !== STATIC_ROOT) ||
     relative.startsWith("..") ||
     path.isAbsolute(relative)
   ) {
-    notFound(res)
-    return
+    notFound(res);
+    return;
   }
 
-  const ext = path.extname(resolved).toLowerCase()
+  const ext = path.extname(resolved).toLowerCase();
   if (!ALLOWED_STATIC_EXTENSIONS.has(ext)) {
-    notFound(res)
-    return
+    notFound(res);
+    return;
   }
 
   try {
-    const content = await readFile(resolved)
+    const content = await readFile(resolved);
     res.writeHead(200, {
       "Content-Type": getStaticContentType(resolved),
       "Cache-Control": "no-store",
       "Content-Length": content.length,
       ...SECURITY_HEADERS,
-    })
-    res.end(content)
+    });
+    res.end(content);
   } catch {
-    notFound(res)
+    notFound(res);
   }
 }
 
@@ -269,7 +269,7 @@ function mapMemoryRow(row) {
     lastSeenAt: row.last_seen_at,
     expiresAt: row.expires_at,
     metadata: parseJsonObject(row.metadata_json),
-  }
+  };
 }
 
 function mapEpisodeRow(row) {
@@ -293,7 +293,7 @@ function mapEpisodeRow(row) {
     dateKey: row.date_key,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  }
+  };
 }
 
 function mapDaySummaryRow(row) {
@@ -303,7 +303,7 @@ function mapDaySummaryRow(row) {
     summary: row.summary,
     episodeIds: parseJsonArray(row.episode_ids_json),
     computedAt: row.computed_at,
-  }
+  };
 }
 
 function mapImprovementRow(row) {
@@ -334,46 +334,46 @@ function mapImprovementRow(row) {
         content: row.memory_content,
       }
       : null,
-  }
+  };
 }
 
 function getMemoryById(db, id) {
-  const row = db.db.prepare(`${MEMORY_ROW_SELECT} WHERE id = ?`).get(id)
-  return row ? mapMemoryRow(row) : null
+  const row = db.db.prepare(`${MEMORY_ROW_SELECT} WHERE id = ?`).get(id);
+  return row ? mapMemoryRow(row) : null;
 }
 
 function tableExists(db, table) {
-  const statement = db?.prepare?.("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
-  return Boolean(statement?.get?.(table))
+  const statement = db?.prepare?.("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?");
+  return Boolean(statement?.get?.(table));
 }
 
 function quoteShell(value) {
-  return `'${String(value ?? "").replaceAll("'", "'\"'\"'")}'`
+  return `'${String(value ?? "").replaceAll("'", "'\"'\"'")}'`;
 }
 
 function buildResumeCommand({ client, sessionId, sourceCwd, sourcePath }) {
   if (!client || !sessionId || !sourceCwd || !sourcePath) {
-    return null
+    return null;
   }
   const nativeSessionId = String(sessionId).startsWith(`${client}:`)
     ? String(sessionId).slice(String(client).length + 1)
-    : sessionId
-  const input = JSON.stringify({ cwd: sourceCwd, transcriptPath: sourcePath })
-  return `printf '%s\\n' ${quoteShell(input)} | node ${quoteShell(LORE_CLI_PATH)} capture --resume --client ${quoteShell(client)} --session ${quoteShell(nativeSessionId)}`
+    : sessionId;
+  const input = JSON.stringify({ cwd: sourceCwd, transcriptPath: sourcePath });
+  return `printf '%s\\n' ${quoteShell(input)} | node ${quoteShell(LORE_CLI_PATH)} capture --resume --client ${quoteShell(client)} --session ${quoteShell(nativeSessionId)}`;
 }
 
 function mapCaptureHealthRow(row) {
-  const adapterState = row?.adapterState && typeof row.adapterState === "object" ? row.adapterState : {}
-  const sourcePath = typeof adapterState.sourcePath === "string" ? adapterState.sourcePath : null
-  const sourceCwd = typeof adapterState.sourceCwd === "string" ? adapterState.sourceCwd : null
-  const pendingBytesValue = Number(row?.health?.pendingBytes)
-  const pendingBytes = Number.isFinite(pendingBytesValue) && pendingBytesValue >= 0 ? pendingBytesValue : 0
+  const adapterState = row?.adapterState && typeof row.adapterState === "object" ? row.adapterState : {};
+  const sourcePath = typeof adapterState.sourcePath === "string" ? adapterState.sourcePath : null;
+  const sourceCwd = typeof adapterState.sourceCwd === "string" ? adapterState.sourceCwd : null;
+  const pendingBytesValue = Number(row?.health?.pendingBytes);
+  const pendingBytes = Number.isFinite(pendingBytesValue) && pendingBytesValue >= 0 ? pendingBytesValue : 0;
   const pendingWork = {
     branch: Boolean(adapterState.branchWork),
     cleanup: adapterState.cleanupCursor != null,
-  }
-  const hasPendingWork = pendingBytes > 0 || pendingWork.branch || pendingWork.cleanup
-  const failureCode = row?.health?.failureCode ?? null
+  };
+  const hasPendingWork = pendingBytes > 0 || pendingWork.branch || pendingWork.cleanup;
+  const failureCode = row?.health?.failureCode ?? null;
   return {
     client: row?.client ?? null,
     sessionId: row?.sessionId ?? null,
@@ -396,40 +396,40 @@ function mapCaptureHealthRow(row) {
       sourceCwd,
       sourcePath,
     }),
-  }
+  };
 }
 
 function listCaptureHealth({ db, repository }) {
   if (typeof db?.listCaptureHealth !== "function") {
-    return []
+    return [];
   }
-  return db.listCaptureHealth({ repository }).map(mapCaptureHealthRow)
+  return db.listCaptureHealth({ repository }).map(mapCaptureHealthRow);
 }
 
 function getTraceFallbackDiagnostics(traces) {
-  const diagnostics = []
+  const diagnostics = [];
   for (const trace of traces) {
-    const source = trace && typeof trace === "object" ? trace : {}
-    const flags = source.trace && typeof source.trace === "object" ? source.trace : {}
+    const source = trace && typeof trace === "object" ? trace : {};
+    const flags = source.trace && typeof source.trace === "object" ? source.trace : {};
     if (flags.fallback === true) {
-      diagnostics.push({ reason: "deterministic_fallback", at: source.createdAt ?? source.created_at ?? null })
+      diagnostics.push({ reason: "deterministic_fallback", at: source.createdAt ?? source.created_at ?? null });
     }
     if (flags.partialCoverage === true) {
-      diagnostics.push({ reason: "partial_embedding_coverage", at: source.createdAt ?? source.created_at ?? null })
+      diagnostics.push({ reason: "partial_embedding_coverage", at: source.createdAt ?? source.created_at ?? null });
     }
     if (flags.deadline === true) {
-      diagnostics.push({ reason: "embedding_deadline", at: source.createdAt ?? source.created_at ?? null })
+      diagnostics.push({ reason: "embedding_deadline", at: source.createdAt ?? source.created_at ?? null });
     }
   }
-  const counts = new Map()
-  for (const item of diagnostics) counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1)
-  return [...counts.entries()].map(([reason, count]) => ({ reason, count }))
+  const counts = new Map();
+  for (const item of diagnostics) counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
+  return [...counts.entries()].map(([reason, count]) => ({ reason, count }));
 }
 
 function queryIndexingCoverage({ db, repository, traces }) {
-  const inference = db?.config?.localInference ?? db?.config ?? {}
-  const embeddingConfig = inference?.embeddings ?? {}
-  const embeddingsEnabled = semanticSearchEnabled(inference)
+  const inference = db?.config?.localInference ?? db?.config ?? {};
+  const embeddingConfig = inference?.embeddings ?? {};
+  const embeddingsEnabled = semanticSearchEnabled(inference);
   if (typeof db?.countSemanticMemoriesForEmbedding !== "function"
     || typeof db?.listSemanticMemoriesForEmbedding !== "function") {
     return {
@@ -442,23 +442,23 @@ function queryIndexingCoverage({ db, repository, traces }) {
       indexedSample: 0,
       coverageBasis: "bounded eligible sample",
       fallbackDiagnostics: getTraceFallbackDiagnostics(traces),
-    }
+    };
   }
-  const totalActive = db.countSemanticMemoriesForEmbedding({ repository })
-  const candidates = db.listSemanticMemoriesForEmbedding({ repository, limit: 256, offset: 0 })
-  const provider = embeddingProviderIdentity(inference)
-  const model = typeof embeddingConfig.model === "string" ? embeddingConfig.model.trim() : ""
+  const totalActive = db.countSemanticMemoriesForEmbedding({ repository });
+  const candidates = db.listSemanticMemoriesForEmbedding({ repository, limit: 256, offset: 0 });
+  const provider = embeddingProviderIdentity(inference);
+  const model = typeof embeddingConfig.model === "string" ? embeddingConfig.model.trim() : "";
   const configuredDimensions = Number.isInteger(Number(embeddingConfig.dimensions)) && Number(embeddingConfig.dimensions) > 0
     ? Number(embeddingConfig.dimensions)
-    : null
+    : null;
   const indexedSample = candidates.filter((row) => validatedCachedEmbeddingVector(row, {
     content: row.content,
     provider,
     model,
     dimensions: configuredDimensions ?? Number(row.dimensions),
-  }) !== null).length
-  const sampleSize = candidates.length
-  const coveragePercent = sampleSize > 0 ? Math.round((indexedSample / sampleSize) * 100) : totalActive > 0 ? 0 : 100
+  }) !== null).length;
+  const sampleSize = candidates.length;
+  const coveragePercent = sampleSize > 0 ? Math.round((indexedSample / sampleSize) * 100) : totalActive > 0 ? 0 : 100;
   return {
     enabled: embeddingsEnabled,
     totalActive,
@@ -470,16 +470,16 @@ function queryIndexingCoverage({ db, repository, traces }) {
     coverageBasis: "bounded eligible sample",
     dimensionsBasis: configuredDimensions === null ? "stored vector dimensions" : "configured dimensions",
     fallbackDiagnostics: getTraceFallbackDiagnostics(traces),
-  }
+  };
 }
 
 function buildMemoryLifecycle({ db, memory }) {
-  const evidence = typeof db?.listSemanticEvidence === "function" ? db.listSemanticEvidence(memory.id) : []
+  const evidence = typeof db?.listSemanticEvidence === "function" ? db.listSemanticEvidence(memory.id) : [];
   const mappedEvidence = evidence.map((item) => {
-    const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : {}
+    const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : {};
     const attribution = metadata.sourceAttribution && typeof metadata.sourceAttribution === "object"
       ? metadata.sourceAttribution
-      : {}
+      : {};
     return {
       key: item.key,
       sessionId: item.sessionId,
@@ -495,8 +495,8 @@ function buildMemoryLifecycle({ db, memory }) {
       retiredAt: item.retiredAt,
       linkedAt: item.linkedAt,
       linkRetiredAt: item.linkRetiredAt,
-    }
-  })
+    };
+  });
   const suppressions = tableExists(db?.db, "memory_suppression")
     ? db.db.prepare(`
       SELECT suppression_key, actor, reason, created_at, superseded_at, repair_candidate
@@ -509,17 +509,17 @@ function buildMemoryLifecycle({ db, memory }) {
       supersededAt: row.superseded_at,
       repairCandidate: Boolean(row.repair_candidate),
     }))
-    : []
-  const activeSuppressions = suppressions.filter((item) => !item.supersededAt && !item.repairCandidate)
+    : [];
+  const activeSuppressions = suppressions.filter((item) => !item.supersededAt && !item.repairCandidate);
   const correction = memory.metadata?.correctionProvenance && typeof memory.metadata.correctionProvenance === "object"
     ? memory.metadata.correctionProvenance
-    : null
-  const expiresAt = memory.expiresAt ?? null
+    : null;
+  const expiresAt = memory.expiresAt ?? null;
   const expiryState = expiresAt === null
     ? "none"
     : Number.isNaN(new Date(expiresAt).getTime())
       ? "invalid"
-      : new Date(expiresAt).getTime() <= Date.now() ? "expired" : "active"
+      : new Date(expiresAt).getTime() <= Date.now() ? "expired" : "active";
   const timeline = [
     memory.createdAt ? { at: memory.createdAt, kind: "created", label: "Memory created" } : null,
     ...mappedEvidence.flatMap((item) => [
@@ -569,7 +569,7 @@ function buildMemoryLifecycle({ db, memory }) {
     } : null,
     expiresAt && expiryState !== "invalid" ? { at: expiresAt, kind: "expiry", label: "Expiry boundary" } : null,
     memory.updatedAt && memory.updatedAt !== memory.createdAt ? { at: memory.updatedAt, kind: "updated", label: "Memory updated" } : null,
-  ].filter(Boolean).sort((a, b) => String(a.at).localeCompare(String(b.at)))
+  ].filter(Boolean).sort((a, b) => String(a.at).localeCompare(String(b.at)));
   return {
     evidence: mappedEvidence,
     suppressions,
@@ -581,34 +581,34 @@ function buildMemoryLifecycle({ db, memory }) {
       activeSuppressionCount: activeSuppressions.length,
     },
     timeline,
-  }
+  };
 }
 
 function getEpisodeBySessionId(db, sessionId) {
-  const row = db.db.prepare(`${EPISODE_ROW_SELECT} WHERE session_id = ?`).get(sessionId)
-  return row ? mapEpisodeRow(row) : null
+  const row = db.db.prepare(`${EPISODE_ROW_SELECT} WHERE session_id = ?`).get(sessionId);
+  return row ? mapEpisodeRow(row) : null;
 }
 
 function getDaySummary(db, { dateKey, repository }) {
   if (!dateKey) {
-    return null
+    return null;
   }
 
-  const exactRepository = repository ?? ""
+  const exactRepository = repository ?? "";
   const row = db.db.prepare(`
     ${DAY_ROW_SELECT}
     WHERE date_key = ?
       AND repository IN (?, '')
     ORDER BY CASE WHEN repository = ? THEN 0 ELSE 1 END, computed_at DESC
     LIMIT 1
-  `).get(dateKey, exactRepository, exactRepository)
+  `).get(dateKey, exactRepository, exactRepository);
 
-  return row ? mapDaySummaryRow(row) : null
+  return row ? mapDaySummaryRow(row) : null;
 }
 
 function listDayEpisodes(db, { dateKey, repository, excludeSessionId = null, limit = 12 }) {
   if (!dateKey) {
-    return []
+    return [];
   }
 
   const rows = db.db.prepare(`
@@ -621,28 +621,28 @@ function listDayEpisodes(db, { dateKey, repository, excludeSessionId = null, lim
       AND (? IS NULL OR session_id != ?)
     ORDER BY updated_at DESC
     LIMIT ?
-  `).all(dateKey, repository, repository, repository, excludeSessionId, excludeSessionId, limit)
+  `).all(dateKey, repository, repository, repository, excludeSessionId, excludeSessionId, limit);
 
-  return rows.map(mapEpisodeRow)
+  return rows.map(mapEpisodeRow);
 }
 
 function listMemoriesByCanonicalKey(db, canonicalKey, { limit = 12 } = {}) {
   if (!canonicalKey) {
-    return []
+    return [];
   }
   const rows = db.db.prepare(`
     ${MEMORY_ROW_SELECT}
     WHERE canonical_key = ?
     ORDER BY CASE WHEN superseded_by IS NULL THEN 0 ELSE 1 END, updated_at DESC
     LIMIT ?
-  `).all(canonicalKey, limit)
+  `).all(canonicalKey, limit);
 
-  return rows.map(mapMemoryRow)
+  return rows.map(mapMemoryRow);
 }
 
 function getCanonicalClusterSummary(db, canonicalKey) {
   if (!canonicalKey) {
-    return null
+    return null;
   }
 
   const counts = db.db.prepare(`
@@ -652,14 +652,14 @@ function getCanonicalClusterSummary(db, canonicalKey) {
       SUM(COALESCE(reinforcement_count, 0)) AS total_reinforcement
     FROM semantic_memory
     WHERE canonical_key = ?
-  `).get(canonicalKey)
+  `).get(canonicalKey);
 
   return {
     key: canonicalKey,
     totalMembers: counts?.total_members ?? 0,
     activeMembers: counts?.active_members ?? 0,
     totalReinforcement: counts?.total_reinforcement ?? 0,
-  }
+  };
 }
 
 function listMemoriesSupersededBy(db, id, { limit = 12 } = {}) {
@@ -668,9 +668,9 @@ function listMemoriesSupersededBy(db, id, { limit = 12 } = {}) {
     WHERE superseded_by = ?
     ORDER BY updated_at DESC
     LIMIT ?
-  `).all(id, limit)
+  `).all(id, limit);
 
-  return rows.map(mapMemoryRow)
+  return rows.map(mapMemoryRow);
 }
 
 function listMemoriesBySourceSession(db, sessionId, { limit = 24 } = {}) {
@@ -679,9 +679,9 @@ function listMemoriesBySourceSession(db, sessionId, { limit = 24 } = {}) {
     WHERE source_session_id = ?
     ORDER BY updated_at DESC
     LIMIT ?
-  `).all(sessionId, limit)
+  `).all(sessionId, limit);
 
-  return rows.map(mapMemoryRow)
+  return rows.map(mapMemoryRow);
 }
 
 function listImprovementsForMemory(db, memoryId, { limit = 12 } = {}) {
@@ -690,9 +690,9 @@ function listImprovementsForMemory(db, memoryId, { limit = 12 } = {}) {
     WHERE linked_memory_id = ?
     ORDER BY updated_at DESC
     LIMIT ?
-  `).all(memoryId, limit)
+  `).all(memoryId, limit);
 
-  return rows.map(mapImprovementRow)
+  return rows.map(mapImprovementRow);
 }
 
 function listImprovementsForSession(db, sessionId, { limit = 16 } = {}) {
@@ -709,32 +709,32 @@ function listImprovementsForSession(db, sessionId, { limit = 16 } = {}) {
     WHERE sm.source_session_id = ?
     ORDER BY ib.updated_at DESC
     LIMIT ?
-  `).all(sessionId, limit)
+  `).all(sessionId, limit);
 
-  return rows.map(mapImprovementRow)
+  return rows.map(mapImprovementRow);
 }
 
 function summarizeWorkstreamTitle(memory) {
-  const title = typeof memory.metadata?.title === "string" ? memory.metadata.title.trim() : ""
+  const title = typeof memory.metadata?.title === "string" ? memory.metadata.title.trim() : "";
   if (title.length > 0) {
-    return title
+    return title;
   }
-  return truncateText(memory.content, 120)
+  return truncateText(memory.content, 120);
 }
 
 function getMemoryEntityType(memory) {
-  return memory.type === "workstream_overlay" ? "workstream" : "memory"
+  return memory.type === "workstream_overlay" ? "workstream" : "memory";
 }
 
 function buildNodeId(kind, id) {
-  return `${kind}:${id}`
+  return `${kind}:${id}`;
 }
 
 function buildMemoryNode(memory, { column = "right", entityType = null, focus = false } = {}) {
-  const resolvedEntityType = entityType ?? getMemoryEntityType(memory)
+  const resolvedEntityType = entityType ?? getMemoryEntityType(memory);
   const title = resolvedEntityType === "workstream"
     ? summarizeWorkstreamTitle(memory)
-    : truncateText(memory.content, focus ? 160 : 88)
+    : truncateText(memory.content, focus ? 160 : 88);
 
   return {
     id: buildNodeId(resolvedEntityType, memory.id),
@@ -750,7 +750,7 @@ function buildMemoryNode(memory, { column = "right", entityType = null, focus = 
       memory.canonicalKey ? `canonical ${memory.canonicalKey}` : null,
       memory.reinforcementCount > 1 ? `reinforced ${memory.reinforcementCount}×` : null,
     ].filter(Boolean).join(" · "),
-  }
+  };
 }
 
 function buildSessionNode(episode, { column = "left", focus = false } = {}) {
@@ -765,7 +765,7 @@ function buildSessionNode(episode, { column = "left", focus = false } = {}) {
     subtitle: [episode.repository ?? "global", episode.branch, episode.dateKey].filter(Boolean).join(" · "),
     badge: "session",
     meta: `significance ${episode.significance}`,
-  }
+  };
 }
 
 function buildSessionPlaceholderNode(sessionId, repository, { column = "left" } = {}) {
@@ -780,7 +780,7 @@ function buildSessionPlaceholderNode(sessionId, repository, { column = "left" } 
     subtitle: repository ?? "pending digest",
     badge: "provenance",
     meta: "episode digest not available yet",
-  }
+  };
 }
 
 function buildDayNode(day, { column = "left" } = {}) {
@@ -795,7 +795,7 @@ function buildDayNode(day, { column = "left" } = {}) {
     subtitle: day.repository || "global",
     badge: "day",
     meta: `${day.episodeIds.length} episodes`,
-  }
+  };
 }
 
 function buildClusterNode(cluster, { column = "left" } = {}) {
@@ -810,7 +810,7 @@ function buildClusterNode(cluster, { column = "left" } = {}) {
     subtitle: `${cluster.totalMembers} memories`,
     badge: "canonical",
     meta: `${cluster.totalReinforcement} reinforcements`,
-  }
+  };
 }
 
 function buildImprovementNode(improvement, { column = "far" } = {}) {
@@ -825,30 +825,30 @@ function buildImprovementNode(improvement, { column = "far" } = {}) {
     subtitle: [improvement.status, improvement.reviewState].filter(Boolean).join(" · "),
     badge: "improvement",
     meta: truncateText(improvement.summary, 96),
-  }
+  };
 }
 
 function createGraph(centerNode) {
-  const nodes = new Map()
-  const edges = []
+  const nodes = new Map();
+  const edges = [];
 
   const addNode = (node) => {
     if (!node?.id) {
-      return
+      return;
     }
     if (!nodes.has(node.id)) {
-      nodes.set(node.id, node)
-      return
+      nodes.set(node.id, node);
+      return;
     }
     nodes.set(node.id, {
       ...nodes.get(node.id),
       ...node,
-    })
-  }
+    });
+  };
 
   const addEdge = (from, to, type, label) => {
     if (!from || !to || from === to) {
-      return
+      return;
     }
     edges.push({
       id: `${type}:${from}:${to}:${edges.length}`,
@@ -856,10 +856,10 @@ function createGraph(centerNode) {
       to,
       type,
       label,
-    })
-  }
+    });
+  };
 
-  addNode(centerNode)
+  addNode(centerNode);
 
   return {
     addNode,
@@ -869,9 +869,9 @@ function createGraph(centerNode) {
         centerNodeId: centerNode.id,
         nodes: Array.from(nodes.values()),
         edges,
-      }
+      };
     },
-  }
+  };
 }
 
 function buildMemoryFocus(memory, entityType) {
@@ -895,7 +895,7 @@ function buildMemoryFocus(memory, entityType) {
     updatedAt: memory.updatedAt,
     lastSeenAt: memory.lastSeenAt,
     expiresAt: memory.expiresAt,
-  }
+  };
 }
 
 function buildSessionFocus(episode) {
@@ -923,14 +923,14 @@ function buildSessionFocus(episode) {
     filesChanged: summarizeList(episode.filesChanged),
     createdAt: episode.createdAt,
     updatedAt: episode.updatedAt,
-  }
+  };
 }
 
 function buildMemoryProvenance({ db, memory }) {
-  const sourceEpisode = memory.sourceSessionId ? getEpisodeBySessionId(db, memory.sourceSessionId) : null
+  const sourceEpisode = memory.sourceSessionId ? getEpisodeBySessionId(db, memory.sourceSessionId) : null;
   const sourceDay = sourceEpisode
     ? getDaySummary(db, { dateKey: sourceEpisode.dateKey, repository: sourceEpisode.repository })
-    : null
+    : null;
   const siblingSessions = sourceEpisode
     ? listDayEpisodes(db, {
       dateKey: sourceEpisode.dateKey,
@@ -938,7 +938,7 @@ function buildMemoryProvenance({ db, memory }) {
       excludeSessionId: sourceEpisode.sessionId,
       limit: 8,
     })
-    : []
+    : [];
 
   return {
     sourceEpisode,
@@ -954,26 +954,26 @@ function buildMemoryProvenance({ db, memory }) {
         significance: null,
       }
       : null),
-  }
+  };
 }
 
 function buildMemoryRelations({ db, memory }) {
-  const supersededBy = memory.supersededBy ? getMemoryById(db, memory.supersededBy) : null
-  const supersedes = listMemoriesSupersededBy(db, memory.id, { limit: 8 })
-  const linkedImprovements = listImprovementsForMemory(db, memory.id, { limit: 8 })
+  const supersededBy = memory.supersededBy ? getMemoryById(db, memory.supersededBy) : null;
+  const supersedes = listMemoriesSupersededBy(db, memory.id, { limit: 8 });
+  const linkedImprovements = listImprovementsForMemory(db, memory.id, { limit: 8 });
   const canonicalCluster = memory.canonicalKey
     ? {
       ...getCanonicalClusterSummary(db, memory.canonicalKey),
       members: listMemoriesByCanonicalKey(db, memory.canonicalKey, { limit: 10 }),
     }
-    : null
+    : null;
 
   return {
     supersededBy,
     supersedes,
     linkedImprovements,
     canonicalCluster,
-  }
+  };
 }
 
 function populateMemoryDrilldownGraph({
@@ -984,29 +984,29 @@ function populateMemoryDrilldownGraph({
   relations,
 }) {
   if (provenance.sourceEpisode) {
-    const sessionNode = buildSessionNode(provenance.sourceEpisode, { column: "left" })
-    graph.addNode(sessionNode)
-    graph.addEdge(sessionNode.id, centerNode.id, "source_session", "source session")
+    const sessionNode = buildSessionNode(provenance.sourceEpisode, { column: "left" });
+    graph.addNode(sessionNode);
+    graph.addEdge(sessionNode.id, centerNode.id, "source_session", "source session");
   } else if (memory.sourceSessionId) {
-    const sessionNode = buildSessionPlaceholderNode(memory.sourceSessionId, memory.repository, { column: "left" })
-    graph.addNode(sessionNode)
-    graph.addEdge(sessionNode.id, centerNode.id, "source_session", "source session")
+    const sessionNode = buildSessionPlaceholderNode(memory.sourceSessionId, memory.repository, { column: "left" });
+    graph.addNode(sessionNode);
+    graph.addEdge(sessionNode.id, centerNode.id, "source_session", "source session");
   }
 
   if (provenance.sourceDay) {
-    const dayNode = buildDayNode(provenance.sourceDay, { column: "left" })
-    graph.addNode(dayNode)
+    const dayNode = buildDayNode(provenance.sourceDay, { column: "left" });
+    graph.addNode(dayNode);
     if (provenance.sourceEpisode) {
-      graph.addEdge(dayNode.id, buildNodeId("session", provenance.sourceEpisode.sessionId), "day_group", "day grouping")
+      graph.addEdge(dayNode.id, buildNodeId("session", provenance.sourceEpisode.sessionId), "day_group", "day grouping");
     } else {
-      graph.addEdge(dayNode.id, centerNode.id, "day_group", "day grouping")
+      graph.addEdge(dayNode.id, centerNode.id, "day_group", "day grouping");
     }
   }
 
   if (relations.canonicalCluster) {
-    const clusterNode = buildClusterNode(relations.canonicalCluster, { column: "left" })
-    graph.addNode(clusterNode)
-    graph.addEdge(clusterNode.id, centerNode.id, "canonical_cluster", "canonical cluster")
+    const clusterNode = buildClusterNode(relations.canonicalCluster, { column: "left" });
+    graph.addNode(clusterNode);
+    graph.addEdge(clusterNode.id, centerNode.id, "canonical_cluster", "canonical cluster");
     relations.canonicalCluster.members
       .filter((candidate) => candidate.id !== memory.id)
       .slice(0, 5)
@@ -1014,57 +1014,57 @@ function populateMemoryDrilldownGraph({
         const memberNode = buildMemoryNode(candidate, {
           column: "right",
           entityType: getMemoryEntityType(candidate),
-        })
-        graph.addNode(memberNode)
-        graph.addEdge(clusterNode.id, memberNode.id, "cluster_member", "cluster member")
-      })
+        });
+        graph.addNode(memberNode);
+        graph.addEdge(clusterNode.id, memberNode.id, "cluster_member", "cluster member");
+      });
   }
 
   relations.supersedes.slice(0, 4).forEach((candidate) => {
     const node = buildMemoryNode(candidate, {
       column: "left",
       entityType: getMemoryEntityType(candidate),
-    })
-    graph.addNode(node)
-    graph.addEdge(node.id, centerNode.id, "superseded_by", "superseded by")
-  })
+    });
+    graph.addNode(node);
+    graph.addEdge(node.id, centerNode.id, "superseded_by", "superseded by");
+  });
 
   if (relations.supersededBy) {
     const node = buildMemoryNode(relations.supersededBy, {
       column: "right",
       entityType: getMemoryEntityType(relations.supersededBy),
-    })
-    graph.addNode(node)
-    graph.addEdge(centerNode.id, node.id, "superseded_by", "superseded by")
+    });
+    graph.addNode(node);
+    graph.addEdge(centerNode.id, node.id, "superseded_by", "superseded by");
   }
 
   relations.linkedImprovements.slice(0, 4).forEach((improvement) => {
-    const node = buildImprovementNode(improvement, { column: "far" })
-    graph.addNode(node)
-    graph.addEdge(node.id, centerNode.id, "linked_memory", "linked improvement")
-  })
+    const node = buildImprovementNode(improvement, { column: "far" });
+    graph.addNode(node);
+    graph.addEdge(node.id, centerNode.id, "linked_memory", "linked improvement");
+  });
 }
 
 function buildMemoryDrilldown({ db, id, entityType }) {
-  const memory = getMemoryById(db, id)
+  const memory = getMemoryById(db, id);
   if (!memory) {
-    throw new HttpError(404, "memory_not_found", `No memory found for ${id}`)
+    throw new HttpError(404, "memory_not_found", `No memory found for ${id}`);
   }
   if (entityType === "workstream" && memory.type !== "workstream_overlay") {
-    throw new HttpError(404, "workstream_not_found", `No workstream found for ${id}`)
+    throw new HttpError(404, "workstream_not_found", `No workstream found for ${id}`);
   }
 
-  const focus = buildMemoryFocus(memory, entityType)
-  const provenance = buildMemoryProvenance({ db, memory })
-  const relations = buildMemoryRelations({ db, memory })
-  const lifecycle = buildMemoryLifecycle({ db, memory })
+  const focus = buildMemoryFocus(memory, entityType);
+  const provenance = buildMemoryProvenance({ db, memory });
+  const relations = buildMemoryRelations({ db, memory });
+  const lifecycle = buildMemoryLifecycle({ db, memory });
   const centerNode = buildMemoryNode(memory, {
     column: "center",
     entityType,
     focus: true,
-  })
-  const graph = createGraph(centerNode)
-  populateMemoryDrilldownGraph({ graph, centerNode, memory, provenance, relations })
+  });
+  const graph = createGraph(centerNode);
+  populateMemoryDrilldownGraph({ graph, centerNode, memory, provenance, relations });
 
   return {
     entityType,
@@ -1083,53 +1083,53 @@ function buildMemoryDrilldown({ db, id, entityType }) {
     linkedImprovements: relations.linkedImprovements,
     lifecycle,
     graph: graph.toJSON(),
-  }
+  };
 }
 
 function buildSessionDrilldown({ db, id }) {
-  const episode = getEpisodeBySessionId(db, id)
+  const episode = getEpisodeBySessionId(db, id);
   if (!episode) {
-    throw new HttpError(404, "session_not_found", `No session digest found for ${id}`)
+    throw new HttpError(404, "session_not_found", `No session digest found for ${id}`);
   }
 
-  const focus = buildSessionFocus(episode)
+  const focus = buildSessionFocus(episode);
   const day = getDaySummary(db, {
     dateKey: episode.dateKey,
     repository: episode.repository,
-  })
+  });
   const siblingSessions = listDayEpisodes(db, {
     dateKey: episode.dateKey,
     repository: episode.repository,
     excludeSessionId: episode.sessionId,
     limit: 8,
-  })
-  const sessionMemories = listMemoriesBySourceSession(db, episode.sessionId, { limit: 16 })
-  const linkedImprovements = listImprovementsForSession(db, episode.sessionId, { limit: 10 })
+  });
+  const sessionMemories = listMemoriesBySourceSession(db, episode.sessionId, { limit: 16 });
+  const linkedImprovements = listImprovementsForSession(db, episode.sessionId, { limit: 10 });
 
   const centerNode = buildSessionNode(episode, {
     column: "center",
     focus: true,
-  })
-  const graph = createGraph(centerNode)
+  });
+  const graph = createGraph(centerNode);
 
   if (day) {
-    const dayNode = buildDayNode(day, { column: "left" })
-    graph.addNode(dayNode)
-    graph.addEdge(dayNode.id, centerNode.id, "day_group", "day grouping")
+    const dayNode = buildDayNode(day, { column: "left" });
+    graph.addNode(dayNode);
+    graph.addEdge(dayNode.id, centerNode.id, "day_group", "day grouping");
   }
 
   sessionMemories.slice(0, 8).forEach((memory) => {
     const node = buildMemoryNode(memory, {
       column: "right",
       entityType: getMemoryEntityType(memory),
-    })
-    graph.addNode(node)
-    graph.addEdge(centerNode.id, node.id, "source_session", "source session")
-  })
+    });
+    graph.addNode(node);
+    graph.addEdge(centerNode.id, node.id, "source_session", "source session");
+  });
 
   linkedImprovements.slice(0, 6).forEach((improvement) => {
-    const node = buildImprovementNode(improvement, { column: "far" })
-    graph.addNode(node)
+    const node = buildImprovementNode(improvement, { column: "far" });
+    graph.addNode(node);
     if (improvement.linkedMemoryId && improvement.linkedMemory) {
       const linkedMemoryNode = {
         ...buildMemoryNode(
@@ -1149,14 +1149,14 @@ function buildSessionDrilldown({ db, id }) {
           },
         ),
         title: truncateText(improvement.linkedMemory.content, 88),
-      }
-      graph.addNode(linkedMemoryNode)
-      graph.addEdge(node.id, linkedMemoryNode.id, "linked_memory", "linked improvement")
-      return
+      };
+      graph.addNode(linkedMemoryNode);
+      graph.addEdge(node.id, linkedMemoryNode.id, "linked_memory", "linked improvement");
+      return;
     }
 
-    graph.addEdge(node.id, centerNode.id, "linked_memory", "linked improvement")
-  })
+    graph.addEdge(node.id, centerNode.id, "linked_memory", "linked improvement");
+  });
 
   return {
     entityType: "session",
@@ -1168,7 +1168,7 @@ function buildSessionDrilldown({ db, id }) {
     sessionMemories,
     linkedImprovements,
     graph: graph.toJSON(),
-  }
+  };
 }
 
 function getStatusMaintenancePlan({ db, repository }) {
@@ -1184,17 +1184,17 @@ function getStatusMaintenancePlan({ db, repository }) {
     trigger: "status",
     force: false,
     requestedTasks: [],
-  })
+  });
 }
 
 function queryOverview({ db, repository, traceLimit = 40, maintenanceLimit = 10 }) {
-  const stats = db.getStats()
+  const stats = db.getStats();
   const traces = db.listRetrievalTraceSamples({
     repository,
     includeGlobal: true,
     limit: clampInteger(traceLimit, 40, { min: 5, max: 200 }),
-  })
-  const activity = db.getActivityState({ repository, includeGlobal: true })
+  });
+  const activity = db.getActivityState({ repository, includeGlobal: true });
 
   const workstreamRows = db.db.prepare(`
     SELECT id, repository, scope, content, metadata_json, updated_at
@@ -1203,10 +1203,10 @@ function queryOverview({ db, repository, traceLimit = 40, maintenanceLimit = 10 
       AND superseded_by IS NULL
     ORDER BY updated_at DESC
     LIMIT 20
-  `).all()
+  `).all();
   const workstreams = workstreamRows
     .map((row) => {
-      const metadata = parseJsonObject(row.metadata_json)
+      const metadata = parseJsonObject(row.metadata_json);
       return {
         id: row.id,
         repository: row.repository,
@@ -1220,18 +1220,18 @@ function queryOverview({ db, repository, traceLimit = 40, maintenanceLimit = 10 
         blockers: Array.isArray(metadata.blockers) ? metadata.blockers : [],
         nextActions: Array.isArray(metadata.nextActions) ? metadata.nextActions : [],
         updatedAt: row.updated_at,
-      }
+      };
     })
-    .filter((row) => row.status !== "done")
+    .filter((row) => row.status !== "done");
 
-  const maintenancePlan = getStatusMaintenancePlan({ db, repository })
+  const maintenancePlan = getStatusMaintenancePlan({ db, repository });
 
-  const captureHealth = listCaptureHealth({ db, repository })
-  const indexing = queryIndexingCoverage({ db, repository, traces })
+  const captureHealth = listCaptureHealth({ db, repository });
+  const indexing = queryIndexingCoverage({ db, repository, traces });
 
   const recentRuns = db.listMaintenanceRuns({
     limit: clampInteger(maintenanceLimit, 10, { min: 1, max: 50 }),
-  })
+  });
 
   return {
     stats,
@@ -1247,7 +1247,7 @@ function queryOverview({ db, repository, traceLimit = 40, maintenanceLimit = 10 
     recentTraceSamples: traces.slice(0, 10),
     captureHealth,
     indexing,
-  }
+  };
 }
 
 function queryMemoryFilters({ db }) {
@@ -1256,13 +1256,13 @@ function queryMemoryFilters({ db }) {
     FROM semantic_memory
     GROUP BY type
     ORDER BY count DESC, type ASC
-  `).all()
+  `).all();
   const scopes = db.db.prepare(`
     SELECT scope, COUNT(*) AS count
     FROM semantic_memory
     GROUP BY scope
     ORDER BY count DESC, scope ASC
-  `).all()
+  `).all();
   const repositories = db.db.prepare(`
     SELECT repository, COUNT(*) AS count
     FROM semantic_memory
@@ -1270,7 +1270,7 @@ function queryMemoryFilters({ db }) {
     GROUP BY repository
     ORDER BY count DESC, repository ASC
     LIMIT 200
-  `).all()
+  `).all();
   const canonicalKeys = db.db.prepare(`
     SELECT canonical_key AS canonicalKey, COUNT(*) AS count
     FROM semantic_memory
@@ -1278,25 +1278,25 @@ function queryMemoryFilters({ db }) {
     GROUP BY canonical_key
     ORDER BY count DESC, canonical_key ASC
     LIMIT 200
-  `).all()
+  `).all();
 
   return {
     types,
     scopes,
     repositories,
     canonicalKeys,
-  }
+  };
 }
 
-const MAX_MEMORY_SEARCH_TERM_LENGTH = 200
+const MAX_MEMORY_SEARCH_TERM_LENGTH = 200;
 
 function normalizeMemorySearchTerm(value) {
-  const term = String(value ?? "").trim().slice(0, MAX_MEMORY_SEARCH_TERM_LENGTH)
-  return term || null
+  const term = String(value ?? "").trim().slice(0, MAX_MEMORY_SEARCH_TERM_LENGTH);
+  return term || null;
 }
 
 function escapeLikePattern(term) {
-  return term.replace(/[\\%_]/g, (char) => `\\${char}`)
+  return term.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 function buildMemoryQueryParams(url) {
@@ -1309,61 +1309,61 @@ function buildMemoryQueryParams(url) {
     state: (url.searchParams.get("state") || "active").trim().toLowerCase(),
     page: clampInteger(url.searchParams.get("page"), 1, { min: 1, max: 2000 }),
     pageSize: clampInteger(url.searchParams.get("pageSize"), 25, { min: 1, max: 100 }),
-  }
+  };
 }
 
 function buildMemoryFilters({ type, scope, repository, canonicalKey, query, state }) {
-  const clauses = []
-  const params = []
-  if (type) { clauses.push("type = ?"); params.push(type) }
-  if (scope) { clauses.push("scope = ?"); params.push(scope) }
-  if (repository) { clauses.push("repository = ?"); params.push(repository) }
-  if (canonicalKey) { clauses.push("canonical_key = ?"); params.push(canonicalKey) }
+  const clauses = [];
+  const params = [];
+  if (type) { clauses.push("type = ?"); params.push(type); }
+  if (scope) { clauses.push("scope = ?"); params.push(scope); }
+  if (repository) { clauses.push("repository = ?"); params.push(repository); }
+  if (canonicalKey) { clauses.push("canonical_key = ?"); params.push(canonicalKey); }
   if (query) {
-    clauses.push("content LIKE ? ESCAPE '\\'")
-    params.push(`%${escapeLikePattern(query)}%`)
+    clauses.push("content LIKE ? ESCAPE '\\'");
+    params.push(`%${escapeLikePattern(query)}%`);
   }
   if (state === "active") {
-    clauses.push("superseded_by IS NULL")
+    clauses.push("superseded_by IS NULL");
   } else if (state === "superseded") {
-    clauses.push("superseded_by IS NOT NULL")
+    clauses.push("superseded_by IS NOT NULL");
   }
-  return { clauses, params }
+  return { clauses, params };
 }
 
 function queryMemories({ db, url }) {
-  const { type, scope, repository, canonicalKey, query, state, page, pageSize } = buildMemoryQueryParams(url)
-  const offset = (page - 1) * pageSize
-  const { clauses, params } = buildMemoryFilters({ type, scope, repository, canonicalKey, query, state })
-  const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""
+  const { type, scope, repository, canonicalKey, query, state, page, pageSize } = buildMemoryQueryParams(url);
+  const offset = (page - 1) * pageSize;
+  const { clauses, params } = buildMemoryFilters({ type, scope, repository, canonicalKey, query, state });
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 
   const countRow = db.db.prepare(`
     SELECT COUNT(*) AS count
     FROM semantic_memory
     ${where}
-  `).get(...params)
+  `).get(...params);
 
   const rows = db.db.prepare(`
     ${MEMORY_ROW_SELECT}
     ${where}
     ORDER BY updated_at DESC
     LIMIT ? OFFSET ?
-  `).all(...params, pageSize, offset)
+  `).all(...params, pageSize, offset);
 
   return {
     page,
     pageSize,
     total: countRow?.count ?? 0,
     rows: rows.map(mapMemoryRow),
-  }
+  };
 }
 
 function queryMaintenance({ db, repository }) {
-  const runs = db.listMaintenanceRuns({ limit: 20 })
-  const taskStates = db.listMaintenanceTaskStates()
-  const traces = db.listRetrievalTraceSamples({ repository, includeGlobal: true, limit: 30 })
-  const doctorReports = db.listTrajectoryArtifacts({ kind: "doctor_report", repository, limit: 20 })
-  const trajectory = db.listTrajectoryArtifacts({ repository, limit: 30 })
+  const runs = db.listMaintenanceRuns({ limit: 20 });
+  const taskStates = db.listMaintenanceTaskStates();
+  const traces = db.listRetrievalTraceSamples({ repository, includeGlobal: true, limit: 30 });
+  const doctorReports = db.listTrajectoryArtifacts({ kind: "doctor_report", repository, limit: 20 });
+  const trajectory = db.listTrajectoryArtifacts({ repository, limit: 30 });
 
   const deferred = db.db.prepare(`
     SELECT
@@ -1392,9 +1392,9 @@ function queryMaintenance({ db, repository }) {
     attempts: row.attempts,
     lastError: row.last_error,
     metadata: parseJsonObject(row.metadata_json),
-  }))
+  }));
 
-  const maintenancePlan = getStatusMaintenancePlan({ db, repository })
+  const maintenancePlan = getStatusMaintenancePlan({ db, repository });
 
   return {
     runs,
@@ -1404,7 +1404,7 @@ function queryMaintenance({ db, repository }) {
     trajectory,
     maintenancePlan,
     recentTraceSamples: traces,
-  }
+  };
 }
 
 function queryEpisodes({ db, repository }) {
@@ -1413,38 +1413,38 @@ function queryEpisodes({ db, repository }) {
     WHERE (? IS NULL OR repository = ? OR scope = 'global')
     ORDER BY updated_at DESC
     LIMIT 100
-  `).all(repository, repository).map(mapEpisodeRow)
+  `).all(repository, repository).map(mapEpisodeRow);
 
   const daySummaries = db.db.prepare(`
     ${DAY_ROW_SELECT}
     WHERE (? IS NULL OR repository = ? OR repository = '')
     ORDER BY date_key DESC, computed_at DESC
     LIMIT 60
-  `).all(repository, repository).map(mapDaySummaryRow)
+  `).all(repository, repository).map(mapDaySummaryRow);
 
   return {
     episodes,
     daySummaries,
-  }
+  };
 }
 
 function queryDrilldown({ db, url }) {
-  const entityType = (url.searchParams.get("entity") || "").trim().toLowerCase()
-  const id = (url.searchParams.get("id") || "").trim()
+  const entityType = (url.searchParams.get("entity") || "").trim().toLowerCase();
+  const id = (url.searchParams.get("id") || "").trim();
 
   if (!entityType || !id) {
-    throw new HttpError(400, "invalid_drilldown_query", "entity and id are required")
+    throw new HttpError(400, "invalid_drilldown_query", "entity and id are required");
   }
 
   if (entityType === "memory" || entityType === "workstream") {
-    return buildMemoryDrilldown({ db, id, entityType })
+    return buildMemoryDrilldown({ db, id, entityType });
   }
 
   if (entityType === "session") {
-    return buildSessionDrilldown({ db, id })
+    return buildSessionDrilldown({ db, id });
   }
 
-  throw new HttpError(400, "unsupported_drilldown_entity", `Unsupported drilldown entity: ${entityType}`)
+  throw new HttpError(400, "unsupported_drilldown_entity", `Unsupported drilldown entity: ${entityType}`);
 }
 
 function buildBrowserApiSuccessPayload(data, host, normalizedRepository, dbPath) {
@@ -1454,11 +1454,11 @@ function buildBrowserApiSuccessPayload(data, host, normalizedRepository, dbPath)
     repository: normalizedRepository,
     dbPath,
     ...data,
-  })
+  });
 }
 
 function buildBrowserApiResponse({ db, url, host, normalizedRepository }) {
-  const dbPath = db.config?.paths?.derivedStorePath ?? null
+  const dbPath = db.config?.paths?.derivedStorePath ?? null;
   const dataFactories = {
     "/api/overview": () => ({ data: queryOverview({ db, repository: normalizedRepository }) }),
     "/api/memories": () => ({ data: queryMemories({ db, url }) }),
@@ -1466,20 +1466,20 @@ function buildBrowserApiResponse({ db, url, host, normalizedRepository }) {
     "/api/maintenance": () => ({ data: queryMaintenance({ db, repository: normalizedRepository }) }),
     "/api/episodes": () => ({ data: queryEpisodes({ db, repository: normalizedRepository }) }),
     "/api/drilldown": () => ({ data: queryDrilldown({ db, url }) }),
-  }
+  };
   if (url.pathname === "/api/health") {
     return {
       statusCode: 200,
       payload: buildBrowserApiSuccessPayload({ loreCliPath: LORE_CLI_PATH }, host, normalizedRepository, dbPath),
-    }
+    };
   }
-  const factory = dataFactories[url.pathname]
+  const factory = dataFactories[url.pathname];
   return factory
     ? {
       statusCode: 200,
       payload: buildBrowserApiSuccessPayload(factory(), host, normalizedRepository, dbPath),
     }
-    : null
+    : null;
 }
 
 function handleBrowserRequestError(res, error) {
@@ -1488,15 +1488,15 @@ function handleBrowserRequestError(res, error) {
       ok: false,
       error: error.code,
       message: error.message,
-    }))
-    return
+    }));
+    return;
   }
 
   jsonResponse(res, 500, buildReadOnlyPayload({
     ok: false,
     error: "internal_error",
     message: error instanceof Error ? error.message : String(error),
-  }))
+  }));
 }
 
 export function startLoreBrowserServer({
@@ -1506,7 +1506,7 @@ export function startLoreBrowserServer({
   repository = null,
 } = {}) {
   if (!db) {
-    throw new Error("db is required")
+    throw new Error("db is required");
   }
 
   host = String(host ?? "").trim().toLowerCase();
@@ -1514,7 +1514,7 @@ export function startLoreBrowserServer({
     throw new Error("host must be loopback-only: 127.0.0.1, localhost, or ::1");
   }
 
-  const normalizedRepository = normalizeRepository(repository)
+  const normalizedRepository = normalizeRepository(repository);
 
   const server = createServer(async (req, res) => {
     if (!isAllowedHostHeader(req.headers?.host)) {
@@ -1522,40 +1522,40 @@ export function startLoreBrowserServer({
         ok: false,
         error: "forbidden",
         message: "Invalid host header",
-      })
-      return
+      });
+      return;
     }
 
     if (req.method !== "GET") {
-      methodNotAllowed(res)
-      return
+      methodNotAllowed(res);
+      return;
     }
 
     try {
-      let url
+      let url;
       try {
-        const urlHost = host.includes(":") ? `[${host}]` : host
-        url = new URL(req.url || "/", `http://${urlHost}:${port}`)
+        const urlHost = host.includes(":") ? `[${host}]` : host;
+        url = new URL(req.url || "/", `http://${urlHost}:${port}`);
       } catch {
-        throw new HttpError(400, "invalid_url", "Invalid request URL")
+        throw new HttpError(400, "invalid_url", "Invalid request URL");
       }
-      const apiResponse = buildBrowserApiResponse({ db, url, host, normalizedRepository })
+      const apiResponse = buildBrowserApiResponse({ db, url, host, normalizedRepository });
       if (apiResponse) {
-        jsonResponse(res, apiResponse.statusCode, apiResponse.payload)
-        return
+        jsonResponse(res, apiResponse.statusCode, apiResponse.payload);
+        return;
       }
 
-      await serveStatic(res, url.pathname)
+      await serveStatic(res, url.pathname);
     } catch (error) {
-      handleBrowserRequestError(res, error)
+      handleBrowserRequestError(res, error);
     }
-  })
+  });
 
-  server.listen(port, host)
+  server.listen(port, host);
 
   return {
     server,
     host,
     port,
-  }
+  };
 }

@@ -489,7 +489,7 @@ The canonical breakdown lives in [`docs/support-matrix.md`](docs/support-matrix.
 
 Pi exposes the canonical model tools (`lore_retain`, `lore_onboard`, `lore_recall`, `lore_status`, and the rest of the nine) plus the legacy `lore_save` alias, and `/lore status`, `/lore retain --type <type> "<text>"`, and `/lore search <query>`. The `retain` payload requires an explicit `type`; the old `/lore save <text>` shape without a type is no longer valid.
 
-The experimental Codex, Claude Code, and Antigravity adapters expose these shell commands through `lore-cli.mjs tool <name>`: `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, `memory_status`, `memory_correct`, `memory_repair`, and `memory_purge`. They do not expose `memory_explain`, `memory_validate`, or the other experimental Copilot tools. Their native event names and lifecycle mappings are listed in the [CLI integration guide](docs/cli-integrations.md#lifecycle-behavior).
+The experimental Codex, Claude Code, and Antigravity adapters expose these shell commands through `lore-cli.mjs tool <name>`: `lore_recall`, `lore_retain`, `lore_onboard`, `memory_search`, `memory_save`, `memory_forget`, `memory_status`, `memory_explain`, `memory_validate`, `memory_correct`, `memory_repair`, and `memory_purge`. They do not expose `lore_reflect`, `memory_backfill`, or the other experimental Copilot tools. Their native event names and lifecycle mappings are listed in the [CLI integration guide](docs/cli-integrations.md#lifecycle-behavior).
 
 For runtime and platform promises, see [`docs/compatibility.md`](docs/compatibility.md).
 

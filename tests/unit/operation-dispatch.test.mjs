@@ -58,6 +58,17 @@ test("classifyOperation marks administration previews read-only before storage o
   assert.deepEqual(classifyOperation("lore_purge", { repository: "example/repo" }), {
     resolved: "lore_purge", administration: true, readOnly: true,
   });
+  assert.deepEqual(classifyOperation("lore_explain", { prompt: "hi" }), {
+    resolved: "lore_explain", administration: false, readOnly: true,
+  });
+  assert.deepEqual(classifyOperation("memory_explain", { prompt: "hi" }), {
+    resolved: "lore_explain", administration: false, readOnly: true,
+  });
+  // lore_validate persists an improvement-backlog artifact on a failing case,
+  // so it must not open the store read-only.
+  assert.deepEqual(classifyOperation("lore_validate", {}), {
+    resolved: "lore_validate", administration: false, readOnly: false,
+  });
   assert.deepEqual(classifyOperation("memory_purge", { repository: "example/repo", action: "apply" }), {
     resolved: "lore_purge", administration: true, readOnly: false,
   });
@@ -123,6 +134,28 @@ test("the same operation is equivalent across the human CLI, protocol CLI, and P
     assert.match(human.stdout, /dispatch equivalence quartzmarker/);
     assert.equal(protocol.stdout.trim(), human.stdout.trim(), "protocol CLI and human CLI must agree");
     assert.equal(String(worker.result).trim(), human.stdout.trim(), "Pi worker and human CLI must agree");
+  } finally {
+    cleanup();
+  }
+});
+
+test("lore_explain and lore_validate are reachable through the protocol CLI tool surface", () => {
+  const { home, env, cleanup } = isolatedHome();
+  try {
+    const seeded = runCli(home, env, ["retain", "--type", "user_preference", "explain surface quartzmarker"]);
+    assert.equal(seeded.status, 0, seeded.stderr);
+
+    const explainHuman = runCli(home, env, ["explain", "quartzmarker"]);
+    assert.equal(explainHuman.status, 0, explainHuman.stderr);
+    assert.match(explainHuman.stdout, /quartzmarker/);
+
+    const explainProtocol = runCli(home, env, ["tool", "lore_explain"], JSON.stringify({ prompt: "quartzmarker" }));
+    assert.equal(explainProtocol.status, 0, explainProtocol.stderr);
+    assert.match(explainProtocol.stdout, /quartzmarker/);
+
+    const validateProtocol = runCli(home, env, ["tool", "lore_validate"], "{}");
+    assert.equal(validateProtocol.status, 0, validateProtocol.stderr);
+    assert.match(validateProtocol.stdout, /validationCases:/);
   } finally {
     cleanup();
   }

@@ -442,4 +442,181 @@ describe("lore_onboard tool", () => {
       cleanup();
     }
   });
+
+  test("re-onboarding with empty object after onboarding is a no-op", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: AMBIENT_ROLLOUT,
+      },
+    });
+
+    try {
+      seedOnboardingMemories({
+        db,
+        sessionId: "session-seed",
+      });
+
+      const loreOnboard = buildLoreOnboardTool(db, config);
+
+      // Initial onboarding with custom profile
+      await loreOnboard.handler({
+        userName: "Matt",
+        warmth: "warm",
+        humor: "light",
+      }, {
+        sessionId: "session-onboard-1",
+      });
+
+      const beforeRows = db.searchSemantic({
+        query: "",
+        repository: null,
+        includeOtherRepositories: false,
+        types: ["interaction_style"],
+        scopes: ["global"],
+        limit: 20,
+      });
+      const beforeRowId = beforeRows[0].id;
+      const beforeUpdatedAt = beforeRows[0].updated_at;
+
+      // Re-onboard with empty object (no-op)
+      const result = await loreOnboard.handler({}, {
+        sessionId: "session-onboard-2",
+      });
+
+      assert.match(result, /unchanged/i);
+
+      const afterRows = db.searchSemantic({
+        query: "",
+        repository: null,
+        includeOtherRepositories: false,
+        types: ["interaction_style"],
+        scopes: ["global"],
+        limit: 20,
+      });
+
+      // Should still have only one active row with the same ID and unchanged metadata
+      assert.strictEqual(afterRows.length, 1, "only one active interaction_style row should remain");
+      assert.strictEqual(afterRows[0].id, beforeRowId, "row ID should not change");
+      assert.strictEqual(afterRows[0].updated_at, beforeUpdatedAt, "updated_at should not change");
+      assert.strictEqual(afterRows[0].metadata.profile.warmth, "warm", "profile should be unchanged");
+      assert.strictEqual(afterRows[0].metadata.profile.humor, "light", "profile should be unchanged");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("re-onboarding preserves profile fields not explicitly changed", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: AMBIENT_ROLLOUT,
+      },
+    });
+
+    try {
+      seedOnboardingMemories({
+        db,
+        sessionId: "session-seed",
+      });
+
+      const loreOnboard = buildLoreOnboardTool(db, config);
+
+      // Initial onboarding with specific profile
+      await loreOnboard.handler({
+        userName: "Matt",
+        warmth: "warm",
+        humor: "light",
+        humorFrequency: "frequent",
+        voice: "friendly",
+      }, {
+        sessionId: "session-onboard-1",
+      });
+
+      // Re-onboard changing only warmth
+      await loreOnboard.handler({
+        warmth: "balanced",
+      }, {
+        sessionId: "session-onboard-2",
+      });
+
+      const activeStyles = db.searchSemantic({
+        query: "",
+        repository: null,
+        includeOtherRepositories: false,
+        types: ["interaction_style"],
+        scopes: ["global"],
+        limit: 20,
+      });
+
+      assert.strictEqual(activeStyles.length, 1, "only one active interaction_style row should remain");
+      assert.strictEqual(activeStyles[0].metadata.profile.warmth, "balanced", "warmth should be updated");
+      assert.strictEqual(activeStyles[0].metadata.profile.voice, "friendly", "voice should be preserved");
+      assert.strictEqual(activeStyles[0].metadata.profile.humor, "light", "humor should be preserved");
+      assert.strictEqual(activeStyles[0].metadata.profile.humorFrequency, "frequent", "humorFrequency should be preserved");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("re-onboarding changes only assistant_identity when assistantName is provided", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        rollout: AMBIENT_ROLLOUT,
+      },
+    });
+
+    try {
+      seedOnboardingMemories({
+        db,
+        sessionId: "session-seed",
+      });
+
+      const loreOnboard = buildLoreOnboardTool(db, config);
+
+      // Initial onboarding
+      await loreOnboard.handler({
+        userName: "Matt",
+        warmth: "warm",
+        humor: "light",
+      }, {
+        sessionId: "session-onboard-1",
+      });
+
+      const beforeStyleRows = db.searchSemantic({
+        query: "",
+        repository: null,
+        includeOtherRepositories: false,
+        types: ["interaction_style"],
+        scopes: ["global"],
+        limit: 20,
+      });
+      const beforeStyleRowId = beforeStyleRows[0].id;
+      const beforeStyleUpdatedAt = beforeStyleRows[0].updated_at;
+
+      // Re-onboard changing only assistantName
+      await loreOnboard.handler({
+        assistantName: "Custom",
+      }, {
+        sessionId: "session-onboard-2",
+      });
+
+      const afterStyleRows = db.searchSemantic({
+        query: "",
+        repository: null,
+        includeOtherRepositories: false,
+        types: ["interaction_style"],
+        scopes: ["global"],
+        limit: 20,
+      });
+
+      // The style row should remain unchanged
+      assert.strictEqual(afterStyleRows.length, 1, "only one active interaction_style row should remain");
+      assert.strictEqual(afterStyleRows[0].id, beforeStyleRowId, "style row ID should not change");
+      assert.strictEqual(afterStyleRows[0].updated_at, beforeStyleUpdatedAt, "style row updated_at should not change");
+    } finally {
+      cleanup();
+    }
+  });
 });

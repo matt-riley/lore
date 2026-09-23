@@ -17,7 +17,7 @@
  *   npm test
  */
 
-import { test, describe, after } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 
@@ -150,7 +150,7 @@ describe("freshDb", () => {
       try {
         // If the schema version table exists, this query won't throw.
         const row = db.db.prepare("SELECT version FROM lore_schema_version LIMIT 1").get();
-        assert.ok(row !== undefined || row === undefined, "table is queryable");
+        assert.ok(row, "schema version row exists");
       } finally {
         db.close();
       }

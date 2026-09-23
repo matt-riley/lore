@@ -1,13 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  evaluateCapabilityRouter,
-  renderCapabilityRecommendationReport,
-  recommendCapabilityRoute,
-  scanCapabilityInventory,
-} from "../../lib/capabilities/capability-inventory.mjs";
-import { loadCapabilityFunctions, createCapabilityFixtureRoot } from "../helpers/capability-inventory-fixtures.mjs";
+import { loadCapabilityFunctions } from "../helpers/capability-inventory-fixtures.mjs";
 
 describe("capability inventory heuristics", () => {
   it("buildSkillRouteHeuristicAdjustments preserves reverse-prompt boosts and conservative penalties", () => {

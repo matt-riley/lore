@@ -44,20 +44,6 @@ function parseArgs(argv) {
   return args;
 }
 
-function describeTarget(targetPath) {
-  if (!existsSync(targetPath)) {
-    return { exists: false, type: "missing" };
-  }
-  const stat = lstatSync(targetPath);
-  if (stat.isSymbolicLink()) {
-    return { exists: true, type: "symlink" };
-  }
-  if (stat.isDirectory()) {
-    return { exists: true, type: "directory" };
-  }
-  return { exists: true, type: "other" };
-}
-
 function isSameInstall(sourcePath, targetPath) {
   if (!existsSync(sourcePath) || !existsSync(targetPath)) {
     return false;

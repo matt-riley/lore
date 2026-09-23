@@ -149,7 +149,7 @@ describe("semanticSearch", () => {
         let embeddingCall = 0;
         const fetchImpl = async (_url, options) => {
           embeddingCall += 1;
-          const input = JSON.parse(options.body).input;
+          const _input = JSON.parse(options.body).input;
           if (embeddingCall === 1) {
             return { ok: true, status: 200, json: async () => ({ data: [{ index: 0, embedding: [1, 0] }] }) };
           }

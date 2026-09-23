@@ -189,7 +189,7 @@ describe("independent reliability quality corpus", () => {
       maxCriticalFailures: 0,
       maxNegativeFalsePositives: 0,
     });
-    assert.deepEqual([...MANDATORY_RECALL_SCENARIO_IDS], ["global-style", "global-reversals"]);
+    assert.deepEqual([...MANDATORY_RECALL_SCENARIO_IDS], ["global-reversals"]);
   });
 
   test("benchmark embedding paths expose production cold and warm cache work", async () => {

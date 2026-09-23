@@ -21,10 +21,10 @@ export const QUALITY_GATES = Object.freeze({
   maxNegativeFalsePositives: 0,
 });
 
-// These cases cover global guidance and changed global guidance, where a
-// regression can otherwise disappear inside the aggregate retention score.
+// These cases cover global guidance where a regression can otherwise
+// disappear inside the aggregate retention score. Auto-extracted preferences
+// are contextual, not standing directives, so global-style is not mandatory.
 export const MANDATORY_RECALL_SCENARIO_IDS = Object.freeze(new Set([
-  "global-style",
   "global-reversals",
 ]));
 

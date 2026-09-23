@@ -172,7 +172,7 @@ describe("TypeSafe directive durability filtering", () => {
     }
   });
 
-  test("keeps non-directive rows even when durability is low", { skip: SKIP_NO_FTS5 }, async () => {
+  test("does not promote non-directive rows into standing directives", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withDirectiveFixture();
     try {
       insertDirective(db, "junk", "For any project, there should be a live Env key.");
@@ -196,8 +196,8 @@ describe("TypeSafe directive durability filtering", () => {
         fetchImpl,
       });
 
-      assert.doesNotMatch(result.text, /live Env key/);
-      assert.match(result.text, /never force-push to a shared branch/);
+      assert.doesNotMatch(result.text, /live Env key|never force-push to a shared branch/);
+      assert.deepEqual(result.trace.lookups.directives.includedRows.map((row) => row.id), []);
     } finally {
       cleanup();
     }

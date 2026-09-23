@@ -147,7 +147,7 @@ describe("ranking, TTL, keys, and recall types", () => {
     }
   });
 
-  test("learned_rule is recalled and new directives dual-read historical extractor preferences", { skip: SKIP_NO_FTS5 }, async () => {
+  test("repo directives and historical preferences are recalled contextually", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
@@ -201,12 +201,13 @@ describe("ranking, TTL, keys, and recall types", () => {
 
       const recall = await assembleRecall({
         db,
-        prompt: "What standing rules apply to this repo?",
+        prompt: "What rule applies to secrets and failing requests?",
         repository: "fixture-repo",
         config,
       });
       assert.match(recall.text, /Secrets must be redacted at rest/);
       assert.match(recall.text, /Always include the failing request/);
+      assert.deepEqual(recall.trace.lookups.directives.includedRows.map((row) => row.id), ["directive-1"]);
       assert.equal(recall.text.includes("teal dashboards"), false);
       assert.equal(recall.text.includes("## Semantic Matches"), false);
       assert.equal(DEFAULT_MIN_SIMILARITY, 0.35);
@@ -283,7 +284,7 @@ describe("ranking, TTL, keys, and recall types", () => {
     }
   });
 
-  test("directive dual-read still surfaces an older extractor preference behind newer manuals", { skip: SKIP_NO_FTS5 }, async () => {
+  test("an older extractor preference remains contextual rather than ambient", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
@@ -315,11 +316,12 @@ describe("ranking, TTL, keys, and recall types", () => {
       }
       const recall = await assembleRecall({
         db,
-        prompt: "What standing rules apply to this repo?",
+        prompt: "What should the bug report include?",
         repository: "fixture-repo",
         config,
       });
       assert.match(recall.text, /Always include the failing request/);
+      assert.deepEqual(recall.trace.lookups.directives.includedRows, []);
       assert.equal(recall.text.includes("dashboard theme"), false);
     } finally {
       cleanup();

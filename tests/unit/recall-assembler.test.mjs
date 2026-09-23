@@ -19,7 +19,7 @@ function jsonResponse(body) {
 }
 
 describe("assembleRecall", () => {
-  test("injects only current extractor rejection policies as standing directives", { skip: SKIP_NO_FTS5 }, async () => {
+  test("does not promote extractor rejection policies into standing directives", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {
         enabled: true,
@@ -49,9 +49,8 @@ describe("assembleRecall", () => {
         config,
       });
       const directives = result.trace.lookups.directives;
-      assert.deepEqual(directives.includedRows.map((row) => row.id), ["standing-rejection"]);
-      assert.match(result.text, /Never expose credentials/);
-      assert.doesNotMatch(result.text, /old implementation|expired tokens|beta credentials/);
+      assert.deepEqual(directives.includedRows, []);
+      assert.doesNotMatch(result.text, /Never expose credentials|old implementation|expired tokens|beta credentials/);
     } finally {
       cleanup();
     }
@@ -102,13 +101,33 @@ describe("assembleRecall", () => {
     }
   });
 
-  test("filters rejection provenance before the standing-policy limit", { skip: SKIP_NO_FTS5 }, async () => {
+  test("only prompt-relevant repo directives consume the standing-policy limit", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: { enabled: true, rollout: { memoryOperations: true, directives: true } },
     });
     try {
       db.insertSemanticMemory({
-        id: "older-standing-rejection",
+        id: "relevant-repo-directive",
+        type: "directive",
+        content: "The production signing key must be protected.",
+        scope: "repo",
+        repository: "fixture-repo",
+        metadata: { source: "rule_extractor", confidenceBasis: "standing_policy_sentence" },
+        confidence: 1,
+        tags: ["directive", "policy", "user"],
+      });
+      db.insertSemanticMemory({
+        id: "unrelated-repo-directive",
+        type: "directive",
+        content: "The external editor should be neovim.",
+        scope: "repo",
+        repository: "fixture-repo",
+        metadata: { source: "rule_extractor", confidenceBasis: "standing_policy_sentence" },
+        confidence: 1,
+        tags: ["directive", "policy", "user"],
+      });
+      db.insertSemanticMemory({
+        id: "old-rejection",
         type: "rejected_approach",
         content: "Never expose the production signing key.",
         scope: "repo",
@@ -117,28 +136,45 @@ describe("assembleRecall", () => {
         confidence: 1,
         tags: ["rejected", "user"],
       });
-      for (let index = 0; index < 70; index += 1) {
-        db.insertSemanticMemory({
-          id: `recent-ordinary-rejection-${index}`,
-          type: "rejected_approach",
-          content: `Observed timeout complaint ${index}.`,
-          scope: "repo",
-          repository: "fixture-repo",
-          metadata: { source: "rule_extractor", confidenceBasis: "bug_report" },
-          confidence: 1,
-          tags: ["rejected", "user"],
-        });
-      }
-      db.db.prepare("UPDATE semantic_memory SET updated_at = ? WHERE id LIKE 'recent-ordinary-rejection-%'").run("2099-01-01T00:00:00.000Z");
       const result = await assembleRecall({
         db,
-        prompt: "What general guidance applies?",
+        prompt: "What protects the production signing key?",
         repository: "fixture-repo",
         config,
       });
-      assert.ok(result.trace.lookups.directives.includedRows.some((row) => row.id === "older-standing-rejection"));
-      assert.match(result.text, /Never expose the production signing key/);
-      assert.doesNotMatch(result.text, /Observed timeout complaint/);
+      assert.deepEqual(
+        result.trace.lookups.directives.includedRows.map((row) => row.id),
+        ["relevant-repo-directive"],
+      );
+      assert.doesNotMatch(result.text, /external editor|old-rejection/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("scaffold-only overlap does not make a repo directive relevant", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: { enabled: true, rollout: { memoryOperations: true, directives: true } },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "scaffold-overlap-directive",
+        type: "directive",
+        content: "The external editor should be neovim.",
+        scope: "repo",
+        repository: "fixture-repo",
+        metadata: { source: "rule_extractor", confidenceBasis: "standing_policy_sentence" },
+        confidence: 1,
+        tags: ["directive", "policy", "user"],
+      });
+      const result = await assembleRecall({
+        db,
+        prompt: "OK so it should be fixed now",
+        repository: "fixture-repo",
+        config,
+      });
+      assert.deepEqual(result.trace.lookups.directives.includedRows, []);
+      assert.doesNotMatch(result.text, /neovim/);
     } finally {
       cleanup();
     }
@@ -160,6 +196,7 @@ describe("assembleRecall", () => {
           content: `Directive ${index} ${"long policy text ".repeat(20)}`,
           scope: "repo",
           repository: "fixture-repo",
+          metadata: { source: "memory_save" },
           confidence: 1,
           tags: ["directive"],
         });

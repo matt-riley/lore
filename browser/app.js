@@ -20,7 +20,7 @@ const state = {
     id: null,
     data: null,
   },
-}
+};
 
 const views = {
   overview: document.getElementById("view-overview"),
@@ -28,15 +28,15 @@ const views = {
   maintenance: document.getElementById("view-maintenance"),
   episodes: document.getElementById("view-episodes"),
   drilldown: document.getElementById("view-drilldown"),
-}
+};
 
-const GRAPH_COLUMNS = ["left", "center", "right", "far"]
+const GRAPH_COLUMNS = ["left", "center", "right", "far"];
 const GRAPH_COLUMN_TITLES = {
   left: "Provenance",
   center: "Focus",
   right: "Related",
   far: "Artifacts",
-}
+};
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -44,59 +44,59 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;")
+    .replaceAll("'", "&#039;");
 }
 
 function formatTime(value) {
   if (!value) {
-    return "—"
+    return "—";
   }
-  const date = new Date(value)
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return String(value)
+    return String(value);
   }
-  return `${date.toLocaleString()}`
+  return `${date.toLocaleString()}`;
 }
 
 function truncateText(value, max = 140) {
-  const text = String(value ?? "").trim()
+  const text = String(value ?? "").trim();
   if (text.length <= max) {
-    return text
+    return text;
   }
-  return `${text.slice(0, max - 1)}…`
+  return `${text.slice(0, max - 1)}…`;
 }
 
 function fetchJson(path) {
   return fetch(path).then(async (response) => {
     if (!response.ok) {
-      let detail = ""
+      let detail = "";
       try {
-        const payload = await response.json()
-        detail = payload?.message ? `: ${payload.message}` : ""
+        const payload = await response.json();
+        detail = payload?.message ? `: ${payload.message}` : "";
       } catch {
-        detail = ""
+        detail = "";
       }
-      throw new Error(`Request failed (${response.status}) for ${path}${detail}`)
+      throw new Error(`Request failed (${response.status}) for ${path}${detail}`);
     }
-    return response.json()
-  })
+    return response.json();
+  });
 }
 
 function setStatus(text, ok = true) {
-  const pill = document.getElementById("status-pill")
-  pill.textContent = text
-  pill.style.color = ok ? "var(--ok)" : "var(--warn)"
+  const pill = document.getElementById("status-pill");
+  pill.textContent = text;
+  pill.style.color = ok ? "var(--ok)" : "var(--warn)";
 }
 
 function setScope(repository) {
-  state.scope.repository = repository || null
-  const pill = document.getElementById("scope-pill")
+  state.scope.repository = repository || null;
+  const pill = document.getElementById("scope-pill");
   if (!pill) {
-    return
+    return;
   }
   pill.textContent = repository
     ? `scope: ${repository}`
-    : "scope: all repositories"
+    : "scope: all repositories";
 }
 
 function renderMetricGrid(entries) {
@@ -109,7 +109,7 @@ function renderMetricGrid(entries) {
         </article>
       `).join("")}
     </div>
-  `
+  `;
 }
 
 function renderDrilldownAction(entity, id, label = "Drill down") {
@@ -120,15 +120,15 @@ function renderDrilldownAction(entity, id, label = "Drill down") {
       data-drilldown-entity="${escapeHtml(entity)}"
       data-drilldown-id="${escapeHtml(id)}"
     >${escapeHtml(label)}</button>
-  `
+  `;
 }
 
 function renderEmptyBlock(message) {
-  return `<div class="row-muted empty-state">${escapeHtml(message)}</div>`
+  return `<div class="row-muted empty-state">${escapeHtml(message)}</div>`;
 }
 
 function renderMemoriesError(message) {
-  return `<div class="row-muted empty-state error-state" role="alert">${escapeHtml(message)}</div>`
+  return `<div class="row-muted empty-state error-state" role="alert">${escapeHtml(message)}</div>`;
 }
 
 function renderActivityTable(activityRows) {
@@ -160,7 +160,7 @@ function renderActivityTable(activityRows) {
         </tbody>
       </table>
     </div>
-  `
+  `;
 }
 
 function renderWorkstreamItem(ws) {
@@ -178,7 +178,7 @@ function renderWorkstreamItem(ws) {
       ${Array.isArray(ws.blockers) && ws.blockers.length > 0 ? `<div class="small">blockers: ${escapeHtml(ws.blockers.join(" | "))}</div>` : ""}
       ${Array.isArray(ws.nextActions) && ws.nextActions.length > 0 ? `<div class="small">next: ${escapeHtml(ws.nextActions.join(" | "))}</div>` : ""}
     </article>
-  `
+  `;
 }
 
 function renderWorkstreamsList(workstreams) {
@@ -187,11 +187,11 @@ function renderWorkstreamsList(workstreams) {
     <div class="list">
       ${workstreams.map(renderWorkstreamItem).join("") || renderEmptyBlock("No active workstreams.")}
     </div>
-  `
+  `;
 }
 
 function asArray(value) {
-  return Array.isArray(value) ? value : []
+  return Array.isArray(value) ? value : [];
 }
 
 function normalizeOverviewData(data) {
@@ -203,16 +203,16 @@ function normalizeOverviewData(data) {
     dueTasks: data?.maintenance?.dueTasks ?? [],
     captureHealth: asArray(data?.captureHealth),
     indexing: data?.indexing ?? {},
-  }
+  };
 }
 
 function renderCaptureHealth(health) {
   const statusForCapture = (row) => {
-    if (row.status) return row.status
-    if (row.failureCode) return "failed"
-    if (Number(row.pendingBytes) > 0 || row.pendingWork?.branch || row.pendingWork?.cleanup) return "pending"
-    return "healthy"
-  }
+    if (row.status) return row.status;
+    if (row.failureCode) return "failed";
+    if (Number(row.pendingBytes) > 0 || row.pendingWork?.branch || row.pendingWork?.cleanup) return "pending";
+    return "healthy";
+  };
   return `
     <section class="card section-card health-section">
       <div class="section-head">
@@ -230,7 +230,7 @@ function renderCaptureHealth(health) {
                 <td><strong>${escapeHtml(row.client ?? "unknown")}</strong><div class="small">${escapeHtml(row.sessionId ?? "unknown session")}</div><div class="small">origin=${escapeHtml(row.originLabel ?? row.repository ?? "unknown origin")}</div></td>
                 <td>${escapeHtml(formatTime(row.lastSuccessAt))}</td>
                 <td>${escapeHtml(row.pendingBytes ?? 0)} bytes</td>
-                <td>${(() => { const status = statusForCapture(row); return `<span class="tag ${status === "healthy" ? "ok" : "warn"}">${escapeHtml(status)}</span>${row.failureCode ? `<div class="small">failure=${escapeHtml(row.failureCode)}</div>` : ""}<div class="small">offset=${escapeHtml(row.offset ?? 0)}</div>${row.pendingWork?.branch ? '<div class="small">branch reconciliation pending</div>' : ""}${row.pendingWork?.cleanup ? '<div class="small">cleanup pending</div>' : ""}` })()}</td>
+                <td>${(() => { const status = statusForCapture(row); return `<span class="tag ${status === "healthy" ? "ok" : "warn"}">${escapeHtml(status)}</span>${row.failureCode ? `<div class="small">failure=${escapeHtml(row.failureCode)}</div>` : ""}<div class="small">offset=${escapeHtml(row.offset ?? 0)}</div>${row.pendingWork?.branch ? '<div class="small">branch reconciliation pending</div>' : ""}${row.pendingWork?.cleanup ? '<div class="small">cleanup pending</div>' : ""}`; })()}</td>
                 <td>${row.resumeCommand ? `<button type="button" class="action-btn copy-command" data-copy-kind="resume" data-copy-command="${escapeHtml(row.resumeCommand)}" aria-label="Copy resume command">Copy resume command</button><div class="small copy-feedback" aria-live="polite"></div>` : '<span class="small">No resumable source</span>'}</td>
               </tr>
             `).join("") || '<tr><td colspan="5" class="row-muted">No capture checkpoints recorded.</td></tr>'}
@@ -238,12 +238,12 @@ function renderCaptureHealth(health) {
         </table>
       </div>
     </section>
-  `
+  `;
 }
 
 function renderIndexingCoverage(indexing) {
-  const diagnostics = asArray(indexing.fallbackDiagnostics)
-  const status = indexing.enabled === false ? "disabled" : `${indexing.coveragePercent ?? 0}% sampled`
+  const diagnostics = asArray(indexing.fallbackDiagnostics);
+  const status = indexing.enabled === false ? "disabled" : `${indexing.coveragePercent ?? 0}% sampled`;
   return `
     <section class="card section-card health-section">
       <div class="section-head">
@@ -261,7 +261,7 @@ function renderIndexingCoverage(indexing) {
       <div class="small coverage-note">${indexing.enabled === false ? "Embeddings are disabled in configuration; lexical retrieval remains available." : `Indexed ${indexing.indexedSample ?? indexing.indexed ?? 0} of ${indexing.sampleSize ?? indexing.totalActive ?? 0} sampled eligible rows (${escapeHtml(indexing.coverageBasis ?? "bounded eligible sample")}; ${escapeHtml(indexing.dimensionsBasis ?? "cache identity validated")}). Pending is shown only when the eligible set was fully sampled.`}</div>
       ${diagnostics.length > 0 ? `<div class="list compact-list coverage-diagnostics"><strong>Recent fallback diagnostics</strong>${diagnostics.map((row) => `<div class="list-item"><span>${escapeHtml(row.reason)}</span><span class="small">count=${escapeHtml(row.count)}</span></div>`).join("")}</div>` : '<div class="small">No fallback diagnostics in the recent trace sample.</div>'}
     </section>
-  `
+  `;
 }
 
 function renderOverview(data) {
@@ -273,7 +273,7 @@ function renderOverview(data) {
     dueTasks,
     captureHealth,
     indexing,
-  } = normalizeOverviewData(data)
+  } = normalizeOverviewData(data);
 
   views.overview.innerHTML = `
     ${renderMetricGrid([
@@ -293,14 +293,14 @@ function renderOverview(data) {
       ${renderIndexingCoverage(indexing)}
     </div>
     ${renderWorkstreamsList(workstreams)}
-  `
+  `;
 }
 
 function renderMemoriesFilters(filterData) {
-  const types = filterData?.types ?? []
-  const scopes = filterData?.scopes ?? []
-  const repos = filterData?.repositories ?? []
-  const canonicalKeys = filterData?.canonicalKeys ?? []
+  const types = filterData?.types ?? [];
+  const scopes = filterData?.scopes ?? [];
+  const repos = filterData?.repositories ?? [];
+  const canonicalKeys = filterData?.canonicalKeys ?? [];
 
   return `
     <div class="controls">
@@ -334,30 +334,30 @@ function renderMemoriesFilters(filterData) {
 
       <button id="mem-apply">Apply</button>
     </div>
-  `
+  `;
 }
 
 function memoryPageCount(data) {
-  const pageSize = Math.max(1, Number(data?.pageSize) || 25)
-  const total = Math.max(0, Number(data?.total) || 0)
-  return Math.max(1, Math.ceil(total / pageSize))
+  const pageSize = Math.max(1, Number(data?.pageSize) || 25);
+  const total = Math.max(0, Number(data?.total) || 0);
+  return Math.max(1, Math.ceil(total / pageSize));
 }
 
 function renderMemoriesPagination(data) {
-  const page = Math.max(1, Number(data?.page) || 1)
-  const totalPages = memoryPageCount(data)
-  const total = Math.max(0, Number(data?.total) || 0)
+  const page = Math.max(1, Number(data?.page) || 1);
+  const totalPages = memoryPageCount(data);
+  const total = Math.max(0, Number(data?.total) || 0);
   return `
     <nav class="pagination" aria-label="Memory result pages">
       <button type="button" id="mem-prev" class="action-btn" aria-label="Previous page" ${page <= 1 ? "disabled" : ""}>‹ Prev</button>
       <span class="small">page ${page} of ${totalPages} · ${total} ${total === 1 ? "memory" : "memories"}</span>
       <button type="button" id="mem-next" class="action-btn" aria-label="Next page" ${page >= totalPages ? "disabled" : ""}>Next ›</button>
     </nav>
-  `
+  `;
 }
 
 function renderMemoriesTable(data, query = "") {
-  const rows = data?.rows ?? []
+  const rows = data?.rows ?? [];
   return `
     ${renderMemoriesPagination(data)}
     <div class="table-wrap" role="region" aria-label="Memory results" tabindex="0">
@@ -379,25 +379,25 @@ function renderMemoriesTable(data, query = "") {
         </tbody>
       </table>
     </div>
-  `
+  `;
 }
 
 function renderMemoryStateTag(row) {
   return row.supersededBy
     ? '<span class="tag warn">superseded</span>'
-    : '<span class="tag ok">active</span>'
+    : '<span class="tag ok">active</span>';
 }
 
 function resolveMemoryDrilldownEntity(row) {
-  return row.type === "workstream_overlay" ? "workstream" : "memory"
+  return row.type === "workstream_overlay" ? "workstream" : "memory";
 }
 
 function renderMemoryTableRows(rows, query = "") {
   if (rows.length === 0) {
     const emptyMessage = query
       ? `No memories match “${escapeHtml(query)}” and the current filters.`
-      : "No memories match the current filters."
-    return `<tr><td colspan="8" class="row-muted">${emptyMessage}</td></tr>`
+      : "No memories match the current filters.";
+    return `<tr><td colspan="8" class="row-muted">${emptyMessage}</td></tr>`;
   }
   return rows.map((row) => `
     <tr>
@@ -410,75 +410,75 @@ function renderMemoryTableRows(rows, query = "") {
       <td><div class="memory-preview">${escapeHtml(row.content)}</div></td>
       <td>${renderDrilldownAction(resolveMemoryDrilldownEntity(row), row.id, "Open")}</td>
     </tr>
-  `).join("")
+  `).join("");
 }
 
 function readMemoriesFilterValue(id, fallback = "") {
-  return document.getElementById(id)?.value || fallback
+  return document.getElementById(id)?.value || fallback;
 }
 
 async function applyMemoriesFiltersFromDom() {
-  state.memoriesFilters.type = readMemoriesFilterValue("mem-filter-type")
-  state.memoriesFilters.scope = readMemoriesFilterValue("mem-filter-scope")
-  state.memoriesFilters.repository = readMemoriesFilterValue("mem-filter-repo")
-  state.memoriesFilters.canonicalKey = readMemoriesFilterValue("mem-filter-canonical")
-  state.memoriesFilters.query = readMemoriesFilterValue("mem-filter-query")
-  state.memoriesFilters.state = readMemoriesFilterValue("mem-filter-state", "active")
-  state.memoriesFilters.page = 1
-  await loadMemories()
+  state.memoriesFilters.type = readMemoriesFilterValue("mem-filter-type");
+  state.memoriesFilters.scope = readMemoriesFilterValue("mem-filter-scope");
+  state.memoriesFilters.repository = readMemoriesFilterValue("mem-filter-repo");
+  state.memoriesFilters.canonicalKey = readMemoriesFilterValue("mem-filter-canonical");
+  state.memoriesFilters.query = readMemoriesFilterValue("mem-filter-query");
+  state.memoriesFilters.state = readMemoriesFilterValue("mem-filter-state", "active");
+  state.memoriesFilters.page = 1;
+  await loadMemories();
 }
 
 function applyMemoriesFilterControls() {
   const bind = (id, key) => {
-    const element = document.getElementById(id)
+    const element = document.getElementById(id);
     if (!element) {
-      return
+      return;
     }
     if (state.memoriesFilters[key] !== undefined) {
-      element.value = state.memoriesFilters[key] || ""
+      element.value = state.memoriesFilters[key] || "";
     }
-  }
-  bind("mem-filter-type", "type")
-  bind("mem-filter-scope", "scope")
-  bind("mem-filter-repo", "repository")
-  bind("mem-filter-canonical", "canonicalKey")
-  bind("mem-filter-query", "query")
-  bind("mem-filter-state", "state")
+  };
+  bind("mem-filter-type", "type");
+  bind("mem-filter-scope", "scope");
+  bind("mem-filter-repo", "repository");
+  bind("mem-filter-canonical", "canonicalKey");
+  bind("mem-filter-query", "query");
+  bind("mem-filter-state", "state");
 
-  const button = document.getElementById("mem-apply")
+  const button = document.getElementById("mem-apply");
   if (button) {
-    button.onclick = async () => applyMemoriesFiltersFromDom()
+    button.onclick = async () => applyMemoriesFiltersFromDom();
   }
 
-  const queryInput = document.getElementById("mem-filter-query")
+  const queryInput = document.getElementById("mem-filter-query");
   if (queryInput) {
     queryInput.onkeydown = (event) => {
       if (event.key !== "Enter") {
-        return
+        return;
       }
-      event.preventDefault()
-      return applyMemoriesFiltersFromDom()
-    }
+      event.preventDefault();
+      return applyMemoriesFiltersFromDom();
+    };
   }
 
-  const previous = document.getElementById("mem-prev")
+  const previous = document.getElementById("mem-prev");
   if (previous) {
-    previous.onclick = () => gotoMemoriesPage(-1)
+    previous.onclick = () => gotoMemoriesPage(-1);
   }
-  const next = document.getElementById("mem-next")
+  const next = document.getElementById("mem-next");
   if (next) {
-    next.onclick = () => gotoMemoriesPage(1)
+    next.onclick = () => gotoMemoriesPage(1);
   }
 }
 
 function gotoMemoriesPage(delta) {
-  const current = Number(state.memoriesFilters.page) || 1
-  const target = Math.min(Math.max(current + delta, 1), Math.max(1, state.memoriesPageCount))
+  const current = Number(state.memoriesFilters.page) || 1;
+  const target = Math.min(Math.max(current + delta, 1), Math.max(1, state.memoriesPageCount));
   if (target === current) {
-    return Promise.resolve()
+    return Promise.resolve();
   }
-  state.memoriesFilters.page = target
-  return loadMemories()
+  state.memoriesFilters.page = target;
+  return loadMemories();
 }
 
 async function loadMemories() {
@@ -486,13 +486,13 @@ async function loadMemories() {
     const [filtersResponse, memoriesResponse] = await Promise.all([
       fetchJson("/api/memories/filters"),
       fetchJson(`/api/memories?${new URLSearchParams(state.memoriesFilters).toString()}`),
-    ])
-    state.memoriesPageCount = memoryPageCount(memoriesResponse.data)
-    views.memories.innerHTML = `${renderMemoriesFilters(filtersResponse.data)}${renderMemoriesTable(memoriesResponse.data, state.memoriesFilters.query)}`
-    applyMemoriesFilterControls()
+    ]);
+    state.memoriesPageCount = memoryPageCount(memoriesResponse.data);
+    views.memories.innerHTML = `${renderMemoriesFilters(filtersResponse.data)}${renderMemoriesTable(memoriesResponse.data, state.memoriesFilters.query)}`;
+    applyMemoriesFilterControls();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    views.memories.innerHTML = renderMemoriesError(`Memories could not be loaded: ${message}`)
+    const message = error instanceof Error ? error.message : String(error);
+    views.memories.innerHTML = renderMemoriesError(`Memories could not be loaded: ${message}`);
   }
 }
 
@@ -502,7 +502,7 @@ function renderMaintenanceDueTasks(dueTasks) {
       <div><strong>${escapeHtml(task.label)}</strong> <span class="tag">${escapeHtml(task.dueReason)}</span></div>
       <div class="small">lastRunMinutesAgo=${escapeHtml(task.lastRunMinutesAgo ?? "n/a")} cadenceMinutes=${escapeHtml(task.cadenceMinutes)}</div>
     </article>
-  `).join("") || renderEmptyBlock("No due tasks right now.")
+  `).join("") || renderEmptyBlock("No due tasks right now.");
 }
 
 function renderMaintenanceTaskRows(taskStates) {
@@ -515,7 +515,7 @@ function renderMaintenanceTaskRows(taskStates) {
       <td>${escapeHtml(row.total_needs_attention)}</td>
       <td>${escapeHtml(formatTime(row.last_completed_at))}</td>
     </tr>
-  `).join("") || '<tr><td colspan="6" class="row-muted">No task states.</td></tr>'
+  `).join("") || '<tr><td colspan="6" class="row-muted">No task states.</td></tr>';
 }
 
 function renderMaintenanceRunRows(runs) {
@@ -529,7 +529,7 @@ function renderMaintenanceRunRows(runs) {
       <td>${escapeHtml(run.failed_count ?? 0)}</td>
       <td>${escapeHtml(run.needs_attention_count ?? 0)}</td>
     </tr>
-  `).join("") || '<tr><td colspan="7" class="row-muted">No maintenance runs.</td></tr>'
+  `).join("") || '<tr><td colspan="7" class="row-muted">No maintenance runs.</td></tr>';
 }
 
 function renderDeferredExtractionRows(deferred) {
@@ -543,7 +543,7 @@ function renderDeferredExtractionRows(deferred) {
       <td>${escapeHtml(row.attempts)}</td>
       <td>${escapeHtml(row.lastError ?? "")}</td>
     </tr>
-  `).join("") || '<tr><td colspan="7" class="row-muted">No deferred items.</td></tr>'
+  `).join("") || '<tr><td colspan="7" class="row-muted">No deferred items.</td></tr>';
 }
 
 function renderDoctorReports(doctorReports) {
@@ -552,18 +552,18 @@ function renderDoctorReports(doctorReports) {
       <div><strong>${escapeHtml(row.summary)}</strong></div>
       <div class="small">severity=${escapeHtml(row.severity)} · outcome=${escapeHtml(row.outcome)} · created=${escapeHtml(formatTime(row.created_at))}</div>
     </article>
-  `).join("") || renderEmptyBlock("No doctor reports found.")
+  `).join("") || renderEmptyBlock("No doctor reports found.");
 }
 
 function normalizeMaintenanceData(data) {
-  const maintenancePlan = data?.maintenancePlan ?? {}
+  const maintenancePlan = data?.maintenancePlan ?? {};
   return {
     runs: asArray(data?.runs),
     taskStates: asArray(data?.taskStates),
     deferred: asArray(data?.deferred),
     doctorReports: asArray(data?.doctorReports),
     dueTasks: asArray(maintenancePlan.dueTasks),
-  }
+  };
 }
 
 function renderMaintenance(data) {
@@ -573,7 +573,7 @@ function renderMaintenance(data) {
     deferred,
     doctorReports,
     dueTasks,
-  } = normalizeMaintenanceData(data)
+  } = normalizeMaintenanceData(data);
 
   views.maintenance.innerHTML = `
     <h2>Due maintenance tasks</h2>
@@ -621,12 +621,12 @@ function renderMaintenance(data) {
     <div class="list">
       ${renderDoctorReports(doctorReports)}
     </div>
-  `
+  `;
 }
 
 function renderEpisodes(data) {
-  const episodes = data?.episodes ?? []
-  const summaries = data?.daySummaries ?? []
+  const episodes = data?.episodes ?? [];
+  const summaries = data?.daySummaries ?? [];
 
   views.episodes.innerHTML = `
     <h2>Recent episodes</h2>
@@ -661,7 +661,7 @@ function renderEpisodes(data) {
         </article>
       `).join("") || renderEmptyBlock("No day summaries found.")}
     </div>
-  `
+  `;
 }
 
 function renderSectionList(title, itemsHtml, emptyMessage, description = "") {
@@ -677,16 +677,16 @@ function renderSectionList(title, itemsHtml, emptyMessage, description = "") {
         ${itemsHtml || renderEmptyBlock(emptyMessage)}
       </div>
     </section>
-  `
+  `;
 }
 
 function renderMetadataList(metadata) {
   const entries = Object.entries(metadata ?? {})
     .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
-    .slice(0, 10)
+    .slice(0, 10);
 
   if (entries.length === 0) {
-    return renderEmptyBlock("No metadata fields on this record.")
+    return renderEmptyBlock("No metadata fields on this record.");
   }
 
   return `
@@ -698,22 +698,22 @@ function renderMetadataList(metadata) {
         </div>
       `).join("")}
     </div>
-  `
+  `;
 }
 
 function renderMemoryRelationItem(memory, label = "Memory") {
-  const entity = memory.type === "workstream_overlay" ? "workstream" : "memory"
+  const entity = memory.type === "workstream_overlay" ? "workstream" : "memory";
   const subtitle = [
     label,
     memory.type,
     memory.repository ?? memory.scope,
     memory.canonicalKey ? `canonical=${memory.canonicalKey}` : null,
-  ].filter(Boolean).join(" · ")
+  ].filter(Boolean).join(" · ");
   const meta = [
     `updated=${formatTime(memory.updatedAt)}`,
     memory.reinforcementCount > 1 ? `reinforced=${memory.reinforcementCount}` : null,
     memory.supersededBy ? "state=superseded" : "state=active",
-  ].filter(Boolean).join(" · ")
+  ].filter(Boolean).join(" · ");
 
   return `
     <article class="list-item relation-item">
@@ -726,17 +726,17 @@ function renderMemoryRelationItem(memory, label = "Memory") {
       </div>
       <div class="small">${escapeHtml(meta)}</div>
     </article>
-  `
+  `;
 }
 
 function renderSessionRelationItem(session, label = "Session") {
-  const title = session.summary || `session ${session.sessionId}`
-  const subtitle = [label, session.repository ?? "global", session.branch, session.dateKey].filter(Boolean).join(" · ")
+  const title = session.summary || `session ${session.sessionId}`;
+  const subtitle = [label, session.repository ?? "global", session.branch, session.dateKey].filter(Boolean).join(" · ");
   const meta = [
     session.significance ? `significance=${session.significance}` : null,
     session.scope ? `scope=${session.scope}` : null,
     session.updatedAt ? `updated=${formatTime(session.updatedAt)}` : null,
-  ].filter(Boolean).join(" · ")
+  ].filter(Boolean).join(" · ");
 
   return `
     <article class="list-item relation-item">
@@ -749,18 +749,18 @@ function renderSessionRelationItem(session, label = "Session") {
       </div>
       ${meta ? `<div class="small">${escapeHtml(meta)}</div>` : ""}
     </article>
-  `
+  `;
 }
 
 function renderImprovementRelationItem(improvement) {
-  const evidenceKeys = Object.keys(improvement.evidence ?? {}).slice(0, 4)
-  const traceKeys = Object.keys(improvement.trace ?? {}).slice(0, 4)
+  const evidenceKeys = Object.keys(improvement.evidence ?? {}).slice(0, 4);
+  const traceKeys = Object.keys(improvement.trace ?? {}).slice(0, 4);
   const meta = [
     `status=${improvement.status}`,
     `review=${improvement.reviewState}`,
     improvement.sourceKind ? `source=${improvement.sourceKind}` : null,
     improvement.supersededBy ? `supersededBy=${improvement.supersededBy}` : null,
-  ].filter(Boolean).join(" · ")
+  ].filter(Boolean).join(" · ");
 
   return `
     <article class="list-item relation-item">
@@ -771,17 +771,17 @@ function renderImprovementRelationItem(improvement) {
       ${traceKeys.length > 0 ? `<div class="small">trace keys: ${escapeHtml(traceKeys.join(", "))}</div>` : ""}
       ${improvement.linkedMemory ? `<div class="small">linked memory: ${escapeHtml(truncateText(improvement.linkedMemory.content, 120))}</div>` : ""}
     </article>
-  `
+  `;
 }
 
 function renderGraph(graph) {
-  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : []
-  const edges = Array.isArray(graph?.edges) ? graph.edges : []
-  const nodesByColumn = Object.fromEntries(GRAPH_COLUMNS.map((column) => [column, []]))
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+  const nodesByColumn = Object.fromEntries(GRAPH_COLUMNS.map((column) => [column, []]));
 
   for (const node of nodes) {
-    const column = GRAPH_COLUMNS.includes(node.column) ? node.column : "right"
-    nodesByColumn[column].push(node)
+    const column = GRAPH_COLUMNS.includes(node.column) ? node.column : "right";
+    nodesByColumn[column].push(node);
   }
 
   const renderNodeDetails = (node) => [
@@ -789,12 +789,12 @@ function renderGraph(graph) {
     node.subtitle ? `<span class="graph-node-subtitle">${escapeHtml(node.subtitle)}</span>` : "",
     node.meta ? `<span class="graph-node-meta">${escapeHtml(node.meta)}</span>` : "",
     node.badge ? `<span class="tag node-badge">${escapeHtml(node.badge)}</span>` : "",
-  ].filter(Boolean).join("")
+  ].filter(Boolean).join("");
 
   const renderNode = (node) => {
-    const classes = ["graph-node", `node-${escapeHtml(node.kind || "memory")}`]
-    const commonAttrs = `class="${classes.join(" ")}" data-node-id="${escapeHtml(node.id)}"`
-    const nodeDetails = renderNodeDetails(node)
+    const classes = ["graph-node", `node-${escapeHtml(node.kind || "memory")}`];
+    const commonAttrs = `class="${classes.join(" ")}" data-node-id="${escapeHtml(node.id)}"`;
+    const nodeDetails = renderNodeDetails(node);
 
     if (node.navigable && node.entityType && node.entityId) {
       return `
@@ -806,17 +806,17 @@ function renderGraph(graph) {
         >
           ${nodeDetails}
         </button>
-      `
+      `;
     }
 
     return `
       <div ${commonAttrs}>
         ${nodeDetails}
       </div>
-    `
-  }
+    `;
+  };
 
-  const nodeIndex = new Map(nodes.map((node) => [node.id, node]))
+  const nodeIndex = new Map(nodes.map((node) => [node.id, node]));
 
   return `
     <div class="graph-shell" id="drilldown-graph-shell">
@@ -834,68 +834,68 @@ function renderGraph(graph) {
     </div>
     <div class="edge-list small">
       ${edges.map((edge) => {
-        const from = nodeIndex.get(edge.from)
-        const to = nodeIndex.get(edge.to)
+        const from = nodeIndex.get(edge.from);
+        const to = nodeIndex.get(edge.to);
         return `
           <span class="edge-chip">${escapeHtml(from?.title ?? edge.from)} → ${escapeHtml(edge.label)} → ${escapeHtml(to?.title ?? edge.to)}</span>
-        `
+        `;
       }).join("") || renderEmptyBlock("No relationship edges to display.")}
     </div>
-  `
+  `;
 }
 
 function drawGraphLines() {
-  const shell = document.getElementById("drilldown-graph-shell")
+  const shell = document.getElementById("drilldown-graph-shell");
   if (!shell) {
-    return
+    return;
   }
 
-  const svg = shell.querySelector(".graph-lines")
+  const svg = shell.querySelector(".graph-lines");
   const nodeElements = new Map(
     Array.from(shell.querySelectorAll("[data-node-id]")).map((element) => [element.dataset.nodeId, element]),
-  )
-  const graph = state.drilldown.data?.graph
-  const edges = Array.isArray(graph?.edges) ? graph.edges : []
-  const rect = shell.getBoundingClientRect()
-  const width = Math.max(1, shell.clientWidth)
-  const height = Math.max(1, shell.clientHeight)
+  );
+  const graph = state.drilldown.data?.graph;
+  const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+  const rect = shell.getBoundingClientRect();
+  const width = Math.max(1, shell.clientWidth);
+  const height = Math.max(1, shell.clientHeight);
 
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
-  svg.setAttribute("width", width)
-  svg.setAttribute("height", height)
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", height);
 
   const paths = edges.map((edge) => {
-    const fromElement = nodeElements.get(edge.from)
-    const toElement = nodeElements.get(edge.to)
+    const fromElement = nodeElements.get(edge.from);
+    const toElement = nodeElements.get(edge.to);
     if (!fromElement || !toElement) {
-      return ""
+      return "";
     }
 
-    const fromRect = fromElement.getBoundingClientRect()
-    const toRect = toElement.getBoundingClientRect()
-    const x1 = fromRect.left - rect.left + fromRect.width / 2
-    const y1 = fromRect.top - rect.top + fromRect.height / 2
-    const x2 = toRect.left - rect.left + toRect.width / 2
-    const y2 = toRect.top - rect.top + toRect.height / 2
-    const curve = Math.max(36, Math.abs(x2 - x1) / 2)
+    const fromRect = fromElement.getBoundingClientRect();
+    const toRect = toElement.getBoundingClientRect();
+    const x1 = fromRect.left - rect.left + fromRect.width / 2;
+    const y1 = fromRect.top - rect.top + fromRect.height / 2;
+    const x2 = toRect.left - rect.left + toRect.width / 2;
+    const y2 = toRect.top - rect.top + toRect.height / 2;
+    const curve = Math.max(36, Math.abs(x2 - x1) / 2);
 
-    return `<path d="M ${x1} ${y1} C ${x1 + curve} ${y1}, ${x2 - curve} ${y2}, ${x2} ${y2}" class="graph-edge edge-${escapeHtml(edge.type || "link")}" />`
-  }).join("")
+    return `<path d="M ${x1} ${y1} C ${x1 + curve} ${y1}, ${x2 - curve} ${y2}, ${x2} ${y2}" class="graph-edge edge-${escapeHtml(edge.type || "link")}" />`;
+  }).join("");
 
-  svg.innerHTML = paths
+  svg.innerHTML = paths;
 }
 
 function queueGraphDraw() {
-  window.requestAnimationFrame(() => drawGraphLines())
+  window.requestAnimationFrame(() => drawGraphLines());
 }
 
 function countItems(items) {
-  return Array.isArray(items) ? items.length : 0
+  return Array.isArray(items) ? items.length : 0;
 }
 
 function renderDaySummaryRelation(day, extraMeta = []) {
   if (!day) {
-    return ""
+    return "";
   }
 
   return `
@@ -908,7 +908,7 @@ function renderDaySummaryRelation(day, extraMeta = []) {
         ...extraMeta.filter(Boolean),
       ].join(" · "))}</div>
     </article>
-  `
+  `;
 }
 
 function renderDrilldownShell({
@@ -951,11 +951,11 @@ function renderDrilldownShell({
         ${detailSections}
       </div>
     </div>
-  `
+  `;
 }
 
 function joinRenderedParts(parts) {
-  return parts.filter(Boolean).join("")
+  return parts.filter(Boolean).join("");
 }
 
 function buildMemorySummaryCards(focus) {
@@ -966,7 +966,7 @@ function buildMemorySummaryCards(focus) {
     ["State", focus.status],
     ["Reinforcements", focus.reinforcementCount ?? 1],
     ["Canonical key", focus.canonicalKey ?? "—"],
-  ])
+  ]);
 }
 
 function buildMemoryHeaderSubtitle(focus) {
@@ -975,7 +975,7 @@ function buildMemoryHeaderSubtitle(focus) {
     focus.repository ?? "global",
     focus.scope ? `scope=${focus.scope}` : null,
     focus.sourceTurnIndex !== null && focus.sourceTurnIndex !== undefined ? `turn=${focus.sourceTurnIndex}` : null,
-  ].filter(Boolean).join(" · ")
+  ].filter(Boolean).join(" · ");
 }
 
 function buildMemoryMeta(focus) {
@@ -983,7 +983,7 @@ function buildMemoryMeta(focus) {
     `updated=${formatTime(focus.updatedAt)}`,
     `created=${formatTime(focus.createdAt)}`,
     `lastSeen=${formatTime(focus.lastSeenAt)}`,
-  ].join(" · ")
+  ].join(" · ");
 }
 
 function buildMemoryProvenanceItems(provenance) {
@@ -991,19 +991,19 @@ function buildMemoryProvenanceItems(provenance) {
     provenance.sourceSession ? renderSessionRelationItem(provenance.sourceSession, "Source session") : "",
     renderDaySummaryRelation(provenance.day),
     ...(Array.isArray(provenance.siblingSessions) ? provenance.siblingSessions.map((session) => renderSessionRelationItem(session, "Same day")) : []),
-  ])
+  ]);
 }
 
 function buildMemoryLineageItems(lineage) {
   return joinRenderedParts([
     lineage.supersededBy ? renderMemoryRelationItem(lineage.supersededBy, "Superseded by") : "",
     ...(Array.isArray(lineage.supersedes) ? lineage.supersedes.map((memory) => renderMemoryRelationItem(memory, "Supersedes")) : []),
-  ])
+  ]);
 }
 
 function renderMemoryClusterHeader(cluster) {
   if (!cluster) {
-    return ""
+    return "";
   }
 
   return `
@@ -1011,19 +1011,19 @@ function renderMemoryClusterHeader(cluster) {
       <div><strong>${escapeHtml(cluster.key)}</strong></div>
       <div class="small">members=${escapeHtml(cluster.totalMembers)} · active=${escapeHtml(cluster.activeMembers)} · total reinforcement=${escapeHtml(cluster.totalReinforcement)}</div>
     </article>
-  `
+  `;
 }
 
 function buildMemoryClusterItems(cluster, focusId) {
   if (!cluster) {
-    return ""
+    return "";
   }
 
-  const members = Array.isArray(cluster.members) ? cluster.members : []
+  const members = Array.isArray(cluster.members) ? cluster.members : [];
   return joinRenderedParts([
     renderMemoryClusterHeader(cluster),
     ...members.map((memory) => renderMemoryRelationItem(memory, memory.id === focusId ? "Focused memory" : "Cluster member")),
-  ])
+  ]);
 }
 
 function renderMemoryMetadataSection(metadata) {
@@ -1032,20 +1032,20 @@ function renderMemoryMetadataSection(metadata) {
       <div class="section-head"><h2>Metadata</h2></div>
       ${renderMetadataList(metadata)}
     </section>
-  `
+  `;
 }
 
 function renderMemoryLifecycleSection(lifecycle = {}) {
-  const state = lifecycle.state ?? {}
-  const evidence = ensureArray(lifecycle.evidence)
-  const suppressions = ensureArray(lifecycle.suppressions)
-  const timeline = ensureArray(lifecycle.timeline)
+  const state = lifecycle.state ?? {};
+  const evidence = ensureArray(lifecycle.evidence);
+  const suppressions = ensureArray(lifecycle.suppressions);
+  const timeline = ensureArray(lifecycle.timeline);
   const stateText = [
     `memory=${state.memory ?? "unknown"}`,
     `suppression=${state.suppression ?? "none"}`,
     `expiry=${state.expiry ?? "none"}`,
     `correction=${state.correction ?? "none"}`,
-  ].join(" · ")
+  ].join(" · ");
   const evidenceHtml = evidence.map((item) => `
     <article class="list-item provenance-item">
       <div class="item-header-row"><strong>${escapeHtml(item.sourceKind ?? "evidence")}</strong><span class="tag ${item.retiredAt || item.linkRetiredAt ? "warn" : "ok"}">${item.retiredAt || item.linkRetiredAt ? "retired" : "active"}</span></div>
@@ -1054,17 +1054,17 @@ function renderMemoryLifecycleSection(lifecycle = {}) {
       <div class="small">evidence key=${escapeHtml(item.key ?? "not recorded")}</div>
       <div class="small">captured=${escapeHtml(formatTime(item.capturedAt))} · revision=${escapeHtml(item.revision ?? "not recorded")}</div>
     </article>
-  `).join("")
+  `).join("");
   const suppressionHtml = suppressions.map((item) => `
     <article class="list-item provenance-item">
       <div class="item-header-row"><strong>Suppression</strong><span class="tag ${item.supersededAt ? "ok" : "warn"}">${item.supersededAt ? "superseded" : "active"}</span></div>
       <div class="small">actor=${escapeHtml(item.actor ?? "unknown")} · reason=${escapeHtml(item.reason ?? "not recorded")}</div>
       <div class="small">recorded=${escapeHtml(formatTime(item.createdAt))}</div>
     </article>
-  `).join("")
+  `).join("");
   const timelineHtml = timeline.map((item) => `
     <li><strong>${escapeHtml(item.label ?? item.kind ?? "event")}</strong><span class="small">${escapeHtml(formatTime(item.at))}</span>${item.sourceRole || item.sourceRecordId ? `<div class="small">${escapeHtml([item.sourceRole ? `role=${item.sourceRole}` : null, item.sourceRecordId ? `source ref=${item.sourceRecordId}` : null].filter(Boolean).join(" · "))}</div>` : ""}</li>
-  `).join("")
+  `).join("");
   return `
     <section class="card section-card lifecycle-section">
       <div class="section-head"><div><h2>Evidence & lifecycle</h2><div class="small">Attributed source records and state history. Confidence basis is descriptive, not a probability.</div></div><span class="tag">${escapeHtml(stateText)}</span></div>
@@ -1075,18 +1075,18 @@ function renderMemoryLifecycleSection(lifecycle = {}) {
       <h3>Timeline</h3>
       <ol class="timeline">${timelineHtml || '<li class="row-muted">No lifecycle events recorded.</li>'}</ol>
     </section>
-  `
+  `;
 }
 
 function quoteShell(value) {
-  return `'${String(value ?? "").replaceAll("'", "'\"'\"'")}'`
+  return `'${String(value ?? "").replaceAll("'", "'\"'\"'")}'`;
 }
 
 function buildPreviewCommand(tool, payload) {
   if (!state.loreCliPath) {
-    return null
+    return null;
   }
-  return `printf '%s\\n' ${quoteShell(JSON.stringify({ action: "preview", ...payload }))} | node ${quoteShell(state.loreCliPath)} tool ${tool}`
+  return `printf '%s\\n' ${quoteShell(JSON.stringify({ action: "preview", ...payload }))} | node ${quoteShell(state.loreCliPath)} tool ${tool}`;
 }
 
 function renderAdministrationPreviewSection(focus) {
@@ -1095,9 +1095,9 @@ function renderAdministrationPreviewSection(focus) {
     ["Repair", "memory_repair", { memoryIds: [focus.id], repository: focus.repository ?? undefined }],
     ["Purge", "memory_purge", { memoryIds: [focus.id] }],
   ].map(([label, tool, payload]) => {
-    const command = buildPreviewCommand(tool, payload)
+    const command = buildPreviewCommand(tool, payload);
     if (!command) {
-      return `<article class="list-item admin-command-item"><strong>${escapeHtml(label)} preview</strong><div class="small">CLI path unavailable from the dashboard health response.</div></article>`
+      return `<article class="list-item admin-command-item"><strong>${escapeHtml(label)} preview</strong><div class="small">CLI path unavailable from the dashboard health response.</div></article>`;
     }
     return `
       <article class="list-item admin-command-item">
@@ -1105,15 +1105,15 @@ function renderAdministrationPreviewSection(focus) {
         <code class="command-preview">${escapeHtml(command)}</code>
         <div class="small copy-feedback" aria-live="polite"></div>
       </article>
-    `
-  }).join("")
+    `;
+  }).join("");
   return `
     <section class="card section-card administration-section">
       <div class="section-head"><div><h2>Administration previews</h2><div class="small">Copy-only shell commands. Review the report fingerprint before any explicit apply.</div></div><span class="tag warn">preview only</span></div>
       <div class="list compact-list">${commands}</div>
       <div class="small">Purge removes selected derived records while retaining raw sources and recovery snapshots; it is not secure erasure.</div>
     </section>
-  `
+  `;
 }
 
 function buildMemoryDetailSections({ focus, provenance, lineage, cluster, improvements, lifecycle }) {
@@ -1125,7 +1125,7 @@ function buildMemoryDetailSections({ focus, provenance, lineage, cluster, improv
     renderMemoryLifecycleSection(lifecycle),
     renderAdministrationPreviewSection(focus),
     renderMemoryMetadataSection(focus.metadata),
-  ])
+  ]);
 }
 
 function buildSessionSummaryCards(focus) {
@@ -1136,15 +1136,15 @@ function buildSessionSummaryCards(focus) {
     ["Decisions", focus.decisionCount ?? 0],
     ["Learnings", focus.learningCount ?? 0],
     ["Open items", focus.openItemCount ?? 0],
-  ])
+  ]);
 }
 
 function renderHighlightItem(label, values) {
   if (!Array.isArray(values) || values.length === 0) {
-    return ""
+    return "";
   }
 
-  return `<article class="list-item relation-item"><strong>${escapeHtml(label)}</strong><div class="small">${escapeHtml(values.join(" | "))}</div></article>`
+  return `<article class="list-item relation-item"><strong>${escapeHtml(label)}</strong><div class="small">${escapeHtml(values.join(" | "))}</div></article>`;
 }
 
 function buildSessionHighlightsItems(focus) {
@@ -1154,7 +1154,7 @@ function buildSessionHighlightsItems(focus) {
     renderHighlightItem("Learnings", focus.learnings),
     renderHighlightItem("Open items", focus.openItems),
     renderHighlightItem("Files changed", focus.filesChanged),
-  ])
+  ]);
 }
 
 function buildSessionDayGroupingItems(dayGroup) {
@@ -1164,11 +1164,11 @@ function buildSessionDayGroupingItems(dayGroup) {
       dayGroup.day?.computedAt ? [`computed=${formatTime(dayGroup.day.computedAt)}`] : [],
     ),
     ...(Array.isArray(dayGroup.siblingSessions) ? dayGroup.siblingSessions.map((session) => renderSessionRelationItem(session, "Same day")) : []),
-  ])
+  ]);
 }
 
 function buildSessionSubtitle(focus) {
-  return `session · ${[focus.repository ?? "global", focus.branch, focus.dateKey].filter(Boolean).join(" · ")}`
+  return `session · ${[focus.repository ?? "global", focus.branch, focus.dateKey].filter(Boolean).join(" · ")}`;
 }
 
 function buildSessionMeta(focus) {
@@ -1176,7 +1176,7 @@ function buildSessionMeta(focus) {
     `updated=${formatTime(focus.updatedAt)}`,
     `created=${formatTime(focus.createdAt)}`,
     `significance=${focus.significance ?? "—"}`,
-  ].join(" · ")
+  ].join(" · ");
 }
 
 function buildSessionDetailSections({ focus, dayGroup, sessionMemories, improvements }) {
@@ -1205,24 +1205,24 @@ function buildSessionDetailSections({ focus, dayGroup, sessionMemories, improvem
       "No improvement artifacts linked to this session's memories.",
       "Improvement backlog records joined through linked_memory_id.",
     ),
-  ])
+  ]);
 }
 
 function ensureDefaultValue(value, defaultValue = {}) {
-  return value ?? defaultValue
+  return value ?? defaultValue;
 }
 
 function ensureArray(value) {
-  return Array.isArray(value) ? value : []
+  return Array.isArray(value) ? value : [];
 }
 
 function renderMemoryDrilldown(data) {
-  const focus = ensureDefaultValue(data?.focus)
-  const provenance = ensureDefaultValue(data?.provenance)
-  const lineage = ensureDefaultValue(data?.lineage)
-  const cluster = data?.canonicalCluster
-  const improvements = ensureArray(data?.linkedImprovements)
-  const lifecycle = ensureDefaultValue(data?.lifecycle)
+  const focus = ensureDefaultValue(data?.focus);
+  const provenance = ensureDefaultValue(data?.provenance);
+  const lineage = ensureDefaultValue(data?.lineage);
+  const cluster = data?.canonicalCluster;
+  const improvements = ensureArray(data?.linkedImprovements);
+  const lifecycle = ensureDefaultValue(data?.lifecycle);
 
   views.drilldown.innerHTML = renderDrilldownShell({
     title: focus.title,
@@ -1233,16 +1233,16 @@ function renderMemoryDrilldown(data) {
     graphDescription: `Read-only graph centered on the selected ${focus.entityType}.`,
     graph: data.graph,
     detailSections: buildMemoryDetailSections({ focus, provenance, lineage, cluster, improvements, lifecycle }),
-  })
+  });
 
-  queueGraphDraw()
+  queueGraphDraw();
 }
 
 function renderSessionDrilldown(data) {
-  const focus = ensureDefaultValue(data?.focus)
-  const dayGroup = ensureDefaultValue(data?.dayGroup)
-  const sessionMemories = ensureArray(data?.sessionMemories)
-  const improvements = ensureArray(data?.linkedImprovements)
+  const focus = ensureDefaultValue(data?.focus);
+  const dayGroup = ensureDefaultValue(data?.dayGroup);
+  const sessionMemories = ensureArray(data?.sessionMemories);
+  const improvements = ensureArray(data?.linkedImprovements);
 
   views.drilldown.innerHTML = renderDrilldownShell({
     title: focus.title,
@@ -1253,194 +1253,194 @@ function renderSessionDrilldown(data) {
     graphDescription: "Session provenance, linked memories, and improvement artifacts.",
     graph: data.graph,
     detailSections: buildSessionDetailSections({ focus, dayGroup, sessionMemories, improvements }),
-  })
+  });
 
-  queueGraphDraw()
+  queueGraphDraw();
 }
 
 function renderDrilldownEmpty(message = "Select a memory, session, or workstream from the overview, memories, or episodes tabs to open a focused relationship graph.") {
-  state.drilldown.data = null
+  state.drilldown.data = null;
   views.drilldown.innerHTML = `
     <section class="card drilldown-header empty-drilldown">
       <h2>Focused drill-down</h2>
       <p>${escapeHtml(message)}</p>
       <div class="small">The landing flow stays overview/table-first; this secondary tab is only for scoped exploration.</div>
     </section>
-  `
+  `;
 }
 
 function parseDrilldownHash() {
-  const hash = window.location.hash.slice(1)
+  const hash = window.location.hash.slice(1);
   if (!hash.startsWith("drilldown")) {
-    return null
+    return null;
   }
-  const query = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : ""
-  const params = new URLSearchParams(query)
-  const entity = params.get("entity")?.trim().toLowerCase()
-  const id = params.get("id")?.trim()
+  const query = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+  const params = new URLSearchParams(query);
+  const entity = params.get("entity")?.trim().toLowerCase();
+  const id = params.get("id")?.trim();
   if (!entity || !id) {
-    return null
+    return null;
   }
-  return { entity, id }
+  return { entity, id };
 }
 
 function activateTab(tabName) {
-  state.tab = tabName
+  state.tab = tabName;
   document.querySelectorAll(".tab").forEach((button) => {
-    button.classList.toggle("active", button.dataset.tab === tabName)
-  })
+    button.classList.toggle("active", button.dataset.tab === tabName);
+  });
   Object.entries(views).forEach(([name, element]) => {
-    element.classList.toggle("active", name === tabName)
-  })
+    element.classList.toggle("active", name === tabName);
+  });
 }
 
 async function loadDrilldown(entity, id, { activate = true } = {}) {
-  const response = await fetchJson(`/api/drilldown?${new URLSearchParams({ entity, id }).toString()}`)
+  const response = await fetchJson(`/api/drilldown?${new URLSearchParams({ entity, id }).toString()}`);
   state.drilldown = {
     entity,
     id,
     data: response.data,
-  }
+  };
   if (activate) {
-    activateTab("drilldown")
+    activateTab("drilldown");
   }
 
   if (response.data?.entityType === "session") {
-    renderSessionDrilldown(response.data)
+    renderSessionDrilldown(response.data);
   } else {
-    renderMemoryDrilldown(response.data)
+    renderMemoryDrilldown(response.data);
   }
-  setStatus("read-only local mode", true)
+  setStatus("read-only local mode", true);
 }
 
 async function syncDrilldownFromHash({ activateIfPresent = false } = {}) {
-  const route = parseDrilldownHash()
+  const route = parseDrilldownHash();
   if (!route) {
-    renderDrilldownEmpty()
-    return
+    renderDrilldownEmpty();
+    return;
   }
   try {
-    await loadDrilldown(route.entity, route.id, { activate: activateIfPresent })
+    await loadDrilldown(route.entity, route.id, { activate: activateIfPresent });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    renderDrilldownEmpty(`This ${route.entity} is no longer available. The rest of the dashboard remains available; refresh the source view to choose another record.`)
-    setStatus("record unavailable", false)
-    if (activateIfPresent) activateTab("drilldown")
-    console.warn(message)
+    const message = error instanceof Error ? error.message : String(error);
+    renderDrilldownEmpty(`This ${route.entity} is no longer available. The rest of the dashboard remains available; refresh the source view to choose another record.`);
+    setStatus("record unavailable", false);
+    if (activateIfPresent) activateTab("drilldown");
+    console.warn(message);
   }
 }
 
 async function navigateToDrilldown(entity, id) {
-  const nextHash = `#drilldown?${new URLSearchParams({ entity, id }).toString()}`
+  const nextHash = `#drilldown?${new URLSearchParams({ entity, id }).toString()}`;
   if (window.location.hash === nextHash) {
-    await loadDrilldown(entity, id, { activate: true })
-    return
+    await loadDrilldown(entity, id, { activate: true });
+    return;
   }
-  window.location.hash = nextHash
+  window.location.hash = nextHash;
 }
 
 function clearDrilldownSelection() {
-  history.replaceState(null, "", `${window.location.pathname}${window.location.search}`)
-  renderDrilldownEmpty()
-  activateTab("overview")
+  history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+  renderDrilldownEmpty();
+  activateTab("overview");
 }
 
 async function refreshAll() {
-  setStatus("loading…", true)
+  setStatus("loading…", true);
   try {
     const [healthResponse, overviewResponse, maintenanceResponse, episodesResponse] = await Promise.all([
       fetchJson("/api/health"),
       fetchJson("/api/overview"),
       fetchJson("/api/maintenance"),
       fetchJson("/api/episodes"),
-    ])
-    state.loreCliPath = typeof healthResponse.loreCliPath === "string" ? healthResponse.loreCliPath : null
-    setScope(healthResponse.repository ?? null)
-    renderOverview(overviewResponse.data)
-    renderMaintenance(maintenanceResponse.data)
-    renderEpisodes(episodesResponse.data)
-    await loadMemories()
-    setStatus("read-only local mode", true)
+    ]);
+    state.loreCliPath = typeof healthResponse.loreCliPath === "string" ? healthResponse.loreCliPath : null;
+    setScope(healthResponse.repository ?? null);
+    renderOverview(overviewResponse.data);
+    renderMaintenance(maintenanceResponse.data);
+    renderEpisodes(episodesResponse.data);
+    await loadMemories();
+    setStatus("read-only local mode", true);
   } catch (error) {
-    setStatus(`error: ${error.message}`, false)
-    const message = `<p class="row-muted">${escapeHtml(error.message)}</p>`
+    setStatus(`error: ${error.message}`, false);
+    const message = `<p class="row-muted">${escapeHtml(error.message)}</p>`;
     Object.values(views).forEach((view) => {
-      view.innerHTML = message
-    })
+      view.innerHTML = message;
+    });
   }
 }
 
 document.getElementById("tabs").addEventListener("click", (event) => {
-  const button = event.target.closest(".tab")
+  const button = event.target.closest(".tab");
   if (!button) {
-    return
+    return;
   }
-  activateTab(button.dataset.tab)
-})
+  activateTab(button.dataset.tab);
+});
 
 document.body.addEventListener("click", (event) => {
-  const copyButton = event.target.closest("[data-copy-command]")
+  const copyButton = event.target.closest("[data-copy-command]");
   if (copyButton) {
-    const command = copyButton.dataset.copyCommand
-    const copyKind = copyButton.dataset.copyKind === "resume" ? "resume" : "preview"
-    const idleLabel = copyKind === "resume" ? "Copy resume command" : "Copy preview command"
-    const copiedLabel = copyKind === "resume" ? "Copied resume command" : "Copied preview command"
+    const command = copyButton.dataset.copyCommand;
+    const copyKind = copyButton.dataset.copyKind === "resume" ? "resume" : "preview";
+    const idleLabel = copyKind === "resume" ? "Copy resume command" : "Copy preview command";
+    const copiedLabel = copyKind === "resume" ? "Copied resume command" : "Copied preview command";
     const feedback = copyButton.parentElement?.querySelector?.(".copy-feedback")
-      ?? copyButton.closest?.(".admin-command-item")?.querySelector?.(".copy-feedback")
+      ?? copyButton.closest?.(".admin-command-item")?.querySelector?.(".copy-feedback");
     if (!command) {
-      return
+      return;
     }
     if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-      if (feedback) feedback.textContent = "Clipboard unavailable; select the command from the page source."
-      return
+      if (feedback) feedback.textContent = "Clipboard unavailable; select the command from the page source.";
+      return;
     }
     void navigator.clipboard.writeText(command).then(() => {
-      if (feedback) feedback.textContent = copiedLabel
-      copyButton.textContent = "Copied"
+      if (feedback) feedback.textContent = copiedLabel;
+      copyButton.textContent = "Copied";
       window.setTimeout(() => {
-        copyButton.textContent = idleLabel
-        if (feedback) feedback.textContent = ""
-      }, 1600)
+        copyButton.textContent = idleLabel;
+        if (feedback) feedback.textContent = "";
+      }, 1600);
     }).catch(() => {
-      if (feedback) feedback.textContent = "Copy failed; command remains available in the page."
-    })
-    return
+      if (feedback) feedback.textContent = "Copy failed; command remains available in the page.";
+    });
+    return;
   }
 
-  const clearButton = event.target.closest("[data-clear-drilldown]")
+  const clearButton = event.target.closest("[data-clear-drilldown]");
   if (clearButton) {
-    clearDrilldownSelection()
-    return
+    clearDrilldownSelection();
+    return;
   }
 
-  const trigger = event.target.closest("[data-drilldown-entity][data-drilldown-id]")
+  const trigger = event.target.closest("[data-drilldown-entity][data-drilldown-id]");
   if (!trigger) {
-    return
+    return;
   }
 
-  event.preventDefault()
-  const entity = trigger.dataset.drilldownEntity
-  const id = trigger.dataset.drilldownId
+  event.preventDefault();
+  const entity = trigger.dataset.drilldownEntity;
+  const id = trigger.dataset.drilldownId;
   if (!entity || !id) {
-    return
+    return;
   }
-  void navigateToDrilldown(entity, id)
-})
+  void navigateToDrilldown(entity, id);
+});
 
 window.addEventListener("hashchange", () => {
-  void syncDrilldownFromHash({ activateIfPresent: true })
-})
+  void syncDrilldownFromHash({ activateIfPresent: true });
+});
 
 window.addEventListener("resize", () => {
   if (state.drilldown.data?.graph) {
-    queueGraphDraw()
+    queueGraphDraw();
   }
-})
+});
 
-await refreshAll()
-await syncDrilldownFromHash({ activateIfPresent: true })
+await refreshAll();
+await syncDrilldownFromHash({ activateIfPresent: true });
 setInterval(() => {
   if (state.tab === "overview" || state.tab === "maintenance") {
-    void refreshAll()
+    void refreshAll();
   }
-}, 15000)
+}, 15000);

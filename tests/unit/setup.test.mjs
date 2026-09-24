@@ -364,6 +364,39 @@ test("a later setup failure rolls back a newly written PATH shim", () => {
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+test("reinstalling after the resolved node path changes replaces the old pinned command instead of duplicating it", () => {
+  // Simulates a version manager pruning the node version a hook was pinned
+  // to: setup resolves a different stable path on the next run, and the old
+  // pinned command must be removed via the recorded manifest.commands
+  // ownership, not left behind alongside the new one.
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-node-upgrade-"));
+  try {
+    const env = { HOME: home };
+    applySetup(planSetup(["codex"], { home, env, node: "/old/pinned/mise/installs/node/26.8.2/bin/node" }));
+    const hooksPath = path.join(home, ".codex/hooks.json");
+    const first = readFileSync(hooksPath, "utf8");
+    assert.match(first, /26\.8\.2/);
+    assert.equal(JSON.parse(first).hooks.SessionStart.length, 1);
+
+    applySetup(planSetup(["codex"], { home, env, node: "/new/stable/mise/installs/node/27/bin/node" }));
+    const second = readFileSync(hooksPath, "utf8");
+    assert.equal(second.includes("26.8.2"), false, "the old pinned node path must be removed, not duplicated");
+    assert.match(second, /mise\/installs\/node\/27\/bin\/node/);
+    assert.equal(JSON.parse(second).hooks.SessionStart.length, 1);
+
+    const manifest = JSON.parse(readFileSync(path.join(home, ".config/lore/install-manifest.json"), "utf8"));
+    assert.ok(manifest.installs.codex.commands.every((command) => command.includes("mise/installs/node/27")));
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("planSetup reports the resolved node path and source", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-setup-node-report-"));
+  try {
+    const plan = planSetup(["codex"], { home, env: { HOME: home }, node: "/explicit/node" });
+    assert.deepEqual(plan.node, { path: "/explicit/node", source: "explicit --node option", versionManager: null, pinned: false });
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
 test("PATH shim re-resolves node when the baked binary is missing", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-shim-resolve-"));
   try {

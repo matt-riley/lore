@@ -3,15 +3,16 @@ import { detectClients, selectClients, listInstalledClients, planSetup, applySet
 import { checkRuntime, formatRuntimeDiagnostics } from "../lib/core/runtime.mjs";
 
 try {
-  const options = { yes: false, dryRun: false, remove: false, clients: null };
+  const options = { yes: false, dryRun: false, remove: false, clients: null, node: null };
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--yes") options.yes = true;
     else if (args[i] === "--dry-run") options.dryRun = true;
     else if (args[i] === "--remove") options.remove = true;
     else if (args[i] === "--clients" && args[i + 1] && !args[i + 1].startsWith("--")) options.clients = args[++i];
+    else if (args[i] === "--node" && args[i + 1] && !args[i + 1].startsWith("--")) options.node = args[++i];
     else if (args[i] === "--help") {
-      console.log("Usage: npm run setup -- [--clients copilot,pi,codex,claude,antigravity|all] [--remove] [--yes] [--dry-run]\nDetects clients on PATH and installs or removes Lore globally. Without flags, choose clients and confirm interactively.");
+      console.log("Usage: npm run setup -- [--clients copilot,pi,codex,claude,antigravity|all] [--remove] [--yes] [--dry-run] [--node /path/to/node]\nDetects clients on PATH and installs or removes Lore globally. Without flags, choose clients and confirm interactively.\n--node overrides the Node binary baked into installed hooks/shim (also settable via LORE_NODE); by default Lore resolves a version-manager-stable path (mise/asdf/fnm/volta/nvm) instead of the exact binary running setup.");
       process.exit(0);
     } else throw new Error(`Unknown or incomplete argument: ${args[i]}`);
   }
@@ -47,13 +48,15 @@ try {
     const ids = selectClients(selection, clients, { allowedExtra: recorded });
     if (!ids.length) { console.log("Cancelled. No changes made."); }
     else {
-      const plan = options.remove ? planRemove(ids) : planSetup(ids);
+      const plan = options.remove ? planRemove(ids) : planSetup(ids, { node: options.node });
       console.log(`\nEnable shared Lore configuration: ${plan.paths.configPath}`);
       for (const target of plan.targets) console.log(`  ${target.id}: ${target.target}`);
       if (options.remove) console.log("Only Lore-owned hooks and runtime copies with intact ownership metadata are eligible; memories, configuration, unrelated hooks, and modified content are preserved.");
       else {
         console.log("Existing settings are merged; replaced files/installations are backed up. Keep this checkout and Node installation in place for native hooks.");
         console.log("Recalled memories become context for each client's configured model. Setup writes only `enabled: true`; effective runtime defaults still enable some non-core surfaces — review docs/support-matrix.md.");
+        console.log(`Node for hooks/shim: ${plan.node.path} (${plan.node.source})`);
+        if (plan.node.pinned) console.log(`Warning: no stable alternative was found; this path may break if your version manager prunes it. Set LORE_NODE or pass --node to pin something durable.`);
         if (plan.shim?.homeBin) console.log(`PATH shim: ${plan.shim.homeBin}`);
         if (plan.shim?.pathCopy) console.log(`PATH copy: ${plan.shim.pathCopy}`);
         if (plan.pathExport) console.log(`No writable directory on PATH. Add Lore with:\n  ${plan.pathExport}`);

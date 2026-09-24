@@ -38,8 +38,7 @@ import { requireDispatchOutcome } from "./lib/runtime/operation-dispatch.mjs";
 import { retainMemory } from "./lib/memory/memory-operations.mjs";
 import { assembleRecall } from "./lib/context/recall-assembler.mjs";
 import { EpisodeSessionSource } from "./lib/runtime/session-source.mjs";
-import { applySessionExtraction } from "./lib/sessions/backfill.mjs";
-import { extractSessionMemories } from "./lib/sessions/rule-extractor.mjs";
+import { onSessionCapture } from "./lib/lifecycle/session-lifecycle.mjs";
 import { buildErrorTelemetryRecord, buildPostToolUseObservation } from "./lib/lifecycle/passive-hooks.mjs";
 import {
   readErrorTelemetryEnabled,
@@ -48,7 +47,6 @@ import {
 } from "./lib/rollout/rollout-flags.mjs";
 import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.mjs";
 import { readPiSessionHeader } from "./pi-session-reader.mjs";
-import { reconcileCaptureEvidence } from "./lib/clients/cli-capture-evidence.mjs";
 import { ingestCliTranscript } from "./lib/clients/cli-transcript-ingestion.mjs";
 import { PiArchiveScanner, parseBackfillSettings, resolvePiSessionDir } from "./lib/sessions/pi-archive-scanner.mjs";
 import { runBackgroundMaintenanceSweep } from "./lib/maintenance/maintenance-scheduler.mjs";
@@ -190,22 +188,12 @@ async function extractPiSession(filePath, repository, { useEnvironmentRepository
     cwd: parsed.cwd,
     repository: parsed.repository,
     capture: (artifacts) => {
-      const workspace = { workspace: { repository: parsed.repository, branch: null, updated_at: artifacts.session.updated_at } };
-      const extraction = extractSessionMemories({
-        sessionId: parsed.sessionId,
-        repository: parsed.repository,
-        sessionArtifacts: artifacts,
-        workspace,
-        config: db.config,
-      });
-      const captureState = reconcileCaptureEvidence({ db, sessionId: parsed.sessionId, artifacts, extraction });
-      applySessionExtraction({
+      const { captureState, extraction } = onSessionCapture({
         db,
         sessionId: parsed.sessionId,
         repository: parsed.repository,
-        sessionArtifacts: artifacts,
-        workspace,
-        extraction,
+        config: db.config,
+        artifacts,
       });
       extractionResult = { extracted: true, episodeId: extraction.episodeDigest.id, memoryCount: extraction.semanticMemories.length };
       return captureState;

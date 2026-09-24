@@ -390,4 +390,106 @@ describe("assembleRecall", () => {
       cleanup();
     }
   });
+
+  test("global commitments need stronger evidence than generic task-request words", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: { enabled: true, rollout: { memoryOperations: true } },
+    });
+    try {
+      const insertGlobalRejection = (id, content) => db.insertSemanticMemory({
+        id,
+        type: "rejected_approach",
+        content,
+        scope: "global",
+        confidence: 1,
+        tags: ["rejected", "user"],
+      });
+      insertGlobalRejection("go-review", "I would like you to review the go code in this project and tell me if there is anything which needs improving or fixing. Do not make any code changes");
+      insertGlobalRejection("git-diff-review", "Review `git diff --cached`, falling back to `git diff` if nothing is staged.");
+      insertGlobalRejection("monitor-review", "Don't forget to monitor for review comments too");
+      db.insertSemanticMemory({
+        id: "repo-review-checklist",
+        type: "rejected_approach",
+        content: "This repo's review checklist requires running lint before merging.",
+        scope: "repo",
+        repository: "fixture-repo",
+        confidence: 1,
+        tags: ["rejected", "user"],
+      });
+
+      const prompt = "I want you to do a full code review of this codebase and tell me what is good, what is bad, what else could be added to it";
+      const result = await assembleRecall({ db, prompt, repository: "fixture-repo", config });
+
+      const localMemories = result.trace.lookups.localMemories;
+      assert.deepEqual(localMemories.includedRows.map((row) => row.id), ["repo-review-checklist"]);
+      assert.deepEqual(
+        localMemories.filtered.map((entry) => entry.row.id).sort(),
+        ["git-diff-review", "go-review", "monitor-review"],
+      );
+      assert.ok(localMemories.filtered.every((entry) => entry.reason === "global_relevance_gate"));
+      assert.doesNotMatch(result.text, /review the go code|git diff --cached|monitor for review comments/);
+      assert.match(result.text, /review checklist requires running lint/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("a global rejected approach with real term overlap still surfaces", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: { enabled: true, rollout: { memoryOperations: true } },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "no-force-push",
+        type: "rejected_approach",
+        content: "Never force-push to shared branches.",
+        scope: "global",
+        confidence: 1,
+        tags: ["rejected", "user"],
+      });
+
+      const result = await assembleRecall({
+        db,
+        prompt: "should I force push this branch to main?",
+        repository: "fixture-repo",
+        config,
+      });
+
+      assert.deepEqual(result.trace.lookups.localMemories.includedRows.map((row) => row.id), ["no-force-push"]);
+      assert.deepEqual(result.trace.lookups.localMemories.filtered, []);
+      assert.match(result.text, /Never force-push to shared branches/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("a repo-scoped memory matched on a single generic term keeps its current behaviour", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: { enabled: true, rollout: { memoryOperations: true } },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "repo-code-style",
+        type: "user_preference",
+        content: "Keep two-space indentation across the codebase.",
+        scope: "repo",
+        repository: "fixture-repo",
+        confidence: 1,
+        tags: ["preference", "user"],
+      });
+
+      const result = await assembleRecall({
+        db,
+        prompt: "please tidy up the code",
+        repository: "fixture-repo",
+        config,
+      });
+
+      assert.deepEqual(result.trace.lookups.localMemories.includedRows.map((row) => row.id), ["repo-code-style"]);
+      assert.deepEqual(result.trace.lookups.localMemories.filtered, []);
+      assert.match(result.text, /Keep two-space indentation/);
+    } finally {
+      cleanup();
+    }
+  });
 });

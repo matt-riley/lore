@@ -355,10 +355,10 @@ describe("runExtractionRevalidation / rollbackExtractionRevalidation (DB-backed)
         targetType: "semantic",
         ids: ["global-tabs-manually-moved"],
         action: "set",
-        scope: "repo",
-        repository: "acme/other",
+        scope: "global",
+        repository: null,
         actor: "matt",
-        reason: "move to the correct repository",
+        reason: "make this preference global",
         source: "memory_scope_override",
       });
 
@@ -375,11 +375,11 @@ describe("runExtractionRevalidation / rollbackExtractionRevalidation (DB-backed)
           scope_override_reason, scope_override_source, scope_override_at
         FROM semantic_memory WHERE id = ?
       `).get("global-tabs-manually-moved");
-      assert.equal(row.scope, "repo");
-      assert.equal(row.repository, "acme/other");
+      assert.equal(row.scope, "global");
+      assert.equal(row.repository, null);
       assert.equal(row.scope_source, "manual");
       assert.equal(row.scope_override_actor, "matt");
-      assert.equal(row.scope_override_reason, "move to the correct repository");
+      assert.equal(row.scope_override_reason, "make this preference global");
       assert.equal(row.scope_override_source, "memory_scope_override");
       assert.ok(row.scope_override_at);
     } finally {

@@ -335,6 +335,58 @@ describe("runExtractionRevalidation / rollbackExtractionRevalidation (DB-backed)
     }
   });
 
+  test("rollback does not overwrite a later manual scope override", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      db.insertSemanticMemory({
+        id: "global-tabs-manually-moved",
+        type: "user_preference",
+        content: "Always use tabs for indentation",
+        scope: "global",
+        repository: null,
+        confidence: 0.78,
+        metadata: { source: "rule_extractor", originRepository: "acme/widgets" },
+      });
+
+      const result = runExtractionRevalidation({ db, mode: "apply", runId: "run-demote-then-override" });
+      assert.equal(result.demoteCount, 1);
+
+      db.applyScopeChanges({
+        targetType: "semantic",
+        ids: ["global-tabs-manually-moved"],
+        action: "set",
+        scope: "repo",
+        repository: "acme/other",
+        actor: "matt",
+        reason: "move to the correct repository",
+        source: "memory_scope_override",
+      });
+
+      const rollback = rollbackExtractionRevalidation({
+        db,
+        marker: "extractor-revalidation:run-demote-then-override",
+        actor: "operator",
+        reason: "undo extractor revalidation",
+      });
+
+      assert.deepEqual(rollback.restoredOverrideIds, []);
+      const row = db.db.prepare(`
+        SELECT scope, repository, scope_source, scope_override_actor,
+          scope_override_reason, scope_override_source, scope_override_at
+        FROM semantic_memory WHERE id = ?
+      `).get("global-tabs-manually-moved");
+      assert.equal(row.scope, "repo");
+      assert.equal(row.repository, "acme/other");
+      assert.equal(row.scope_source, "manual");
+      assert.equal(row.scope_override_actor, "matt");
+      assert.equal(row.scope_override_reason, "move to the correct repository");
+      assert.equal(row.scope_override_source, "memory_scope_override");
+      assert.ok(row.scope_override_at);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("reclassifies a row's type, and rollback restores the original type", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, cleanup } = await withFixtureDb();
     try {
@@ -351,8 +403,16 @@ describe("runExtractionRevalidation / rollbackExtractionRevalidation (DB-backed)
       const result = runExtractionRevalidation({ db, mode: "apply", runId: "run-apply-reclassify" });
       assert.equal(result.reclassifyCount, 1);
 
-      const reclassified = db.db.prepare("SELECT type FROM semantic_memory WHERE id = ?").get("should-be-rejection");
+      const reclassified = db.db.prepare(`
+        SELECT type, json_extract(metadata_json, '$.extractorVersion') AS extractor_version
+        FROM semantic_memory WHERE id = ?
+      `).get("should-be-rejection");
       assert.equal(reclassified.type, "rejected_approach");
+      assert.equal(reclassified.extractor_version, EXTRACTOR_VERSION);
+      assert.deepEqual(
+        db.listExtractionRevalidationCandidates({ extractorVersion: EXTRACTOR_VERSION }).map((row) => row.id),
+        [],
+      );
 
       rollbackExtractionRevalidation({
         db,
@@ -363,6 +423,45 @@ describe("runExtractionRevalidation / rollbackExtractionRevalidation (DB-backed)
 
       const restored = db.db.prepare("SELECT type FROM semantic_memory WHERE id = ?").get("should-be-rejection");
       assert.equal(restored.type, "directive");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("repository candidate filtering excludes globals when includeGlobal is false", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      db.insertSemanticMemory({
+        id: "global-candidate",
+        type: "user_preference",
+        content: "Always use tabs for indentation",
+        scope: "global",
+        repository: null,
+        confidence: 0.78,
+        metadata: { source: "rule_extractor" },
+      });
+      db.insertSemanticMemory({
+        id: "repo-candidate",
+        type: "user_preference",
+        content: "Always use spaces for indentation",
+        scope: "repo",
+        repository: "acme/widgets",
+        confidence: 0.78,
+        metadata: { source: "rule_extractor" },
+      });
+
+      const withoutGlobal = db.listExtractionRevalidationCandidates({
+        repository: "acme/widgets",
+        includeGlobal: false,
+        extractorVersion: EXTRACTOR_VERSION,
+      });
+      assert.deepEqual(withoutGlobal.map((row) => row.id), ["repo-candidate"]);
+
+      const withGlobal = db.listExtractionRevalidationCandidates({
+        repository: "acme/widgets",
+        extractorVersion: EXTRACTOR_VERSION,
+      });
+      assert.deepEqual(withGlobal.map((row) => row.id).sort(), ["global-candidate", "repo-candidate"]);
     } finally {
       cleanup();
     }

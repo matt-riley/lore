@@ -445,4 +445,122 @@ describe("runExtractionRevalidation / rollbackExtractionRevalidation (DB-backed)
       cleanup();
     }
   });
+
+  // Real pre-existing rule-extracted rows predate source-stamping: their
+  // metadata_json is `{}` or `{"originRepository": "..."}` with no `source`
+  // key at all. A strict `metadata.source = 'rule_extractor'` predicate would
+  // silently skip every one of them forever, so candidate selection must also
+  // recognize an unlabeled row that is still tied to its originating
+  // turn/session and was never manually scoped.
+  describe("legacy rows with no metadata.source at all (real-world shape)", () => {
+    test("a legacy row with metadata {} and a turn index is a candidate and gets rejected", { skip: SKIP_NO_FTS5 }, async () => {
+      const { db, cleanup } = await withFixtureDb();
+      try {
+        db.insertSemanticMemory({
+          id: "unlabeled-legacy",
+          type: "rejected_approach",
+          content: "Don't forget to monitor for review comments too",
+          scope: "repo",
+          repository: "acme/repo1",
+          confidence: 0.76,
+          sourceSessionId: "session-legacy-1",
+          sourceTurnIndex: 4,
+          metadata: {},
+        });
+
+        const candidates = db.listExtractionRevalidationCandidates({ extractorVersion: EXTRACTOR_VERSION });
+        assert.deepEqual(candidates.map((row) => row.id), ["unlabeled-legacy"]);
+
+        const result = runExtractionRevalidation({ db, mode: "apply", runId: "run-unlabeled" });
+        assert.equal(result.rejectCount, 1);
+
+        const row = db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("unlabeled-legacy");
+        assert.equal(row.superseded_by, "extractor-revalidation:run-unlabeled");
+      } finally {
+        cleanup();
+      }
+    });
+
+    test("{\"originRepository\": ...} global rows with no source key are demoted or rejected per the rules", { skip: SKIP_NO_FTS5 }, async () => {
+      const { db, cleanup } = await withFixtureDb();
+      try {
+        db.insertSemanticMemory({
+          id: "unlabeled-demote",
+          type: "user_preference",
+          content: "Always use tabs for indentation",
+          scope: "global",
+          repository: null,
+          confidence: 0.78,
+          sourceSessionId: "session-legacy-2",
+          sourceTurnIndex: 7,
+          metadata: { originRepository: "acme/widgets" },
+        });
+        db.insertSemanticMemory({
+          id: "unlabeled-reject",
+          type: "user_preference",
+          content: "what do I prefer?",
+          scope: "global",
+          repository: null,
+          confidence: 0.78,
+          sourceSessionId: "session-legacy-3",
+          sourceTurnIndex: 2,
+          metadata: { originRepository: "acme/other" },
+        });
+
+        const candidateIds = db.listExtractionRevalidationCandidates({ extractorVersion: EXTRACTOR_VERSION })
+          .map((row) => row.id).sort();
+        assert.deepEqual(candidateIds, ["unlabeled-demote", "unlabeled-reject"]);
+
+        const result = runExtractionRevalidation({ db, mode: "apply", runId: "run-unlabeled-scope" });
+        assert.equal(result.demoteCount, 1);
+        assert.equal(result.rejectCount, 1);
+
+        const demoted = db.db.prepare("SELECT scope, repository, scope_source FROM semantic_memory WHERE id = ?").get("unlabeled-demote");
+        assert.equal(demoted.scope, "repo");
+        assert.equal(demoted.repository, "acme/widgets");
+        assert.equal(demoted.scope_source, "manual");
+
+        const rejected = db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("unlabeled-reject");
+        assert.equal(rejected.superseded_by, "extractor-revalidation:run-unlabeled-scope");
+      } finally {
+        cleanup();
+      }
+    });
+
+    test("source 'pi' or 'lore_retain' rows with no turn index are never touched", { skip: SKIP_NO_FTS5 }, async () => {
+      const { db, cleanup } = await withFixtureDb();
+      try {
+        db.insertSemanticMemory({
+          id: "pi-manual",
+          type: "rejected_approach",
+          content: "Never commit secrets to the repo",
+          scope: "repo",
+          repository: "acme/repo1",
+          confidence: 0.9,
+          metadata: { source: "pi" },
+        });
+        db.insertSemanticMemory({
+          id: "lore-retain-manual",
+          type: "user_preference",
+          content: "what do I prefer?",
+          scope: "global",
+          repository: null,
+          confidence: 0.9,
+          metadata: { source: "lore_retain" },
+        });
+
+        const candidates = db.listExtractionRevalidationCandidates({ extractorVersion: EXTRACTOR_VERSION });
+        assert.deepEqual(candidates.map((row) => row.id), []);
+
+        runExtractionRevalidation({ db, mode: "apply", runId: "run-manual-sources" });
+
+        const piRow = db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("pi-manual");
+        const retainRow = db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("lore-retain-manual");
+        assert.equal(piRow.superseded_by, null);
+        assert.equal(retainRow.superseded_by, null);
+      } finally {
+        cleanup();
+      }
+    });
+  });
 });

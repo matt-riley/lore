@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   isNonDirectiveSentence,
   isOneOffDirectiveRequest,
+  splitChainedOneOffClause,
   standingDirectiveType,
 } from "../../lib/sessions/extraction-grammar.mjs";
 
@@ -110,5 +111,29 @@ describe("extraction grammar accuracy", () => {
     assert.equal(isOneOffDirectiveRequest("As a policy, always check test coverage before PRs."), false);
     assert.equal(isOneOffDirectiveRequest("In future, always review all pull requests."), false);
     assert.equal(isOneOffDirectiveRequest("Going forward, never commit secrets to the repository."), false);
+  });
+
+  describe("splitChainedOneOffClause", () => {
+    test("splits a standing clause from a chained one-off push/merge/PR action", () => {
+      assert.deepEqual(
+        splitChainedOneOffClause("Use atomic commits for all the changes in this repo and then push them up to main please"),
+        { lead: "Use atomic commits for all the changes in this repo", trailing: "push them up to main" },
+      );
+      assert.deepEqual(
+        splitChainedOneOffClause("Please open a PR for this and then merge it into main."),
+        { lead: "Please open a PR for this", trailing: "merge it into main" },
+      );
+    });
+
+    test("does not split when the trailing clause is not a recognized one-off action", () => {
+      assert.equal(
+        splitChainedOneOffClause("It helps me when implementation notes lead with the user impact and then explain the code."),
+        null,
+      );
+    });
+
+    test("returns null when there is no \"and then\" at all", () => {
+      assert.equal(splitChainedOneOffClause("Always use tabs for indentation."), null);
+    });
   });
 });

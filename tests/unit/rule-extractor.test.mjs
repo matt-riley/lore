@@ -137,4 +137,28 @@ describe("rule-extractor extraction accuracy and scoping", () => {
     assert.equal(explicitGlobal.length, 1);
     assert.equal(explicitGlobal[0].scope, MEMORY_SCOPE.GLOBAL);
   });
+
+  test("a one-off action chained onto a standing clause with \"and then\" keeps only the standing clause", () => {
+    const result = extractTurn("Use atomic commits for all the changes in this repo and then push them up to main please");
+    const preferences = result.semanticMemories.filter((m) => m.type === "user_preference");
+    assert.equal(preferences.length, 1);
+    assert.equal(preferences[0].content, "Use atomic commits for all the changes in this repo");
+    assert.ok(!preferences[0].content.includes("push"));
+  });
+
+  test("chained one-off actions (open a PR, merge) are dropped without retaining an unrelated standing rule", () => {
+    const result = extractTurn("Please open a PR for this and then merge it into main.");
+    const directives = result.semanticMemories.filter((m) =>
+      ["user_preference", "directive", "rejected_approach"].includes(m.type));
+    assert.deepEqual(directives, []);
+  });
+
+  test("an unrelated use of \"and then\" does not trigger the chained one-off split", () => {
+    const result = extractTurn(
+      "It helps me when implementation notes lead with the user impact and then explain the code, so please use that order in this project.",
+    );
+    const preferences = result.semanticMemories.filter((m) => m.type === "user_preference");
+    assert.equal(preferences.length, 1);
+    assert.match(preferences[0].content, /implementation notes lead with the user impact and then explain the code/);
+  });
 });

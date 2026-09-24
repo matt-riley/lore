@@ -17,6 +17,7 @@ const EXPECTED_TOOL_NAMES = [
   "memory_intent_journal",
   "memory_portable_bundle",
   "lore_maintenance",
+  "lore_audit_extractions",
   "memory_improvement_backlog",
   "memory_evolution_ledger",
   "memory_capability_inventory",

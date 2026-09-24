@@ -145,6 +145,7 @@ All remaining tools are **`/lore` extras** (and `lore <verb>` CLI subcommands). 
 | Tool | Status | Notes |
 |---|---|---|
 | `lore_maintenance` | 🟡 Experimental | Triggers a maintenance sweep (dry-run or live), reports automated memory hygiene, or rolls back one exact `auto-hygiene:*` marker with an audit artifact. Alias: `maintenance_schedule_run`. |
+| `lore_audit_extractions` | 🟡 Experimental | Report-only by default. Never creates memory_suppression rows: a rejected row means the current grammar would not produce it, not that the user asked to forget it. Apply is reversible via rollback with the run's exact marker. |
 
 ### Self-diagnostics and proposals
 

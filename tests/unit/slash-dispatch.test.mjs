@@ -58,6 +58,15 @@ describe("parseLoreArgv", () => {
     assert.equal(parseLoreArgv("memory_evolution_ledger --json '{\"limit\":1}'").name, "memory_evolution_ledger");
   });
 
+  test("maps the audit-extractions verb onto lore_audit_extractions", () => {
+    assert.deepEqual(parseLoreArgv("audit-extractions --apply --max-items 10"), {
+      name: "lore_audit_extractions",
+      args: { apply: true, maxItems: 10 },
+      verb: "audit-extractions",
+    });
+    assert.equal(parseLoreArgv("lore_audit_extractions").name, "lore_audit_extractions");
+  });
+
   test("maps save and retain flags onto lore_retain", () => {
     assert.deepEqual(parseLoreArgv("save remember bun"), {
       name: "lore_retain",

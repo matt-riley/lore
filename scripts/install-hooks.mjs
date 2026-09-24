@@ -5,14 +5,18 @@ import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { buildCliHookConfig, mergeCliHookConfig } from "../lib/clients/cli-hook-config.mjs";
+import { resolveStableNodePath } from "../lib/clients/stable-node-path.mjs";
 
 const help = `Install Lore for Copilot, Pi, Codex, Claude Code, or Antigravity:
   npm run setup
   npm run setup -- --clients all --dry-run
 
 This advanced helper only manages native lifecycle hooks:
-  npm run install-hooks -- <codex|claude|antigravity> [--project PATH | --global] [--write] [--remove]
+  npm run install-hooks -- <codex|claude|antigravity> [--project PATH | --global] [--write] [--remove] [--node /path/to/node]
 It previews by default; --write applies changes. Antigravity requires --global.
+--node overrides the Node binary baked into the hook command (also settable via
+LORE_NODE); by default Lore resolves a version-manager-stable path (mise/asdf/
+fnm/volta/nvm) instead of the exact binary running this script.
 Use npm run setup for automatic client detection and Copilot/Pi installation.`;
 
 async function main() {
@@ -24,19 +28,22 @@ async function main() {
   if (!["codex", "claude", "antigravity"].includes(client)) {
     throw new Error(`This command only manages native hooks.\n\n${help}`);
   }
-  const options = { write: false, remove: false, global: false, project: process.cwd() };
+  const options = { write: false, remove: false, global: false, project: process.cwd(), node: null };
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === "--write") options.write = true;
     else if (args[i] === "--dry-run") options.write = false;
     else if (args[i] === "--remove") options.remove = true;
     else if (args[i] === "--global") options.global = true;
     else if (args[i] === "--project" && args[i + 1] && !args[i + 1].startsWith("--")) options.project = path.resolve(args[++i]);
+    else if (args[i] === "--node" && args[i + 1] && !args[i + 1].startsWith("--")) options.node = args[++i];
     else throw new Error(`Unknown or incomplete argument: ${args[i]}`);
   }
   if (client === "antigravity" && !options.global) {
     throw new Error("Antigravity CLI 1.1.19 does not discover project hooks; use --global for ~/.gemini/config/hooks.json");
   }
-  const fragment = buildCliHookConfig(client, { nodePath: process.execPath, entryPath: fileURLToPath(new URL("../lore-cli.mjs", import.meta.url)) });
+  const nodeResolution = options.node ? { path: options.node, source: "explicit --node option" } : resolveStableNodePath({ env: process.env });
+  console.log(`Node: ${nodeResolution.path} (${nodeResolution.source})`);
+  const fragment = buildCliHookConfig(client, { nodePath: nodeResolution.path, entryPath: fileURLToPath(new URL("../lore-cli.mjs", import.meta.url)) });
   const home = os.homedir();
   const target = options.global
     ? { codex: path.join(process.env.CODEX_HOME || path.join(home, ".codex"), "hooks.json"),

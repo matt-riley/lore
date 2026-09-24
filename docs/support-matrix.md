@@ -218,7 +218,7 @@ Temporal recall notes:
   - `medium` → episode fallback
   - `low` → verified raw session history
 - Local embeddings rerank bounded evidence, validate generated reflection or compressed-context claims, and — when `embeddings.enabled` — power meaning-based memory search for `lore_recall` (query and memory embeddings ranked by cosine similarity). Embedding vectors are cached in the local `memory_embedding` table; they augment, not replace, the general lexical retrieval/indexing pipeline. EmbeddingGemma and Nomic receive model-specific retrieval prefixes, and model-backed lookback reflection can use the latest bounded checkpoint overview when a session title is too generic.
-- Optional TypeSafe reranking (`typesafe.enabled` + `typesafe.rerank.enabled`) sends the prompt and candidate memory content to `api.typesafe.ai` and reorders `lore_recall`'s shortlist by Jev usefulness scores. It is disabled by default, bounded by `maxCandidates` and `timeoutMs`, fails open to the fused order, and reads the API key from `LORE_TYPESAFE_API_KEY` or `typesafe.apiKey`.
+- Optional TypeSafe reranking (`typesafe.enabled` + `typesafe.rerank.enabled`) sends the prompt and candidate memory content to `api.typesafe.ai` and reorders `lore_recall`'s shortlist by Jev usefulness scores. It is disabled by default, bounded by `maxCandidates` and `timeoutMs`, fails open to the fused order, and reads the API key from `LORE_TYPESAFE_API_KEY`, then the macOS keychain (`typesafe.apiKeyKeychain`), then plaintext `typesafe.apiKey`.
 - Optional query expansion performs a separate bounded retrieval attempt and preserves deterministic routing, temporal scope, repository eligibility, and fallback behavior.
 
 ---

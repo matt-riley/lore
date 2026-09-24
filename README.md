@@ -334,7 +334,23 @@ Prompt-context hooks make no model calls by default. In the Copilot adapter, ena
 }
 ```
 
-Provide the API key with `LORE_TYPESAFE_API_KEY` (preferred, not stored in config) or `typesafe.apiKey`. Reranking runs during prompt-recall assembly, so it adds one bounded provider round-trip to prompts with at least two candidate memories; `maxCandidates` caps the per-request cost and `timeoutMs` caps the wait at 3 seconds by default — the observed median call is around 100 ms, and a stale provider should not hold a prompt for ten. The `rerank` lookup in trace output records the scores and why reranking did or did not apply.
+Provide the API key with, in order of precedence: the `LORE_TYPESAFE_API_KEY` environment variable, the macOS keychain, or plaintext `typesafe.apiKey`. Prefer the environment variable or the keychain over plaintext config so the key never sits in `lore.json`:
+
+```sh
+security add-generic-password -s lore-typesafe -a "$USER" -w
+```
+
+```json
+{
+  "typesafe": {
+    "apiKeyKeychain": { "account": "your-username" }
+  }
+}
+```
+
+`"apiKeyKeychain": true` also works and looks up service `lore-typesafe` with no account (matching `security add-generic-password -s lore-typesafe -w` with no `-a`). An object form can override `service` and/or `account`. The keychain lookup only runs on macOS (`security find-generic-password`, no shell, a 1-second timeout) and is cached for the life of the process, so a long-lived host (Pi's worker, the Copilot extension) shells out once, not on every prompt. Codex, Claude Code, and Antigravity run one process per hook, so each hook still pays one lookup — measured locally at roughly 30-50 ms, well under the timeout. A missing keychain entry, a non-macOS platform, or any lookup error fails open exactly like a missing key: reranking and feature scoring are simply skipped, and `lore status`/doctor never print the resolved key regardless of its source.
+
+Reranking runs during prompt-recall assembly, so it adds one bounded provider round-trip to prompts with at least two candidate memories; `maxCandidates` caps the per-request cost and `timeoutMs` caps the wait at 3 seconds by default — the observed median call is around 100 ms, and a stale provider should not hold a prompt for ten. The `rerank` lookup in trace output records the scores and why reranking did or did not apply.
 
 `features` scores memory rows once and stores the result on the row, so later decisions read a number instead of re-asking a model:
 

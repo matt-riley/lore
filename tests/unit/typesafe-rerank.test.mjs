@@ -62,26 +62,26 @@ describe("rerankMemories", () => {
     memory("mem-c", "Prefer oxlint over eslint for this repo."),
   ];
 
-  test("reads the API key from the config before the environment", async () => {
+  test("reads the API key from the environment before the plaintext config", async () => {
     const { fetchImpl, calls } = makeFetch(() => scoreAnswers({ memory_0: 1, memory_1: 0 }));
     await rerankMemories({
       prompt: "Which database?",
       rows,
-      config: typesafeConfig({ apiKey: "from-config" }),
+      config: typesafeConfig(),
       fetchImpl,
       env: { ...ENV },
     });
-    assert.equal(calls[0].options.headers.authorization, "Bearer from-config");
+    assert.equal(calls[0].options.headers.authorization, `Bearer ${TEST_KEY}`);
 
-    const { fetchImpl: envFetch, calls: envCalls } = makeFetch(() => scoreAnswers({ memory_0: 1, memory_1: 0 }));
+    const { fetchImpl: configFetch, calls: configCalls } = makeFetch(() => scoreAnswers({ memory_0: 1, memory_1: 0 }));
     await rerankMemories({
       prompt: "Which database?",
       rows,
-      config: typesafeConfig(),
-      fetchImpl: envFetch,
-      env: ENV,
+      config: typesafeConfig({ apiKey: "from-config" }),
+      fetchImpl: configFetch,
+      env: {},
     });
-    assert.equal(envCalls[0].options.headers.authorization, `Bearer ${TEST_KEY}`);
+    assert.equal(configCalls[0].options.headers.authorization, "Bearer from-config");
   });
 
   test("sends one score question per candidate over shared state", async () => {

@@ -375,6 +375,27 @@
           "type": "string",
           "default": ""
         },
+        "apiKeyKeychain": {
+          "description": "Optional macOS keychain source for the API key, checked after the LORE_TYPESAFE_API_KEY env var and before the plaintext apiKey above. true uses the default service \"lore-typesafe\"; an object may override service and/or account. Ignored on non-macOS platforms.",
+          "default": false,
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "service": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
         "rerank": {
           "type": "object",
           "additionalProperties": false,

@@ -32,7 +32,9 @@ Detection means the executable is available, not that the client is authenticate
 - Checks planned configs before writing, refuses unrelated extension directories and symlink targets, and restores completed changes if installation fails.
 - Verifies written configuration and extension entrypoints. This is an installation check, not a live authenticated model test.
 
-Keep the source checkout and Node installation in place: native hook commands reference their absolute paths. Existing modified Antigravity groups named `lore` require manual review rather than being overwritten. Avoid installing both global and project hooks for the same client.
+Keep the source checkout in place: native hook commands reference its absolute path. Existing modified Antigravity groups named `lore` require manual review rather than being overwritten. Avoid installing both global and project hooks for the same client.
+
+Native hooks also bake in an absolute Node path. If you use a version manager (mise, asdf, fnm, volta, or nvm), setup prefers a stable, version-independent alternative — a major-version symlink, a `latest` symlink, a default alias, or a shim — over the exact binary currently running setup, so pruning an old Node install doesn't silently break every hook. Setup prints the path it chose and its source. Override the choice with `npm run setup -- --node /path/to/node` or by setting `LORE_NODE`. Run `lore doctor` at any time to check installed hooks for a missing Node binary, a missing `lore-cli.mjs` entry, or a still-pinned version-manager path.
 
 Local memories can become context for your client's configured model. Read [Privacy](/guides/privacy/) before using sensitive material.
 
@@ -58,11 +60,11 @@ npm run setup -- --clients codex,claude --yes
 npm run setup -- --help
 ```
 
-`--dry-run` never writes. `--yes` skips confirmation but requires an explicit `--clients` selection. `all` selects all detected supported clients. Add `--remove` to preview or apply removal for the selected clients; removal preserves memories, configuration, unrelated hooks, and modified installs. An unavailable or unknown client causes an error; setup does not install the CLI itself.
+`--dry-run` never writes. `--yes` skips confirmation but requires an explicit `--clients` selection. `all` selects all detected supported clients. Add `--remove` to preview or apply removal for the selected clients; removal preserves memories, configuration, unrelated hooks, and modified installs. `--node /path/to/node` overrides the Node binary baked into hooks and the PATH shim. An unavailable or unknown client causes an error; setup does not install the CLI itself.
 
 ## Existing and custom installations
 
-Setup honors `LORE_HOME`, `LORE_CONFIG`, `LORE_COPILOT_HOME`, and absolute `XDG_CONFIG_HOME` through the shared path resolver. Native client settings also honor `CODEX_HOME` and `CLAUDE_CONFIG_DIR`; Pi's extension destination honors `PI_CODING_AGENT_DIR`. Use the same environment when launching your clients. If `LORE_ENABLED` disables Lore, unset it or set it to `true` first.
+Setup honors `LORE_HOME`, `LORE_CONFIG`, `LORE_COPILOT_HOME`, and absolute `XDG_CONFIG_HOME` through the shared path resolver. Native client settings also honor `CODEX_HOME` and `CLAUDE_CONFIG_DIR`; Pi's extension destination honors `PI_CODING_AGENT_DIR`. `LORE_NODE` overrides the Node binary setup bakes into hooks and the PATH shim (equivalent to `--node`). Use the same environment when launching your clients. If `LORE_ENABLED` disables Lore, unset it or set it to `true` first.
 
 Malformed JSON, overlapping destinations, and unrelated existing directories stop setup before installation. Review the reported file; do not replace it wholesale. Backups preserve the previous contents if you need to recover a replaced install or config; each run's `manifest.json` maps numbered backups to their original paths. Treat backups as sensitive data.
 

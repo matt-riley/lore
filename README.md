@@ -71,7 +71,9 @@ npm run setup -- --remove --clients codex,claude --yes
 
 `all` means all detected supported clients, not every client on the machine. Detection checks executable availability, not version compatibility or authentication. Removal shows the selected targets and asks for confirmation before writing. Use `--dry-run` for a preview without writes; `--yes` skips confirmation only with an explicit `--clients` selection. Removal preserves memories, configuration, unrelated hooks, and modified installs. See the [setup guide](website/src/content/docs/setup.md) for custom paths, safeguards, and troubleshooting.
 
-To update, pull this checkout and run `npm run setup` again. Keep the checkout and Node installation in place: native hooks reference their absolute paths. Copilot and Pi receive runtime copies. Use only one installation scope per client to avoid duplicate hooks.
+To update, pull this checkout and run `npm run setup` again. Keep the checkout in place: native hooks reference its absolute path. Copilot and Pi receive runtime copies. Use only one installation scope per client to avoid duplicate hooks.
+
+Native hooks also bake in an absolute Node path. Setup resolves a version-manager-stable path when it can (a mise/asdf/fnm/volta/nvm major-version symlink, `latest` symlink, default alias, or shim) instead of the exact binary running setup, so pruning an old Node version does not silently break every hook. Override this with `--node /path/to/node` or the `LORE_NODE` environment variable; `npm run setup` prints the resolved path and warns if none of the stable alternatives were found. Run `lore doctor` any time to check installed hooks for a missing or pinned Node path.
 
 <details>
 <summary>Advanced: client-specific installation and development workflows</summary>
@@ -136,7 +138,8 @@ The installer defaults to a dry run; `--write` applies changes. Codex and Claude
 also accept `--global`; use one scope per client to avoid duplicate invocations.
 Codex requires reviewing and trusting the installed hooks with `/hooks` and
 trusting project configuration. Claude may require project hook approval.
-Restart the client after installing.
+Restart the client after installing. Like `npm run setup`, this helper resolves
+a stable Node path by default; pass `--node /path/to/node` to override it.
 
 Antigravity 1.1.27 requires the global installation and an explicitly mounted
 workspace: launch `agy --add-dir /path/to/project`. Its `/hooks` should list the

@@ -41,7 +41,20 @@ settings, and saves a uniquely named `.lore-backup-*` file before replacing a
 config. An unrelated Antigravity group named `lore` is not overwritten. Repeat
 installation is idempotent. Remove the same installation with `--remove --write`;
 other handlers and settings remain intact. Remove hooks before moving the Lore
-checkout or changing its Node installation, then reinstall from the new location.
+checkout, then reinstall from the new location.
+
+Both `npm run setup` and `install-hooks.mjs` bake in a Node path. If the Node
+running the installer lives under a version manager's per-version install
+directory (mise, asdf, fnm, volta, or nvm), they prefer a stable alternative
+that satisfies Lore's minimum version instead — a major-version symlink, a
+`latest` symlink, a default alias, or a shim — so pruning the exact version
+later does not silently break every hook. Override the resolved path with
+`--node /path/to/node` (or `LORE_NODE`, which `install-hooks.mjs` and
+`npm run setup` both honor). Rerun the installer any time you change Node
+installations; it replaces the previously recorded command rather than adding
+a second one, using the ownership record in `install-manifest.json`, not the
+Node path itself. `lore doctor` reports a hook whose recorded Node path is
+missing, non-executable, or still a version-manager path.
 
 Restart clients after installing. In Codex, open `/hooks` to review and trust the
 exact hook definitions. Project configuration must also be trusted, and hooks

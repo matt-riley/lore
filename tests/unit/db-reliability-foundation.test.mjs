@@ -277,7 +277,14 @@ describe("database reliability foundation", () => {
       });
       const snapshot = createRecoverySnapshot({ derivedStorePath: config.paths.derivedStorePath, backupDir: config.paths.backupDir }).snapshotPath;
       db.forgetMemory({ id });
+      // Restoring swaps the store's files out from under any open connection,
+      // so — just like a separate process would have to — close this one
+      // first; the cross-process exclusivity guard now correctly refuses a
+      // restore while any connection (this one included) still has the file
+      // open. Reopen afterward to inspect the restored, merged state.
+      db.close();
       restoreRecoverySnapshot({ derivedStorePath: config.paths.derivedStorePath, snapshotPath: snapshot, write: true, clientsStopped: true, detectActiveUsers: () => [] });
+      db.initialize();
       const restored = db.db.prepare("SELECT COUNT(*) AS count FROM memory_suppression WHERE memory_id = ?").get(id).count;
       assert.equal(restored, 1);
     } finally {

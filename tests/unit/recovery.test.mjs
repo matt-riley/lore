@@ -175,8 +175,23 @@ test("an active sqlite writer blocks replacement", () => {
     const snapshot = createRecoverySnapshot({ derivedStorePath: f.dbPath, backupDir: f.backupDir }).snapshotPath;
     const lock = new DatabaseSync(f.dbPath);
     lock.exec("BEGIN IMMEDIATE");
-    assert.throws(() => restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: snapshot, write: true, clientsStopped: true, detectActiveUsers: () => [] }), /locked|busy/iu);
+    assert.throws(() => restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: snapshot, write: true, clientsStopped: true, detectActiveUsers: () => [] }), /in use by another process/iu);
     lock.exec("ROLLBACK"); lock.close();
+  } finally { f.cleanup(); }
+});
+
+test("an active sqlite reader with an open read transaction blocks replacement", () => {
+  // WAL readers never block writers, so a plain "BEGIN IMMEDIATE" writer-lock
+  // probe cannot see this case; the exclusive-checkpoint guard can, and must.
+  const f = fixture();
+  try {
+    const snapshot = createRecoverySnapshot({ derivedStorePath: f.dbPath, backupDir: f.backupDir }).snapshotPath;
+    const before = readFileSync(f.dbPath);
+    const reader = new DatabaseSync(f.dbPath, { readOnly: true });
+    reader.exec("BEGIN DEFERRED TRANSACTION; SELECT * FROM data;");
+    assert.throws(() => restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: snapshot, write: true, clientsStopped: true, detectActiveUsers: () => [] }), /in use by another process/iu);
+    reader.exec("ROLLBACK"); reader.close();
+    assert.deepEqual(readFileSync(f.dbPath), before, "a refused restore must leave the live store byte-for-byte unchanged");
   } finally { f.cleanup(); }
 });
 

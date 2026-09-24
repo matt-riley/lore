@@ -119,7 +119,7 @@ test("volta: prefers the volta shim binary", () => {
   assert.equal(result.versionManager, "volta");
 });
 
-test("nvm: resolves the default alias to its installed version directory", () => {
+test("nvm: does not resolve the default selector to a prunable version directory", () => {
   const execPath = "/home/u/.nvm/versions/node/v22.9.0/bin/node";
   const aliasFile = "/home/u/.nvm/alias/default";
   const versionsDir = "/home/u/.nvm/versions/node";
@@ -130,8 +130,9 @@ test("nvm: resolves the default alias to its installed version directory", () =>
     dirs: { [versionsDir]: ["v20.18.1", "v22.9.0"] },
   });
   const result = resolveStableNodePath({ execPath, env: {}, fs, getMajorVersion: okVersion });
-  assert.equal(result.path, resolvedPath);
+  assert.equal(result.path, execPath);
   assert.equal(result.versionManager, "nvm");
+  assert.equal(result.pinned, true);
 });
 
 test("nvm: gives up cleanly when there is no default alias", () => {

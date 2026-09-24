@@ -38,13 +38,8 @@ import { requireDispatchOutcome } from "./lib/runtime/operation-dispatch.mjs";
 import { retainMemory } from "./lib/memory/memory-operations.mjs";
 import { assembleRecall } from "./lib/context/recall-assembler.mjs";
 import { EpisodeSessionSource } from "./lib/runtime/session-source.mjs";
-import { onSessionCapture } from "./lib/lifecycle/session-lifecycle.mjs";
-import { buildErrorTelemetryRecord, buildPostToolUseObservation } from "./lib/lifecycle/passive-hooks.mjs";
-import {
-  readErrorTelemetryEnabled,
-  readPostToolUseEnabled,
-  readPreToolUseGuardrailEnabled,
-} from "./lib/rollout/rollout-flags.mjs";
+import { onSessionCapture, recordErrorTelemetry, recordPostToolUseObservation } from "./lib/lifecycle/session-lifecycle.mjs";
+import { readPreToolUseGuardrailEnabled } from "./lib/rollout/rollout-flags.mjs";
 import { runPreToolUseGuardrail } from "./lib/lifecycle/pre-tool-use-guardrail.mjs";
 import { readPiSessionHeader } from "./pi-session-reader.mjs";
 import { ingestCliTranscript } from "./lib/clients/cli-transcript-ingestion.mjs";
@@ -505,39 +500,30 @@ async function dispatch(method, params) {
       }
     }
     case "post_tool": {
-      if (!readPostToolUseEnabled(db.config)) {
+      const result = recordPostToolUseObservation({
+        db,
+        config: db.config,
+        repository: null,
+        payload: params.payload,
+        contextFields: (observation) => ({ hookKind: "onPostToolUse", argsShape: observation.argsShape }),
+      });
+      if (result.reason === "disabled") {
         return { enabled: false };
       }
-      const observation = buildPostToolUseObservation(params.payload);
-      if (!observation) {
-        return { captured: false };
-      }
-      db.insertTrajectoryArtifact({
-        kind: "passive_hook_observation",
-        repository: null,
-        summary: `${observation.toolCategory}/${observation.success ? "success" : "failure"}`,
-        severity: observation.success ? "info" : "warning",
-        outcome: "captured",
-        context: {
-          hookKind: "onPostToolUse",
-          toolCategory: observation.toolCategory,
-          success: observation.success,
-          argsShape: observation.argsShape,
-        },
-      });
-      return { captured: true };
+      return { captured: result.recorded };
     }
     case "error": {
-      if (!readErrorTelemetryEnabled(db.config)) {
+      const result = recordErrorTelemetry({
+        db,
+        config: db.config,
+        payload: params.payload,
+        sessionId: params.sessionId ?? null,
+        onCompact: maybeCompactErrorTelemetry,
+      });
+      if (result.reason === "disabled") {
         return { enabled: false };
       }
-      const record = buildErrorTelemetryRecord(params.payload, params.sessionId ?? null);
-      if (!record) {
-        return { captured: false };
-      }
-      db.insertErrorTelemetry(record);
-      maybeCompactErrorTelemetry();
-      return { captured: true };
+      return { captured: result.recorded };
     }
     case "guardrail": {
       if (!readPreToolUseGuardrailEnabled(db.config)) {

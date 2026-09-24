@@ -63,7 +63,7 @@ Pi's bun runtime cannot provide `node:sqlite`. Put Node 24.0+ on Pi's `PATH`, or
 
 Session-start maintenance is due-based and only runs when a session begins. It is not a daemon. Use `node scripts/run-maintenance.mjs --status` and `--dry-run`, then schedule the script with an absolute Node path if you need wall-clock execution. Check both stdout and stderr logs for unknown task names or a non-zero exit.
 
-The Codex, Claude Code, and Antigravity adapters do not run automatic maintenance or archive backfill. Use the standalone script rather than expecting their startup hooks to perform it.
+Codex, Claude Code, and Antigravity run maintenance by spawning a detached `scripts/run-maintenance.mjs --background` process from the session-start hook; it runs after the hook itself has already returned, so give it a few seconds and then check `--status` or the `maintenance_run` history rather than expecting it to be done by the time the hook's response lands. It only spawns when something is actually enabled and due, and it exits quietly (no stdout) even on failure — failures show up in `maintenance_run` / `maintenance_task_state`, not in the hook's own log. Archive backfill is still not wired into these adapters; use the standalone script for that.
 
 ## Dashboard cannot be reached
 

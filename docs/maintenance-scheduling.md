@@ -2,7 +2,7 @@
 
 ← [README](../README.md) · [Support matrix](support-matrix.md) · [Compatibility](compatibility.md) · [CONTRIBUTING](../CONTRIBUTING.md)
 
-This document covers how to run Lore maintenance tasks reliably outside of Copilot CLI sessions using `scripts/run-maintenance.mjs` as the supported external entry point.
+This document covers how to run Lore maintenance tasks reliably outside of interactive sessions using `scripts/run-maintenance.mjs` as the supported external entry point.
 
 ---
 
@@ -12,13 +12,21 @@ Lore maintenance runs in three modes. Understanding which tasks belong to each m
 
 | Mode | Trigger | Tasks |
 |---|---|---|
-| **Automatic** | `onSessionStart` hook | Bounded deferred `memoryHygiene` and `deferredExtraction` |
+| **Automatic** | Session start, on every supported client (Copilot, Claude Code, Codex, Antigravity, Pi) | Bounded deferred `memoryHygiene` and `deferredExtraction` |
 | **Manual / in-session** | `maintenance_schedule_run` tool; `--status`; `--dry-run` | Any enabled task |
 | **External / scheduled** | `scripts/run-maintenance.mjs` via cron or launchd | Any enabled task |
 
 ### Automatic maintenance (session start)
 
-When `maintenanceScheduler.enabled: true` and `maintenanceScheduler.autoRunOnSessionStart: true`, Lore evaluates the maintenance plan on `onSessionStart` and only selects `memoryHygiene` and `deferredExtraction` when they are enabled and due. Both run as bounded deferred work so the hook can return without waiting for them.
+When `maintenanceScheduler.enabled: true` and `maintenanceScheduler.autoRunOnSessionStart: true`, Lore evaluates the maintenance plan at session start and only selects `memoryHygiene` and `deferredExtraction` when they are enabled and due. This is the same bounded plan on every client — how it gets triggered and executed differs by host, since only Copilot runs Lore as a long-lived in-process extension:
+
+- **Copilot** runs the sweep in-process on `onSessionStart`, as a background microtask so the hook returns without waiting for it.
+- **Native CLI hooks** (Claude Code, Codex, Antigravity) are short-lived processes — `lore-cli.mjs hook` exits as soon as it answers the hook protocol, well under the host's ~10s timeout. On `SessionStart` (Antigravity: the first `PreInvocation`), the hook does a cheap in-process due-check and, only when something is actually due, spawns `scripts/run-maintenance.mjs --background` as a **detached, unref'd child** and returns immediately without waiting on it.
+- **Pi**'s adapter runs as a long-lived worker (`lore-server-runtime.mjs`), so it runs the sweep in-process on its `session_start` lifecycle event, asynchronously, without blocking the recall response.
+
+All of these paths funnel through the same cross-process lock (`maintenance_lock`, scope `"background"`) before running tasks, so if a native CLI hook's spawned child and the Pi worker (or two hook children from concurrent sessions) all become due at nearly the same moment against the same database, only one actually runs the sweep; the others see the lock held and exit as a no-op. The lock has a short lease and is released as soon as the sweep finishes, so it never blocks a later, genuinely due run.
+
+`scripts/run-maintenance.mjs --background` is the one used by every non-Copilot, non-Pi trigger; it is intentionally quiet (nothing on stdout — the caller's stdout may be a hook protocol channel) and time-bounded, so a stalled task cannot leave an orphaned process running indefinitely. Failures live in the `maintenance_run` / `maintenance_task_state` records, the same place any other trigger's failures land — never on stdout.
 
 ### Manual / in-session maintenance
 
@@ -47,7 +55,7 @@ Use `scripts/run-maintenance.mjs` with cron, launchd, or another OS scheduler fo
 
 **Session hooks do not guarantee wall-clock cadence.**
 
-`onSessionStart` fires when a Copilot CLI session begins. If you rarely start sessions — or go on holiday — the automatic `deferredExtraction` pass and any other session-start work may not run for hours or days. This is by design: Lore does not run background timers or daemons inside the extension process.
+Automatic maintenance fires when a session begins, on whichever client you're using. If you rarely start sessions — or go on holiday — the automatic `deferredExtraction` pass and any other session-start work may not run for hours or days. This is by design: Lore does not run background timers or daemons; native CLI hosts only get a detached one-shot process per due session start, and Pi's worker only acts on its own session-start event.
 
 For tasks that require reliable periodic execution regardless of session frequency, wire them into an external scheduler.
 
@@ -268,4 +276,8 @@ node scripts/run-maintenance.mjs --tasks indexUpkeep --force
 
 # Status check (reads DB, no writes)
 node scripts/run-maintenance.mjs --status
+
+# Bounded, quiet session-start sweep under a cross-process lock — this is
+# what native CLI hooks and Pi spawn/run automatically; not for manual use.
+node scripts/run-maintenance.mjs --background
 ```

@@ -11,9 +11,11 @@ Lore maintenance is local and bounded. Session hooks do not provide wall-clock s
 
 | Mode | Entry point | Best for |
 | --- | --- | --- |
-| Automatic | `onSessionStart` | Deferred extraction and hygiene when a session begins |
+| Automatic | Session start, on every client (Copilot, Claude Code, Codex, Antigravity, Pi) | Deferred extraction and hygiene when a session begins |
 | Manual | `maintenance_schedule_run` | A dry run, one task, or an explicit rollback |
 | Scheduled | `scripts/run-maintenance.mjs` | Reliable upkeep every few hours or days |
+
+Copilot and Pi run the automatic sweep in-process. Claude Code, Codex, and Antigravity run `lore-cli.mjs hook` as a short-lived process, so their session-start hook instead spawns a detached `scripts/run-maintenance.mjs --background` and returns immediately — it finishes a moment later, under a cross-process lock that keeps concurrent sessions from double-running it.
 
 ## Inspect before changing anything
 

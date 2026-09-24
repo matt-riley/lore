@@ -73,7 +73,7 @@ For tasks that require reliable periodic execution regardless of session frequen
 | `traceCompaction` | `false` | Every 1 h | Compacts trace recorder samples. Requires `rollout.traceRecorder: true`. |
 | `indexUpkeep` | `false` | Every 12 h | Refreshes the memory index. |
 | `doctorSnapshot` | `false` | Every 24 h | Captures a doctor health snapshot. Requires `rollout.loreDoctor: true` and `maintenanceScheduler.tasks.doctorSnapshot: true`. |
-| `extractionRevalidation` | `false` (mode defaults to `off`) | Every 24 h | Replays the current standing-directive grammar against rule-extracted memories; `apply` supersedes/reclassifies/demotes stale rows under reversible `extractor-revalidation:<run-id>` markers. Never creates `memory_suppression` rows. See [`lore audit-extractions`](../README.md#extractionrevalidation). |
+| `extractionRevalidation` | `false` (mode defaults to `off`) | Every 24 h | Replays the current extraction grammar (standing directives, and recurring-mistake clause shape) against rule-extracted memories; `apply` supersedes/reclassifies/demotes stale rows under reversible `extractor-revalidation:<run-id>` markers. Never creates `memory_suppression` rows. See [`lore audit-extractions`](../README.md#extractionrevalidation). |
 
 ---
 

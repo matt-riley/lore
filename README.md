@@ -427,10 +427,10 @@ Every applied run uses an `auto-hygiene:<run-id>` marker and writes trajectory a
 
 #### `extractionRevalidation`
 
-Rule-extracted directives, preferences, and rejections (`lib/sessions/extraction-grammar.mjs`) are classified once, at extraction time. As that grammar improves, a row an older version produced can stay active forever unless something replays the current grammar against it. `extractionRevalidation` does that replay: it re-runs the current grammar's sentence split, one-off detection, and standing-directive classifiers against every rule-extracted `user_preference` / `directive` / `rejected_approach` row whose `extractorVersion` is missing or older than the running grammar's, then reports (or, with `apply`, reversibly acts on) what changed:
+Rule-extracted directives, preferences, rejections, and recurring mistakes (`lib/sessions/extraction-grammar.mjs`, `lib/sessions/rule-extractor.mjs`) are classified once, at extraction time. As that grammar improves, a row an older version produced can stay active forever unless something replays the current grammar against it. `extractionRevalidation` does that replay: it re-runs the current grammar against every rule-extracted `user_preference` / `directive` / `rejected_approach` / `recurring_mistake` row whose `extractorVersion` is missing or older than the running grammar's, then reports (or, with `apply`, reversibly acts on) what changed:
 
-- **reject** — the current grammar no longer recognizes any standing content in the row.
-- **reclassify** — the content is still standing, but as a different type than it was stored as.
+- **reject** — for `user_preference` / `directive` / `rejected_approach`, the current grammar no longer recognizes any standing content in the row; for `recurring_mistake`, the stored clause is no longer well-formed (a sentence fragment, an embedded question, a bare quote, or too short/long to be a real clause — see the clause-shape checks in `lib/sessions/rule-extractor.mjs`).
+- **reclassify** — the content is still standing, but as a different type than it was stored as (`user_preference` / `directive` / `rejected_approach` only; `recurring_mistake` never reclassifies).
 - **demote** — a global-scoped row would no longer classify as global under the current scope rules; it is demoted to repo scope using its recorded origin repository (or rejected if no origin repository is known).
 
 Manual and explicit writes (`memory_save`, `lore_retain`, `onboarding`, `pi`, `pi:command`, or `scope_source: "manual"`) are never candidates. Report-only by default (`off` / `shadow` never mutate anything); this is intentionally opt-in and disabled by default even when `maintenanceScheduler.enabled` is true.

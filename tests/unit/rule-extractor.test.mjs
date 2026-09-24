@@ -94,6 +94,37 @@ describe("rule-extractor extraction accuracy and scoping", () => {
     assert.equal(mistakes[0].scope, MEMORY_SCOPE.REPO);
   });
 
+  // A real store's rule_extractor-sourced recurring_mistake rows were sentence
+  // fragments, not clauses: "Recurring mistake to avoid: . Sad times",
+  // "Recurring mistake to avoid: , can you stop stopping. Keep going until the
+  // PR's are all green and you have merg...", "Recurring mistake to avoid:
+  // stopping?", and "Recurring mistake to avoid: ` - 'menace' maybe?". Each of
+  // these must yield nothing rather than a malformed clause.
+  test("sentence fragments are NOT extracted as a recurring_mistake", () => {
+    for (const userMessage of [
+      "You keep: . Sad times",
+      "You keep stopping?",
+      "You keep - 'menace' maybe?",
+      // The trigger's capture ran on past a clause boundary and swallowed an
+      // embedded question ("can you stop stopping") joined by a dash -- the
+      // shape that produced the ", can you stop stopping. Keep going until
+      // the PR's are all green..." fragment in production.
+      "You keep doing this - can you stop stopping. Keep going until the PR's are all green and you have merged them all.",
+    ]) {
+      const result = extractTurn(userMessage);
+      const mistakes = result.semanticMemories.filter((m) => m.type === "recurring_mistake");
+      assert.deepEqual(mistakes, [], userMessage);
+    }
+  });
+
+  test("You keep forgetting to run the linter before committing. is still extracted as a clean recurring_mistake", () => {
+    const result = extractTurn("You keep forgetting to run the linter before committing.");
+    const mistakes = result.semanticMemories.filter((m) => m.type === "recurring_mistake");
+    assert.equal(mistakes.length, 1);
+    assert.equal(mistakes[0].content, "Recurring mistake to avoid: forgetting to run the linter before committing");
+    assert.equal(mistakes[0].scope, MEMORY_SCOPE.REPO);
+  });
+
   test("Repository preferences mentioning respond do NOT get promoted to global scope without explicit cross-project wording", () => {
     const repoPref = classifySemanticMemory({
       type: "user_preference",

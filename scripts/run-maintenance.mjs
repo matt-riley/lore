@@ -9,7 +9,7 @@ import { resolveRepositoryIdentity } from "../lib/utils/repository-identity.mjs"
 import { SessionStoreReader } from "../lib/sessions/session-store-reader.mjs";
 import { USER_CONFIG_DEFAULTS, isPlainObject, mergeDeep, loadFileConfigSync } from "../lib/core/config.mjs";
 import { createTraceRecorder } from "../lib/lifecycle/trace-recorder.mjs";
-import { runMaintenanceSweep, TASK_ORDER } from "../lib/maintenance/maintenance-scheduler.mjs";
+import { runMaintenanceSweep, runBackgroundMaintenanceSweep, TASK_ORDER } from "../lib/maintenance/maintenance-scheduler.mjs";
 
 function parseTaskList(value) {
   return String(value ?? "")
@@ -21,6 +21,7 @@ const ARG_HANDLERS = Object.freeze({
   "--dry-run": { assign: { dryRun: true } },
   "--force": { assign: { force: true } },
   "--status": { assign: { action: "status", dryRun: true } },
+  "--background": { assign: { action: "background" } },
   "--recommended-schedule": { assign: { action: "recommended-schedule", dryRun: true } },
   "--help": { assign: { action: "help", dryRun: true } },
   "-h": { assign: { action: "help", dryRun: true } },
@@ -44,6 +45,11 @@ function renderHelp() {
     "Options:",
     "  --status                   Show current scheduler/task status (dry-run).",
     "  --dry-run                  Plan a maintenance sweep without state mutation.",
+    "  --background               Run the bounded session-start sweep (memoryHygiene,",
+    "                             deferredExtraction) under a cross-process lock. Quiet:",
+    "                             exit code and DB records only, nothing on stdout.",
+    "                             Intended for detached children spawned by native CLI",
+    "                             hooks and the Pi worker, not for interactive use.",
     "  --force                    Ignore cadence and force selected tasks due.",
     `  --tasks <csv>              Task subset: ${TASK_ORDER.join(",")}.`,
     "  --repository <name>        Optional repository scope override.",
@@ -233,7 +239,19 @@ export function buildScriptRuntime({ args, config, readOnly = false }) {
     resolveRepositoryIdentity: (identity) => resolveRepositoryIdentity({ ...identity, mappings: db.getRepositoryMappings() }),
     identityResolverCacheVersion: () => JSON.stringify(db.getRepositoryMappings()),
   });
-  sessionStore.initialize();
+  try {
+    sessionStore.initialize();
+  } catch (error) {
+    // The Copilot CLI session store is Copilot-owned, optional state: hosts
+    // that spawn this script without Copilot ever having run (native CLI
+    // hooks, the Pi worker, or a scheduler on a Copilot-less machine) will
+    // never have one. Maintenance tasks that never touch it must still run;
+    // a deferred-extraction job that legitimately needs it (queued while
+    // Copilot ingested a session) fails that one job, not the whole sweep.
+    if (error?.code !== "session_store_missing") {
+      throw error;
+    }
+  }
   const traceRecorder = createTraceRecorder(config);
 
   return {
@@ -260,6 +278,45 @@ export function buildScriptRuntime({ args, config, readOnly = false }) {
   };
 }
 
+// Background sweeps are spawned detached, with stdio ignored, by hosts that
+// cannot run maintenance inline (native CLI hook children, the Pi worker).
+// Nothing they write to stdout/stderr is ever observed, but a runaway task
+// (e.g. a stalled local-inference fetch during deferredExtraction) should
+// still not keep an orphaned node process alive indefinitely. If the budget
+// is exceeded we simply stop waiting and exit; the in-flight sweep's own
+// maintenance_run row is picked up as stale by the next run's
+// reclaimStaleMaintenanceRuns() pass, so no manual cleanup is needed.
+const BACKGROUND_TIME_BUDGET_MS = 60_000;
+
+export function withTimeBudget(promise, ms) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ timedOut: true, value: null }), ms);
+  });
+  return Promise.race([
+    promise.then((value) => ({ timedOut: false, value })),
+    timeout,
+  ]).finally(() => clearTimeout(timer));
+}
+
+export async function runBackgroundAction(args, config) {
+  const { db, runtime } = buildScriptRuntime({ args, config, readOnly: false });
+  try {
+    const { timedOut, value: sweepOutcome } = await withTimeBudget(
+      runBackgroundMaintenanceSweep({ runtime, repository: runtime.repository }),
+      BACKGROUND_TIME_BUDGET_MS,
+    );
+    // Quiet by design: this path is for detached background callers, not
+    // interactive use. Failures live in maintenance_run / maintenance_task_state,
+    // never on stdout (which the hook protocol on the calling side may be using).
+    process.exitCode = timedOut || !sweepOutcome.result
+      ? (timedOut ? 1 : 0)
+      : resolveSweepExitCode(sweepOutcome.result);
+  } finally {
+    db.close();
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.action === "help") {
@@ -282,6 +339,12 @@ async function main() {
     console.log(renderRecommendedSchedule(config));
     return;
   }
+
+  if (args.action === "background") {
+    await runBackgroundAction(args, config);
+    return;
+  }
+
   // Status and dry-run are previews: they must neither create nor migrate a
   // store. Fail closed with the open-path guidance when storage is absent.
   const readOnly = args.action === "status" || args.dryRun;

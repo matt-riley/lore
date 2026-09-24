@@ -46,9 +46,11 @@ The default configuration can enqueue extraction at session end and process it a
 
 ## Maintenance scheduler
 
-`maintenanceScheduler.enabled` controls the scheduler. `autoRunOnSessionStart` allows bounded due work to run in the background. The scheduler can run validation, replay, backlog review, trace compaction, index upkeep, deferred extraction, and memory hygiene according to the enabled task map.
+`maintenanceScheduler.enabled` controls the scheduler. `autoRunOnSessionStart` allows bounded due work to run in the background. The scheduler can run validation, replay, backlog review, trace compaction, index upkeep, deferred extraction, memory hygiene, and extraction revalidation according to the enabled task map.
 
 Memory hygiene defaults to `mode: "off"`. Use `"shadow"` to record candidates without changing memories. `"apply"` can supersede only rows with deterministic completion evidence; each change has an `auto-hygiene:<run-id>` marker and can be rolled back by the maintenance tool.
+
+Extraction revalidation (`maintenanceScheduler.extractionRevalidation`, task `extractionRevalidation`) is a separate, also opt-in and off-by-default check: it replays the current standing-directive grammar against rule-extracted `user_preference` / `directive` / `rejected_approach` rows whose `extractorVersion` predates the running grammar, and reports (or, in `apply`, reversibly acts on) rows the grammar would no longer produce, would classify differently, or would no longer keep global. Run it on demand with `lore audit-extractions` (`--apply` to act, `--action rollback --marker extractor-revalidation:<run-id>` to undo). It never creates a suppression: a rejected row means the grammar wouldn't produce it today, not that anyone asked to forget it.
 
 ## Rollout flags
 

@@ -425,6 +425,34 @@ Maintenance also self-recovers interrupted work. Deferred extraction jobs withou
 
 Every applied run uses an `auto-hygiene:<run-id>` marker and writes trajectory artifacts. To reverse one run, call `maintenance_schedule_run` with `action: "rollback_hygiene"` and the exact marker; Lore restores only rows carrying that marker and records a rollback audit artifact. The latest completed hygiene summary is added to the next Lore prompt or session context. It never denies write tools.
 
+#### `extractionRevalidation`
+
+Rule-extracted directives, preferences, and rejections (`lib/sessions/extraction-grammar.mjs`) are classified once, at extraction time. As that grammar improves, a row an older version produced can stay active forever unless something replays the current grammar against it. `extractionRevalidation` does that replay: it re-runs the current grammar's sentence split, one-off detection, and standing-directive classifiers against every rule-extracted `user_preference` / `directive` / `rejected_approach` row whose `extractorVersion` is missing or older than the running grammar's, then reports (or, with `apply`, reversibly acts on) what changed:
+
+- **reject** — the current grammar no longer recognizes any standing content in the row.
+- **reclassify** — the content is still standing, but as a different type than it was stored as.
+- **demote** — a global-scoped row would no longer classify as global under the current scope rules; it is demoted to repo scope using its recorded origin repository (or rejected if no origin repository is known).
+
+Manual and explicit writes (`memory_save`, `lore_retain`, `onboarding`, `pi`, `pi:command`, or `scope_source: "manual"`) are never candidates. Report-only by default (`off` / `shadow` never mutate anything); this is intentionally opt-in and disabled by default even when `maintenanceScheduler.enabled` is true.
+
+```json
+{
+  "maintenanceScheduler": {
+    "enabled": true,
+    "extractionRevalidation": {
+      "mode": "shadow",
+      "maxItems": 50,
+      "includeGlobal": true
+    },
+    "tasks": {
+      "extractionRevalidation": true
+    }
+  }
+}
+```
+
+Run it directly with `lore audit-extractions` (add `--apply` to act on the verdicts). Applying never creates a `memory_suppression` row — a rejected row means the current grammar would not produce it, not that anyone asked to forget the content — and uses its own reversible `extractor-revalidation:<run-id>` marker: reject supersedes the row (restorable the same way as memory hygiene), while reclassify/demote go through the same scope-change audit path as `memory_scope_override` (`scope_override_audit`). Roll a run back with `lore audit-extractions --action rollback --marker extractor-revalidation:<run-id>`.
+
 #### `sessionStartBackfill`
 
 If you want Lore to import older session history gradually as you keep working, enable `maintenanceScheduler.sessionStartBackfill`:

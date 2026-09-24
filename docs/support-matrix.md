@@ -150,7 +150,7 @@ All remaining tools are **`/lore` extras** (and `lore <verb>` CLI subcommands). 
 
 | Tool | Status | Notes |
 |---|---|---|
-| `lore_doctor` | 🟡 Experimental | Generates a structured health report. Requires `loreDoctor` and `evolutionLedger` rollout flags. Alias: `memory_doctor_report`. |
+| `lore_doctor` | 🟡 Experimental | Generates a structured health report, including install health (missing/pinned Node paths, missing `lore-cli.mjs`, duplicate global/project installs), ingestion checkpoint failures, and maintenance run staleness. Requires `loreDoctor` and `evolutionLedger` rollout flags. Alias: `memory_doctor_report`. |
 | `memory_review_gate` | 🟡 Experimental | Runs an observe-only proposal-doc gate and records review-gate trajectory artifacts. Requires `reviewGate` and `evolutionLedger` rollout flags. |
 | `memory_capability_inventory` | 🟡 Experimental | Enumerates all registered capabilities with rollout state. |
 

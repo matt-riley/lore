@@ -164,6 +164,81 @@ describe("revalidateGeneratedMemory (pure)", () => {
     assert.equal(result.verdict, "reclassify");
     assert.equal(result.reclassifiedType, "rejected_approach");
   });
+
+  // Real recurring_mistake rows from rule_extractor were sentence fragments,
+  // not clauses (see tests/unit/rule-extractor.test.mjs for the live
+  // extraction side of the same fix): "Recurring mistake to avoid: . Sad
+  // times", "..., can you stop stopping. Keep going until the PR's are all
+  // green and you have merg...", "...: stopping?", and "...: ` - 'menace'
+  // maybe?". A stored row that already carries the malformed clause must be
+  // rejected on replay even though it predates this fix.
+  describe("recurring_mistake replay", () => {
+    for (const content of [
+      "Recurring mistake to avoid: . Sad times",
+      "Recurring mistake to avoid: , can you stop stopping. Keep going until the PR's are all green and you have merged",
+      "Recurring mistake to avoid: stopping?",
+      "Recurring mistake to avoid: ` - 'menace' maybe?",
+    ]) {
+      test(`rejects the legacy fragment: ${content}`, () => {
+        const result = revalidateGeneratedMemory(ruleExtractedRow({
+          type: "recurring_mistake",
+          content,
+          scope: "repo",
+          repository: "acme/widgets",
+        }));
+        assert.equal(result.verdict, "reject");
+        assert.equal(result.reason, "recurring_mistake_no_longer_well_formed");
+      });
+    }
+
+    test("keeps a well-formed recurring_mistake using metadata.mistake over the templated content", () => {
+      const result = revalidateGeneratedMemory(ruleExtractedRow({
+        type: "recurring_mistake",
+        content: "Recurring mistake to avoid: forgetting to run the linter before committing",
+        scope: "repo",
+        repository: "acme/widgets",
+        metadata: { source: "rule_extractor", mistake: "forgetting to run the linter before committing" },
+      }));
+      assert.equal(result.verdict, "keep");
+      assert.equal(result.reason, "still_matches_current_grammar");
+    });
+
+    test("falls back to the templated content when metadata.mistake is absent (legacy shape)", () => {
+      const result = revalidateGeneratedMemory(ruleExtractedRow({
+        type: "recurring_mistake",
+        content: "Recurring mistake to avoid: forgetting to run the linter before committing",
+        scope: "repo",
+        repository: "acme/widgets",
+        metadata: {},
+      }));
+      assert.equal(result.verdict, "keep");
+    });
+
+    test("demotes a global recurring_mistake with an originRepository when global scope is no longer supported", () => {
+      const result = revalidateGeneratedMemory(ruleExtractedRow({
+        type: "recurring_mistake",
+        content: "Recurring mistake to avoid: forgetting to run the linter before committing",
+        scope: "global",
+        repository: null,
+        metadata: { source: "rule_extractor", originRepository: "acme/widgets", mistake: "forgetting to run the linter before committing" },
+      }));
+      assert.equal(result.verdict, "demote");
+      assert.equal(result.targetScope, "repo");
+      assert.equal(result.targetRepository, "acme/widgets");
+    });
+
+    test("never touches an implicit_session_inference recurring_mistake row", () => {
+      const result = revalidateGeneratedMemory(ruleExtractedRow({
+        type: "recurring_mistake",
+        content: "Recurring mistake to avoid: missing or overriding explicit user corrections before continuing implementation.",
+        scope: "repo",
+        repository: "acme/widgets",
+        metadata: { source: "implicit_session_inference" },
+      }));
+      assert.equal(result.verdict, "keep");
+      assert.equal(result.reason, "not_rule_extracted");
+    });
+  });
 });
 
 describe("runExtractionRevalidation / rollbackExtractionRevalidation (DB-backed)", () => {
@@ -661,5 +736,69 @@ describe("runExtractionRevalidation / rollbackExtractionRevalidation (DB-backed)
         cleanup();
       }
     });
+
+    test("a legacy recurring_mistake fragment with no metadata.source at all is a candidate and gets rejected", { skip: SKIP_NO_FTS5 }, async () => {
+      const { db, cleanup } = await withFixtureDb();
+      try {
+        db.insertSemanticMemory({
+          id: "unlabeled-mistake-fragment",
+          type: "recurring_mistake",
+          content: "Recurring mistake to avoid: . Sad times",
+          scope: "repo",
+          repository: "acme/repo1",
+          confidence: 0.76,
+          sourceSessionId: "session-legacy-4",
+          sourceTurnIndex: 3,
+          metadata: {},
+        });
+
+        const candidates = db.listExtractionRevalidationCandidates({ extractorVersion: EXTRACTOR_VERSION });
+        assert.deepEqual(candidates.map((row) => row.id), ["unlabeled-mistake-fragment"]);
+
+        const result = runExtractionRevalidation({ db, mode: "apply", runId: "run-unlabeled-mistake" });
+        assert.equal(result.rejectCount, 1);
+
+        const row = db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("unlabeled-mistake-fragment");
+        assert.equal(row.superseded_by, "extractor-revalidation:run-unlabeled-mistake");
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  test("audit-extractions rejects a rule_extractor recurring_mistake fragment end to end", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, cleanup } = await withFixtureDb();
+    try {
+      db.insertSemanticMemory({
+        id: "mistake-fragment",
+        type: "recurring_mistake",
+        content: "Recurring mistake to avoid: stopping?",
+        scope: "repo",
+        repository: "acme/widgets",
+        confidence: 0.76,
+        metadata: { source: "rule_extractor", mistake: "stopping?" },
+      });
+      db.insertSemanticMemory({
+        id: "mistake-clean",
+        type: "recurring_mistake",
+        content: "Recurring mistake to avoid: forgetting to run the linter before committing",
+        scope: "repo",
+        repository: "acme/widgets",
+        confidence: 0.76,
+        metadata: { source: "rule_extractor", mistake: "forgetting to run the linter before committing" },
+      });
+
+      const result = runExtractionRevalidation({ db, mode: "apply", runId: "run-mistake-audit" });
+      assert.equal(result.rejectCount, 1);
+      assert.equal(result.keepCount, 1);
+
+      const fragment = db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("mistake-fragment");
+      assert.equal(fragment.superseded_by, "extractor-revalidation:run-mistake-audit");
+
+      const clean = db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("mistake-clean");
+      assert.equal(clean.superseded_by, null);
+    } finally {
+      cleanup();
+    }
   });
 });

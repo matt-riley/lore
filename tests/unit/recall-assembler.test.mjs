@@ -258,6 +258,67 @@ describe("assembleRecall", () => {
     }
   });
 
+  test("vector fusion cannot re-admit global rows dropped by the relevance gate", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        localInference: {
+          enabled: true,
+          baseUrl: "http://127.0.0.1:1/v1",
+          model: "local-chat-model",
+          embeddings: { enabled: true, model: "fake-embedding-model", maxInputs: 24, minSimilarity: 0 },
+        },
+        rollout: { memoryOperations: true, temporalQueryNormalization: true },
+      },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "stale-global-review-request",
+        type: "rejected_approach",
+        content: "I would like you to review the go code in this project and tell me if there is anything which needs improving. Do not make any code changes",
+        repository: null,
+        scope: "global",
+        confidence: 0.8,
+      });
+      db.insertSemanticMemory({
+        id: "relevant-global-skills-rule",
+        type: "rejected_approach",
+        content: "Never install skills with the npx skills CLI.",
+        repository: null,
+        scope: "global",
+        confidence: 0.9,
+      });
+      // Every text embeds identically, so every row is a perfect vector hit:
+      // only the relevance gate can keep the stale row out.
+      const fetchImpl = async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const inputs = Array.isArray(body.input) ? body.input : [body.input];
+        return jsonResponse({ data: inputs.map((_text, index) => ({ index, embedding: [1, 0, 0] })) });
+      };
+      const review = await assembleRecall({
+        db,
+        prompt: "I want you to do a full code review of this codebase and tell me what is good and bad",
+        repository: "fixture-repo",
+        config,
+        fetchImpl,
+      });
+      assert.equal(review.text.includes("review the go code"), false);
+      const filtered = review.trace?.lookups?.localMemories?.filtered ?? [];
+      assert.ok(filtered.some((entry) => entry.stage === "vector_fusion" && entry.reason === "global_relevance_gate"));
+
+      const skills = await assembleRecall({
+        db,
+        prompt: "should I install this with the npx skills CLI?",
+        repository: "fixture-repo",
+        config,
+        fetchImpl,
+      });
+      assert.match(skills.text, /npx skills CLI/);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("expansion-on golden: query expansion is used and fails open", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: {

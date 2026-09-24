@@ -141,7 +141,7 @@ test("corrupt targets can be restored and retain rescue sidecars", () => {
     const snapshot = createRecoverySnapshot({ derivedStorePath: f.dbPath, backupDir: f.backupDir }).snapshotPath;
     writeFileSync(f.dbPath, "corrupt target");
     writeFileSync(`${f.dbPath}-wal`, "raw wal");
-    const result = restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: snapshot, write: true, clientsStopped: true, detectActiveUsers: () => null });
+    const result = restoreRecoverySnapshot({ derivedStorePath: f.dbPath, snapshotPath: snapshot, write: true, clientsStopped: true, detectActiveUsers: () => [] });
     assert.ok(result.rescuePath);
     assert.equal(readFileSync(`${result.rescuePath}-wal`, "utf8"), "raw wal");
     assert.equal(inspectRecoveryTarget({ derivedStorePath: f.dbPath }).integrity, "ok");

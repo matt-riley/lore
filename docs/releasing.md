@@ -168,7 +168,7 @@ This is the highest-risk scenario. The DB is at `~/.config/lore/lore.db` by defa
    node scripts/recover.mjs restore --from /path/to/snapshot --write --clients-stopped
    ```
 
-   `status`, `backup`, and restore without `--write` are previews. A write restore requires `--clients-stopped`; stop all Lore hosts first. These snapshots are a recovery aid, not a replacement for your normal backup strategy.
+   `status`, `backup`, and restore without `--write` are previews. A write restore requires `--clients-stopped` and `lsof` for open-handle detection; stop all Lore hosts first. The restore refuses to write if handle detection is unavailable. These snapshots are a recovery aid, not a replacement for your normal backup strategy.
 
 3. **Re-derive from session-store** — if the DB is corrupted and there is no backup, the memory store can be partially rebuilt by re-running backfill tools against the raw `session-store.db` (which Lore never writes to). The rebuilt store will be missing any memories that were saved explicitly but not derivable from raw sessions.
 

@@ -45,9 +45,12 @@ function renderHelp() {
     "Options:",
     "  --status                   Show current scheduler/task status (dry-run).",
     "  --dry-run                  Plan a maintenance sweep without state mutation.",
-    "  --background               Run the bounded session-start sweep (memoryHygiene,",
-    "                             deferredExtraction) under a cross-process lock. Quiet:",
+    "  --background               Run the session-start sweep (memoryHygiene,",
+    "                             deferredExtraction) with a 60-second time budget",
+    "                             under a cross-process lock. Quiet:",
     "                             exit code and DB records only, nothing on stdout.",
+    "                             If over budget, waits for in-flight work to settle",
+    "                             before closing the DB, then exits 1.",
     "                             Intended for detached children spawned by native CLI",
     "                             hooks and the Pi worker, not for interactive use.",
     "  --force                    Ignore cadence and force selected tasks due.",
@@ -280,12 +283,10 @@ export function buildScriptRuntime({ args, config, readOnly = false }) {
 
 // Background sweeps are spawned detached, with stdio ignored, by hosts that
 // cannot run maintenance inline (native CLI hook children, the Pi worker).
-// Nothing they write to stdout/stderr is ever observed, but a runaway task
-// (e.g. a stalled local-inference fetch during deferredExtraction) should
-// still not keep an orphaned node process alive indefinitely. If the budget
-// is exceeded we simply stop waiting and exit; the in-flight sweep's own
-// maintenance_run row is picked up as stale by the next run's
-// reclaimStaleMaintenanceRuns() pass, so no manual cleanup is needed.
+// Nothing they write to stdout/stderr is ever observed. The time budget gives
+// a slow sweep a failing exit code, but the DB must stay open until its
+// in-flight work settles; if the process exits before then, its maintenance_run
+// row is picked up as stale by the next run's reclaimStaleMaintenanceRuns() pass.
 const BACKGROUND_TIME_BUDGET_MS = 60_000;
 
 export function withTimeBudget(promise, ms) {
@@ -302,16 +303,20 @@ export function withTimeBudget(promise, ms) {
 export async function runBackgroundAction(args, config) {
   const { db, runtime } = buildScriptRuntime({ args, config, readOnly: false });
   try {
+    const sweepPromise = runBackgroundMaintenanceSweep({ runtime, repository: runtime.repository });
     const { timedOut, value: sweepOutcome } = await withTimeBudget(
-      runBackgroundMaintenanceSweep({ runtime, repository: runtime.repository }),
+      sweepPromise,
       BACKGROUND_TIME_BUDGET_MS,
     );
+    if (timedOut) {
+      process.exitCode = 1;
+      await sweepPromise.catch(() => {});
+      return;
+    }
     // Quiet by design: this path is for detached background callers, not
     // interactive use. Failures live in maintenance_run / maintenance_task_state,
     // never on stdout (which the hook protocol on the calling side may be using).
-    process.exitCode = timedOut || !sweepOutcome.result
-      ? (timedOut ? 1 : 0)
-      : resolveSweepExitCode(sweepOutcome.result);
+    process.exitCode = !sweepOutcome.result ? 0 : resolveSweepExitCode(sweepOutcome.result);
   } finally {
     db.close();
   }

@@ -82,4 +82,4 @@ npm run setup
 
 Repeated setup refreshes selected extension copies and merges exact hook definitions without duplicating them. Restart or reload the clients afterwards. Before moving the checkout or changing Node installations, remove old native hook definitions using the [advanced removal instructions](/guides/cli-integrations/#update-or-remove), then rerun setup from the new location.
 
-Install backups preserve modified files and settings. They are separate from database recovery snapshots; use `node scripts/recover.mjs status`, `backup`, or `restore --from <snapshot>` for the latter. A restore preview never writes; a write restore requires `--clients-stopped`.
+Install backups preserve modified files and settings. They are separate from database recovery snapshots; use `node scripts/recover.mjs status`, `backup`, or `restore --from <snapshot>` for the latter. A restore preview never writes; a write restore requires `--clients-stopped` and `lsof` for open-handle detection, and refuses to write when that detection is unavailable.

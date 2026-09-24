@@ -388,4 +388,68 @@ describe("maintenance scheduler task execution", () => {
       rmSync(sessionState, { recursive: true, force: true });
     }
   });
+
+  test("extractionRevalidation task is opt-in (off by default) and reports candidates in shadow mode", { skip: SKIP_NO_FTS5 }, async () => {
+    const { db, config, cleanup } = await withFixtureDb({
+      configOverrides: {
+        enabled: true,
+        maintenanceScheduler: {
+          enabled: true,
+          tasks: {
+            memoryHygiene: false,
+            deferredExtraction: false,
+            validationCorpus: false,
+            replayCorpus: false,
+            backlogReview: false,
+            extractionRevalidation: true,
+          },
+          extractionRevalidation: {
+            mode: "shadow",
+            maxItems: 10,
+            includeGlobal: true,
+          },
+        },
+      },
+    });
+    try {
+      db.insertSemanticMemory({
+        id: "legacy-directive",
+        type: "user_preference",
+        content: "what do I prefer?",
+        scope: "global",
+        repository: null,
+        confidence: 0.78,
+        metadata: { source: "rule_extractor" },
+      });
+      const runtime = buildRuntime(db, config);
+
+      const result = await runMaintenanceSweep({
+        runtime,
+        repository: "fixture-repo",
+        trigger: "manual",
+      });
+
+      assert.equal(result.status, "completed");
+      assert.equal(result.tasks.length, 1);
+      assert.equal(result.tasks[0].taskName, "extractionRevalidation");
+      assert.equal(result.tasks[0].summary.rejectCount, 1);
+      assert.equal(result.tasks[0].summary.appliedCount, 0);
+
+      const row = db.db.prepare("SELECT superseded_by FROM semantic_memory WHERE id = ?").get("legacy-directive");
+      assert.equal(row.superseded_by, null, "shadow mode never mutates");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("extractionRevalidation defaults to disabled and off", async () => {
+    const plan = buildMaintenancePlan({
+      runtime: buildRuntime({ ensureOpen() {}, listMaintenanceTaskStates: () => [], listMaintenanceRuns: () => [] }, {}),
+      repository: "fixture-repo",
+      trigger: "manual",
+    });
+    const task = plan.tasks.find((entry) => entry.taskName === "extractionRevalidation");
+    assert.ok(task, "extractionRevalidation must be a registered task");
+    assert.equal(task.enabled, false, "extractionRevalidation must be opt-in and off by default");
+  });
 });

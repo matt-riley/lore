@@ -12,7 +12,11 @@
 //
 // Methods:
 //   tool             - createLoreSession.dispatchOperation(name, args) mapped to the protocol
-//   lifecycle        - createLoreSession.handleLifecycle(event, payload)
+//   lifecycle        - createLoreSession.handleLifecycle(event, payload); a
+//                      "session_start" event also fires the bounded
+//                      background maintenance sweep in-process (fire-and-
+//                      forget, guarded by a cross-process DB lock — see
+//                      runBackgroundMaintenanceSweep)
 //   slash            - createLoreSession.dispatchSlash(args)
 //   status           - store statistics (alias; prefer tool lore_status)
 //   recall           - assembleRecall (alias; prefer tool lore_recall)
@@ -47,6 +51,7 @@ import { readPiSessionHeader } from "./pi-session-reader.mjs";
 import { reconcileCaptureEvidence } from "./lib/clients/cli-capture-evidence.mjs";
 import { ingestCliTranscript } from "./lib/clients/cli-transcript-ingestion.mjs";
 import { PiArchiveScanner, parseBackfillSettings, resolvePiSessionDir } from "./lib/sessions/pi-archive-scanner.mjs";
+import { runBackgroundMaintenanceSweep } from "./lib/maintenance/maintenance-scheduler.mjs";
 
 const RECALL_TYPES = [
   "commitment",
@@ -77,6 +82,9 @@ let archiveIdle = Promise.resolve();
 let resolveArchiveIdle = null;
 let archiveScanQueue = Promise.resolve();
 let archiveScanScheduled = false;
+let maintenanceRunning = false;
+let maintenanceIdle = Promise.resolve();
+let resolveMaintenanceIdle = null;
 
 function expandHome(p) {
   if (typeof p !== "string" || !p) {
@@ -279,6 +287,42 @@ function waitForArchiveIdle() {
   return archiveScanQueue.then(() => archiveWorkerRunning ? archiveIdle : undefined);
 }
 
+// pi's adapter never had an equivalent of Copilot's onSessionStart maintenance
+// trigger — lore-server is a long-lived worker, so unlike native CLI hooks it
+// can run the bounded sweep in-process rather than spawning a child. It still
+// takes the same cross-process lock (via runBackgroundMaintenanceSweep) since
+// a native CLI hook's background child could be running against this same
+// database concurrently. Fire-and-forget: must never block the lifecycle
+// response the adapter is waiting on for recall context.
+function maybeRunBackgroundMaintenance(repository) {
+  if (maintenanceRunning || !db) {
+    return;
+  }
+  maintenanceRunning = true;
+  maintenanceIdle = new Promise((resolve) => {
+    resolveMaintenanceIdle = resolve;
+  });
+  runBackgroundMaintenanceSweep({
+    runtime: {
+      db,
+      config: db.config,
+      sessionStore: session?.sessionStore ?? session?.sessionSource ?? null,
+      repository,
+    },
+    repository,
+  }).catch((error) => {
+    console.error(`[lore-server] background maintenance failed: ${error?.message ?? String(error)}`);
+  }).finally(() => {
+    maintenanceRunning = false;
+    resolveMaintenanceIdle?.();
+    resolveMaintenanceIdle = null;
+  });
+}
+
+function waitForMaintenanceIdle() {
+  return maintenanceRunning ? maintenanceIdle : Promise.resolve();
+}
+
 function invocationExtra(params, surface) {
   const extra = {
     sessionId: params.sessionId ?? session?.sessionId ?? null,
@@ -307,12 +351,18 @@ async function dispatch(method, params) {
         throw new Error("lore unavailable");
       }
       const event = String(params.event ?? "");
+      const eventRepository = Object.hasOwn(params, "repository") ? params.repository : session.repository;
       const result = await session.handleLifecycle(event, {
         prompt: params.prompt ?? params.initialPrompt ?? "",
         initialPrompt: params.initialPrompt ?? params.prompt ?? "",
-        repository: Object.hasOwn(params, "repository") ? params.repository : session.repository,
+        repository: eventRepository,
         sessionId: params.sessionId ?? session.sessionId,
       });
+      if (event === "session_start") {
+        // Not awaited: maintenance runs alongside subsequent queued requests,
+        // never delaying the recall context this response carries.
+        maybeRunBackgroundMaintenance(eventRepository);
+      }
       return {
         text: result?.text ?? "",
         additionalContext: result?.additionalContext,
@@ -525,6 +575,7 @@ async function dispatch(method, params) {
     }
     case "close":
       await waitForArchiveIdle();
+      await waitForMaintenanceIdle();
       return { closing: true };
     default:
       throw new Error(`unknown method: ${method}`);
@@ -564,6 +615,7 @@ rl.on("line", (line) => {
 rl.on("close", () => {
   queue.then(async () => {
     await waitForArchiveIdle();
+    await waitForMaintenanceIdle();
     await archiveScanner?.close();
   }).finally(() => {
     try {

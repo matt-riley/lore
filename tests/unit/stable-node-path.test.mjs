@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import path from "node:path";
-import { resolveStableNodePath, detectVersionManager } from "../../lib/clients/stable-node-path.mjs";
+import { resolveStableNodePath, detectVersionManager, detectPinnedVersionManager } from "../../lib/clients/stable-node-path.mjs";
 
 function fakeFs({ executable = new Set(), files = {}, dirs = {} } = {}) {
   return {
@@ -140,4 +140,13 @@ test("nvm: gives up cleanly when there is no default alias", () => {
   const result = resolveStableNodePath({ execPath, env: {}, fs, getMajorVersion: okVersion });
   assert.equal(result.path, execPath);
   assert.equal(result.pinned, true);
+});
+
+test("detectPinnedVersionManager treats mise floating aliases as stable", () => {
+  const root = path.join("/home/u", ".local", "share", "mise", "installs", "node");
+  for (const alias of ["26", "latest", "lts-iron"]) {
+    assert.equal(detectPinnedVersionManager(path.join(root, alias, "bin", "node")), null, alias);
+  }
+  assert.equal(detectPinnedVersionManager(path.join(root, "26.8.2", "bin", "node")), "mise");
+  assert.equal(detectPinnedVersionManager("/usr/local/bin/node"), null);
 });

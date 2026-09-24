@@ -163,6 +163,29 @@ describe("runDoctorObservation", () => {
     }
   });
 
+  test("does not flag a hook that uses a stable mise alias", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "lore-doctor-alias-"));
+    try {
+      const aliasNode = path.join(home, "mise", "installs", "node", "26", "bin", "node");
+      mkdirSync(path.dirname(aliasNode), { recursive: true });
+      writeFileSync(aliasNode, "#!/bin/sh\nexit 0\n");
+      chmodSync(aliasNode, 0o755);
+      const env = { HOME: home };
+      applySetup(planSetup(["codex"], { home, env, node: aliasNode }));
+      const loreHome = path.join(home, ".config", "lore");
+      const report = runDoctorObservation({
+        runtime: createRuntime({ config: { paths: { loreHome } } }),
+        dryRun: true,
+        env,
+        home,
+        cwd: home,
+      });
+      assert.equal(report.incidents.some((inc) => inc.kind === "install_node_version_pinned"), false);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("warns (info) when an installed hook pins a version-manager Node path", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "lore-doctor-pinned-"));
     try {

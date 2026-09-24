@@ -184,6 +184,8 @@ describe("runDoctorObservation", () => {
       assert.ok(incident, "expected an install_node_version_pinned incident");
       assert.equal(incident.severity, "info");
       assert.equal(incident.context.versionManager, "mise");
+      // Every codex hook event shares one node path: report it once, not per event.
+      assert.equal(report.incidents.filter((inc) => inc.kind === "install_node_version_pinned").length, 1);
       assert.equal(report.incidents.some((inc) => inc.kind === "install_node_missing"), false);
     } finally {
       await rm(home, { recursive: true, force: true });

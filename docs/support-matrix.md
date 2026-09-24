@@ -176,7 +176,7 @@ All remaining tools are **`/lore` extras** (and `lore <verb>` CLI subcommands). 
 | Script | Status | Notes |
 |---|---|---|
 | `scripts/validate-config-schema.mjs` | 🟢 Supported | Validates `lore.json` against the schema. Safe to run at any time. |
-| `scripts/run-maintenance.mjs` | 🟡 Experimental | The supported out-of-session entry point for maintenance tasks (`memoryHygiene`, `validationCorpus`, `replayCorpus`, `backlogReview`, `traceCompaction`, `indexUpkeep`, `doctorSnapshot`). Designed for cron, launchd, or any external scheduler. Exits 0 on success, 1 on unknown task names or DB error. Operates only on the configured Lore database — never on test fixtures or other users' databases. See [`docs/maintenance-scheduling.md`](maintenance-scheduling.md) for the full guide. Use `maintenance_schedule_run` tool for in-session triggering. |
+| `scripts/run-maintenance.mjs` | 🟡 Experimental | The supported out-of-session entry point for maintenance tasks (`memoryHygiene`, `validationCorpus`, `replayCorpus`, `backlogReview`, `traceCompaction`, `indexUpkeep`, `doctorSnapshot`). Designed for cron, launchd, or any external scheduler. `--background` is the bounded, cross-process-locked, quiet variant that Codex, Claude Code, and Antigravity spawn automatically from their session-start hook — not intended for manual/interactive use. Exits 0 on success, 1 on unknown task names or DB error. Operates only on the configured Lore database — never on test fixtures or other users' databases. See [`docs/maintenance-scheduling.md`](maintenance-scheduling.md) for the full guide. Use `maintenance_schedule_run` tool for in-session triggering. |
 | `scripts/run-browser.mjs` | 🟡 Experimental | Starts the local browser dashboard. Loopback hosts only (`127.0.0.1`, `localhost`, or `::1`). |
 | `scripts/recover.mjs` | 🟢 Supported | Reports recovery status, creates an explicit database snapshot, or previews/restores one with `--from`; a write restore requires `--write --clients-stopped`. |
 
@@ -240,15 +240,17 @@ Lore's maintenance loop is intentionally bounded. It is about **runtime/data hea
 
 ### Hook cadence
 
-**Session hooks do not guarantee wall-clock cadence.** `onSessionStart` fires only when a Copilot CLI session starts. If sessions are infrequent, maintenance that depends on session start may not run for hours or days. Use `scripts/run-maintenance.mjs` with an external scheduler (cron, launchd) for wall-clock-driven upkeep.
+**Session hooks do not guarantee wall-clock cadence.** Automatic maintenance fires only when a session starts, on whichever client you're using. If sessions are infrequent, maintenance that depends on session start may not run for hours or days. Use `scripts/run-maintenance.mjs` with an external scheduler (cron, launchd) for wall-clock-driven upkeep.
 
 ### Maintenance modes
 
 | Mode | Trigger | Tasks |
 |---|---|---|
-| Automatic | `onSessionStart` hook | Bounded deferred `memoryHygiene` and `deferredExtraction` |
+| Automatic | Session start, on every supported client | Bounded deferred `memoryHygiene` and `deferredExtraction` |
 | Manual / in-session | `maintenance_schedule_run` tool; `--dry-run`; `--status` | Any enabled task |
 | External / scheduled | `scripts/run-maintenance.mjs` | Any enabled task |
+
+Copilot and Pi host Lore as a long-lived process and run the sweep in-process (Copilot: a background microtask off `onSessionStart`; Pi: fire-and-forget off its `session_start` lifecycle event). Codex, Claude Code, and Antigravity run `lore-cli.mjs hook` as a short-lived process per event, so they instead do a cheap due-check and, only when due, spawn `scripts/run-maintenance.mjs --background` as a detached, unref'd child and return immediately. Every path acquires the same cross-process `maintenance_lock` (scope `"background"`) before running tasks, so concurrent sessions across hosts converge on one sweep instead of duplicating work.
 
 ### Isolated database rule
 
@@ -260,8 +262,9 @@ It auto-runs on session start only when all of these are true:
 
 - `maintenanceScheduler.enabled: true`
 - `maintenanceScheduler.autoRunOnSessionStart: true`
-- Lore has an initialized runtime with both the derived DB and the raw session store open
+- Lore has an initialized runtime with the derived DB open (Copilot and Pi additionally need the raw session store open, since they run the sweep in the same process handling recall)
 - The task is enabled and due under `maintenanceScheduler.tasks.*` plus its cadence settings
+- For Codex, Claude Code, and Antigravity specifically: the spawned `scripts/run-maintenance.mjs --background` process must also acquire the cross-process `maintenance_lock`; a concurrent sweep already holding it makes this one a no-op
 
 Additional task gates:
 

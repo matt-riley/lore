@@ -78,7 +78,15 @@ test("a native CLI SessionStart hook spawns a real detached background sweep tha
     assert.equal(lines.length, 1);
     assert.ok(JSON.parse(lines[0]));
 
-    const run = await waitFor(() => readLatestMaintenanceRun(dbPath));
+    // Wait for the run to reach a terminal status, not merely for the row to
+    // exist: createMaintenanceRun() inserts it with status "running" before
+    // the sweep's tasks execute, so a predicate that resolves on existence
+    // alone can catch that transient state under load and fail the
+    // status assertion below with no more polling left to recover.
+    const run = await waitFor(() => {
+      const latest = readLatestMaintenanceRun(dbPath);
+      return latest && latest.status !== "running" ? latest : null;
+    });
     assert.equal(run.trigger, "session_start");
     assert.equal(run.dry_run, 0);
     assert.notEqual(run.status, "running");

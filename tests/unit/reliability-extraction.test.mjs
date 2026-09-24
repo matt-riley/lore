@@ -559,7 +559,15 @@ describe("conservative rule extraction", () => {
     assert.deepEqual(extraction.retiredEvidenceKeys, []);
   });
 
-  test("attributes repeated failure goals to the selected assistant evidence", () => {
+  test("repeated failures do not infer a templated assistant_goal memory", () => {
+    // The implicit failure-repair heuristic used to synthesize a canned
+    // "Current assistant goal: stabilize ..." memory from repeated failure
+    // signals. Auditing a real store found 20 of these near-identical
+    // templated rows duplicated across repo/transferable/global scopes and
+    // many repositories, reinforced dozens of times, and injected into
+    // prompts as if they were the user's actual goal. The heuristic added no
+    // signal beyond picking one of five fixed strings, so it was removed:
+    // repeated failures must not persist a synthetic assistant_goal at all.
     const extraction = extract({
       sessionId: "failure-evidence",
       turns: [
@@ -577,19 +585,7 @@ describe("conservative rule extraction", () => {
       ],
     });
 
-    const goal = semantic(extraction, "assistant_goal")[0];
-    assert.ok(goal);
-    assert.equal(goal.sourceRecordId, "assistant-failure-2");
-    assert.equal(goal.metadata.sourceRole, "assistant");
-    assert.deepEqual(goal.metadata.sourceAttribution, {
-      sessionId: "failure-evidence",
-      sourceRecordId: "assistant-failure-2",
-      sourceRole: "assistant",
-    });
-    assert.equal(goal.evidence.sourceRecordId, "assistant-failure-2");
-    assert.equal(goal.evidence.revision, createHash("sha256")
-      .update(JSON.stringify({ role: "assistant", text: "The build failed again." }))
-      .digest("hex"));
+    assert.deepEqual(semantic(extraction, "assistant_goal"), []);
   });
 
   test("extracts a completed decision after contextual wording", () => {
@@ -707,7 +703,7 @@ describe("extraction evidence", () => {
     assert.deepEqual(extraction.semanticMemories, []);
   });
 
-  test("inferred repair goals use the actual assistant failure record", () => {
+  test("repeated assistant failure records do not infer a templated assistant_goal memory", () => {
     const extraction = extract({ turns: [1, 2].map((index) => ({
       source_record_id: `user-${index}`,
       source_revision: `user-revision-${index}`,
@@ -718,11 +714,7 @@ describe("extraction evidence", () => {
         { source_record_id: `assistant-note-${index}`, text: "I will investigate." },
       ],
     })) });
-    const goal = semantic(extraction, "assistant_goal")[0];
-    assert.ok(goal);
-    assert.equal(goal.evidence.sourceRecordId, "assistant-2");
-    assert.equal(goal.evidence.revision, "assistant-revision-2");
-    assert.equal(goal.metadata.sourceAttribution.sourceRole, "assistant");
+    assert.deepEqual(semantic(extraction, "assistant_goal"), []);
   });
 
   test("local inference enhancement preserves extraction retirement keys", async () => {

@@ -35,8 +35,9 @@ For Codex CLI, Claude Code, and Antigravity CLI, check the [installation guide](
 - The installer is a dry run unless you pass `--write`. Restart the host after applying hooks, and install only one scope per client.
 - In Codex, review and trust the definitions with `/hooks` and trust project configuration. Check that local or managed settings have not disabled hooks. Claude may require project hook approval.
 - In Antigravity 1.1.27, use the global installation and launch with `agy --add-dir "$PWD"` from your project. Check `/hooks` for the `lore` group. An empty workspace is not treated as the shared config directory; `LORE_WORKSPACE` can provide an explicit fallback.
-- If you moved Lore or changed Node installations, remove and reinstall hooks so their absolute paths are correct.
+- If you moved Lore, remove and reinstall hooks so their absolute paths are correct. Rerunning `npm run setup` resolves a version-manager-stable Node path (mise/asdf/fnm/volta/nvm) rather than the exact binary that happened to run setup, so pruning an old Node version no longer breaks every hook; if none exists, pin one explicitly with `--node` or `LORE_NODE`.
 - Check that clients use the same Lore home and repository identifier. `LORE_REPOSITORY` can align the scope explicitly.
+- Run `lore doctor`: it reports a missing or non-executable Node binary, a missing `lore-cli.mjs` entry, a still-pinned version-manager Node path, and duplicate global/project installs for the current directory.
 
 Run `memory_status` and a synthetic `lore_recall` through `lore-cli.mjs tool` from the project directory. If direct recall works but automatic recall does not, inspect the host's hook diagnostics. Lore fails open, so the agent continuing normally is not proof that hooks ran.
 

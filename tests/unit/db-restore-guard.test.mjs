@@ -142,14 +142,15 @@ describe("assertExclusiveDatabaseAccess / acquireRestoreGuard", () => {
     }
   });
 
-  test("returns a no-op guard when the target does not exist yet", () => {
+  test("holds the sidecar lock while the target does not exist yet", () => {
     const root = tempDir();
     const dbPath = path.join(root, "missing.db");
     try {
       const guard = acquireRestoreGuard(dbPath);
       assert.deepEqual(guard.warnings, []);
-      assert.equal(isRestoreLockActive(dbPath), false);
+      assert.equal(isRestoreLockActive(dbPath), true);
       guard.release();
+      assert.equal(isRestoreLockActive(dbPath), false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

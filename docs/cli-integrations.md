@@ -211,12 +211,14 @@ later capture. Hosts that disable transcript
 persistence cannot provide automatic extraction. Hook timeouts are 10 seconds, including Codex `SessionEnd`. If a host rejects
 a 10-second SessionEnd timeout, keep Codex SessionEnd at 3 seconds and finish
 capture with `lore capture --resume`. `Stop` provides the normal capture point
-before shutdown. Bounded session-start maintenance (`memoryHygiene`,
+before shutdown. Time-budgeted session-start maintenance (`memoryHygiene`,
 `deferredExtraction`) does run on these adapters: on `SessionStart`
 (Antigravity: the first `PreInvocation`), the short-lived hook process spawns
 a detached, unref'd `scripts/run-maintenance.mjs --background` and returns
 immediately without waiting on it, under the same cross-process lock every
-other trigger uses. Hook metrics, raw archive backfill, and
+other trigger uses. The child has a 60-second time budget; if it expires, it
+waits for in-flight work to settle before closing the database and exits 1.
+Hook metrics, raw archive backfill, and
 subagent-specific scope tracking are still not wired into these adapters.
 
 Memory storage remains local. Context returned to a host is sent to that host's

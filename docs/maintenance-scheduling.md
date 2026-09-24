@@ -26,7 +26,7 @@ When `maintenanceScheduler.enabled: true` and `maintenanceScheduler.autoRunOnSes
 
 All of these paths funnel through the same cross-process lock (`maintenance_lock`, scope `"background"`) before running tasks, so if a native CLI hook's spawned child and the Pi worker (or two hook children from concurrent sessions) all become due at nearly the same moment against the same database, only one actually runs the sweep; the others see the lock held and exit as a no-op. The lock has a short lease and is released as soon as the sweep finishes, so it never blocks a later, genuinely due run.
 
-`scripts/run-maintenance.mjs --background` is the one used by every non-Copilot, non-Pi trigger; it is intentionally quiet (nothing on stdout — the caller's stdout may be a hook protocol channel) and time-bounded, so a stalled task cannot leave an orphaned process running indefinitely. Failures live in the `maintenance_run` / `maintenance_task_state` records, the same place any other trigger's failures land — never on stdout.
+`scripts/run-maintenance.mjs --background` is the one used by every non-Copilot, non-Pi trigger; it is intentionally quiet (nothing on stdout — the caller's stdout may be a hook protocol channel) and has a 60-second time budget. If the budget expires, the process exits with status 1 after in-flight work settles, keeping the database open until then. Task failures live in the `maintenance_run` / `maintenance_task_state` records, the same place any other trigger's failures land — never on stdout.
 
 ### Manual / in-session maintenance
 
@@ -278,7 +278,7 @@ node scripts/run-maintenance.mjs --tasks indexUpkeep --force
 # Status check (reads DB, no writes)
 node scripts/run-maintenance.mjs --status
 
-# Bounded, quiet session-start sweep under a cross-process lock — this is
+# Quiet, time-budgeted session-start sweep under a cross-process lock — this is
 # what native CLI hooks and Pi spawn/run automatically; not for manual use.
 node scripts/run-maintenance.mjs --background
 ```

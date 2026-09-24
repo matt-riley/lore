@@ -134,6 +134,63 @@ test("lore server tool/lifecycle/slash RPC covers the shared verb surface", { sk
   }
 });
 
+test("lore server session_start lifecycle triggers a bounded background maintenance sweep", { skip: SKIP_NO_FTS5 }, async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-maintenance-"));
+  const copilotHome = path.join(home, ".copilot");
+  mkdirSync(copilotHome, { recursive: true });
+  const configPath = path.join(copilotHome, "lore.json");
+  const dbPath = path.join(copilotHome, "lore.db");
+  writeFileSync(configPath, JSON.stringify({
+    enabled: true,
+    maintenanceScheduler: {
+      enabled: true,
+      autoRunOnSessionStart: true,
+    },
+    deferredExtraction: {
+      enabled: true,
+      autoProcessOnSessionStart: true,
+    },
+    paths: {
+      copilotHome,
+      rawStorePath: path.join(copilotHome, "session-store.db"),
+      derivedStorePath: dbPath,
+      backupDir: path.join(copilotHome, "backups"),
+      instructionsPath: path.join(copilotHome, "copilot-instructions.md"),
+      scopedInstructionsDir: path.join(copilotHome, "instructions"),
+    },
+  }));
+  writeFileSync(path.join(copilotHome, "copilot-instructions.md"), "");
+
+  const server = startServer(home, configPath);
+  try {
+    const lifecycle = await server.request("lifecycle", { event: "session_start", prompt: "" });
+    assert.equal(lifecycle.ok, true);
+  } finally {
+    // Graceful close waits on any in-flight background maintenance
+    // (waitForMaintenanceIdle) before the process exits, so no polling is
+    // needed here — by the time exit() resolves, the sweep has finished.
+    const result = await server.exit();
+    assert.equal(result.code, 0, `server exited with ${JSON.stringify(result)}`);
+  }
+
+  try {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const run = db.prepare("SELECT trigger, status, dry_run FROM maintenance_run ORDER BY updated_at DESC LIMIT 1").get();
+      assert.ok(run, "session_start should have produced a maintenance_run row");
+      assert.equal(run.trigger, "session_start");
+      assert.equal(run.dry_run, 0);
+      assert.notEqual(run.status, "running", "the sweep must have finished before the server closed");
+      const heldLock = db.prepare("SELECT * FROM maintenance_lock WHERE scope = 'background' AND expires_at > ?").get(new Date().toISOString());
+      assert.equal(heldLock, undefined, "the background lock must be released once the sweep completes");
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("lore server handles status/save/recall/extract, backfill, and graceful EOF", { skip: SKIP_NO_FTS5 }, async () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-server-"));
   const copilotHome = path.join(home, ".copilot");

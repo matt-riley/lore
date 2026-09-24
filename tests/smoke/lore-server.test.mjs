@@ -260,6 +260,136 @@ test("lore server handles status/save/recall/extract, backfill, and graceful EOF
   }
 });
 
+test("lore server post_tool/error/guardrail RPCs are rollout-gated no-ops by default and record when enabled", { skip: SKIP_NO_FTS5 }, async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-passive-hooks-"));
+  const copilotHome = path.join(home, ".copilot");
+  mkdirSync(copilotHome, { recursive: true });
+  const configPath = path.join(copilotHome, "lore.json");
+  const dbPath = path.join(copilotHome, "lore.db");
+  const baseConfig = {
+    paths: {
+      copilotHome,
+      rawStorePath: path.join(copilotHome, "session-store.db"),
+      derivedStorePath: dbPath,
+      backupDir: path.join(copilotHome, "backups"),
+      instructionsPath: path.join(copilotHome, "copilot-instructions.md"),
+      scopedInstructionsDir: path.join(copilotHome, "instructions"),
+    },
+  };
+  writeFileSync(configPath, JSON.stringify({ enabled: true, ...baseConfig }));
+  writeFileSync(path.join(copilotHome, "copilot-instructions.md"), "");
+
+  // Rollout flags default off: every passive-hook RPC must be a gated no-op
+  // and must never touch trajectory_artifact/error_telemetry.
+  let server = startServer(home, configPath);
+  try {
+    const postTool = await server.request("post_tool", { payload: { toolName: "run_command", success: true } });
+    assert.equal(postTool.ok, true);
+    assert.deepEqual(postTool.result, { enabled: false });
+
+    const error = await server.request("error", { payload: { context: "tool_use" }, sessionId: "pi:gated" });
+    assert.equal(error.ok, true);
+    assert.deepEqual(error.result, { enabled: false });
+
+    const guardrail = await server.request("guardrail", { toolName: "lore_retain" });
+    assert.equal(guardrail.ok, true);
+    assert.deepEqual(guardrail.result, { enabled: false });
+  } finally {
+    const result = await server.exit();
+    assert.equal(result.code, 0, `server exited with ${JSON.stringify(result)}`);
+  }
+  try {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      assert.equal(
+        db.prepare("SELECT count(*) AS n FROM trajectory_artifact WHERE kind = 'passive_hook_observation'").get().n,
+        0,
+        "gated post_tool must not write a trajectory artifact",
+      );
+      assert.equal(db.prepare("SELECT count(*) AS n FROM error_telemetry").get().n, 0, "gated error must not write telemetry");
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+
+  // With the rollout flags on, each RPC records exactly what its host-side
+  // caller (Pi's adapter) expects: an unnamed/malformed payload is a no-op
+  // (`captured: false`), a well-formed one is captured.
+  const homeEnabled = mkdtempSync(path.join(os.tmpdir(), "lore-pi-passive-hooks-on-"));
+  const copilotHomeEnabled = path.join(homeEnabled, ".copilot");
+  mkdirSync(copilotHomeEnabled, { recursive: true });
+  const configPathEnabled = path.join(copilotHomeEnabled, "lore.json");
+  const dbPathEnabled = path.join(copilotHomeEnabled, "lore.db");
+  writeFileSync(configPathEnabled, JSON.stringify({
+    enabled: true,
+    rollout: { postToolUse: true, errorTelemetry: true, preToolUseGuardrail: true },
+    paths: {
+      copilotHome: copilotHomeEnabled,
+      rawStorePath: path.join(copilotHomeEnabled, "session-store.db"),
+      derivedStorePath: dbPathEnabled,
+      backupDir: path.join(copilotHomeEnabled, "backups"),
+      instructionsPath: path.join(copilotHomeEnabled, "copilot-instructions.md"),
+      scopedInstructionsDir: path.join(copilotHomeEnabled, "instructions"),
+    },
+  }));
+  writeFileSync(path.join(copilotHomeEnabled, "copilot-instructions.md"), "");
+
+  server = startServer(homeEnabled, configPathEnabled);
+  try {
+    const noToolName = await server.request("post_tool", { payload: { success: true } });
+    assert.equal(noToolName.ok, true);
+    assert.deepEqual(noToolName.result, { captured: false });
+
+    const postTool = await server.request("post_tool", { payload: { toolName: "run_command", success: true } });
+    assert.equal(postTool.ok, true);
+    assert.deepEqual(postTool.result, { captured: true });
+
+    const noError = await server.request("error", { payload: null, sessionId: "pi:enabled" });
+    assert.equal(noError.ok, true);
+    assert.deepEqual(noError.result, { captured: false });
+
+    const error = await server.request("error", { payload: { context: "tool_use" }, sessionId: "pi:enabled" });
+    assert.equal(error.ok, true);
+    assert.deepEqual(error.result, { captured: true });
+
+    const guardrailOutside = await server.request("guardrail", { toolName: "lore_forget" });
+    assert.equal(guardrailOutside.ok, true);
+    assert.deepEqual(guardrailOutside.result, { additionalContext: null });
+  } finally {
+    const result = await server.exit();
+    assert.equal(result.code, 0, `server exited with ${JSON.stringify(result)}`);
+  }
+  try {
+    const db = new DatabaseSync(dbPathEnabled, { readOnly: true });
+    try {
+      const artifact = db.prepare(
+        "SELECT summary, severity, context_json FROM trajectory_artifact WHERE kind = 'passive_hook_observation'",
+      ).get();
+      assert.ok(artifact, "enabled post_tool must write a trajectory artifact");
+      assert.equal(artifact.summary, "bash/success");
+      assert.equal(artifact.severity, "info");
+      const context = JSON.parse(artifact.context_json);
+      assert.equal(context.hookKind, "onPostToolUse");
+      assert.equal(context.toolCategory, "bash");
+      assert.equal(context.success, true);
+
+      const telemetryRows = db.prepare("SELECT session_id, context_category FROM error_telemetry").all();
+      assert.equal(telemetryRows.length, 1, "enabled error must write exactly one telemetry row");
+      assert.equal(telemetryRows[0].session_id, "pi:enabled");
+      assert.equal(telemetryRows[0].context_category, "tool_use");
+
+      // secret-shaped error content must never reach the telemetry table
+      assert.doesNotMatch(JSON.stringify(telemetryRows), /tool_use.*secret/);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(homeEnabled, { recursive: true, force: true });
+  }
+});
+
 test("Pi archive scanning honors PI_CODING_AGENT_DIR when config omits piSessionDir", { skip: SKIP_NO_FTS5 }, async () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "lore-pi-env-sessions-"));
   const copilotHome = path.join(home, ".copilot");

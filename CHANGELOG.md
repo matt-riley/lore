@@ -20,6 +20,58 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.20.0](https://github.com/matt-riley/lore/compare/lore-v0.19.1...lore-v0.20.0) (2026-09-26)
+
+
+### Features
+
+* **cli:** trigger background maintenance from native CLI hooks ([e02f1f2](https://github.com/matt-riley/lore/commit/e02f1f239faa8c93ff2d39e117889e8f97293ab1))
+* **db:** add a cross-process maintenance background lock ([b1bb86b](https://github.com/matt-riley/lore/commit/b1bb86b03975359e990741d306f6e8f94e240c5f))
+* **doctor:** report install health for native hook clients ([9b30da3](https://github.com/matt-riley/lore/commit/9b30da3d6752c2dc16bf15c83a1157f933eb4803))
+* **inference:** add macOS keychain source for the TypeSafe API key ([51fbf24](https://github.com/matt-riley/lore/commit/51fbf2441c81fdb40afef53173baef0f8c1fd0a7))
+* **maintenance:** add opt-in extractionRevalidation maintenance task ([c92694e](https://github.com/matt-riley/lore/commit/c92694e24098ccb2fc20b0e6c66d7ee0368d9a94))
+* **maintenance:** add runBackgroundMaintenanceSweep entry point ([e939f3a](https://github.com/matt-riley/lore/commit/e939f3a69aea5ba7f799a4fabe45ad5f5d66689e))
+* **memory:** add extraction revalidation grammar replay and DB layer ([28bdb39](https://github.com/matt-riley/lore/commit/28bdb3973f6731a5f1363d87c73c25825e9d41ba))
+* **pi:** trigger background maintenance on session_start ([31cf3de](https://github.com/matt-riley/lore/commit/31cf3dea4f287a4cf258ebc961bad8bd8a0bfc19))
+* **recall:** add context markup neutralization to prevent prompt injection ([0a525b1](https://github.com/matt-riley/lore/commit/0a525b19ccf6acb4482de6335cb8e0681a5269d6))
+* **scripts:** add run-maintenance.mjs --background mode ([81e9945](https://github.com/matt-riley/lore/commit/81e99453df80ec74567059eea636d8fff217cb22))
+* **tools:** add lore audit-extractions capability and CLI verb ([0f7b0df](https://github.com/matt-riley/lore/commit/0f7b0dfd69595f6422c4253246b9fca4f83eddbb))
+
+
+### Bug Fixes
+
+* address follow-up PR review findings ([b4edf54](https://github.com/matt-riley/lore/commit/b4edf547f68c4845742f9fe7a7a3a157d68d3dd2))
+* address remaining PR 181 review findings ([1e28e0b](https://github.com/matt-riley/lore/commit/1e28e0be0db8ee8660ce937bf6f62cadf995ed7c))
+* **cli-runtime:** skip DB open for rollout-gated-off PostToolUse hooks ([6d6e954](https://github.com/matt-riley/lore/commit/6d6e954b88f12e4ed14969ba51c87c92cf64cefa))
+* **cli:** expose lore_explain and lore_validate through lore tool ([f606d41](https://github.com/matt-riley/lore/commit/f606d411e83c7625029a0776e2cbe052f73daf90))
+* **cli:** prune error telemetry in native CLI hosts using probabilistic cadence ([b918e1d](https://github.com/matt-riley/lore/commit/b918e1d57e65fe40b5c82c9e3d5e9ce0afa517b5))
+* close restore and maintenance races ([cb8cd5e](https://github.com/matt-riley/lore/commit/cb8cd5e799f1226ce14a862a9ac4283f1abd1acf))
+* **db:** give each pre-migration backup a unique file name ([4b758a9](https://github.com/matt-riley/lore/commit/4b758a9630e2cc24b51e416eb94f096e75ebb31e))
+* **db:** guard restores against other live connections before swapping files ([b60ae4a](https://github.com/matt-riley/lore/commit/b60ae4a553b31f7ef8f4d68053e45f3da2a0bd38))
+* **db:** skip the writer lock on initialize() when schema is current ([0b81c4e](https://github.com/matt-riley/lore/commit/0b81c4e573c9b5a77f9dcc51d1fb0b81b01b146a))
+* **db:** wait out concurrent WAL conversion instead of failing opens ([9c8f7a7](https://github.com/matt-riley/lore/commit/9c8f7a794fd73933172e837ae26badfa3cb60429))
+* **deps:** update dependency astro to v7.3.3 ([569478d](https://github.com/matt-riley/lore/commit/569478d88a5afb324c0b0aa9f56bef8c534ab7de))
+* **doctor:** report each hook path once and summarize checkpoint failures ([321d60d](https://github.com/matt-riley/lore/commit/321d60dfb5656eb2643139ef95875bf5d38dac93))
+* **doctor:** report total checkpoint failures ([b2fa956](https://github.com/matt-riley/lore/commit/b2fa9563030b7cc5504a060203e5f294e90581f1))
+* **doctor:** stop flagging stable mise aliases as pinned Node paths ([01389a0](https://github.com/matt-riley/lore/commit/01389a07436bcafa6c970d063048dd2bd46e97c8))
+* ensure audit metadata column for all callers ([b3728b7](https://github.com/matt-riley/lore/commit/b3728b7f3c848e2baa9fffd090e28e7cc1821189))
+* keep rollback metadata schema lazy ([f146a79](https://github.com/matt-riley/lore/commit/f146a7929383668cb480a895e520f0dc50778dca))
+* **memory:** widen extraction-revalidation candidacy to unlabeled legacy rows ([d5e3e24](https://github.com/matt-riley/lore/commit/d5e3e24d13dcba8bc826286980304c2864173420))
+* **onboarding:** preserve customized profile on re-onboarding with empty input ([2b958d9](https://github.com/matt-riley/lore/commit/2b958d9f986439faf33ab65492ed63d568a75281))
+* **recall:** apply context markup neutralization to all recalled text ([78fa787](https://github.com/matt-riley/lore/commit/78fa7877b33483884514bfb9e03e269cfea1b370))
+* **recall:** apply the global relevance gate to vector fusion hits ([01107a1](https://github.com/matt-riley/lore/commit/01107a14bd29a406269a7906918dd8c460d68468))
+* **recall:** gate global commitments on real term overlap, not scaffolding ([2eef4ad](https://github.com/matt-riley/lore/commit/2eef4ad56a5fa657552fe6927d8aeb4f4c8ddc46))
+* **recall:** strip harness-injected blocks from transcript capture ([d0484dc](https://github.com/matt-riley/lore/commit/d0484dc6e89788c250d2c3cb1e08bd95e02f38d4))
+* reclaim crashed restore locks ([7ced72b](https://github.com/matt-riley/lore/commit/7ced72b09b2dead2a26d08cefbce2c8f95ca0e5b))
+* remove stale filesystem references ([ce59932](https://github.com/matt-riley/lore/commit/ce59932388ed22cc316974a86e9f072639e13d7c))
+* restore extractor version on rollback ([c811a1a](https://github.com/matt-riley/lore/commit/c811a1a58b12319c7f8969cefd29e23c3e639472))
+* **sessions:** reject malformed recurring_mistake fragments ([83cf137](https://github.com/matt-riley/lore/commit/83cf137929a94e666cdcb6779c41b89f5865f9df))
+* **sessions:** stamp extractor version and drop chained one-off actions ([ae3d1b8](https://github.com/matt-riley/lore/commit/ae3d1b88e0f003917cf1c08626f34c20975a23a0))
+* **sessions:** stop inferring templated assistant_goal memories from failures ([d316482](https://github.com/matt-riley/lore/commit/d316482b27b9a72582db2c274ca2988815cd173f))
+* **setup:** bake a stable node path into installed hooks ([e5dc345](https://github.com/matt-riley/lore/commit/e5dc34571517c0b9851529de411e25e7788cc277))
+* strip all injected AGENTS headings ([5dccd9a](https://github.com/matt-riley/lore/commit/5dccd9a3e2f67a2f94ab756ea643946ce4af7f3a))
+* **test:** wait for background maintenance completion ([671fce0](https://github.com/matt-riley/lore/commit/671fce0c4f7395302d83f75946c5723569dc2623))
+
 ## [0.19.1](https://github.com/matt-riley/lore/compare/lore-v0.19.0...lore-v0.19.1) (2026-09-23)
 
 

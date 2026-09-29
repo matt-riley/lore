@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { isAllowedHostHeader, startLoreBrowserServer } from "../../browser/server.mjs";
 
@@ -154,6 +158,46 @@ describe("browser dashboard security hardening", () => {
         await new Promise((resolve) => server.close(resolve));
       }
     });
+
+    for (const kind of ["file symlink", "directory symlink", "directory"]) {
+      test(`refuses static ${kind} fixtures`, async (t) => {
+        const temporary = await mkdtemp(path.join(tmpdir(), "lore-browser-static-"));
+        t.after(() => rm(temporary, { recursive: true, force: true }));
+        const secret = path.join(temporary, "secret.html");
+        await writeFile(secret, "sensitive local data", "utf8");
+        const fixtureName = `.security-test-${process.pid}-${Date.now()}.html`;
+        const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "browser", fixtureName);
+        t.after(() => rm(fixture, { recursive: true, force: true }));
+        if (kind === "file symlink") {
+          await symlink(secret, fixture);
+        } else if (kind === "directory symlink") {
+          await symlink(temporary, fixture, "dir");
+        } else {
+          await mkdir(fixture);
+        }
+
+        const { server } = startLoreBrowserServer({ db: { config: {} }, host: "127.0.0.1", port: 0 });
+        t.after(async () => {
+          server.closeAllConnections();
+          await new Promise((resolve) => server.close(resolve));
+        });
+        await new Promise((resolve) => server.once("listening", resolve));
+        const port = server.address().port;
+        const requestPath = kind === "directory symlink" ? `/${fixtureName}/secret.html` : `/${fixtureName}`;
+        const response = await new Promise((resolve, reject) => {
+          const request = http.get({ hostname: "127.0.0.1", port, path: requestPath }, (res) => {
+            let data = "";
+            res.on("data", (chunk) => { data += chunk; });
+            res.on("end", () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
+          });
+          request.on("error", reject);
+          request.setTimeout(2000, () => request.destroy(new Error("static response timed out")));
+        });
+
+        assert.equal(response.status, 404);
+        assert.deepEqual(response.body, { ok: false, error: "not_found" });
+      });
+    }
 
     test("serves allowed static files with security headers", async () => {
       const { server } = startLoreBrowserServer({ db: { config: {} }, host: "127.0.0.1", port: 0 });

@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -235,8 +236,31 @@ async function serveStatic(res, pathname) {
     return;
   }
 
+  let file;
   try {
-    const content = await readFile(resolved);
+    const canonicalRoot = await realpath(STATIC_ROOT);
+    const canonicalPath = await realpath(resolved);
+    const canonicalRelative = path.relative(canonicalRoot, canonicalPath);
+    if (
+      !canonicalRelative
+      || canonicalRelative === ".."
+      || canonicalRelative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(canonicalRelative)
+    ) {
+      notFound(res);
+      return;
+    }
+
+    // O_NOFOLLOW closes the final-component symlink race between realpath and
+    // open. The canonical containment check above also rejects symlinked
+    // directories that resolve outside the packaged dashboard root.
+    file = await open(resolved, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+    const stat = await file.stat();
+    if (!stat.isFile()) {
+      notFound(res);
+      return;
+    }
+    const content = await file.readFile();
     res.writeHead(200, {
       "Content-Type": getStaticContentType(resolved),
       "Cache-Control": "no-store",
@@ -246,6 +270,8 @@ async function serveStatic(res, pathname) {
     res.end(content);
   } catch {
     notFound(res);
+  } finally {
+    await file?.close().catch(() => {});
   }
 }
 

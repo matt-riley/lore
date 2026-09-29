@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -159,36 +159,45 @@ describe("browser dashboard security hardening", () => {
       }
     });
 
-    test("refuses static symlinks that resolve outside the dashboard root", async () => {
-      const temporary = await mkdtemp(path.join(tmpdir(), "lore-browser-static-"));
-      const secret = path.join(temporary, "secret.html");
-      const linkName = `.security-test-${process.pid}-${Date.now()}.html`;
-      const link = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "browser", linkName);
-      await writeFile(secret, "sensitive local data", "utf8");
-      await symlink(secret, link);
+    for (const kind of ["file symlink", "directory symlink", "directory"]) {
+      test(`refuses static ${kind} fixtures`, async (t) => {
+        const temporary = await mkdtemp(path.join(tmpdir(), "lore-browser-static-"));
+        t.after(() => rm(temporary, { recursive: true, force: true }));
+        const secret = path.join(temporary, "secret.html");
+        await writeFile(secret, "sensitive local data", "utf8");
+        const fixtureName = `.security-test-${process.pid}-${Date.now()}.html`;
+        const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "browser", fixtureName);
+        t.after(() => rm(fixture, { recursive: true, force: true }));
+        if (kind === "file symlink") {
+          await symlink(secret, fixture);
+        } else if (kind === "directory symlink") {
+          await symlink(temporary, fixture, "dir");
+        } else {
+          await mkdir(fixture);
+        }
 
-      const { server } = startLoreBrowserServer({ db: { config: {} }, host: "127.0.0.1", port: 0 });
-      await new Promise((resolve) => server.once("listening", resolve));
-      const port = server.address().port;
-
-      try {
+        const { server } = startLoreBrowserServer({ db: { config: {} }, host: "127.0.0.1", port: 0 });
+        t.after(async () => {
+          server.closeAllConnections();
+          await new Promise((resolve) => server.close(resolve));
+        });
+        await new Promise((resolve) => server.once("listening", resolve));
+        const port = server.address().port;
+        const requestPath = kind === "directory symlink" ? `/${fixtureName}/secret.html` : `/${fixtureName}`;
         const response = await new Promise((resolve, reject) => {
-          http.get({ hostname: "127.0.0.1", port, path: `/${linkName}` }, (res) => {
+          const request = http.get({ hostname: "127.0.0.1", port, path: requestPath }, (res) => {
             let data = "";
             res.on("data", (chunk) => { data += chunk; });
             res.on("end", () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
-          }).on("error", reject);
+          });
+          request.on("error", reject);
+          request.setTimeout(2000, () => request.destroy(new Error("static response timed out")));
         });
 
         assert.equal(response.status, 404);
         assert.deepEqual(response.body, { ok: false, error: "not_found" });
-      } finally {
-        server.closeAllConnections();
-        await new Promise((resolve) => server.close(resolve));
-        await rm(link, { force: true });
-        await rm(temporary, { recursive: true, force: true });
-      }
-    });
+      });
+    }
 
     test("serves allowed static files with security headers", async () => {
       const { server } = startLoreBrowserServer({ db: { config: {} }, host: "127.0.0.1", port: 0 });

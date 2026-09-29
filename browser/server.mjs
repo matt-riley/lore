@@ -243,6 +243,7 @@ async function serveStatic(res, pathname) {
     const canonicalRelative = path.relative(canonicalRoot, canonicalPath);
     if (
       !canonicalRelative
+      || canonicalRelative === ".."
       || canonicalRelative.startsWith(`..${path.sep}`)
       || path.isAbsolute(canonicalRelative)
     ) {
@@ -253,7 +254,7 @@ async function serveStatic(res, pathname) {
     // O_NOFOLLOW closes the final-component symlink race between realpath and
     // open. The canonical containment check above also rejects symlinked
     // directories that resolve outside the packaged dashboard root.
-    file = await open(resolved, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    file = await open(resolved, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
     const stat = await file.stat();
     if (!stat.isFile()) {
       notFound(res);

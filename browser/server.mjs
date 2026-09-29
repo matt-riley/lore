@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { constants as fsConstants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -210,7 +210,10 @@ const STATIC_CONTENT_TYPES = new Map([
   [".woff2", "font/woff2"],
 ]);
 
-const ALLOWED_STATIC_EXTENSIONS = new Set(STATIC_CONTENT_TYPES.keys());
+// Dashboard assets are all direct children of the trusted package directory.
+// Keep request paths out of filesystem traversal: O_NOFOLLOW protects the final
+// component only, so extension checks cannot safely admit nested directories.
+const STATIC_ASSETS = new Set(["/index.html", "/styles.css", "/app.js"]);
 
 function getStaticContentType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
@@ -219,41 +222,14 @@ function getStaticContentType(filePath) {
 
 async function serveStatic(res, pathname) {
   const candidate = pathname === "/" ? "/index.html" : pathname;
-  const resolved = path.resolve(STATIC_ROOT, `.${candidate}`);
-  const relative = path.relative(STATIC_ROOT, resolved);
-  if (
-    (!resolved.startsWith(STATIC_ROOT + path.sep) && resolved !== STATIC_ROOT) ||
-    relative.startsWith("..") ||
-    path.isAbsolute(relative)
-  ) {
+  if (!STATIC_ASSETS.has(candidate)) {
     notFound(res);
     return;
   }
-
-  const ext = path.extname(resolved).toLowerCase();
-  if (!ALLOWED_STATIC_EXTENSIONS.has(ext)) {
-    notFound(res);
-    return;
-  }
+  const resolved = path.join(STATIC_ROOT, candidate.slice(1));
 
   let file;
   try {
-    const canonicalRoot = await realpath(STATIC_ROOT);
-    const canonicalPath = await realpath(resolved);
-    const canonicalRelative = path.relative(canonicalRoot, canonicalPath);
-    if (
-      !canonicalRelative
-      || canonicalRelative === ".."
-      || canonicalRelative.startsWith(`..${path.sep}`)
-      || path.isAbsolute(canonicalRelative)
-    ) {
-      notFound(res);
-      return;
-    }
-
-    // O_NOFOLLOW closes the final-component symlink race between realpath and
-    // open. The canonical containment check above also rejects symlinked
-    // directories that resolve outside the packaged dashboard root.
     file = await open(resolved, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
     const stat = await file.stat();
     if (!stat.isFile()) {

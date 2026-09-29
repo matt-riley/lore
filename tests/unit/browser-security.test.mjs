@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { isAllowedHostHeader, startLoreBrowserServer } from "../../browser/server.mjs";
 
@@ -152,6 +156,37 @@ describe("browser dashboard security hardening", () => {
       } finally {
         server.closeAllConnections();
         await new Promise((resolve) => server.close(resolve));
+      }
+    });
+
+    test("refuses static symlinks that resolve outside the dashboard root", async () => {
+      const temporary = await mkdtemp(path.join(tmpdir(), "lore-browser-static-"));
+      const secret = path.join(temporary, "secret.html");
+      const linkName = `.security-test-${process.pid}-${Date.now()}.html`;
+      const link = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "browser", linkName);
+      await writeFile(secret, "sensitive local data", "utf8");
+      await symlink(secret, link);
+
+      const { server } = startLoreBrowserServer({ db: { config: {} }, host: "127.0.0.1", port: 0 });
+      await new Promise((resolve) => server.once("listening", resolve));
+      const port = server.address().port;
+
+      try {
+        const response = await new Promise((resolve, reject) => {
+          http.get({ hostname: "127.0.0.1", port, path: `/${linkName}` }, (res) => {
+            let data = "";
+            res.on("data", (chunk) => { data += chunk; });
+            res.on("end", () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
+          }).on("error", reject);
+        });
+
+        assert.equal(response.status, 404);
+        assert.deepEqual(response.body, { ok: false, error: "not_found" });
+      } finally {
+        server.closeAllConnections();
+        await new Promise((resolve) => server.close(resolve));
+        await rm(link, { force: true });
+        await rm(temporary, { recursive: true, force: true });
       }
     });
 

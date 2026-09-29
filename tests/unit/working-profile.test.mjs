@@ -105,6 +105,38 @@ describe("buildWorkingProfileSection", () => {
     }
   });
 
+  for (const scenario of [
+    { name: "matching repository profile", domainScope: "repo", domainRepo: "owner/current", observationScope: "repo", observationRepo: "owner/current", current: "owner/current", included: true },
+    { name: "foreign repository domain with a global observation", domainScope: "repo", domainRepo: "owner/private", observationScope: "global", observationRepo: null, current: "owner/current", included: false },
+    { name: "foreign observation under a global domain", domainScope: "global", domainRepo: null, observationScope: "repo", observationRepo: "owner/private", current: "owner/current", included: false },
+    { name: "repository profile without a current repository", domainScope: "repo", domainRepo: "owner/private", observationScope: "repo", observationRepo: "owner/private", current: null, included: false },
+    { name: "global profile without a current repository", domainScope: "global", domainRepo: null, observationScope: "global", observationRepo: null, current: null, included: true },
+  ]) {
+    test(`respects scope for ${scenario.name}`, { skip: SKIP_NO_FTS5 }, async () => {
+      const { db, config, cleanup } = await withFixtureDb({
+        configOverrides: { rollout: { ambientWorkingProfile: true } },
+      });
+      try {
+        db.upsertMemoryDomain({ domainKey: "scoped-user", kind: "user", title: "Scoped User", scope: scenario.domainScope, repository: scenario.domainRepo });
+        db.upsertObservation({ observationKey: "scoped-profile", domainKey: "scoped-user", title: "Profile", focus: "patterns", summary: "SCOPED PROFILE CONTENT", scope: scenario.observationScope, repository: scenario.observationRepo, freshnessHours: 24 });
+        const section = buildWorkingProfileSection({ db, config, repository: scenario.current });
+        assert.equal(section.text.includes("SCOPED PROFILE CONTENT"), scenario.included);
+        const result = await assembleMemoryCapsule({
+          prompt: "continue", repository: scenario.current, proceduralProfile: "", db, config,
+          sessionStore: { searchIndex: () => [], findRelevantSessions: () => [], getRecentSessions: () => [] },
+          includeTrace: true,
+        });
+        assert.equal(result.text.includes("SCOPED PROFILE CONTENT"), scenario.included);
+        if (!scenario.included) {
+          assert.notEqual(result.trace.lookups.workingProfile.reason, "included");
+          assert.equal(result.trace.lookups.workingProfile.observationKey ?? null, null);
+        }
+      } finally {
+        cleanup();
+      }
+    });
+  }
+
   test("reports stale when the observation has aged past freshnessHours", { skip: SKIP_NO_FTS5 }, async () => {
     const { db, config, cleanup } = await withFixtureDb({
       configOverrides: { rollout: { ambientWorkingProfile: true } },

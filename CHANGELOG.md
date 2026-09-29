@@ -20,6 +20,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.20.1](https://github.com/matt-riley/lore/compare/lore-v0.20.0...lore-v0.20.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* include approved repository aliases in proposal awareness ([1720f85](https://github.com/matt-riley/lore/commit/1720f8519dd417676b037878fcd94276392d8140))
+* isolate session profiles and proposals by repository ([eb18ea7](https://github.com/matt-riley/lore/commit/eb18ea7ff7df8a65837cb13eaee919aa846cb3b5))
+* prevent dashboard intermediate symlink races ([a3e2c05](https://github.com/matt-riley/lore/commit/a3e2c05c308a00ca73bdec134ed110b98deb570e))
+* prevent dashboard static symlink escapes ([8454128](https://github.com/matt-riley/lore/commit/845412823fe7a5007d55119712a89a1421c41444))
+* secure OKF viewer links and output files ([03359df](https://github.com/matt-riley/lore/commit/03359df6a19adb75617e1c90dbe10b20d111d50f))
+* strengthen dashboard static file checks ([0219379](https://github.com/matt-riley/lore/commit/021937968cfacef94c8b08fed1c1521254a1c5c1))
+
 ## [0.20.0](https://github.com/matt-riley/lore/compare/lore-v0.19.1...lore-v0.20.0) (2026-09-26)
 
 

@@ -24,7 +24,7 @@
 
 import { it, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -193,6 +193,19 @@ describe("client-side detail-panel escaping", () => {
     assert.equal(isSafeResourceUrl(" https://example.com/doc "), true);
   });
 
+  it("rejects URL schemes disguised with browser-stripped controls", () => {
+    const { isSafeResourceUrl } = loadClientHelpers(renderOkfVisualizerHtml({ bundle: sampleBundle() }));
+    for (const control of ["\t", "\n", "\r"]) {
+      const resource = `java${control}script:alert(1)`;
+      assert.equal(new URL(resource, "file:///tmp/viz.html").protocol, "javascript:");
+      assert.equal(isSafeResourceUrl(resource), false);
+    }
+    assert.equal(isSafeResourceUrl("\u0000javascript:alert(1)"), false);
+    assert.equal(isSafeResourceUrl(String.raw`\\evil.example/path`), false);
+    assert.equal(isSafeResourceUrl(String.raw`/\evil.example/path`), false);
+    assert.equal(isSafeResourceUrl("http://[invalid"), false);
+  });
+
   it("normalizePathSegments collapses '.' and '..' segments", () => {
     const html = renderOkfVisualizerHtml({ bundle: sampleBundle(), name: "Example" });
     const { normalizePathSegments } = loadClientHelpers(html);
@@ -276,6 +289,37 @@ describe("writeOkfVisualizerHtml", () => {
       await writeOkfVisualizerHtml(outPath, html);
       const written = readFileSync(outPath, "utf8");
       assert.equal(written, html);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an output symlink without overwriting its target", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const target = path.join(tmpDir, "sensitive.txt");
+      const outPath = path.join(tmpDir, "viz.html");
+      writeFileSync(target, "original sensitive contents");
+      symlinkSync(target, outPath);
+      await assert.rejects(writeOkfVisualizerHtml(outPath, "viewer contents"), /symlink/);
+      assert.equal(readFileSync(target, "utf8"), "original sensitive contents");
+      assert.deepEqual(readdirSync(tmpDir).sort(), ["sensitive.txt", "viz.html"]);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes private files and safely replaces a permissive existing viewer", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const outPath = path.join(tmpDir, "viz.html");
+      await writeOkfVisualizerHtml(outPath, "first viewer");
+      if (process.platform !== "win32") assert.equal(statSync(outPath).mode & 0o777, 0o600);
+      chmodSync(outPath, 0o644);
+      await writeOkfVisualizerHtml(outPath, "replacement viewer");
+      assert.equal(readFileSync(outPath, "utf8"), "replacement viewer");
+      if (process.platform !== "win32") assert.equal(statSync(outPath).mode & 0o777, 0o600);
+      assert.deepEqual(readdirSync(tmpDir), ["viz.html"]);
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }

@@ -71,7 +71,7 @@ Maintain existing Overview, Memories, Maintenance, Episodes and Drill-down behav
 
 Use current administration, portable-bundle, maintenance, observation, diagnostics, browser-security and rendering fixtures as a reference. Add stale-preview races, snapshot failure, partial-run recovery, deletion dependency closure, wrong-repository search and cancellation.
 
-Verify all 26 operation rows and aliases have schemas, handler tests and flag tests. Assert disabled features are absent/unavailable as advertised, and every alias shares the canonical receipt namespace.
+Verify all 27 operation rows and aliases have schemas, handler tests and flag tests. Assert disabled features are absent/unavailable as advertised, and every alias shares the canonical receipt namespace.
 
 Dashboard tests cover a stopped daemon, expired cursor, empty/loading/error states, large escaped content, injection/path traversal, Host/Origin controls and no mutating route. Render on desktop and mobile; exercise filters, pagination, drilldown and keyboard navigation. Capture screenshots with synthetic data only.
 

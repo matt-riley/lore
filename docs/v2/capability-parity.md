@@ -1,11 +1,11 @@
 # Capability parity ledger
 
-Status: inventory frozen at `4771816`, 2026-09-15. Every v2 row is currently planned, not implemented or certified.
+Status: rebaselined against `main` at release 0.20.3 (`3b6b622`), 2026-10-07. Every v2 row is currently planned, not implemented or certified. Rebaseline drift recorded since the frozen baseline: CAP-27, the `extractionRevalidation` maintenance task, the optional TypeSafe provider surface, the `rerank-preview` development script, and `lore_doctor` install-health reporting.
 Sources: [capability manifest](../../lib/capabilities/capability-manifest.mjs), [support matrix](../support-matrix.md), [configuration defaults](../../lib/core/config.mjs).
 
 ## Completion rule
 
-All 26 canonical operations and their aliases below are in the replacement scope, including experimental operations. Existing experimental status does not excuse omission, and implementing a row does not promote its support level. A future inventory change must amend this ledger before the next gate.
+All 27 canonical operations and their aliases below are in the replacement scope, including experimental operations. Existing experimental status does not excuse omission, and implementing a row does not promote its support level. A future inventory change must amend this ledger before the next gate.
 
 For every row preserve the baseline parameter schema (fields, required/optional meaning, enum values and alias behavior) through CLI/host compatibility translation. The new wire can use typed requests, but a rejected/changed v1 argument needs an explicit documented difference. Run a schema/golden comparison; do not hand-copy only the commonly used arguments.
 
@@ -40,9 +40,10 @@ Stage references: [2](02-daemon-core.md), [3](03-background-embeddings.md), [4](
 | CAP-21 | lore_purge | memory_purge | experimental | 6B | Explicit IDs/repo/global; includeDependentAggregates and full selection, snapshot and retained suppression |
 | CAP-22 | memory_deferred_process | none | experimental | 4, 5A, 6B | limit/includeOtherRepositories, deterministic extraction with optional background enrichment |
 | CAP-23 | lore_backfill | memory_backfill | experimental | 4, 6B | legacy/controlled, preview/start/resume/status/restore, selected raw source, runId/retryFailed/refreshExisting |
-| CAP-24 | lore_doctor | memory_doctor_report | experimental | 6B | dryRun, trajectoryLimit, observe-only plannedActions, source cases and health reasons |
+| CAP-24 | lore_doctor | memory_doctor_report | experimental | 6B | dryRun, trajectoryLimit, observe-only plannedActions, install health (missing/pinned Node paths, missing `lore-cli.mjs`, duplicate installs), source cases and health reasons |
 | CAP-25 | memory_review_gate | none | experimental | 6B | Proposal text/dryRun, observe-only checks and bounded trajectory artifact |
 | CAP-26 | memory_skill_validate | none | supported | 6B | summary/detailed validation of configured skills; no execution |
+| CAP-27 | lore_audit_extractions | none | experimental | 6B | Report-only default; apply/rollback one exact `extractor-revalidation:<runId>` marker; never creates suppression rows; human/script verb, not a model tool |
 
 ## Model, command and lifecycle surfaces
 
@@ -90,9 +91,9 @@ Defaults below match the checked-out USER_CONFIG_DEFAULTS; parent dependencies m
 | subagentScopeTracking | false | 6A host-provided scope attribution |
 | preToolUseGuardrail | false | 6A allowlisted advisory, never blocking |
 
-Additional config behavior: providers/localInference and embeddings default off; reflection synthesis, query expansion and context compression default off; deferred deterministic extraction defaults on; maintenance scheduler and sessionStartBackfill default off; hygiene mode off. Preserve selected task flags/cadences and source roots through explicit config mapping. Do not enable a model merely because hybridRetrieval defaults true.
+Additional config behavior: providers/localInference and embeddings default off; reflection synthesis, query expansion and context compression default off; deferred deterministic extraction defaults on; maintenance scheduler and sessionStartBackfill default off; hygiene mode off. Optional TypeSafe reranking/features default off; when enabled they send prompt and candidate memory content to the configured provider, source credentials from `LORE_TYPESAFE_API_KEY`/keychain/plaintext in that order, and fail open to the fused order (stage 3). Preserve selected task flags/cadences and source roots through explicit config mapping. Do not enable a model merely because hybridRetrieval defaults true.
 
-Maintenance task inventory: memoryHygiene, deferredExtraction, validationCorpus, replayCorpus, backlogReview, traceCompaction, indexUpkeep, doctorSnapshot. Due work moves to the daemon while configured enabled. Zero cadence becomes a bounded 60-second opportunity; positive existing cadences are preserved.
+Maintenance task inventory: memoryHygiene, deferredExtraction, validationCorpus, replayCorpus, backlogReview, traceCompaction, indexUpkeep, doctorSnapshot, extractionRevalidation (default off, 24-hour cadence). Due work moves to the daemon while configured enabled. Zero cadence becomes a bounded 60-second opportunity; positive existing cadences are preserved.
 
 ## Context, data and dashboard surfaces
 
@@ -123,6 +124,7 @@ Maintenance task inventory: memoryHygiene, deferredExtraction, validationCorpus,
 | scripts/check-runtime.mjs | 7 artifact/host preflight; no Node requirement for native clients | Host/runtime failure gives correct neutral hook result |
 | scripts/verify-cli-hooks.mjs, scripts/verify-extension-clients.mjs, scripts/verification-process.mjs | 6A/7 host verification harness | Real-host/version matrix; no simulated pass claim |
 | scripts/diagnostics-quality.mjs, scripts/reliability-quality.mjs, scripts/reliability-benchmark.mjs | Development v1/v2 corpus and baseline runners | Independent shared fixtures and threshold reports |
+| scripts/rerank-preview.mjs | Development TypeSafe ranking preview; no production path | Frozen fixtures, provider-off fallback, bounded candidate counts |
 | scripts/check-release-evidence.mjs | 7 complete G1-G6 evidence/soak validation | Missing evidence fails; current support never inferred from docs |
 | Root schema/lint/test/knip and website check/test/build/check:links | Retain during coexistence; add Cargo checks | Public README/site/support/capability consistency at release |
 | scripts/shared-args.mjs and private fixture helpers | Implementation details, no public compatibility promise | Port public CLI semantics through golden tests |

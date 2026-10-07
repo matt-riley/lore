@@ -1,7 +1,7 @@
 # Lore v2 implementation roadmap
 
 Status: approved design direction; implementation has not started.
-Planning baseline: branch `v2`, commit `4771816`, 2026-09-15.
+Planning baseline: `main` at release 0.20.3 (`3b6b622`), 2026-10-07. The initial planning pass was made on branch `v2` at `4771816`; the roadmap and ledger now live on `main`.
 
 ## Outcome
 

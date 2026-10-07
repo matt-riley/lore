@@ -24,7 +24,7 @@ An early synthetic Pi trial may use manually launched lored. Real-user cutover r
 | Script tool | `lore tool <canonical-or-alias>` with JSON stdin | Existing text output by default; explicit `--output json` for v2 structured result |
 | Shell capture compatibility | `lore capture --resume --client <client> --session <id>` | Send bounded source hint/run query, never scan sources in the hook process |
 
-Only Copilot and Pi register model tools, exactly: lore_recall, lore_retain, lore_onboard, lore_search, lore_forget, lore_status, lore_explain, lore_validate, lore_correct. Do not register legacy aliases as extra model tools. All 26 canonical operations remain available via human/slash/script dispatch with their existing flags.
+Only Copilot and Pi register model tools, exactly: lore_recall, lore_retain, lore_onboard, lore_search, lore_forget, lore_status, lore_explain, lore_validate, lore_correct. Do not register legacy aliases as extra model tools. All 27 canonical operations remain available via human/slash/script dispatch with their existing flags.
 
 Use a shared checked-in JSON capability catalog generated from the Rust operation schema during development, with golden comparison to the v1 manifest until retirement. Host adapters consume the catalog without a runtime code-generation/build step. JSON Schema-to-TypeBox conversion must preserve enums, nullable fields, nested arrays and bounds. Canonical dispatch happens once in the daemon.
 

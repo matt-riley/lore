@@ -93,6 +93,7 @@ struct State {
     worker_state: Arc<WorkerState>,
     notify: Arc<Notify>,
     scheduler: Scheduler,
+    unavailable_reason: Option<String>,
     generation: AtomicU32,
     config_path: Option<PathBuf>,
 }
@@ -164,6 +165,10 @@ async fn main() -> Result<()> {
         .unwrap_or(0);
     let scheduler = sources::spawn(Arc::clone(&store), config.clone());
     scheduler.wake();
+    let unavailable_reason = match store.migration_state().map_err(to_anyhow)?.as_deref() {
+        Some("validated") | Some("complete") | None => None,
+        Some(_) => Some("MIGRATION_INCOMPLETE".to_string()),
+    };
     let state = Arc::new(State {
         store,
         store_id: initial.store_id,
@@ -178,6 +183,7 @@ async fn main() -> Result<()> {
         worker_state,
         notify,
         scheduler,
+        unavailable_reason,
         generation: AtomicU32::new(generation),
         config_path: config.config_path.clone(),
     });
@@ -487,15 +493,21 @@ fn require_store(meta: &RequestMeta, store_id: &str, required: bool) -> Option<R
     }
 }
 
-fn disabled_response(meta: &RequestMeta, store_id: &str) -> Resp {
+fn disabled_response(meta: &RequestMeta, store_id: &str, reason: &str) -> Resp {
     fail_response(
         StatusCode::PRECONDITION_FAILED,
         code::FAILED_PRECONDITION,
-        "CONFIG_DISABLED",
+        reason,
         false,
         Some(&meta.request_id),
         Some(store_id),
     )
+}
+
+/// Unavailable reason for this process: disabled config or an unfinished
+/// migration import that must not serve writes.
+fn unavailable_reason(state: &Arc<State>) -> Option<String> {
+    state.unavailable_reason.clone()
 }
 
 fn core_response(error: CoreError, request_id: &str, store_id: &str) -> Resp {
@@ -640,7 +652,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                 capabilities.push("embedding.retry".to_string());
                 capabilities.push("config.reload".to_string());
             }
-            if !state.enabled {
+            if !state.enabled || unavailable_reason(state).is_some() {
                 capabilities = vec!["status.basic".to_string()];
             }
             json(
@@ -653,16 +665,18 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                         api_major: API_MAJOR,
                         api_minor: API_MINOR,
                         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
-                        schema_version: 4,
+                        schema_version: 5,
                         store_id: state.store_id.clone(),
                         process_instance_id: state.process_instance_id.clone(),
                         uptime_ms: state.started.elapsed().as_millis() as u64,
-                        readiness: if state.enabled {
+                        readiness: if state.enabled && unavailable_reason(state).is_none() {
                             Readiness::Ready
                         } else {
                             Readiness::Unavailable
                         },
-                        reason: if state.enabled {
+                        reason: if let Some(reason) = unavailable_reason(state) {
+                            Some(reason)
+                        } else if state.enabled {
                             None
                         } else {
                             Some("CONFIG_DISABLED".to_string())
@@ -741,8 +755,14 @@ async fn handle_retain(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
-    if !state.enabled {
-        return disabled_response(&envelope.meta, &store_id);
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     if let Err(error) = policy::validate_retain(&envelope.params, &state.config.limits) {
         return core_response(error, &request_id, &store_id);
@@ -812,8 +832,14 @@ async fn handle_forget(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
-    if !state.enabled {
-        return disabled_response(&envelope.meta, &store_id);
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     if let Err(error) = policy::validate_forget(envelope.params.reason.as_deref()) {
         return core_response(error, &request_id, &store_id);
@@ -879,8 +905,14 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
-    if !state.enabled {
-        return disabled_response(&envelope.meta, &store_id);
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     let (limit, context_bytes) =
         match policy::resolve_recall(&envelope.params, &state.config.limits) {
@@ -1010,8 +1042,14 @@ async fn handle_jobs_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
-    if !state.enabled {
-        return disabled_response(&envelope.meta, &store_id);
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     let _guard = match acquire_client(&envelope.meta.client_id, state) {
         Ok(guard) => guard,
@@ -1098,8 +1136,14 @@ async fn handle_jobs_retry(raw: &[u8], state: &Arc<State>, fallback_id: Option<S
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
-    if !state.enabled {
-        return disabled_response(&envelope.meta, &store_id);
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     let _guard = match acquire_client(&envelope.meta.client_id, state) {
         Ok(guard) => guard,

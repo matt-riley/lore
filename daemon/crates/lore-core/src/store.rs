@@ -25,6 +25,7 @@ use crate::retrieval;
 
 mod embedding;
 mod extraction;
+mod migration;
 mod source;
 pub use embedding::{
     ClaimedJob, CompleteOutcome, EmbeddingCounts, FailOutcome, JobView, ReconcilePage,
@@ -229,6 +230,41 @@ CREATE TABLE IF NOT EXISTS extraction_intents (
 CREATE INDEX IF NOT EXISTS idx_extraction_intents_state ON extraction_intents (state, next_attempt_ms);
 "#;
 
+/// Forward migration 4 -> 5: migration manifests, id maps, repository
+/// mappings and suppression state.
+const MIGRATION_5_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS migration_manifest (
+    run_id TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    source_fingerprint TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    started_ms INTEGER NOT NULL,
+    finished_ms INTEGER,
+    counts_json TEXT NOT NULL DEFAULT '{}',
+    cursor_json TEXT NOT NULL DEFAULT '{}',
+    detail_json TEXT NOT NULL DEFAULT '{}'
+) STRICT;
+CREATE TABLE IF NOT EXISTS migration_id_map (
+    v1_id TEXT PRIMARY KEY,
+    v2_id TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS migration_supersession (
+    v1_id TEXT PRIMARY KEY,
+    superseded_by_v1 TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS repository_mappings (
+    legacy TEXT NOT NULL,
+    canonical TEXT NOT NULL,
+    ambiguous INTEGER NOT NULL DEFAULT 0,
+    created_ms INTEGER NOT NULL,
+    PRIMARY KEY (legacy, canonical)
+) STRICT;
+ALTER TABLE suppressions ADD COLUMN state TEXT NOT NULL DEFAULT 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_suppressions_identity
+    ON suppressions (memory_id, scope, COALESCE(repository, ''), fingerprint);
+"#;
+
 /// Forward migration 3 -> 4: proposition identity, evidence links and
 /// extraction leases.
 const MIGRATION_4_SQL: &str = r#"
@@ -318,6 +354,24 @@ impl Store {
             limits: config.limits.clone(),
             embedding_identity: config.embedding_identity.clone(),
             embedding_enabled: config.embedding_identity.is_some(),
+        })
+    }
+
+    /// Open a migration staging store without a running configuration.
+    pub fn open_migration_store(path: &Path) -> CoreResult<Self> {
+        let writer = open_connection(path)?;
+        migrate(&writer)?;
+        let mut readers = Vec::with_capacity(2);
+        for _ in 0..2 {
+            readers.push(Mutex::new(open_connection(path)?));
+        }
+        Ok(Self {
+            writer: Mutex::new(writer),
+            readers,
+            next_reader: AtomicUsize::new(0),
+            limits: Limits::default(),
+            embedding_identity: None,
+            embedding_enabled: false,
         })
     }
 
@@ -1556,23 +1610,33 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
             connection.execute_batch(MIGRATION_2_SQL)?;
             connection.execute_batch(MIGRATION_3_SQL)?;
             connection.execute_batch(MIGRATION_4_SQL)?;
+            connection.execute_batch(MIGRATION_5_SQL)?;
             connection.execute(
-                "UPDATE store_metadata SET schema_version = 4 WHERE id = 1",
+                "UPDATE store_metadata SET schema_version = 5 WHERE id = 1",
                 [],
             )?;
         }
         Some(2) => {
             connection.execute_batch(MIGRATION_3_SQL)?;
             connection.execute_batch(MIGRATION_4_SQL)?;
+            connection.execute_batch(MIGRATION_5_SQL)?;
             connection.execute(
-                "UPDATE store_metadata SET schema_version = 4 WHERE id = 1",
+                "UPDATE store_metadata SET schema_version = 5 WHERE id = 1",
                 [],
             )?;
         }
         Some(3) => {
             connection.execute_batch(MIGRATION_4_SQL)?;
+            connection.execute_batch(MIGRATION_5_SQL)?;
             connection.execute(
-                "UPDATE store_metadata SET schema_version = 4 WHERE id = 1",
+                "UPDATE store_metadata SET schema_version = 5 WHERE id = 1",
+                [],
+            )?;
+        }
+        Some(4) => {
+            connection.execute_batch(MIGRATION_5_SQL)?;
+            connection.execute(
+                "UPDATE store_metadata SET schema_version = 5 WHERE id = 1",
                 [],
             )?;
         }

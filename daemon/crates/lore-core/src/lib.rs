@@ -6,6 +6,7 @@ pub mod error;
 pub mod extraction;
 pub mod ingestion;
 pub mod lifecycle;
+pub mod migration;
 pub mod policy;
 pub mod retrieval;
 pub mod store;

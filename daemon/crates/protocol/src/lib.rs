@@ -613,7 +613,7 @@ mod tests {
             api_major: API_MAJOR,
             api_minor: API_MINOR,
             daemon_version: "0.1.0".to_string(),
-            schema_version: 4,
+            schema_version: 5,
             store_id: "store-test".to_string(),
             process_instance_id: "1-2".to_string(),
             uptime_ms: 0,
@@ -753,7 +753,7 @@ mod tests {
 
     #[test]
     fn additive_response_fields_are_ignored() {
-        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":4,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"sources":{"discovered":0,"caughtUp":0,"growing":0,"unavailable":0,"ambiguous":0,"failed":0,"skipped":0},"extra":true}}"#;
+        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":5,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"sources":{"discovered":0,"caughtUp":0,"growing":0,"unavailable":0,"ambiguous":0,"failed":0,"skipped":0},"extra":true}}"#;
         let parsed: OkEnvelope<StatusResult> =
             serde_json::from_str(raw).expect("additive response fields are ignored");
         assert_eq!(parsed.result.api_major, 2);

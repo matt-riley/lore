@@ -13,7 +13,7 @@ lore-provider.workspace = true
 protocol.workspace = true
 regex = "1"
 repository-identity = { path = "../repository-identity" }
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled", "backup"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"

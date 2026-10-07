@@ -26,6 +26,7 @@
         "derivedGeneration",
         "counts",
         "queue",
+        "sources",
         "embedding"
       ],
       "properties": {
@@ -47,11 +48,40 @@
         "derivedGeneration": { "type": "string", "pattern": "^[0-9]+$" },
         "counts": { "$ref": "#/$defs/counts" },
         "queue": { "$ref": "#/$defs/queue" },
-        "embedding": { "$ref": "#/$defs/embedding" }
+        "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discovered", "caughtUp", "growing", "unavailable", "ambiguous", "failed", "skipped"],
+      "properties": {
+        "discovered": { "type": ["integer", "string"] },
+        "caughtUp": { "type": ["integer", "string"] },
+        "growing": { "type": ["integer", "string"] },
+        "unavailable": { "type": ["integer", "string"] },
+        "ambiguous": { "type": ["integer", "string"] },
+        "failed": { "type": ["integer", "string"] },
+        "skipped": { "type": ["integer", "string"] }
+      }
+    },
+    "embedding": { "$ref": "#/$defs/embedding" },
+        "sources": { "$ref": "#/$defs/sources" }
       }
     }
   },
   "$defs": {
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discovered", "caughtUp", "growing", "unavailable", "ambiguous", "failed", "skipped"],
+      "properties": {
+        "discovered": { "type": ["integer", "string"] },
+        "caughtUp": { "type": ["integer", "string"] },
+        "growing": { "type": ["integer", "string"] },
+        "unavailable": { "type": ["integer", "string"] },
+        "ambiguous": { "type": ["integer", "string"] },
+        "failed": { "type": ["integer", "string"] },
+        "skipped": { "type": ["integer", "string"] }
+      }
+    },
     "embedding": {
       "type": "object",
       "additionalProperties": false,

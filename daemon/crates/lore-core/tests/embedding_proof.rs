@@ -19,6 +19,13 @@ fn config(dir: &Path) -> ResolvedConfig {
         limits: Limits::default(),
         embedding_identity: Some(IDENTITY.to_string()),
         embedding: None,
+        sources: lore_core::config::ResolvedSources {
+            roots: Vec::new(),
+            sweep_seconds: 60,
+            page_entries: 256,
+            quantum_bytes: 4 * 1024 * 1024,
+            max_record_bytes: 1024 * 1024,
+        },
     }
 }
 
@@ -394,11 +401,11 @@ fn vector_pages_respect_scope_isolation() {
 }
 
 #[test]
-fn schema_reports_version_two_after_migration() {
+fn schema_reports_current_version_after_migration() {
     let dir = tempfile::tempdir().expect("tempdir");
     let store = Store::open(&config(dir.path())).expect("open");
     let status = store.status().expect("status");
-    assert_eq!(status.schema_version, 2);
+    assert_eq!(status.schema_version, 3);
     let connection = rusqlite::Connection::open(dir.path().join("lore-v2.db")).expect("open");
     let jobs: i64 = connection
         .query_row(

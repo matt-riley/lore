@@ -24,9 +24,14 @@ use crate::policy;
 use crate::retrieval;
 
 mod embedding;
+mod source;
 pub use embedding::{
     ClaimedJob, CompleteOutcome, EmbeddingCounts, FailOutcome, JobView, ReconcilePage,
     StoredVector, blob_to_vector, jittered_backoff_ms, vector_norm,
+};
+pub use source::{
+    CaptureCommit, CaptureOutcome, SourceFilter, SourceRootRow, SourceRow, SourceRecord,
+    content_hash, open_readonly, source_id_for,
 };
 
 const RECEIPT_OP_RETAIN: &str = "retain";
@@ -145,6 +150,84 @@ CREATE TABLE IF NOT EXISTS memory_vectors (
 CREATE INDEX IF NOT EXISTS idx_memory_vectors_identity ON memory_vectors (model_identity, memory_id);
 "#;
 
+/// Forward migration 2 -> 3: approved source roots, captured sources,
+/// normalized evidence, generation dispositions and extraction intent.
+const MIGRATION_3_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS source_roots (
+    root_id TEXT PRIMARY KEY,
+    client TEXT NOT NULL,
+    path TEXT NOT NULL,
+    repository TEXT,
+    cursor TEXT,
+    complete INTEGER NOT NULL DEFAULT 0,
+    observed_ms INTEGER NOT NULL,
+    updated_ms INTEGER NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS sources (
+    source_id TEXT PRIMARY KEY,
+    client TEXT NOT NULL,
+    root_id TEXT NOT NULL,
+    native_session_id TEXT,
+    canonical_path TEXT NOT NULL,
+    repository TEXT,
+    repository_verified INTEGER NOT NULL DEFAULT 0,
+    generation TEXT NOT NULL,
+    generation_seq INTEGER NOT NULL DEFAULT 1,
+    state TEXT NOT NULL,
+    observed_size INTEGER NOT NULL DEFAULT 0,
+    offset INTEGER NOT NULL DEFAULT 0,
+    prefix_hash TEXT,
+    boundary_hash TEXT,
+    parser_version TEXT NOT NULL,
+    skipped_records INTEGER NOT NULL DEFAULT 0,
+    pending_bytes INTEGER NOT NULL DEFAULT 0,
+    parser_state TEXT,
+    last_progress_ms INTEGER,
+    last_error TEXT,
+    created_ms INTEGER NOT NULL,
+    updated_ms INTEGER NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_sources_queue ON sources (state, updated_ms);
+CREATE INDEX IF NOT EXISTS idx_sources_path ON sources (client, canonical_path);
+CREATE TABLE IF NOT EXISTS source_generations (
+    source_id TEXT NOT NULL,
+    generation TEXT NOT NULL,
+    started_ms INTEGER NOT NULL,
+    retired_ms INTEGER,
+    disposition TEXT NOT NULL,
+    PRIMARY KEY (source_id, generation)
+) STRICT;
+CREATE TABLE IF NOT EXISTS source_records (
+    source_id TEXT NOT NULL,
+    generation TEXT NOT NULL,
+    evidence_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    role TEXT,
+    turn_index INTEGER,
+    parent_key TEXT,
+    branch TEXT,
+    text TEXT NOT NULL,
+    completeness TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    captured_ms INTEGER NOT NULL,
+    PRIMARY KEY (source_id, generation, evidence_key)
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_source_records_order ON source_records (source_id, generation, turn_index);
+CREATE TABLE IF NOT EXISTS extraction_intents (
+    source_id TEXT NOT NULL,
+    generation TEXT NOT NULL,
+    state TEXT NOT NULL,
+    through_offset INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_ms INTEGER,
+    terminal_reason TEXT,
+    updated_ms INTEGER NOT NULL,
+    PRIMARY KEY (source_id, generation)
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_extraction_intents_state ON extraction_intents (state, next_attempt_ms);
+"#;
+
 /// Lexical candidates plus the snapshot revision they were read at.
 #[derive(Debug, Clone)]
 pub struct LexicalSnapshot {
@@ -209,6 +292,12 @@ impl Store {
     /// Provider identity for embedding work, when enabled.
     pub fn embedding_identity(&self) -> Option<&str> {
         self.embedding_identity.as_deref()
+    }
+
+    /// Round-robin read connection for parallel readers.
+    fn reader(&self) -> &Mutex<Connection> {
+        let index = self.next_reader.fetch_add(1, Ordering::Relaxed) % self.readers.len();
+        &self.readers[index]
     }
 
     /// Persisted reconciliation cursor, if a page is in flight.
@@ -1206,8 +1295,16 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
     match version {
         Some(1) => {
             connection.execute_batch(MIGRATION_2_SQL)?;
+            connection.execute_batch(MIGRATION_3_SQL)?;
             connection.execute(
-                "UPDATE store_metadata SET schema_version = 2 WHERE id = 1",
+                "UPDATE store_metadata SET schema_version = 3 WHERE id = 1",
+                [],
+            )?;
+        }
+        Some(2) => {
+            connection.execute_batch(MIGRATION_3_SQL)?;
+            connection.execute(
+                "UPDATE store_metadata SET schema_version = 3 WHERE id = 1",
                 [],
             )?;
         }

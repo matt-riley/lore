@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::error::{CoreError, CoreResult};
 
 /// Wire/store schema version this build owns.
-pub const STORE_SCHEMA_VERSION: i64 = 2;
+pub const STORE_SCHEMA_VERSION: i64 = 3;
 /// Configuration version accepted by this build.
 pub const CONFIG_VERSION: u32 = 2;
 
@@ -71,6 +71,77 @@ impl Default for EmbeddingsProviderFile {
 pub struct ProvidersFile {
     #[serde(default)]
     pub embeddings: EmbeddingsProviderFile,
+}
+
+fn default_sweep_seconds() -> u64 {
+    60
+}
+fn default_page_entries() -> usize {
+    256
+}
+fn default_quantum_bytes() -> usize {
+    4 * 1024 * 1024
+}
+fn default_max_record_bytes() -> usize {
+    1024 * 1024
+}
+
+/// One approved source root. Roots are disabled until listed here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceRootFile {
+    pub root_id: String,
+    pub client: String,
+    pub path: String,
+    #[serde(default)]
+    pub repository: Option<String>,
+}
+
+/// Approved source discovery configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourcesFile {
+    #[serde(default)]
+    pub roots: Vec<SourceRootFile>,
+    #[serde(default = "default_sweep_seconds")]
+    pub sweep_seconds: u64,
+    #[serde(default = "default_page_entries")]
+    pub page_entries: usize,
+    #[serde(default = "default_quantum_bytes")]
+    pub quantum_bytes: usize,
+    #[serde(default = "default_max_record_bytes")]
+    pub max_record_bytes: usize,
+}
+
+impl Default for SourcesFile {
+    fn default() -> Self {
+        Self {
+            roots: Vec::new(),
+            sweep_seconds: default_sweep_seconds(),
+            page_entries: default_page_entries(),
+            quantum_bytes: default_quantum_bytes(),
+            max_record_bytes: default_max_record_bytes(),
+        }
+    }
+}
+
+/// Validated approved source root.
+#[derive(Debug, Clone)]
+pub struct ResolvedSourceRoot {
+    pub root_id: String,
+    pub client: String,
+    pub path: PathBuf,
+    pub repository: Option<String>,
+}
+
+/// Validated source capture settings.
+#[derive(Debug, Clone)]
+pub struct ResolvedSources {
+    pub roots: Vec<ResolvedSourceRoot>,
+    pub sweep_seconds: u64,
+    pub page_entries: usize,
+    pub quantum_bytes: usize,
+    pub max_record_bytes: usize,
 }
 
 /// Validated embedding settings exposed to the daemon.
@@ -190,6 +261,8 @@ pub struct ConfigFile {
     pub limits: Limits,
     #[serde(default)]
     pub providers: ProvidersFile,
+    #[serde(default)]
+    pub sources: SourcesFile,
 }
 
 /// Config with every path resolved and validated.
@@ -205,6 +278,8 @@ pub struct ResolvedConfig {
     pub embedding_identity: Option<String>,
     /// Validated embedding settings when the provider is enabled.
     pub embedding: Option<ResolvedEmbedding>,
+    /// Approved source discovery and capture settings.
+    pub sources: ResolvedSources,
 }
 
 impl ResolvedConfig {
@@ -280,6 +355,10 @@ impl ResolvedConfig {
             .map(|file| file.providers.clone())
             .unwrap_or_default();
         let embedding = resolve_embedding(&providers)?;
+        let sources = resolve_sources(
+            file.as_ref().map(|file| file.sources.clone()).unwrap_or_default(),
+            &base,
+        )?;
 
         Ok(Self {
             enabled: file.as_ref().map(|file| file.enabled).unwrap_or(false),
@@ -295,6 +374,7 @@ impl ResolvedConfig {
                 .as_ref()
                 .map(|embedding| embedding.identity.clone()),
             embedding,
+            sources,
         })
     }
 }
@@ -305,6 +385,54 @@ fn absolutize(path: &Path, base: &Path) -> PathBuf {
     } else {
         base.join(path)
     }
+}
+
+/// Clients with a shipped parser. An unrecognized client never ingests.
+pub const SOURCE_CLIENTS: [&str; 5] = ["pi", "codex", "claude", "antigravity", "copilot"];
+
+fn resolve_sources(file: SourcesFile, base: &Path) -> CoreResult<ResolvedSources> {
+    let mut roots = Vec::with_capacity(file.roots.len());
+    let mut seen = std::collections::HashSet::new();
+    for root in &file.roots {
+        if root.root_id.trim().is_empty() || root.root_id.len() > 128 {
+            return Err(CoreError::invalid(
+                "SOURCE_ROOT_INVALID",
+                "rootId is required and must be at most 128 bytes",
+            ));
+        }
+        if !seen.insert(root.root_id.clone()) {
+            return Err(CoreError::invalid(
+                "SOURCE_ROOT_INVALID",
+                format!("duplicate rootId {}", root.root_id),
+            ));
+        }
+        if !SOURCE_CLIENTS.contains(&root.client.as_str()) {
+            return Err(CoreError::invalid(
+                "SOURCE_CLIENT_UNSUPPORTED",
+                format!("unsupported source client {}", root.client),
+            ));
+        }
+        let path = absolutize(Path::new(&root.path), base);
+        if !path.is_absolute() {
+            return Err(CoreError::invalid(
+                "SOURCE_ROOT_INVALID",
+                "source root path must be absolute",
+            ));
+        }
+        roots.push(ResolvedSourceRoot {
+            root_id: root.root_id.clone(),
+            client: root.client.clone(),
+            path,
+            repository: root.repository.clone(),
+        });
+    }
+    Ok(ResolvedSources {
+        roots,
+        sweep_seconds: file.sweep_seconds.clamp(5, 3_600),
+        page_entries: file.page_entries.clamp(1, 4_096),
+        quantum_bytes: file.quantum_bytes.clamp(64 * 1024, 64 * 1024 * 1024),
+        max_record_bytes: file.max_record_bytes.clamp(64 * 1024, 16 * 1024 * 1024),
+    })
 }
 
 /// Validate and resolve the embedding provider configuration.

@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod error;
+pub mod ingestion;
 pub mod lifecycle;
 pub mod policy;
 pub mod retrieval;

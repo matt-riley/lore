@@ -18,12 +18,25 @@ export function loredBinary() {
   return binary;
 }
 
-export function startDaemon({ enabled = true, limits = null } = {}) {
+export function startDaemon({ enabled = true, limits = null, embedding = null } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "lore-v2-"));
   const socket = path.join(dir, "lored.sock");
   const configPath = path.join(dir, "lore.json");
   const config = { configVersion: 2, enabled, dataDir: dir, socketPath: socket };
   if (limits) config.limits = limits;
+  if (embedding) {
+    config.providers = {
+      embeddings: {
+        enabled: true,
+        endpoint: embedding.endpoint,
+        model: embedding.model,
+        dimensions: embedding.dimensions,
+        generation: embedding.generation ?? 1,
+        timeoutMs: embedding.timeoutMs ?? 10_000,
+        minSimilarity: embedding.minSimilarity ?? 0.35,
+      },
+    };
+  }
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   const child = spawn(loredBinary(), ["--config", configPath], {
     stdio: ["ignore", "ignore", "inherit"],
@@ -100,6 +113,40 @@ export async function loadCorpus(
 
 export function readJson(file) {
   return JSON.parse(readFileSync(file, "utf8"));
+}
+
+export function localEmbeddingConfig() {
+  return {
+    endpoint: process.env.LORE_TEST_EMBEDDING_ENDPOINT ?? "http://127.0.0.1:12434/v1",
+    model: process.env.LORE_TEST_EMBEDDING_MODEL ?? "docker.io/ai/embeddinggemma:latest",
+    dimensions: Number(process.env.LORE_TEST_EMBEDDING_DIMENSIONS ?? 768),
+    minSimilarity: Number(process.env.LORE_TEST_MIN_SIMILARITY ?? 0.35),
+  };
+}
+
+/** Wait until every eligible memory has a current vector. */
+export async function waitForCoverage(socket, { timeoutMs = 120_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    const outcome = await requestStatus(socket);
+    if (outcome.statusCode === 200) {
+      last = JSON.parse(outcome.body);
+      const embedding = last.result.embedding;
+      if (
+        embedding.coverageCurrent === embedding.coverageEligible &&
+        embedding.pending === "0" &&
+        embedding.state !== "invalid"
+      ) {
+        return last;
+      }
+      if (embedding.state === "invalid") {
+        throw new Error(`provider became invalid: ${JSON.stringify(embedding)}`);
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`coverage did not complete: ${JSON.stringify(last?.result?.embedding)}`);
 }
 
 const TOPICS = [

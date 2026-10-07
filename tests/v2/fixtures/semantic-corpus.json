@@ -1,0 +1,1228 @@
+{
+  "seed": 20261007,
+  "canary": "project secret canary zxqv hidden phrase",
+  "negatives": [
+    "How do I bake sourdough bread with a crisp crust?",
+    "What is the best time of year to plant tomatoes?",
+    "Who won the football match last weekend?",
+    "How do I tune a guitar to drop D?",
+    "What causes thunder during a storm?",
+    "How do I remove red wine stains from carpet?",
+    "Which vitamins help with sleep quality?",
+    "How do I assemble a flat-pack bookshelf?",
+    "What is the melting point of beeswax?",
+    "How do I train a puppy to sit?",
+    "Which constellation is visible in July?",
+    "How do I repair a bicycle puncture?",
+    "What is the difference between espresso and filter coffee?",
+    "How do I paint a room without streaks?",
+    "Which language is spoken in Brazil?",
+    "How do I store fresh basil for longer?",
+    "What is the tallest mountain in Europe?",
+    "How do I measure a room for carpet?",
+    "Which spices go into a curry powder?",
+    "How do I back up photos to a cloud drive?"
+  ],
+  "families": [
+    {
+      "id": "family-001",
+      "memory": "The authentication layer is responsible for rotating signing keys.",
+      "queries": [
+        "How does the login service handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "authentication layer",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-002",
+      "memory": "The authentication layer is responsible for schema versioning.",
+      "queries": [
+        "How does the login service handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "authentication layer",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-003",
+      "memory": "The authentication layer is responsible for candidate ranking.",
+      "queries": [
+        "How does the login service handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "authentication layer",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-004",
+      "memory": "The authentication layer is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the login service handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "authentication layer",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-005",
+      "memory": "The authentication layer is responsible for incremental snapshots.",
+      "queries": [
+        "How does the login service handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "authentication layer",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-006",
+      "memory": "The authentication layer is responsible for delivery retries.",
+      "queries": [
+        "How does the login service handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "authentication layer",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-007",
+      "memory": "The authentication layer is responsible for deadline cancellation.",
+      "queries": [
+        "How does the login service handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "authentication layer",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-008",
+      "memory": "The authentication layer is responsible for quota accounting.",
+      "queries": [
+        "How does the login service handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "authentication layer",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-009",
+      "memory": "The authentication layer is responsible for unicode tokenization.",
+      "queries": [
+        "How does the login service handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "authentication layer",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-010",
+      "memory": "The authentication layer is responsible for write-ahead logging.",
+      "queries": [
+        "How does the login service handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "authentication layer",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-011",
+      "memory": "The migration runner is responsible for rotating signing keys.",
+      "queries": [
+        "How does the schema upgrader handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "migration runner",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-012",
+      "memory": "The migration runner is responsible for schema versioning.",
+      "queries": [
+        "How does the schema upgrader handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "migration runner",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-013",
+      "memory": "The migration runner is responsible for candidate ranking.",
+      "queries": [
+        "How does the schema upgrader handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "migration runner",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-014",
+      "memory": "The migration runner is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the schema upgrader handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "migration runner",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-015",
+      "memory": "The migration runner is responsible for incremental snapshots.",
+      "queries": [
+        "How does the schema upgrader handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "migration runner",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-016",
+      "memory": "The migration runner is responsible for delivery retries.",
+      "queries": [
+        "How does the schema upgrader handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "migration runner",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-017",
+      "memory": "The migration runner is responsible for deadline cancellation.",
+      "queries": [
+        "How does the schema upgrader handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "migration runner",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-018",
+      "memory": "The migration runner is responsible for quota accounting.",
+      "queries": [
+        "How does the schema upgrader handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "migration runner",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-019",
+      "memory": "The migration runner is responsible for unicode tokenization.",
+      "queries": [
+        "How does the schema upgrader handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "migration runner",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-020",
+      "memory": "The migration runner is responsible for write-ahead logging.",
+      "queries": [
+        "How does the schema upgrader handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "migration runner",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-021",
+      "memory": "The retrieval engine is responsible for rotating signing keys.",
+      "queries": [
+        "How does the search subsystem handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-022",
+      "memory": "The retrieval engine is responsible for schema versioning.",
+      "queries": [
+        "How does the search subsystem handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-023",
+      "memory": "The retrieval engine is responsible for candidate ranking.",
+      "queries": [
+        "How does the search subsystem handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-024",
+      "memory": "The retrieval engine is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the search subsystem handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-025",
+      "memory": "The retrieval engine is responsible for incremental snapshots.",
+      "queries": [
+        "How does the search subsystem handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-026",
+      "memory": "The retrieval engine is responsible for delivery retries.",
+      "queries": [
+        "How does the search subsystem handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-027",
+      "memory": "The retrieval engine is responsible for deadline cancellation.",
+      "queries": [
+        "How does the search subsystem handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-028",
+      "memory": "The retrieval engine is responsible for quota accounting.",
+      "queries": [
+        "How does the search subsystem handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-029",
+      "memory": "The retrieval engine is responsible for unicode tokenization.",
+      "queries": [
+        "How does the search subsystem handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-030",
+      "memory": "The retrieval engine is responsible for write-ahead logging.",
+      "queries": [
+        "How does the search subsystem handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "retrieval engine",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-031",
+      "memory": "The ingestion pipeline is responsible for rotating signing keys.",
+      "queries": [
+        "How does the source capture pipeline handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-032",
+      "memory": "The ingestion pipeline is responsible for schema versioning.",
+      "queries": [
+        "How does the source capture pipeline handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-033",
+      "memory": "The ingestion pipeline is responsible for candidate ranking.",
+      "queries": [
+        "How does the source capture pipeline handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-034",
+      "memory": "The ingestion pipeline is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the source capture pipeline handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-035",
+      "memory": "The ingestion pipeline is responsible for incremental snapshots.",
+      "queries": [
+        "How does the source capture pipeline handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-036",
+      "memory": "The ingestion pipeline is responsible for delivery retries.",
+      "queries": [
+        "How does the source capture pipeline handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-037",
+      "memory": "The ingestion pipeline is responsible for deadline cancellation.",
+      "queries": [
+        "How does the source capture pipeline handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-038",
+      "memory": "The ingestion pipeline is responsible for quota accounting.",
+      "queries": [
+        "How does the source capture pipeline handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-039",
+      "memory": "The ingestion pipeline is responsible for unicode tokenization.",
+      "queries": [
+        "How does the source capture pipeline handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-040",
+      "memory": "The ingestion pipeline is responsible for write-ahead logging.",
+      "queries": [
+        "How does the source capture pipeline handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "ingestion pipeline",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-041",
+      "memory": "The backup manager is responsible for rotating signing keys.",
+      "queries": [
+        "How does the snapshot service handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "backup manager",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-042",
+      "memory": "The backup manager is responsible for schema versioning.",
+      "queries": [
+        "How does the snapshot service handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "backup manager",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-043",
+      "memory": "The backup manager is responsible for candidate ranking.",
+      "queries": [
+        "How does the snapshot service handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "backup manager",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-044",
+      "memory": "The backup manager is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the snapshot service handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "backup manager",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-045",
+      "memory": "The backup manager is responsible for incremental snapshots.",
+      "queries": [
+        "How does the snapshot service handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "backup manager",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-046",
+      "memory": "The backup manager is responsible for delivery retries.",
+      "queries": [
+        "How does the snapshot service handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "backup manager",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-047",
+      "memory": "The backup manager is responsible for deadline cancellation.",
+      "queries": [
+        "How does the snapshot service handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "backup manager",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-048",
+      "memory": "The backup manager is responsible for quota accounting.",
+      "queries": [
+        "How does the snapshot service handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "backup manager",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-049",
+      "memory": "The backup manager is responsible for unicode tokenization.",
+      "queries": [
+        "How does the snapshot service handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "backup manager",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-050",
+      "memory": "The backup manager is responsible for write-ahead logging.",
+      "queries": [
+        "How does the snapshot service handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "backup manager",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-051",
+      "memory": "The notification dispatcher is responsible for rotating signing keys.",
+      "queries": [
+        "How does the alert router handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-052",
+      "memory": "The notification dispatcher is responsible for schema versioning.",
+      "queries": [
+        "How does the alert router handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-053",
+      "memory": "The notification dispatcher is responsible for candidate ranking.",
+      "queries": [
+        "How does the alert router handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-054",
+      "memory": "The notification dispatcher is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the alert router handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-055",
+      "memory": "The notification dispatcher is responsible for incremental snapshots.",
+      "queries": [
+        "How does the alert router handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-056",
+      "memory": "The notification dispatcher is responsible for delivery retries.",
+      "queries": [
+        "How does the alert router handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-057",
+      "memory": "The notification dispatcher is responsible for deadline cancellation.",
+      "queries": [
+        "How does the alert router handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-058",
+      "memory": "The notification dispatcher is responsible for quota accounting.",
+      "queries": [
+        "How does the alert router handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-059",
+      "memory": "The notification dispatcher is responsible for unicode tokenization.",
+      "queries": [
+        "How does the alert router handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-060",
+      "memory": "The notification dispatcher is responsible for write-ahead logging.",
+      "queries": [
+        "How does the alert router handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "notification dispatcher",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-061",
+      "memory": "The scope policy engine is responsible for rotating signing keys.",
+      "queries": [
+        "How does the visibility rules handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-062",
+      "memory": "The scope policy engine is responsible for schema versioning.",
+      "queries": [
+        "How does the visibility rules handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-063",
+      "memory": "The scope policy engine is responsible for candidate ranking.",
+      "queries": [
+        "How does the visibility rules handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-064",
+      "memory": "The scope policy engine is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the visibility rules handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-065",
+      "memory": "The scope policy engine is responsible for incremental snapshots.",
+      "queries": [
+        "How does the visibility rules handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-066",
+      "memory": "The scope policy engine is responsible for delivery retries.",
+      "queries": [
+        "How does the visibility rules handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-067",
+      "memory": "The scope policy engine is responsible for deadline cancellation.",
+      "queries": [
+        "How does the visibility rules handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-068",
+      "memory": "The scope policy engine is responsible for quota accounting.",
+      "queries": [
+        "How does the visibility rules handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-069",
+      "memory": "The scope policy engine is responsible for unicode tokenization.",
+      "queries": [
+        "How does the visibility rules handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-070",
+      "memory": "The scope policy engine is responsible for write-ahead logging.",
+      "queries": [
+        "How does the visibility rules handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "scope policy engine",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-071",
+      "memory": "The repository identity resolver is responsible for rotating signing keys.",
+      "queries": [
+        "How does the repo normalizer handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-072",
+      "memory": "The repository identity resolver is responsible for schema versioning.",
+      "queries": [
+        "How does the repo normalizer handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-073",
+      "memory": "The repository identity resolver is responsible for candidate ranking.",
+      "queries": [
+        "How does the repo normalizer handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-074",
+      "memory": "The repository identity resolver is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the repo normalizer handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-075",
+      "memory": "The repository identity resolver is responsible for incremental snapshots.",
+      "queries": [
+        "How does the repo normalizer handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-076",
+      "memory": "The repository identity resolver is responsible for delivery retries.",
+      "queries": [
+        "How does the repo normalizer handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-077",
+      "memory": "The repository identity resolver is responsible for deadline cancellation.",
+      "queries": [
+        "How does the repo normalizer handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-078",
+      "memory": "The repository identity resolver is responsible for quota accounting.",
+      "queries": [
+        "How does the repo normalizer handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-079",
+      "memory": "The repository identity resolver is responsible for unicode tokenization.",
+      "queries": [
+        "How does the repo normalizer handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-080",
+      "memory": "The repository identity resolver is responsible for write-ahead logging.",
+      "queries": [
+        "How does the repo normalizer handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "repository identity resolver",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-081",
+      "memory": "The export coordinator is responsible for rotating signing keys.",
+      "queries": [
+        "How does the bundle exporter handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "export coordinator",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-082",
+      "memory": "The export coordinator is responsible for schema versioning.",
+      "queries": [
+        "How does the bundle exporter handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "export coordinator",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-083",
+      "memory": "The export coordinator is responsible for candidate ranking.",
+      "queries": [
+        "How does the bundle exporter handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "export coordinator",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-084",
+      "memory": "The export coordinator is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the bundle exporter handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "export coordinator",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-085",
+      "memory": "The export coordinator is responsible for incremental snapshots.",
+      "queries": [
+        "How does the bundle exporter handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "export coordinator",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-086",
+      "memory": "The export coordinator is responsible for delivery retries.",
+      "queries": [
+        "How does the bundle exporter handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "export coordinator",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-087",
+      "memory": "The export coordinator is responsible for deadline cancellation.",
+      "queries": [
+        "How does the bundle exporter handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "export coordinator",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-088",
+      "memory": "The export coordinator is responsible for quota accounting.",
+      "queries": [
+        "How does the bundle exporter handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "export coordinator",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-089",
+      "memory": "The export coordinator is responsible for unicode tokenization.",
+      "queries": [
+        "How does the bundle exporter handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "export coordinator",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-090",
+      "memory": "The export coordinator is responsible for write-ahead logging.",
+      "queries": [
+        "How does the bundle exporter handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "export coordinator",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-091",
+      "memory": "The reconciliation loop is responsible for rotating signing keys.",
+      "queries": [
+        "How does the consistency reconciler handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-092",
+      "memory": "The reconciliation loop is responsible for schema versioning.",
+      "queries": [
+        "How does the consistency reconciler handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-093",
+      "memory": "The reconciliation loop is responsible for candidate ranking.",
+      "queries": [
+        "How does the consistency reconciler handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-094",
+      "memory": "The reconciliation loop is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the consistency reconciler handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-095",
+      "memory": "The reconciliation loop is responsible for incremental snapshots.",
+      "queries": [
+        "How does the consistency reconciler handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-096",
+      "memory": "The reconciliation loop is responsible for delivery retries.",
+      "queries": [
+        "How does the consistency reconciler handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-097",
+      "memory": "The reconciliation loop is responsible for deadline cancellation.",
+      "queries": [
+        "How does the consistency reconciler handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-098",
+      "memory": "The reconciliation loop is responsible for quota accounting.",
+      "queries": [
+        "How does the consistency reconciler handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-099",
+      "memory": "The reconciliation loop is responsible for unicode tokenization.",
+      "queries": [
+        "How does the consistency reconciler handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-100",
+      "memory": "The reconciliation loop is responsible for write-ahead logging.",
+      "queries": [
+        "How does the consistency reconciler handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "reconciliation loop",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-101",
+      "memory": "The edit conflict resolver is responsible for rotating signing keys.",
+      "queries": [
+        "How does the merge resolver handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-102",
+      "memory": "The edit conflict resolver is responsible for schema versioning.",
+      "queries": [
+        "How does the merge resolver handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-103",
+      "memory": "The edit conflict resolver is responsible for candidate ranking.",
+      "queries": [
+        "How does the merge resolver handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-104",
+      "memory": "The edit conflict resolver is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the merge resolver handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-105",
+      "memory": "The edit conflict resolver is responsible for incremental snapshots.",
+      "queries": [
+        "How does the merge resolver handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-106",
+      "memory": "The edit conflict resolver is responsible for delivery retries.",
+      "queries": [
+        "How does the merge resolver handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-107",
+      "memory": "The edit conflict resolver is responsible for deadline cancellation.",
+      "queries": [
+        "How does the merge resolver handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-108",
+      "memory": "The edit conflict resolver is responsible for quota accounting.",
+      "queries": [
+        "How does the merge resolver handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-109",
+      "memory": "The edit conflict resolver is responsible for unicode tokenization.",
+      "queries": [
+        "How does the merge resolver handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-110",
+      "memory": "The edit conflict resolver is responsible for write-ahead logging.",
+      "queries": [
+        "How does the merge resolver handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "edit conflict resolver",
+      "detail": "write-ahead logging"
+    },
+    {
+      "id": "family-111",
+      "memory": "The streaming parser is responsible for rotating signing keys.",
+      "queries": [
+        "How does the incremental parser handle key rotation?",
+        "Which component deals with rotating credentials?"
+      ],
+      "subject": "streaming parser",
+      "detail": "rotating signing keys"
+    },
+    {
+      "id": "family-112",
+      "memory": "The streaming parser is responsible for schema versioning.",
+      "queries": [
+        "How does the incremental parser handle versioned migrations?",
+        "Which component deals with schema upgrades?"
+      ],
+      "subject": "streaming parser",
+      "detail": "schema versioning"
+    },
+    {
+      "id": "family-113",
+      "memory": "The streaming parser is responsible for candidate ranking.",
+      "queries": [
+        "How does the incremental parser handle result ordering?",
+        "Which component deals with ranked candidates?"
+      ],
+      "subject": "streaming parser",
+      "detail": "candidate ranking"
+    },
+    {
+      "id": "family-114",
+      "memory": "The streaming parser is responsible for checkpoint resumption.",
+      "queries": [
+        "How does the incremental parser handle resumable checkpoints?",
+        "Which component deals with checkpoint recovery?"
+      ],
+      "subject": "streaming parser",
+      "detail": "checkpoint resumption"
+    },
+    {
+      "id": "family-115",
+      "memory": "The streaming parser is responsible for incremental snapshots.",
+      "queries": [
+        "How does the incremental parser handle delta backups?",
+        "Which component deals with incremental backup copies?"
+      ],
+      "subject": "streaming parser",
+      "detail": "incremental snapshots"
+    },
+    {
+      "id": "family-116",
+      "memory": "The streaming parser is responsible for delivery retries.",
+      "queries": [
+        "How does the incremental parser handle retry delivery?",
+        "Which component deals with message retries?"
+      ],
+      "subject": "streaming parser",
+      "detail": "delivery retries"
+    },
+    {
+      "id": "family-117",
+      "memory": "The streaming parser is responsible for deadline cancellation.",
+      "queries": [
+        "How does the incremental parser handle cancelling expired work?",
+        "Which component deals with deadline-based cancellation?"
+      ],
+      "subject": "streaming parser",
+      "detail": "deadline cancellation"
+    },
+    {
+      "id": "family-118",
+      "memory": "The streaming parser is responsible for quota accounting.",
+      "queries": [
+        "How does the incremental parser handle quota enforcement?",
+        "Which component deals with accounting for quotas?"
+      ],
+      "subject": "streaming parser",
+      "detail": "quota accounting"
+    },
+    {
+      "id": "family-119",
+      "memory": "The streaming parser is responsible for unicode tokenization.",
+      "queries": [
+        "How does the incremental parser handle tokenizing unicode text?",
+        "Which component deals with unicode-aware tokenization?"
+      ],
+      "subject": "streaming parser",
+      "detail": "unicode tokenization"
+    },
+    {
+      "id": "family-120",
+      "memory": "The streaming parser is responsible for write-ahead logging.",
+      "queries": [
+        "How does the incremental parser handle WAL durability?",
+        "Which component deals with write-ahead log durability?"
+      ],
+      "subject": "streaming parser",
+      "detail": "write-ahead logging"
+    }
+  ]
+}

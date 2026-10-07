@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lore:v2:status.response",
+  "title": "Lore v2 status response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "requestId", "storeId", "result"],
+  "properties": {
+    "ok": { "const": true },
+    "requestId": { "type": "string", "minLength": 1 },
+    "storeId": { "type": "string", "minLength": 1 },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiMajor",
+        "apiMinor",
+        "daemonVersion",
+        "schemaVersion",
+        "storeId",
+        "processInstanceId",
+        "uptimeMs",
+        "readiness",
+        "capabilities"
+      ],
+      "properties": {
+        "apiMajor": { "const": 2 },
+        "apiMinor": { "type": "integer", "minimum": 0 },
+        "daemonVersion": { "type": "string", "minLength": 1 },
+        "schemaVersion": { "type": "integer", "minimum": 1 },
+        "storeId": { "type": "string", "minLength": 1 },
+        "processInstanceId": { "type": "string", "minLength": 1 },
+        "uptimeMs": { "type": "integer", "minimum": 0 },
+        "readiness": { "enum": ["ready", "degraded", "unavailable"] },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

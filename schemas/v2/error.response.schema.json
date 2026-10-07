@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lore:v2:error.response",
+  "title": "Lore v2 error response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "error"],
+  "properties": {
+    "ok": { "const": false },
+    "requestId": { "type": "string", "minLength": 1 },
+    "storeId": { "type": "string", "minLength": 1 },
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "$defs": {
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "reason", "retryable", "message"],
+      "properties": {
+        "code": {
+          "enum": ["INVALID_ARGUMENT", "UNIMPLEMENTED", "FAILED_PRECONDITION", "RESOURCE_EXHAUSTED"]
+        },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "retryable": { "type": "boolean" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    }
+  }
+}

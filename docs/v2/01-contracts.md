@@ -1,6 +1,6 @@
 # Slice 1: protocol and compatibility contracts
 
-Status: planned. Depends on the [decisions](architecture-decisions.md), [limits/storage](configuration-storage.md) and [validation](validation.md). Exit: G1.
+Status: in progress — the G1 proof scaffold lives in [`daemon/`](../../daemon/README.md); G1 has not passed. Depends on the [decisions](architecture-decisions.md), [limits/storage](configuration-storage.md) and [validation](validation.md). Exit: G1.
 
 ## Deliverables and first executable proof
 

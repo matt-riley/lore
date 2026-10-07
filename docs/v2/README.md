@@ -29,7 +29,7 @@ At this baseline, `lib/memory/semantic-search.mjs` uses a 10,000 ms default sema
 | 5A | Rust extraction and complete context assembly | [Extraction](05-extraction.md) | [G4 extraction evidence](evidence/g4-extraction.md): reliability, mandatory-context and provenance gates |
 | 5B | Explicit v1 migration, backup and suppression-safe recovery | [Migration/recovery](05-migration-recovery.md) | [G5 migration evidence](evidence/g5-migration.md): released-schema accounting and recovery rehearsal |
 | 6A | Thin adapters and compatible human/script interfaces | [Client adapters](06-client-adapters.md) | [G6 evidence](evidence/g6-clients-admin.md): catalog, hooks, journal and adapter core; host evidence open |
-| 6B | Administration, optional operations and dashboard parity | [Administration/dashboard](06-administration-dashboard.md) | [G6 evidence](evidence/g6-clients-admin.md): view routes, gateway and read-only admin operations; 17 operation rows open |
+| 6B | Administration, optional operations and dashboard parity | [Administration/dashboard](06-administration-dashboard.md) | [G6 evidence](evidence/g6-clients-admin.md): view routes, gateway, read-only and write operations; 13 operation rows open |
 | 7 | Packaging, service management, cutover, soak and retirement | [Rollout](07-rollout.md) | Install/upgrade/recovery drills and client soak |
 
 The [former later-slices document](04-later-slices.md) remains a navigation bridge for existing links. Stage numbers are stable identifiers; 5A/5B and 6A/6B split the old broad slices without dropping scope.
@@ -79,7 +79,7 @@ Gate G3 (stage 3): first-seen query quality, fallback quality, memory coverage, 
 
 Gate G4 (stages 4-5A): source capture is accounted for and the independent reliability corpus passes. Empty queues cannot establish capture completeness. Stage-4 capture passed 2026-10-07 ([evidence](evidence/g4.md)); stage-5A extraction passed its reliability and mandatory-context gates 2026-10-07 ([evidence](evidence/g4-extraction.md)), with the remaining section-parity gaps recorded there.
 
-Gate G5 (stages 5B-6B): migration and recovery are rehearsed, all capability rows are implemented, and each host has real integration evidence. Stage-5B migration/recovery passed 2026-10-07 ([evidence](evidence/g5-migration.md)); stage-6A/6B cores are recorded 2026-10-07 ([evidence](evidence/g6-clients-admin.md)), with host adapter evidence, the remaining 17 canonical operations and full dashboard parity still open. Pi may enter an explicitly partial experimental cohort earlier on synthetic data; full replacement claims wait for G5.
+Gate G5 (stages 5B-6B): migration and recovery are rehearsed, all capability rows are implemented, and each host has real integration evidence. Stage-5B migration/recovery passed 2026-10-07 ([evidence](evidence/g5-migration.md)); stage-6A/6B cores are recorded 2026-10-07 ([evidence](evidence/g6-clients-admin.md)), with host adapter evidence, the remaining 13 canonical operations and full dashboard parity still open. Pi may enter an explicitly partial experimental cohort earlier on synthetic data; full replacement claims wait for G5.
 
 Gate G6 (stage 7): release artifacts, service lifecycle and cutover pass, and all clients finish the documented soak. Only then schedule v1 retirement with a deprecation notice and migration guide.
 

@@ -44,6 +44,7 @@ Proven locally:
 - store-ID and API-major preconditions, `INVALID_DEADLINE`;
 - schema/type parity between `protocol` types and `schemas/v2/`;
 - Node client and Rust CLI exchange over the same socket;
+- a Linux CI job (fmt, clippy, tests, Node proof) with Cargo caching;
 - preliminary cold CLI cost in a debug build: median 4.4 ms over 5 runs.
 
 Not yet done (G1 has **not** passed):
@@ -52,5 +53,5 @@ Not yet done (G1 has **not** passed):
   cancellation/disconnect semantics;
 - release-build cold-process measurement with recorded toolchain and hashes;
 - frozen fixtures under `tests/v2/fixtures/`;
-- macOS/Linux CI with Cargo caching;
+- macOS CI (Linux CI is wired in `.github/workflows/ci.yml`);
 - the G1 evidence record and explicit go/no-go.

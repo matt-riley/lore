@@ -282,6 +282,26 @@ async fn zero_deadline_is_rejected() {
 }
 
 #[tokio::test]
+async fn omitted_params_default_to_empty() {
+    let daemon = Daemon::start();
+    wait_for_socket(daemon.socket()).await;
+
+    let (status, body) = raw(
+        daemon.socket(),
+        "POST",
+        "/v2/status",
+        "lore.local",
+        "application/json",
+        r#"{"meta":{"clientId":"t","requestId":"r"}}"#,
+    )
+    .await;
+    assert_eq!(status, 200);
+    let json: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["result"]["apiMajor"], 2);
+}
+
+#[tokio::test]
 async fn duplicate_keys_and_unsafe_integers_are_rejected() {
     let daemon = Daemon::start();
     wait_for_socket(daemon.socket()).await;

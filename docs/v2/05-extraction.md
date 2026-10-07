@@ -1,6 +1,6 @@
 # Slice 5A: extraction, authority and complete context
 
-Status: planned. Depends on stage 4 normalized evidence and G3 go decision. Exit: G4 with ingestion.
+Status: stage-5A extraction and mandatory context implemented 2026-10-07 — evidence in [evidence/g4-extraction.md](evidence/g4-extraction.md); section-parity gaps are listed there. Depends on stage 4 normalized evidence and G3 go decision. Exit: G4 with ingestion.
 References: `lib/sessions/rule-extractor.mjs`, `lib/sessions/extraction-grammar.mjs`, `lib/sessions/directive-corrections.mjs`, `lib/context/recall-assembler.mjs`, `tests/fixtures/reliability-corpus.mjs`.
 
 ## Outcome

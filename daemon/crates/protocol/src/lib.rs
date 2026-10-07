@@ -1,0 +1,263 @@
+//! Wire types for the Lore v2 HTTP/JSON contract.
+//!
+//! The JSON Schema documents under `schemas/v2/` are the language-independent
+//! contract. These types must serialize to the same field names; the
+//! `status_response_matches_schema` test enforces that for the G1 proof.
+
+use serde::{Deserialize, Serialize};
+
+/// Wire API major version. Carried in the route path and in Status.
+pub const API_MAJOR: u16 = 2;
+/// Wire API minor version.
+pub const API_MINOR: u16 = 0;
+/// Fixed Host header value required on every request.
+pub const HOST: &str = "lore.local";
+/// Hard cap for a fully encoded request body (contract: 1 MiB).
+pub const MAX_BODY_BYTES: usize = 1024 * 1024;
+
+/// Stable error codes. Clients branch on these, never on message text.
+pub mod code {
+    pub const INVALID_ARGUMENT: &str = "INVALID_ARGUMENT";
+    pub const UNIMPLEMENTED: &str = "UNIMPLEMENTED";
+    pub const FAILED_PRECONDITION: &str = "FAILED_PRECONDITION";
+    pub const RESOURCE_EXHAUSTED: &str = "RESOURCE_EXHAUSTED";
+}
+
+/// Stable error reasons for the G1 proof surface.
+pub mod reason {
+    pub const INVALID_JSON: &str = "INVALID_JSON";
+    pub const INVALID_DEADLINE: &str = "INVALID_DEADLINE";
+    pub const INVALID_HOST: &str = "INVALID_HOST";
+    pub const METHOD_NOT_ALLOWED: &str = "METHOD_NOT_ALLOWED";
+    pub const UNSUPPORTED_MEDIA_TYPE: &str = "UNSUPPORTED_MEDIA_TYPE";
+    pub const ROUTE_UNIMPLEMENTED: &str = "ROUTE_UNIMPLEMENTED";
+    pub const REQUEST_BYTES: &str = "REQUEST_BYTES";
+    pub const API_MAJOR_MISMATCH: &str = "API_MAJOR_MISMATCH";
+    pub const STORE_MISMATCH: &str = "STORE_MISMATCH";
+}
+
+/// Per-request metadata every route accepts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RequestMeta {
+    /// Stable client identity (`cli`, `pi`, `test.<name>`, ...).
+    pub client_id: String,
+    /// Unique diagnostic identifier.
+    pub request_id: String,
+    /// Host session identifier, when the client has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Store the client believes it is talking to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_store_id: Option<String>,
+    /// Remaining caller budget in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    /// Capabilities the caller requires.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_capabilities: Vec<String>,
+}
+
+/// Versioned request envelope. Unknown top-level fields are rejected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Envelope<P> {
+    pub meta: RequestMeta,
+    #[serde(default)]
+    pub params: P,
+}
+
+/// Successful response envelope.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OkEnvelope<T> {
+    pub ok: bool,
+    pub request_id: String,
+    pub store_id: String,
+    pub result: T,
+}
+
+/// Structured, safe error summary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorDetail {
+    pub code: String,
+    pub reason: String,
+    pub retryable: bool,
+    pub message: String,
+}
+
+/// Error response envelope. Identifiers are present when known.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorEnvelope {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store_id: Option<String>,
+    pub error: ErrorDetail,
+}
+
+/// `/v2/status` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StatusParams {
+    /// Optional check that the caller understands the served major version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_api_major: Option<u16>,
+}
+
+/// Coarse readiness signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Readiness {
+    Ready,
+    Degraded,
+    Unavailable,
+}
+
+/// `/v2/status` result. G1 proof fields only; later stages add the full set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusResult {
+    pub api_major: u16,
+    pub api_minor: u16,
+    pub daemon_version: String,
+    pub schema_version: u32,
+    pub store_id: String,
+    pub process_instance_id: String,
+    pub uptime_ms: u64,
+    pub readiness: Readiness,
+    pub capabilities: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    fn required(schema: &Value, pointer: &str) -> Vec<String> {
+        let node = if pointer.is_empty() {
+            schema
+        } else {
+            schema.pointer(pointer).expect("schema pointer exists")
+        };
+        let mut keys: Vec<String> = node
+            .get("required")
+            .and_then(Value::as_array)
+            .expect("required array")
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .expect("required entries are strings")
+                    .to_string()
+            })
+            .collect();
+        keys.sort();
+        keys
+    }
+
+    fn keys(value: &Value) -> Vec<String> {
+        let mut keys: Vec<String> = value.as_object().expect("object").keys().cloned().collect();
+        keys.sort();
+        keys
+    }
+
+    fn sample_status() -> StatusResult {
+        StatusResult {
+            api_major: API_MAJOR,
+            api_minor: API_MINOR,
+            daemon_version: "0.1.0".to_string(),
+            schema_version: 1,
+            store_id: "store-test".to_string(),
+            process_instance_id: "1-2".to_string(),
+            uptime_ms: 0,
+            readiness: Readiness::Ready,
+            capabilities: vec!["status.basic".to_string()],
+        }
+    }
+
+    #[test]
+    fn status_response_matches_schema() {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../schemas/v2/status.response.schema.json"
+        ))
+        .expect("status response schema parses");
+        let envelope = OkEnvelope {
+            ok: true,
+            request_id: "request-1".to_string(),
+            store_id: "store-test".to_string(),
+            result: sample_status(),
+        };
+        let value = serde_json::to_value(&envelope).expect("serializes");
+
+        assert_eq!(
+            required(&schema, ""),
+            keys(&value),
+            "envelope required fields"
+        );
+        assert_eq!(
+            required(&schema, "/properties/result"),
+            keys(&value["result"]),
+            "result required fields"
+        );
+    }
+
+    #[test]
+    fn error_response_matches_schema() {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../schemas/v2/error.response.schema.json"
+        ))
+        .expect("error response schema parses");
+        let envelope = ErrorEnvelope {
+            ok: false,
+            request_id: None,
+            store_id: None,
+            error: ErrorDetail {
+                code: code::INVALID_ARGUMENT.to_string(),
+                reason: reason::INVALID_JSON.to_string(),
+                retryable: false,
+                message: "request rejected".to_string(),
+            },
+        };
+        let value = serde_json::to_value(&envelope).expect("serializes");
+        assert_eq!(
+            required(&schema, ""),
+            keys(&value),
+            "error envelope required fields"
+        );
+        assert_eq!(
+            required(&schema, "/$defs/error"),
+            keys(&value["error"]),
+            "error detail required fields"
+        );
+    }
+
+    #[test]
+    fn status_request_rejects_unknown_fields() {
+        let raw = r#"{"meta":{"clientId":"cli","requestId":"r"},"params":{},"extra":true}"#;
+        assert!(serde_json::from_str::<Envelope<StatusParams>>(raw).is_err());
+    }
+
+    #[test]
+    fn envelope_uses_camel_case() {
+        let meta = RequestMeta {
+            client_id: "cli".to_string(),
+            request_id: "request-1".to_string(),
+            session_id: None,
+            expected_store_id: Some("store-test".to_string()),
+            timeout_ms: Some(160),
+            required_capabilities: vec!["status.basic".to_string()],
+        };
+        let value = serde_json::to_value(&meta).expect("serializes");
+        assert_eq!(value["clientId"], "cli");
+        assert_eq!(value["expectedStoreId"], "store-test");
+        assert_eq!(value["timeoutMs"], 160);
+        assert!(
+            value.get("sessionId").is_none(),
+            "unset optional fields are omitted"
+        );
+    }
+}

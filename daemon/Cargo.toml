@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["crates/protocol", "crates/lored", "crates/lore"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.99"
+publish = false
+
+[workspace.dependencies]
+protocol = { path = "crates/protocol" }
+lore = { path = "crates/lore" }
+anyhow = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "time"] }

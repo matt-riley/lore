@@ -23,7 +23,7 @@ use lore_core::store::{SourceFilter, SourceRow, Store};
 
 use super::{
     Resp, State, core_response, disabled_response, fail_response, json, now_ms, parse_route,
-    require_store,
+    require_store, unavailable_reason,
 };
 
 /// Wake channel and join handle for the capture scheduler thread.
@@ -281,8 +281,14 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
-    if !state.enabled {
-        return disabled_response(&envelope.meta, &store_id);
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     let client_id = envelope.meta.client_id.clone();
     let key = envelope.params.idempotency_key.clone();
@@ -427,8 +433,14 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
-    if !state.enabled {
-        return disabled_response(&envelope.meta, &store_id);
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     let client_id = envelope.meta.client_id.clone();
     let key = envelope.params.idempotency_key.clone();
@@ -581,8 +593,14 @@ pub async fn handle_extraction_retry(
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
-    if !state.enabled {
-        return disabled_response(&envelope.meta, &store_id);
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     let client_id = envelope.meta.client_id.clone();
     let key = envelope.params.idempotency_key.clone();
@@ -673,8 +691,14 @@ pub async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<S
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
-    if !state.enabled {
-        return disabled_response(&envelope.meta, &store_id);
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     let params = envelope.params.clone();
     let limit = params.limit.clamp(1, 500) as usize;

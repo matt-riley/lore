@@ -9,6 +9,8 @@ All 27 canonical operations and their aliases below are in the replacement scope
 
 For every row preserve the baseline parameter schema (fields, required/optional meaning, enum values and alias behavior) through CLI/host compatibility translation. The new wire can use typed requests, but a rejected/changed v1 argument needs an explicit documented difference. Run a schema/golden comparison; do not hand-copy only the commonly used arguments.
 
+Stage 2 implements the Status, manual Retain, Forget and lexical Recall subsets of CAP-01, CAP-08, CAP-10 and CAP-18 against store schema 1; every other row remains planned and every implementation claim needs its stage evidence. See [G2 evidence](evidence/g2.md).
+
 Each row needs schema, handler, flag, policy, failure and relevant real-surface evidence. Mark implemented/tested/certified separately in the implementation ledger with commit/report links. No row is complete merely because its command name exists.
 
 Stage references: [2](02-daemon-core.md), [3](03-background-embeddings.md), [4](04-ingestion.md), [5A](05-extraction.md), [5B](05-migration-recovery.md), [6A](06-client-adapters.md), [6B](06-administration-dashboard.md), [7](07-rollout.md).

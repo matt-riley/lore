@@ -1,6 +1,6 @@
 # Slice 2: Rust daemon core
 
-Status: planned. Depends on G1. Exit: G2. Contracts: [protocol](01-contracts.md), [storage/limits](configuration-storage.md).
+Status: G2 passed 2026-10-07 — evidence in [evidence/g2.md](evidence/g2.md). Depends on G1. Exit: G2. Contracts: [protocol](01-contracts.md), [storage/limits](configuration-storage.md).
 
 ## Objective and process interface
 

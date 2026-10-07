@@ -292,6 +292,134 @@ pub struct ConfigReloadResult {
     pub reason: String,
 }
 
+/// `/v2/sources/register` parameters. The path is optional for source stores
+/// that are opened in place; a native session identity is required for
+/// clients that expose one.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceRegisterParams {
+    pub idempotency_key: String,
+    pub client: String,
+    pub root_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+/// `/v2/sources/register` result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceRegisterResult {
+    pub source_id: String,
+    pub state: String,
+    pub accepted: bool,
+    pub coalesced: bool,
+    pub generation: String,
+}
+
+/// `/v2/sources/hint` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceHintParams {
+    pub idempotency_key: String,
+    pub source_id: String,
+    pub event_id: String,
+    /// `append`, `session-end` or `compaction`.
+    pub event: String,
+}
+
+/// `/v2/sources/hint` result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceHintResult {
+    pub source_id: String,
+    pub state: String,
+    pub accepted: bool,
+    pub coalesced: bool,
+}
+
+/// `/v2/sources/status` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceStatusParams {
+    #[serde(default = "default_source_page")]
+    pub limit: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    /// Explicit local diagnostic: include raw paths. Defaults to off.
+    #[serde(default)]
+    pub include_paths: bool,
+}
+
+fn default_source_page() -> u32 {
+    100
+}
+
+/// One source in `/v2/sources/status`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceStatusRecord {
+    pub source_id: String,
+    pub client: String,
+    pub root_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    pub repository_verified: bool,
+    pub state: String,
+    pub generation: String,
+    pub generation_seq: i64,
+    pub observed_size: i64,
+    pub offset: i64,
+    pub pending_bytes: i64,
+    pub capture_revision: i64,
+    pub normalized_records: i64,
+    pub skipped_records: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_progress_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// `/v2/sources/status` result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceStatusResult {
+    pub sources: Vec<SourceStatusRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    pub observed_at: i64,
+    pub counts: SourceStatusCounts,
+    pub pending_extraction: i64,
+}
+
+/// Rehearsed state counters, reconciled at `observedAt`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceStatusCounts {
+    pub discovered: i64,
+    pub caught_up: i64,
+    pub growing: i64,
+    pub unavailable: i64,
+    pub ambiguous: i64,
+    pub failed: i64,
+    pub skipped: i64,
+}
+
 /// `/v2/recall` parameters.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -403,6 +531,7 @@ pub struct StatusResult {
     pub counts: StatusCounts,
     pub queue: StatusQueue,
     pub embedding: EmbeddingStatus,
+    pub sources: SourceStatusCounts,
 }
 
 /// Reject integers that cannot round-trip through a JavaScript number.
@@ -463,8 +592,7 @@ mod tests {
             api_major: API_MAJOR,
             api_minor: API_MINOR,
             daemon_version: "0.1.0".to_string(),
-            schema_version: 1,
-            store_id: "store-test".to_string(),
+            schema_version: 1,            store_id: "store-test".to_string(),
             process_instance_id: "1-2".to_string(),
             uptime_ms: 0,
             readiness: Readiness::Ready,
@@ -491,6 +619,15 @@ mod tests {
                 failed: "0".to_string(),
                 oldest_pending_ms: None,
                 last_error: None,
+            },
+            sources: SourceStatusCounts {
+                discovered: 0,
+                caught_up: 0,
+                growing: 0,
+                unavailable: 0,
+                ambiguous: 0,
+                failed: 0,
+                skipped: 0,
             },
         }
     }
@@ -594,7 +731,7 @@ mod tests {
 
     #[test]
     fn additive_response_fields_are_ignored() {
-        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":1,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"extra":true}}"#;
+        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":1,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"sources":{"discovered":0,"caughtUp":0,"growing":0,"unavailable":0,"ambiguous":0,"failed":0,"skipped":0},"extra":true}}"#;
         let parsed: OkEnvelope<StatusResult> =
             serde_json::from_str(raw).expect("additive response fields are ignored");
         assert_eq!(parsed.result.api_major, 2);

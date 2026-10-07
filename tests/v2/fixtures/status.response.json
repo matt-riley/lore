@@ -6,7 +6,7 @@
     "apiMajor": 2,
     "apiMinor": 0,
     "daemonVersion": "0.1.0",
-    "schemaVersion": 1,
+    "schemaVersion": 3,
     "storeId": "store-fixture",
     "processInstanceId": "fixture-process-1",
     "uptimeMs": 42,
@@ -24,7 +24,10 @@
       "forgottenMemories": "1",
       "receipts": "4"
     },
-    "queue": { "queued": "0", "running": "0" },
+    "queue": {
+      "queued": "0",
+      "running": "0"
+    },
     "embedding": {
       "provider": "fixture-model#0123456789abcdef",
       "state": "ready",
@@ -33,6 +36,15 @@
       "coverageEligible": "2",
       "pending": "0",
       "failed": "0"
+    },
+    "sources": {
+      "discovered": 0,
+      "caughtUp": 2,
+      "growing": 0,
+      "unavailable": 0,
+      "ambiguous": 0,
+      "failed": 0,
+      "skipped": 0
     }
   }
 }

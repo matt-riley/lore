@@ -39,14 +39,18 @@ use semantics::{QueryOutcome, Semantics};
 use worker::{WorkerState, spawn as spawn_worker};
 
 mod semantics;
+mod sources;
 mod worker;
 use protocol::{
     API_MAJOR, API_MINOR, BODY_DEADLINE_MS, ConfigReloadParams, ConfigReloadResult,
     EmbeddingStatus, Envelope, ErrorDetail, ErrorEnvelope, ForgetParams, HOST, JobCounts,
     JobRecord, JobsRetryParams, JobsRetryResult, JobsStatusParams, JobsStatusResult,
     MAX_BODY_BYTES, MAX_TIMEOUT_MS, OkEnvelope, Readiness, RecallParams, RequestMeta, RetainParams,
-    StatusCounts, StatusParams, StatusQueue, StatusResult, code, reason,
+    StatusCounts, StatusParams,
+    StatusQueue, StatusResult, code, reason,
 };
+
+use sources::Scheduler;
 
 type Resp = Response<Full<Bytes>>;
 
@@ -89,6 +93,7 @@ struct State {
     semantics: Arc<Semantics>,
     worker_state: Arc<WorkerState>,
     notify: Arc<Notify>,
+    scheduler: Scheduler,
     generation: AtomicU32,
     config_path: Option<PathBuf>,
 }
@@ -158,6 +163,8 @@ async fn main() -> Result<()> {
         .as_ref()
         .map(|embedding| embedding.generation)
         .unwrap_or(0);
+    let scheduler = sources::spawn(Arc::clone(&store), config.clone());
+    scheduler.wake();
     let state = Arc::new(State {
         store,
         store_id: initial.store_id,
@@ -171,6 +178,7 @@ async fn main() -> Result<()> {
         semantics,
         worker_state,
         notify,
+        scheduler,
         generation: AtomicU32::new(generation),
         config_path: config.config_path.clone(),
     });
@@ -304,6 +312,9 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
             | "/v2/jobs/status"
             | "/v2/jobs/retry"
             | "/v2/config/reload"
+            | "/v2/sources/register"
+            | "/v2/sources/hint"
+            | "/v2/sources/status"
     ) {
         return fail_response(
             StatusCode::NOT_IMPLEMENTED,
@@ -428,6 +439,9 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
         "/v2/jobs/status" => handle_jobs_status(&raw, &state, request_id).await,
         "/v2/jobs/retry" => handle_jobs_retry(&raw, &state, request_id).await,
         "/v2/config/reload" => handle_config_reload(&raw, &state, request_id).await,
+        "/v2/sources/register" => sources::handle_register(&raw, &state, request_id).await,
+        "/v2/sources/hint" => sources::handle_hint(&raw, &state, request_id).await,
+        "/v2/sources/status" => sources::handle_status(&raw, &state, request_id).await,
         _ => handle_recall(&raw, &state, request_id).await,
     }
 }
@@ -638,7 +652,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                         api_major: API_MAJOR,
                         api_minor: API_MINOR,
                         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
-                        schema_version: 2,
+                        schema_version: 3,
                         store_id: state.store_id.clone(),
                         process_instance_id: state.process_instance_id.clone(),
                         uptime_ms: state.started.elapsed().as_millis() as u64,
@@ -688,6 +702,17 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                             oldest_pending_ms: counts.oldest_pending_ms,
                             last_error: state.worker_state.last_error(),
                         },
+                        sources: sources::source_summary(&state.store).unwrap_or(
+                            protocol::SourceStatusCounts {
+                                discovered: 0,
+                                caught_up: 0,
+                                growing: 0,
+                                unavailable: 0,
+                                ambiguous: 0,
+                                failed: 0,
+                                skipped: 0,
+                            },
+                        ),
                     },
                 },
             )

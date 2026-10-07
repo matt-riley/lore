@@ -590,6 +590,7 @@ dependencies = [
  "libc",
  "lore-provider",
  "protocol",
+ "repository-identity",
  "rusqlite",
  "serde",
  "serde_json",

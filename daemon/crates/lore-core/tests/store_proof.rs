@@ -17,6 +17,13 @@ fn config_with(dir: &Path, limits: Limits) -> ResolvedConfig {
         limits,
         embedding_identity: None,
         embedding: None,
+        sources: lore_core::config::ResolvedSources {
+            roots: Vec::new(),
+            sweep_seconds: 60,
+            page_entries: 256,
+            quantum_bytes: 4 * 1024 * 1024,
+            max_record_bytes: 1024 * 1024,
+        },
     }
 }
 

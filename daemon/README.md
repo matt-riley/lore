@@ -27,6 +27,8 @@ hooks, installers, database imports or support-claim changes.
 `/v2/jobs/retry`, `/v2/config/reload`, `/v2/sources/register`,
 `/v2/sources/hint`, `/v2/sources/status`, `/v2/extraction/retry` and
 `/v2/views/{overview,health,memories,memories/filters,maintenance,episodes,drilldown}`
+and read-only administration at
+`/v2/admin/{search,explain,validate,doctor,audit/extractions}`
 over a Unix socket. The `lore` CLI adds capability-registry dispatch
 (`lore tool`, `lore recall`), native hooks (`lore hook codex|claude|antigravity`),
 the uncertain-write journal (`lore retries`) and the loopback dashboard
@@ -130,6 +132,8 @@ Client surfaces:
 cargo run -p lore -- capabilities --output json
 cargo run -p lore -- --socket <sock> hook claude UserPromptSubmit < event.json
 cargo run -p lore -- --socket <sock> tool lore_save --output json < retain.json
+cargo run -p lore -- --socket <sock> search "release checklist"
+cargo run -p lore -- --socket <sock> tool lore_doctor --output json
 cargo run -p lore -- retries list
 cargo run -p lore -- --socket <sock> browser
 ```

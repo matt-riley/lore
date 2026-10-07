@@ -7,20 +7,22 @@ use std::time::Duration;
 
 use hyper::StatusCode;
 use protocol::{
-    OkEnvelope, SourceHintParams, SourceHintResult, SourceRegisterParams,
-    SourceRegisterResult, SourceStatusCounts, SourceStatusParams, SourceStatusRecord,
-    SourceStatusResult, code, reason,
+    OkEnvelope, SourceHintParams, SourceHintResult, SourceRegisterParams, SourceRegisterResult,
+    SourceStatusCounts, SourceStatusParams, SourceStatusRecord, SourceStatusResult, code, reason,
 };
 
 use lore_core::config::ResolvedConfig;
 use lore_core::error::CoreError;
 use lore_core::ingestion::{
-    CAPTURE_PER_ROOT, PENDING_PER_SWEEP, SweepReport, capture_source, discover_page, register_hinted_source,
-    root_for,
+    CAPTURE_PER_ROOT, PENDING_PER_SWEEP, SweepReport, capture_source, discover_page,
+    register_hinted_source, root_for,
 };
 use lore_core::store::{SourceFilter, SourceRow, Store};
 
-use super::{Resp, State, core_response, disabled_response, fail_response, json, now_ms, parse_route, require_store};
+use super::{
+    Resp, State, core_response, disabled_response, fail_response, json, now_ms, parse_route,
+    require_store,
+};
 
 /// Wake channel and join handle for the capture scheduler thread.
 pub struct Scheduler {
@@ -64,10 +66,17 @@ pub fn spawn(store: Arc<Store>, config: ResolvedConfig) -> Scheduler {
 pub fn run_sweep(store: &Store, config: &ResolvedConfig, now: i64) -> SweepReport {
     let sources = &config.sources;
     let mut report = SweepReport::default();
-    let keep: Vec<String> = sources.roots.iter().map(|root| root.root_id.clone()).collect();
+    let keep: Vec<String> = sources
+        .roots
+        .iter()
+        .map(|root| root.root_id.clone())
+        .collect();
     for root in &sources.roots {
         if let Err(error) = lore_core::ingestion::reject_relative_escape(&root.path) {
-            eprintln!("[lored] source root {} rejected: {}", root.root_id, error.message);
+            eprintln!(
+                "[lored] source root {} rejected: {}",
+                root.root_id, error.message
+            );
             continue;
         }
         if let Err(error) = store.upsert_source_root(
@@ -77,7 +86,10 @@ pub fn run_sweep(store: &Store, config: &ResolvedConfig, now: i64) -> SweepRepor
             root.repository.as_deref(),
             now,
         ) {
-            eprintln!("[lored] source root {} unavailable: {}", root.root_id, error.message);
+            eprintln!(
+                "[lored] source root {} unavailable: {}",
+                root.root_id, error.message
+            );
         }
     }
     let _ = store.prune_source_roots(&keep);
@@ -123,12 +135,7 @@ pub fn run_sweep(store: &Store, config: &ResolvedConfig, now: i64) -> SweepRepor
                 report.unavailable += 1;
             }
         }
-        let _ = store.set_source_root_cursor(
-            &root.root_id,
-            next_cursor.as_deref(),
-            complete,
-            now,
-        );
+        let _ = store.set_source_root_cursor(&root.root_id, next_cursor.as_deref(), complete, now);
     }
     report
 }
@@ -154,11 +161,11 @@ pub fn resolve_hinted_path(
 }
 
 pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option<String>) -> Resp {
-    let envelope = match parse_route::<SourceRegisterParams>(raw, fallback_id.as_deref(), &state.store_id)
-    {
-        Ok(envelope) => envelope,
-        Err(response) => return response,
-    };
+    let envelope =
+        match parse_route::<SourceRegisterParams>(raw, fallback_id.as_deref(), &state.store_id) {
+            Ok(envelope) => envelope,
+            Err(response) => return response,
+        };
     let request_id = envelope.meta.request_id.clone();
     let store_id = state.store_id.clone();
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
@@ -169,8 +176,12 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
     }
     let client_id = envelope.meta.client_id.clone();
     let key = envelope.params.idempotency_key.clone();
-    let hash = lore_core::policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
-    match state.store.lookup_receipt_json(&client_id, "sources.register", &key) {
+    let hash =
+        lore_core::policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
+    match state
+        .store
+        .lookup_receipt_json(&client_id, "sources.register", &key)
+    {
         Ok(Some((stored_hash, response))) => {
             if stored_hash != hash {
                 return fail_response(
@@ -185,7 +196,12 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
             return match serde_json::from_str::<SourceRegisterResult>(&response) {
                 Ok(result) => json(
                     StatusCode::OK,
-                    &OkEnvelope { ok: true, request_id, store_id, result },
+                    &OkEnvelope {
+                        ok: true,
+                        request_id,
+                        store_id,
+                        result,
+                    },
                 ),
                 Err(_) => fail_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -205,38 +221,44 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
     let store = Arc::clone(&state.store);
     let params = envelope.params.clone();
     let now = now_ms();
-    let outcome = tokio::task::spawn_blocking(move || -> Result<(&'static str, SourceRow), CoreError> {
-        let root = root_for(&config.sources, &params.root_id, &params.client)?;
-        let canonical = match params.path.as_deref() {
-            Some(path) => Some(resolve_hinted_path(&config, &params.client, &params.root_id, path)?),
-            None => None,
-        };
-        match canonical {
-            Some(path) => register_hinted_source(
-                &store,
-                root,
-                &path,
-                params.native_session_id.as_deref(),
-                params.repository.as_deref(),
-                now,
-            )
-            .map(|row| ("eligible", row)),
-            None => {
-                let Some(native) = params.native_session_id.as_deref() else {
-                    return Err(CoreError::invalid(
+    let outcome =
+        tokio::task::spawn_blocking(move || -> Result<(&'static str, SourceRow), CoreError> {
+            let root = root_for(&config.sources, &params.root_id, &params.client)?;
+            let canonical = match params.path.as_deref() {
+                Some(path) => Some(resolve_hinted_path(
+                    &config,
+                    &params.client,
+                    &params.root_id,
+                    path,
+                )?),
+                None => None,
+            };
+            match canonical {
+                Some(path) => register_hinted_source(
+                    &store,
+                    root,
+                    &path,
+                    params.native_session_id.as_deref(),
+                    params.repository.as_deref(),
+                    now,
+                )
+                .map(|row| ("eligible", row)),
+                None => {
+                    let Some(native) = params.native_session_id.as_deref() else {
+                        return Err(CoreError::invalid(
+                            "SOURCE_ARGUMENT_INVALID",
+                            "path or nativeSessionId is required",
+                        ));
+                    };
+                    let _ = native;
+                    Err(CoreError::invalid(
                         "SOURCE_ARGUMENT_INVALID",
-                        "path or nativeSessionId is required",
-                    ));
-                };
-                let _ = native;
-                Err(CoreError::invalid(
-                    "SOURCE_ARGUMENT_INVALID",
-                    "path is required for source registration",
-                ))
+                        "path is required for source registration",
+                    ))
+                }
             }
-        }
-    })
-    .await;
+        })
+        .await;
     let (_, row) = match outcome {
         Ok(Ok(value)) => value,
         Ok(Err(error)) => return core_response(error, &request_id, &store_id),
@@ -268,16 +290,28 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
             now,
         );
     }
-    let _ = state.store.mark_source_state(&row.source_id, "queued", None, None, row.pending_bytes, now);
+    let _ =
+        state
+            .store
+            .mark_source_state(&row.source_id, "queued", None, None, row.pending_bytes, now);
     state.scheduler.wake();
-    json(StatusCode::OK, &OkEnvelope { ok: true, request_id, store_id, result })
+    json(
+        StatusCode::OK,
+        &OkEnvelope {
+            ok: true,
+            request_id,
+            store_id,
+            result,
+        },
+    )
 }
 
 pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<String>) -> Resp {
-    let envelope = match parse_route::<SourceHintParams>(raw, fallback_id.as_deref(), &state.store_id) {
-        Ok(envelope) => envelope,
-        Err(response) => return response,
-    };
+    let envelope =
+        match parse_route::<SourceHintParams>(raw, fallback_id.as_deref(), &state.store_id) {
+            Ok(envelope) => envelope,
+            Err(response) => return response,
+        };
     let request_id = envelope.meta.request_id.clone();
     let store_id = state.store_id.clone();
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
@@ -288,8 +322,12 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
     }
     let client_id = envelope.meta.client_id.clone();
     let key = envelope.params.idempotency_key.clone();
-    let hash = lore_core::policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
-    match state.store.lookup_receipt_json(&client_id, "sources.hint", &key) {
+    let hash =
+        lore_core::policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
+    match state
+        .store
+        .lookup_receipt_json(&client_id, "sources.hint", &key)
+    {
         Ok(Some((stored_hash, response))) => {
             if stored_hash != hash {
                 return fail_response(
@@ -304,7 +342,12 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
             return match serde_json::from_str::<SourceHintResult>(&response) {
                 Ok(result) => json(
                     StatusCode::OK,
-                    &OkEnvelope { ok: true, request_id, store_id, result },
+                    &OkEnvelope {
+                        ok: true,
+                        request_id,
+                        store_id,
+                        result,
+                    },
                 ),
                 Err(_) => fail_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -319,7 +362,10 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
         Ok(None) => {}
         Err(error) => return core_response(error, &request_id, &store_id),
     }
-    if !matches!(envelope.params.event.as_str(), "append" | "session-end" | "compaction") {
+    if !matches!(
+        envelope.params.event.as_str(),
+        "append" | "session-end" | "compaction"
+    ) {
         return fail_response(
             StatusCode::BAD_REQUEST,
             code::INVALID_ARGUMENT,
@@ -347,7 +393,11 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
     // A hint coalesces per source and event ID: repeated deliveries of the
     // same event are accepted without work.
     let event_key = format!("hint:{}", envelope.params.event_id);
-    if let Ok(Some((_, stored))) = state.store.lookup_receipt_json(&client_id, "sources.event", &event_key) {
+    if let Ok(Some((_, stored))) =
+        state
+            .store
+            .lookup_receipt_json(&client_id, "sources.event", &event_key)
+    {
         let result = SourceHintResult {
             source_id: row.source_id.clone(),
             state: row.state.clone(),
@@ -355,19 +405,38 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
             coalesced: true,
         };
         let _ = stored;
-        return json(StatusCode::OK, &OkEnvelope { ok: true, request_id, store_id, result });
+        return json(
+            StatusCode::OK,
+            &OkEnvelope {
+                ok: true,
+                request_id,
+                store_id,
+                result,
+            },
+        );
     }
-    let _ = state.store.mark_source_state(&row.source_id, "queued", None, None, row.pending_bytes, now);
-    let _ = state
-        .store
-        .store_receipt_json(&client_id, "sources.event", &event_key, &hash, "\"ok\"", now);
+    let _ =
+        state
+            .store
+            .mark_source_state(&row.source_id, "queued", None, None, row.pending_bytes, now);
+    let _ = state.store.store_receipt_json(
+        &client_id,
+        "sources.event",
+        &event_key,
+        &hash,
+        "\"ok\"",
+        now,
+    );
     if let Ok(response) = serde_json::to_string(&SourceHintResult {
         source_id: row.source_id.clone(),
         state: "queued".into(),
         accepted: true,
         coalesced: false,
     }) {
-        let _ = state.store.store_receipt_json(&client_id, "sources.hint", &key, &hash, &response, now);
+        let _ =
+            state
+                .store
+                .store_receipt_json(&client_id, "sources.hint", &key, &hash, &response, now);
     }
     state.scheduler.wake();
     let result = SourceHintResult {
@@ -376,14 +445,23 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
         accepted: true,
         coalesced: false,
     };
-    json(StatusCode::OK, &OkEnvelope { ok: true, request_id, store_id, result })
+    json(
+        StatusCode::OK,
+        &OkEnvelope {
+            ok: true,
+            request_id,
+            store_id,
+            result,
+        },
+    )
 }
 
 pub async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<String>) -> Resp {
-    let envelope = match parse_route::<SourceStatusParams>(raw, fallback_id.as_deref(), &state.store_id) {
-        Ok(envelope) => envelope,
-        Err(response) => return response,
-    };
+    let envelope =
+        match parse_route::<SourceStatusParams>(raw, fallback_id.as_deref(), &state.store_id) {
+            Ok(envelope) => envelope,
+            Err(response) => return response,
+        };
     let request_id = envelope.meta.request_id.clone();
     let store_id = state.store_id.clone();
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
@@ -478,7 +556,9 @@ fn source_counts(store: &Store) -> Result<SourceStatusCounts, CoreError> {
     };
     for (state, count) in store.source_counts()? {
         match state.as_str() {
-            "discovered" | "eligible" | "queued" | "running" | "retry_wait" => counts.discovered += count,
+            "discovered" | "eligible" | "queued" | "running" | "retry_wait" => {
+                counts.discovered += count
+            }
             "caught_up" => counts.caught_up += count,
             "growing" => counts.growing += count,
             "unavailable" => counts.unavailable += count,

@@ -30,7 +30,7 @@ pub use embedding::{
     StoredVector, blob_to_vector, jittered_backoff_ms, vector_norm,
 };
 pub use source::{
-    CaptureCommit, CaptureOutcome, SourceFilter, SourceRootRow, SourceRow, SourceRecord,
+    CaptureCommit, CaptureOutcome, SourceFilter, SourceRecord, SourceRootRow, SourceRow,
     content_hash, open_readonly, source_id_for,
 };
 

@@ -94,7 +94,8 @@ impl LineParser {
     /// Parse one complete text record. The caller owns malformed-line
     /// accounting; a `skip` outcome means the record was well-formed JSON but
     /// carries no capturable evidence.
-    pub fn parse(&mut self, line: &str) -> LineParse {        match self.client.as_str() {
+    pub fn parse(&mut self, line: &str) -> LineParse {
+        match self.client.as_str() {
             "pi" => self.parse_pi(line),
             "codex" => self.parse_codex(line),
             "claude" => self.parse_claude(line),
@@ -117,7 +118,10 @@ impl LineParser {
 
     fn parse_pi(&mut self, line: &str) -> LineParse {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-            return LineParse { skip: Some("malformed_record"), ..LineParse::default() };
+            return LineParse {
+                skip: Some("malformed_record"),
+                ..LineParse::default()
+            };
         };
         let seq = self.next_seq();
         let mut out = LineParse::default();
@@ -134,13 +138,20 @@ impl LineParser {
                     turn_index: None,
                     parent_key: None,
                     branch: None,
-                    text: value.get("cwd").and_then(|value| value.as_str()).unwrap_or("").to_string(),
+                    text: value
+                        .get("cwd")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     completeness: "complete".into(),
                     revision: 1,
                 });
             }
             Some("compaction") => {
-                let summary = value.get("summary").and_then(|value| value.as_str()).unwrap_or("");
+                let summary = value
+                    .get("summary")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
                 if !summary.trim().is_empty() {
                     out.records.push(SourceRecord {
                         evidence_key: self.evidence(&format!("compaction:{seq}")),
@@ -157,7 +168,10 @@ impl LineParser {
             }
             Some("message") => {
                 let message = value.get("message").cloned().unwrap_or_default();
-                let role = message.get("role").and_then(|value| value.as_str()).unwrap_or("");
+                let role = message
+                    .get("role")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
                 let content = block_text(message.get("content"));
                 match role {
                     "user" => {
@@ -192,7 +206,9 @@ impl LineParser {
                                 revision: 1,
                             });
                         }
-                        for (index, tool) in tool_calls(message.get("content")).into_iter().enumerate() {
+                        for (index, tool) in
+                            tool_calls(message.get("content")).into_iter().enumerate()
+                        {
                             out.records.push(SourceRecord {
                                 evidence_key: self.evidence(&format!("tool:{seq}:{index}")),
                                 kind: "tool".into(),
@@ -216,13 +232,19 @@ impl LineParser {
 
     fn parse_codex(&mut self, line: &str) -> LineParse {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-            return LineParse { skip: Some("malformed_record"), ..LineParse::default() };
+            return LineParse {
+                skip: Some("malformed_record"),
+                ..LineParse::default()
+            };
         };
         let seq = self.next_seq();
         let mut out = LineParse::default();
         match value.get("type").and_then(|value| value.as_str()) {
             Some("session_meta") => {
-                if let Some(id) = value.pointer("/payload/id").and_then(|value| value.as_str()) {
+                if let Some(id) = value
+                    .pointer("/payload/id")
+                    .and_then(|value| value.as_str())
+                {
                     out.native_identity = Some(id.to_string());
                     self.set_session_identity(id);
                 }
@@ -233,7 +255,11 @@ impl LineParser {
                     turn_index: None,
                     parent_key: None,
                     branch: None,
-                    text: value.pointer("/payload/cwd").and_then(|value| value.as_str()).unwrap_or("").to_string(),
+                    text: value
+                        .pointer("/payload/cwd")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     completeness: "complete".into(),
                     revision: 1,
                 });
@@ -248,7 +274,10 @@ impl LineParser {
                     out.skip = Some("ignored_record");
                     return out;
                 }
-                let role = payload.get("role").and_then(|value| value.as_str()).unwrap_or("");
+                let role = payload
+                    .get("role")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
                 let content = block_text(payload.get("content"));
                 if content.trim().is_empty() {
                     out.skip = Some("ignored_record");
@@ -292,21 +321,43 @@ impl LineParser {
 
     fn parse_claude(&mut self, line: &str) -> LineParse {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-            return LineParse { skip: Some("malformed_record"), ..LineParse::default() };
+            return LineParse {
+                skip: Some("malformed_record"),
+                ..LineParse::default()
+            };
         };
         let Some(uuid) = value.get("uuid").and_then(|value| value.as_str()) else {
-            return LineParse { skip: Some("ignored_record"), ..LineParse::default() };
+            return LineParse {
+                skip: Some("ignored_record"),
+                ..LineParse::default()
+            };
         };
-        if value.get("isMeta").and_then(|value| value.as_bool()).unwrap_or(false) {
-            return LineParse { skip: Some("ignored_record"), ..LineParse::default() };
+        if value
+            .get("isMeta")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            return LineParse {
+                skip: Some("ignored_record"),
+                ..LineParse::default()
+            };
         }
-        let kind = value.get("type").and_then(|value| value.as_str()).unwrap_or("");
+        let kind = value
+            .get("type")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
         if !matches!(kind, "user" | "assistant") {
-            return LineParse { skip: Some("ignored_record"), ..LineParse::default() };
+            return LineParse {
+                skip: Some("ignored_record"),
+                ..LineParse::default()
+            };
         }
         if let Some(session) = value.get("sessionId").and_then(|value| value.as_str()) {
             self.set_session_identity(session);
-            let mut out = LineParse { native_identity: Some(session.to_string()), ..LineParse::default() };
+            let mut out = LineParse {
+                native_identity: Some(session.to_string()),
+                ..LineParse::default()
+            };
             let parsed = self.parse_claude_node(&value, uuid, kind);
             out.records = parsed.records;
             out.corrections = parsed.corrections;
@@ -316,7 +367,12 @@ impl LineParser {
         self.parse_claude_node(&value, uuid, kind)
     }
 
-    fn parse_claude_node(&mut self, value: &serde_json::Value, uuid: &str, kind: &str) -> LineParse {
+    fn parse_claude_node(
+        &mut self,
+        value: &serde_json::Value,
+        uuid: &str,
+        kind: &str,
+    ) -> LineParse {
         let seq = self.next_seq();
         let mut out = LineParse::default();
         let message = value.get("message").cloned().unwrap_or_default();
@@ -348,7 +404,8 @@ impl LineParser {
         if let Some(prior) = &prior
             && prior.key != key
         {
-            out.corrections.push((prior.key.clone(), "abandoned".into()));
+            out.corrections
+                .push((prior.key.clone(), "abandoned".into()));
         }
         self.state.nodes.insert(
             uuid.to_string(),
@@ -363,7 +420,11 @@ impl LineParser {
         self.rebuild_claude_branch(&mut out);
         out.records.push(SourceRecord {
             evidence_key: key.clone(),
-            kind: if kind == "user" { "user_turn".into() } else { "assistant_turn".into() },
+            kind: if kind == "user" {
+                "user_turn".into()
+            } else {
+                "assistant_turn".into()
+            },
             role: Some(kind.to_string()),
             turn_index: Some(seq),
             parent_key: parent.map(|parent| format!("claude:{}:{}", self.path_identity, parent)),
@@ -412,24 +473,46 @@ impl LineParser {
 
     fn parse_antigravity(&mut self, line: &str) -> LineParse {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-            return LineParse { skip: Some("malformed_record"), ..LineParse::default() };
+            return LineParse {
+                skip: Some("malformed_record"),
+                ..LineParse::default()
+            };
         };
         let Some(step_index) = value.get("step_index").and_then(|value| value.as_i64()) else {
-            return LineParse { skip: Some("ignored_record"), ..LineParse::default() };
+            return LineParse {
+                skip: Some("ignored_record"),
+                ..LineParse::default()
+            };
         };
-        let source = value.get("source").and_then(|value| value.as_str()).unwrap_or("");
+        let source = value
+            .get("source")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
         let text = block_text(value.get("content"));
         if text.trim().is_empty() {
-            return LineParse { skip: Some("ignored_record"), ..LineParse::default() };
+            return LineParse {
+                skip: Some("ignored_record"),
+                ..LineParse::default()
+            };
         }
         let seq = self.next_seq();
         let mut out = LineParse::default();
-        let role = if source == "USER" || source == "HUMAN" { "user" } else { "assistant" };
+        let role = if source == "USER" || source == "HUMAN" {
+            "user"
+        } else {
+            "assistant"
+        };
         if role == "user" {
             self.state.turn_index += 1;
             let key = self.evidence(&format!("user:{step_index}"));
             self.state.last_user_key = Some(key.clone());
-            self.state.steps.insert(step_index, StepState { turn_index: self.state.turn_index, key: key.clone() });
+            self.state.steps.insert(
+                step_index,
+                StepState {
+                    turn_index: self.state.turn_index,
+                    key: key.clone(),
+                },
+            );
             out.records.push(SourceRecord {
                 evidence_key: key,
                 kind: "user_turn".into(),
@@ -453,10 +536,17 @@ impl LineParser {
                 && prior.turn_index == turn_index
             {
                 // A revision of the same step replaces the prior evidence.
-                out.corrections.push((prior.key.clone(), "abandoned".into()));
+                out.corrections
+                    .push((prior.key.clone(), "abandoned".into()));
             }
             let key = self.evidence(&format!("assistant:{step_index}:{seq}"));
-            self.state.steps.insert(step_index, StepState { turn_index, key: key.clone() });
+            self.state.steps.insert(
+                step_index,
+                StepState {
+                    turn_index,
+                    key: key.clone(),
+                },
+            );
             out.records.push(SourceRecord {
                 evidence_key: key,
                 kind: "assistant_turn".into(),
@@ -527,10 +617,19 @@ pub fn matches_client(client: &str, line: &str) -> bool {
         "pi" => value.get("type").and_then(|value| value.as_str()) == Some("session"),
         "codex" => value.get("type").and_then(|value| value.as_str()) == Some("session_meta"),
         "claude" => {
-            value.get("sessionId").and_then(|value| value.as_str()).is_some()
-                && matches!(value.get("type").and_then(|value| value.as_str()), Some("user") | Some("assistant"))
+            value
+                .get("sessionId")
+                .and_then(|value| value.as_str())
+                .is_some()
+                && matches!(
+                    value.get("type").and_then(|value| value.as_str()),
+                    Some("user") | Some("assistant")
+                )
         }
-        "antigravity" => value.get("step_index").and_then(|value| value.as_i64()).is_some(),
+        "antigravity" => value
+            .get("step_index")
+            .and_then(|value| value.as_i64())
+            .is_some(),
         _ => false,
     }
 }
@@ -552,9 +651,18 @@ mod tests {
     #[test]
     fn client_matching_is_format_based() {
         assert!(matches_client("pi", r#"{"type":"session","id":"x"}"#));
-        assert!(!matches_client("pi", r#"{"type":"session_meta","payload":{}}"#));
-        assert!(matches_client("codex", r#"{"type":"session_meta","payload":{}}"#));
-        assert!(matches_client("claude", r#"{"type":"user","sessionId":"s"}"#));
+        assert!(!matches_client(
+            "pi",
+            r#"{"type":"session_meta","payload":{}}"#
+        ));
+        assert!(matches_client(
+            "codex",
+            r#"{"type":"session_meta","payload":{}}"#
+        ));
+        assert!(matches_client(
+            "claude",
+            r#"{"type":"user","sessionId":"s"}"#
+        ));
         assert!(matches_client("antigravity", r#"{"step_index":1}"#));
     }
 
@@ -562,7 +670,9 @@ mod tests {
     fn claude_branch_marks_off_chain_nodes_abandoned() {
         let mut parser = LineParser::new("claude", "s1", ParserState::default());
         parser.parse(r#"{"type":"user","uuid":"a","sessionId":"s1","message":{"content":"root"}}"#);
-        parser.parse(r#"{"type":"assistant","uuid":"b","parentUuid":"a","message":{"content":"main"}}"#);
+        parser.parse(
+            r#"{"type":"assistant","uuid":"b","parentUuid":"a","message":{"content":"main"}}"#,
+        );
         // A sibling branch replaces the active leaf; the main chain stays active.
         let sibling = parser.parse(
             r#"{"type":"assistant","uuid":"c","parentUuid":"a","message":{"content":"side"}}"#,
@@ -571,18 +681,31 @@ mod tests {
         let back = parser.parse(
             r#"{"type":"assistant","uuid":"d","parentUuid":"b","message":{"content":"back on chain"}}"#,
         );
-        assert!(back.corrections.iter().any(|(_, completeness)| completeness == "abandoned"));
-        assert!(parser.state.nodes["b"].active, "the main chain stays active");
-        assert!(!parser.state.nodes["c"].active, "the side branch is abandoned");
-        assert!(parser.state.nodes["d"].active, "the returning node is active");
+        assert!(
+            back.corrections
+                .iter()
+                .any(|(_, completeness)| completeness == "abandoned")
+        );
+        assert!(
+            parser.state.nodes["b"].active,
+            "the main chain stays active"
+        );
+        assert!(
+            !parser.state.nodes["c"].active,
+            "the side branch is abandoned"
+        );
+        assert!(
+            parser.state.nodes["d"].active,
+            "the returning node is active"
+        );
     }
 
     #[test]
     fn antigravity_maps_steps_to_turns() {
         let mut parser = LineParser::new("antigravity", "export", ParserState::default());
         parser.parse(r#"{"step_index":1,"type":"USER_INPUT","source":"USER","content":"hello"}"#);
-        let reply =
-            parser.parse(r#"{"step_index":2,"type":"PLANNER_RESPONSE","source":"MODEL","content":"hi"}"#);
+        let reply = parser
+            .parse(r#"{"step_index":2,"type":"PLANNER_RESPONSE","source":"MODEL","content":"hi"}"#);
         assert_eq!(reply.records[0].turn_index, Some(1));
         assert_eq!(reply.records[0].kind, "assistant_turn");
     }

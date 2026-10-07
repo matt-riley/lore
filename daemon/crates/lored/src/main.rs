@@ -46,8 +46,7 @@ use protocol::{
     EmbeddingStatus, Envelope, ErrorDetail, ErrorEnvelope, ForgetParams, HOST, JobCounts,
     JobRecord, JobsRetryParams, JobsRetryResult, JobsStatusParams, JobsStatusResult,
     MAX_BODY_BYTES, MAX_TIMEOUT_MS, OkEnvelope, Readiness, RecallParams, RequestMeta, RetainParams,
-    StatusCounts, StatusParams,
-    StatusQueue, StatusResult, code, reason,
+    StatusCounts, StatusParams, StatusQueue, StatusResult, code, reason,
 };
 
 use sources::Scheduler;

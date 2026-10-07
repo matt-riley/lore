@@ -173,7 +173,10 @@ impl Store {
         drop(statement);
         for root_id in existing {
             if !keep.contains(&root_id) {
-                connection.execute("DELETE FROM source_roots WHERE root_id = ?1", params![root_id])?;
+                connection.execute(
+                    "DELETE FROM source_roots WHERE root_id = ?1",
+                    params![root_id],
+                )?;
             }
         }
         Ok(())
@@ -246,7 +249,12 @@ impl Store {
                 "UPDATE sources SET repository = COALESCE(?2, repository), \
                  repository_verified = CASE WHEN ?3 <> 0 THEN ?3 ELSE repository_verified END, \
                  updated_ms = ?4 WHERE source_id = ?1",
-                params![source_id, repository, i64::from(repository_verified), now_ms],
+                params![
+                    source_id,
+                    repository,
+                    i64::from(repository_verified),
+                    now_ms
+                ],
             )?;
             let refreshed = connection.query_row(
                 &format!("SELECT {SOURCE_COLUMNS} FROM sources WHERE source_id = ?1"),
@@ -288,7 +296,11 @@ impl Store {
     }
 
     /// Find a source by client and canonical path.
-    pub fn source_by_path(&self, client: &str, canonical_path: &str) -> CoreResult<Option<SourceRow>> {
+    pub fn source_by_path(
+        &self,
+        client: &str,
+        canonical_path: &str,
+    ) -> CoreResult<Option<SourceRow>> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
         Ok(connection
@@ -391,7 +403,8 @@ impl Store {
             .optional()?;
         match current {
             Some((generation, offset))
-                if generation == commit.expected_generation && offset == commit.expected_offset => {}
+                if generation == commit.expected_generation && offset == commit.expected_offset => {
+            }
             _ => return Ok(None),
         }
 
@@ -488,11 +501,20 @@ impl Store {
                  AND evidence_key = ?3 AND completeness <> ?4",
             )?;
             for (key, completeness) in &commit.corrections {
-                correct.execute(params![commit.source_id, commit.generation, key, completeness])?;
+                correct.execute(params![
+                    commit.source_id,
+                    commit.generation,
+                    key,
+                    completeness
+                ])?;
             }
         }
 
-        let pending = if commit.offset < commit.observed_size { "pending" } else { "complete" };
+        let pending = if commit.offset < commit.observed_size {
+            "pending"
+        } else {
+            "complete"
+        };
         transaction.execute(
             "INSERT INTO extraction_intents (source_id, generation, state, through_offset, attempts, \
              next_attempt_ms, terminal_reason, updated_ms) VALUES (?1, ?2, ?3, ?4, 0, NULL, NULL, ?5) \
@@ -517,12 +539,11 @@ impl Store {
     ) -> CoreResult<Option<String>> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
-        Ok(connection
-            .query_row(
-                "SELECT parser_state FROM sources WHERE source_id = ?1 AND generation = ?2",
-                params![source_id, generation],
-                |row| row.get::<_, Option<String>>(0),
-            )?)
+        Ok(connection.query_row(
+            "SELECT parser_state FROM sources WHERE source_id = ?1 AND generation = ?2",
+            params![source_id, generation],
+            |row| row.get::<_, Option<String>>(0),
+        )?)
     }
 
     /// Record a capture failure without moving the checkpoint.
@@ -540,7 +561,14 @@ impl Store {
             "UPDATE sources SET state = ?2, last_error = ?3, \
              observed_size = COALESCE(?4, observed_size), pending_bytes = ?5, updated_ms = ?6 \
              WHERE source_id = ?1",
-            params![source_id, state, reason, observed_size, pending_bytes, now_ms],
+            params![
+                source_id,
+                state,
+                reason,
+                observed_size,
+                pending_bytes,
+                now_ms
+            ],
         )?;
         Ok(())
     }

@@ -24,6 +24,7 @@ use crate::policy;
 use crate::retrieval;
 
 mod embedding;
+mod extraction;
 mod source;
 pub use embedding::{
     ClaimedJob, CompleteOutcome, EmbeddingCounts, FailOutcome, JobView, ReconcilePage,
@@ -228,6 +229,28 @@ CREATE TABLE IF NOT EXISTS extraction_intents (
 CREATE INDEX IF NOT EXISTS idx_extraction_intents_state ON extraction_intents (state, next_attempt_ms);
 "#;
 
+/// Forward migration 3 -> 4: proposition identity, evidence links and
+/// extraction leases.
+const MIGRATION_4_SQL: &str = r#"
+ALTER TABLE memories ADD COLUMN topic_key TEXT;
+CREATE INDEX IF NOT EXISTS idx_memories_topic ON memories (topic_key, scope, repository, authority, forgotten);
+CREATE TABLE IF NOT EXISTS memory_evidence (
+    memory_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    generation TEXT NOT NULL,
+    evidence_key TEXT NOT NULL,
+    role TEXT,
+    created_ms INTEGER NOT NULL,
+    retired_ms INTEGER,
+    PRIMARY KEY (memory_id, source_id, generation, evidence_key)
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_memory_evidence_source ON memory_evidence (source_id, generation, evidence_key);
+ALTER TABLE extraction_intents ADD COLUMN rule_version TEXT NOT NULL DEFAULT '';
+ALTER TABLE extraction_intents ADD COLUMN lease_token TEXT;
+ALTER TABLE extraction_intents ADD COLUMN lease_owner TEXT;
+ALTER TABLE extraction_intents ADD COLUMN lease_expires_ms INTEGER;
+"#;
+
 /// Lexical candidates plus the snapshot revision they were read at.
 #[derive(Debug, Clone)]
 pub struct LexicalSnapshot {
@@ -235,6 +258,15 @@ pub struct LexicalSnapshot {
     pub derived_generation: i64,
     pub pool: Vec<MemoryRecord>,
     pub truncated: bool,
+}
+
+/// Required context assembled independently of the query.
+struct RequiredContext {
+    records: Vec<MemoryRecord>,
+    sections: Vec<RecallSection>,
+    text: String,
+    omitted: u64,
+    truncated: bool,
 }
 
 /// Semantic inputs for a fused recall.
@@ -697,6 +729,128 @@ impl Store {
         result
     }
 
+    /// Required context sections: standing guidance and identity, assembled
+    /// independently of topical similarity and protected before topical
+    /// material. Sections are ordered directives -> identity -> preferences.
+    fn required_context(
+        &self,
+        connection: &Connection,
+        params: &RecallParams,
+        now_ms: i64,
+        budget: usize,
+        deadline: Option<Instant>,
+    ) -> CoreResult<RequiredContext> {
+        let mut sql = String::from(
+            "SELECT m.id, m.kind, m.content, m.scope, m.repository, m.authority, m.confidence, \
+             m.created_ms, m.updated_ms, m.expires_at_ms, m.source_session_id, m.tags_json \
+             FROM memories m WHERE m.forgotten = 0 AND m.superseded_by IS NULL \
+             AND (m.expires_at_ms IS NULL OR m.expires_at_ms > ?1) \
+             AND m.kind IN ('directive', 'rejected_approach', 'commitment', 'assistant_identity', \
+             'user_identity', 'interaction_style', 'recurring_mistake', 'user_preference')",
+        );
+        let mut values: Vec<Value> = vec![Value::Integer(now_ms)];
+        match params.repository.as_deref() {
+            None => sql.push_str(" AND m.scope = 'global'"),
+            Some(repository) => {
+                sql.push_str(
+                    " AND (m.scope = 'global' OR m.repository = ?2 \
+                     OR (?3 = 1 AND m.scope = 'transferable' AND m.repository <> ?2))",
+                );
+                values.push(Value::Text(repository.to_string()));
+                values.push(Value::Integer(i64::from(params.include_other_repositories)));
+            }
+        }
+        sql.push_str(
+            " ORDER BY CASE m.authority WHEN 'manual' THEN 0 ELSE 1 END, m.updated_ms DESC, m.id ASC LIMIT 64",
+        );
+        let mut statement = connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(values.iter()), |row| {
+            let tags_json: String = row.get(11)?;
+            let scope: String = row.get(3)?;
+            Ok(MemoryRecord {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                content: row.get(2)?,
+                scope: parse_scope(&scope),
+                repository: row.get(4)?,
+                authority: row.get(5)?,
+                confidence: row.get(6)?,
+                created_ms: row.get(7)?,
+                updated_ms: row.get(8)?,
+                expires_at_ms: row.get(9)?,
+                source_session_id: row.get(10)?,
+                tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+            })
+        })?;
+        let records: Vec<MemoryRecord> = rows.collect::<Result<_, _>>()?;
+        drop(statement);
+        ensure_within(deadline)?;
+
+        let sections: [(&str, &[&str]); 3] = [
+            (
+                "directives",
+                &["directive", "rejected_approach", "commitment"],
+            ),
+            (
+                "identity",
+                &[
+                    "assistant_identity",
+                    "user_identity",
+                    "interaction_style",
+                    "recurring_mistake",
+                ],
+            ),
+            ("preferences", &["user_preference"]),
+        ];
+        let mut remaining = budget;
+        let mut included: Vec<MemoryRecord> = Vec::new();
+        let mut rendered_sections = Vec::new();
+        let mut rendered_text = Vec::new();
+        let mut omitted = 0u64;
+        let mut truncated = false;
+        for (section_id, kinds) in sections {
+            let items: Vec<&MemoryRecord> = records
+                .iter()
+                .filter(|record| kinds.contains(&record.kind.as_str()))
+                .collect();
+            if items.is_empty() || remaining == 0 {
+                if !items.is_empty() {
+                    truncated = true;
+                    omitted += items.len() as u64;
+                }
+                continue;
+            }
+            let contents: Vec<String> = items.iter().map(|record| record.content.clone()).collect();
+            let (text, taken, section_omitted) = retrieval::render_topical(&contents, remaining);
+            if section_omitted > 0 {
+                truncated = true;
+            }
+            omitted += section_omitted as u64;
+            remaining = remaining.saturating_sub(text.len() + 1);
+            included.extend(items.iter().take(taken).map(|record| (*record).clone()));
+            if taken > 0 {
+                rendered_sections.push(RecallSection {
+                    id: section_id.to_string(),
+                    memory_ids: items
+                        .iter()
+                        .take(taken)
+                        .map(|record| record.id.clone())
+                        .collect(),
+                    text: text.clone(),
+                    omitted: section_omitted as u64,
+                });
+                rendered_text.push(text);
+            }
+        }
+        Ok(RequiredContext {
+            records: included,
+            sections: rendered_sections,
+            text: rendered_text.join("\n"),
+            omitted,
+            truncated,
+        })
+    }
+
     fn recall_on(
         &self,
         connection: &Connection,
@@ -736,11 +890,31 @@ impl Store {
                 fallback_reason: "DISABLED".to_string(),
                 response_bytes,
                 omitted_count: omitted,
+                mandatory_truncated: false,
+                mandatory_omitted: 0,
             },
         };
 
+        let required = self.required_context(
+            &transaction,
+            params,
+            now_ms,
+            context_bytes as usize,
+            deadline,
+        )?;
+
         if terms.is_empty() {
-            return Ok(base(Vec::new(), String::new(), Vec::new(), 0, false, 0));
+            let mut result = base(
+                required.records,
+                required.text,
+                required.sections,
+                required.omitted,
+                false,
+                0,
+            );
+            result.diagnostics.mandatory_truncated = required.truncated;
+            result.diagnostics.mandatory_omitted = required.omitted;
+            return Ok(result);
         }
 
         let fts = retrieval::fts_query(&terms);
@@ -752,49 +926,76 @@ impl Store {
         ensure_within(deadline)?;
 
         let truncated = pool.len() >= self.limits.candidate_pool;
-        let mut selected: Vec<MemoryRecord> = pool.into_iter().take(limit as usize).collect();
+        let topical_budget = (context_bytes as usize).saturating_sub(required.text.len() + 1);
+        let mut topical_selected: Vec<MemoryRecord> = pool
+            .into_iter()
+            .take((limit as usize).saturating_sub(required.records.len()))
+            .collect();
+        let mut mandatory_truncated = required.truncated;
+        let mut mandatory_omitted = required.omitted;
         let mut omitted = 0u64;
 
-        // Bound the encoded response; drop whole records from the tail.
+        // Bound the encoded response; drop topical records first, then
+        // required records only as a last resort (reported explicitly).
         loop {
             ensure_within(deadline)?;
-            let contents: Vec<String> = selected
+            let contents: Vec<String> = topical_selected
                 .iter()
                 .map(|record| record.content.clone())
                 .collect();
             let (text, included, context_omitted) =
-                retrieval::render_topical(&contents, context_bytes as usize);
-            let section = if selected.is_empty() {
-                Vec::new()
-            } else {
-                vec![RecallSection {
+                retrieval::render_topical(&contents, topical_budget);
+            let mut selected = required.records.clone();
+            selected.extend(topical_selected.clone());
+            let mut sections = required.sections.clone();
+            if !topical_selected.is_empty() {
+                sections.push(RecallSection {
                     id: "topical".to_string(),
-                    memory_ids: selected
+                    memory_ids: topical_selected
                         .iter()
                         .take(included)
                         .map(|record| record.id.clone())
                         .collect(),
                     text: text.clone(),
                     omitted: context_omitted as u64,
-                }]
+                });
+            }
+            let context = if required.text.is_empty() {
+                text.clone()
+            } else if text.is_empty() {
+                required.text.clone()
+            } else {
+                format!("{}\n{text}", required.text)
             };
             let result = base(
-                selected.clone(),
-                text,
-                section,
-                omitted + context_omitted as u64,
+                selected,
+                context,
+                sections,
+                omitted + context_omitted as u64 + mandatory_omitted,
                 truncated,
                 0,
             );
             let encoded = serde_json::to_vec(&result)?;
-            if encoded.len() + RESPONSE_HEADROOM <= MAX_BODY_BYTES || selected.is_empty() {
+            if encoded.len() + RESPONSE_HEADROOM <= MAX_BODY_BYTES
+                || (topical_selected.is_empty() && required.records.is_empty())
+            {
                 let response_bytes = encoded.len() as u64;
                 let mut final_result = result;
                 final_result.diagnostics.response_bytes = response_bytes;
+                final_result.diagnostics.mandatory_truncated = mandatory_truncated;
+                final_result.diagnostics.mandatory_omitted = mandatory_omitted;
                 return Ok(final_result);
             }
-            selected.pop();
-            omitted += 1;
+            if !topical_selected.is_empty() {
+                topical_selected.pop();
+                omitted += 1;
+            } else if !required.records.is_empty() {
+                // Required content only shrinks when the response cannot fit;
+                // the omission stays visible in diagnostics.
+                mandatory_truncated = true;
+                mandatory_omitted += 1;
+                omitted += 1;
+            }
         }
     }
 
@@ -1053,12 +1254,46 @@ impl Store {
             .map(|record| (record.id.as_str(), record))
             .collect();
         let mut selected: Vec<MemoryRecord> = Vec::with_capacity(fused.len());
+
         for (id, _, _) in &fused {
             if let Some(record) = by_id.get(id.as_str()) {
                 selected.push((*record).clone());
             } else if let Some(record) = fetched_map.get(id.as_str()) {
                 selected.push((*record).clone());
             }
+        }
+
+        let required = self.required_context(
+            &transaction,
+            params,
+            now_ms,
+            context_bytes as usize,
+            deadline,
+        )?;
+        if terms.is_empty() {
+            let mut result = RecallResult {
+                records: required.records,
+                context: required.text,
+                sections: required.sections,
+                memory_revision: memory_revision.to_string(),
+                evaluated_at_ms: now_ms,
+                derived_generation: derived_generation.to_string(),
+                diagnostics: RecallDiagnostics {
+                    retrieval_mode: "lexical".to_string(),
+                    cache: semantic.cache_state.to_string(),
+                    vector_contribution: 0,
+                    candidate_pool_limit: self.limits.candidate_pool as u64,
+                    candidate_pool_truncated: false,
+                    fallback_reason: fallback_reason.clone(),
+                    response_bytes: 0,
+                    omitted_count: required.omitted,
+                    mandatory_truncated: required.truncated,
+                    mandatory_omitted: required.omitted,
+                },
+            };
+            let encoded = serde_json::to_vec(&result)?;
+            result.diagnostics.response_bytes = encoded.len() as u64;
+            return Ok(result);
         }
 
         let vector_contribution = selected
@@ -1074,8 +1309,13 @@ impl Store {
             fallback_reason = "NO_RELEVANT_VECTOR".to_string();
         }
 
-        // Bound the encoded response; drop whole records from the tail.
+        // Bound the encoded response; required sections render first and
+        // topical records are dropped before any required item.
         let mut omitted = 0u64;
+        let topical_budget = (context_bytes as usize).saturating_sub(required.text.len() + 1);
+        let mut mandatory_truncated = required.truncated;
+        let mut mandatory_omitted = required.omitted;
+        let mut mandatory = required.records.clone();
         loop {
             ensure_within(deadline)?;
             let contents: Vec<String> = selected
@@ -1083,11 +1323,10 @@ impl Store {
                 .map(|record| record.content.clone())
                 .collect();
             let (text, included, context_omitted) =
-                retrieval::render_topical(&contents, context_bytes as usize);
-            let section = if selected.is_empty() {
-                Vec::new()
-            } else {
-                vec![RecallSection {
+                retrieval::render_topical(&contents, topical_budget);
+            let mut sections = required.sections.clone();
+            if !selected.is_empty() {
+                sections.push(RecallSection {
                     id: "topical".to_string(),
                     memory_ids: selected
                         .iter()
@@ -1096,12 +1335,21 @@ impl Store {
                         .collect(),
                     text: text.clone(),
                     omitted: context_omitted as u64,
-                }]
+                });
+            }
+            let context = if required.text.is_empty() {
+                text.clone()
+            } else if text.is_empty() {
+                required.text.clone()
+            } else {
+                format!("{}\n{text}", required.text)
             };
+            let mut records = mandatory.clone();
+            records.extend(selected.clone());
             let result = RecallResult {
-                records: selected.clone(),
-                context: text,
-                sections: section,
+                records,
+                context,
+                sections,
                 memory_revision: memory_revision.to_string(),
                 evaluated_at_ms: now_ms,
                 derived_generation: derived_generation.to_string(),
@@ -1113,17 +1361,28 @@ impl Store {
                     candidate_pool_truncated: lexical_truncated,
                     fallback_reason: fallback_reason.clone(),
                     response_bytes: 0,
-                    omitted_count: omitted + context_omitted as u64,
+                    omitted_count: omitted + context_omitted as u64 + mandatory_omitted,
+                    mandatory_truncated,
+                    mandatory_omitted,
                 },
             };
             let encoded = serde_json::to_vec(&result)?;
-            if encoded.len() + RESPONSE_HEADROOM <= MAX_BODY_BYTES || selected.is_empty() {
+            if encoded.len() + RESPONSE_HEADROOM <= MAX_BODY_BYTES
+                || (selected.is_empty() && mandatory.is_empty())
+            {
                 let mut final_result = result;
                 final_result.diagnostics.response_bytes = encoded.len() as u64;
                 return Ok(final_result);
             }
-            selected.pop();
-            omitted += 1;
+            if !selected.is_empty() {
+                selected.pop();
+                omitted += 1;
+            } else if !mandatory.is_empty() {
+                mandatory_truncated = true;
+                mandatory_omitted += 1;
+                omitted += 1;
+                mandatory.pop();
+            }
         }
     }
 
@@ -1296,15 +1555,24 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
         Some(1) => {
             connection.execute_batch(MIGRATION_2_SQL)?;
             connection.execute_batch(MIGRATION_3_SQL)?;
+            connection.execute_batch(MIGRATION_4_SQL)?;
             connection.execute(
-                "UPDATE store_metadata SET schema_version = 3 WHERE id = 1",
+                "UPDATE store_metadata SET schema_version = 4 WHERE id = 1",
                 [],
             )?;
         }
         Some(2) => {
             connection.execute_batch(MIGRATION_3_SQL)?;
+            connection.execute_batch(MIGRATION_4_SQL)?;
             connection.execute(
-                "UPDATE store_metadata SET schema_version = 3 WHERE id = 1",
+                "UPDATE store_metadata SET schema_version = 4 WHERE id = 1",
+                [],
+            )?;
+        }
+        Some(3) => {
+            connection.execute_batch(MIGRATION_4_SQL)?;
+            connection.execute(
+                "UPDATE store_metadata SET schema_version = 4 WHERE id = 1",
                 [],
             )?;
         }

@@ -7,12 +7,14 @@ use std::time::Duration;
 
 use hyper::StatusCode;
 use protocol::{
-    OkEnvelope, SourceHintParams, SourceHintResult, SourceRegisterParams, SourceRegisterResult,
-    SourceStatusCounts, SourceStatusParams, SourceStatusRecord, SourceStatusResult, code, reason,
+    ExtractionRetryParams, ExtractionRetryResult, OkEnvelope, SourceHintParams, SourceHintResult,
+    SourceRegisterParams, SourceRegisterResult, SourceStatusCounts, SourceStatusParams,
+    SourceStatusRecord, SourceStatusResult, code, reason,
 };
 
 use lore_core::config::ResolvedConfig;
 use lore_core::error::CoreError;
+use lore_core::extraction::{RULE_VERSION, TurnInput, extract};
 use lore_core::ingestion::{
     CAPTURE_PER_ROOT, PENDING_PER_SWEEP, SweepReport, capture_source, discover_page,
     register_hinted_source, root_for,
@@ -60,6 +62,99 @@ pub fn spawn(store: Arc<Store>, config: ResolvedConfig) -> Scheduler {
         })
         .expect("spawn source scheduler");
     Scheduler { sender }
+}
+
+/// One extraction sweep outcome.
+#[derive(Debug, Clone, Default)]
+pub struct ExtractionSweepReport {
+    pub claimed: usize,
+    pub applied: usize,
+    pub retired: usize,
+    pub suppressed: usize,
+    pub unresolved: usize,
+    pub failed: usize,
+}
+
+/// Run extraction for pending intents: claim with a lease, compute outside
+/// the writer, apply atomically, then complete or release the claim.
+pub fn extract_pending(store: &Store, limit: usize, now: i64) -> ExtractionSweepReport {
+    let mut report = ExtractionSweepReport::default();
+    for _ in 0..limit {
+        let claim = match store.claim_extraction_intent("lored", RULE_VERSION, 120_000, now) {
+            Ok(Some(claim)) => claim,
+            Ok(None) => break,
+            Err(_) => break,
+        };
+        report.claimed += 1;
+        let row = match store.source_by_id(&claim.source_id) {
+            Ok(Some(row)) => row,
+            Ok(None) => {
+                let _ = store.fail_extraction(&claim, "SOURCE_UNKNOWN", now);
+                report.failed += 1;
+                continue;
+            }
+            Err(_) => {
+                let _ = store.fail_extraction(&claim, "SOURCE_UNREADABLE", now);
+                report.failed += 1;
+                continue;
+            }
+        };
+        let records = match store.source_records(&claim.source_id, &claim.generation, 100_000) {
+            Ok(records) => records,
+            Err(_) => {
+                let _ = store.fail_extraction(&claim, "SOURCE_UNREADABLE", now);
+                report.failed += 1;
+                continue;
+            }
+        };
+        let turns: Vec<TurnInput> = records
+            .iter()
+            .map(|record| TurnInput {
+                role: record.role.clone().unwrap_or_else(|| record.kind.clone()),
+                text: record.text.clone(),
+                evidence_key: record.evidence_key.clone(),
+                turn_index: record.turn_index.unwrap_or(0),
+                completeness: record.completeness.clone(),
+            })
+            .collect();
+        // Only a verified repository may scope automatic guidance; an
+        // unresolved identity stays unresolved and is never promoted global.
+        let repository = row
+            .repository_verified
+            .then(|| row.repository.clone())
+            .flatten();
+        let extraction = extract(repository.as_deref(), &turns);
+        match store.apply_proposals(
+            &claim.source_id,
+            &claim.generation,
+            &extraction.proposals,
+            now,
+        ) {
+            Ok(applied) => {
+                report.applied += applied.applied;
+                report.retired += applied.retired;
+                report.suppressed += applied.suppressed;
+                report.unresolved += applied.unresolved;
+                if store
+                    .complete_extraction(&claim, applied.applied, now)
+                    .unwrap_or(false)
+                {
+                    let _ = store.store_extraction_receipt(
+                        &claim.source_id,
+                        &claim.generation,
+                        &claim.rule_version,
+                        &serde_json::to_string(&applied).unwrap_or_default(),
+                        now,
+                    );
+                }
+            }
+            Err(_) => {
+                let _ = store.fail_extraction(&claim, "APPLY_FAILED", now);
+                report.failed += 1;
+            }
+        }
+    }
+    report
 }
 
 /// Discover and capture for all approved roots, bounded per sweep.
@@ -136,6 +231,21 @@ pub fn run_sweep(store: &Store, config: &ResolvedConfig, now: i64) -> SweepRepor
             }
         }
         let _ = store.set_source_root_cursor(&root.root_id, next_cursor.as_deref(), complete, now);
+    }
+
+    // Extraction runs after capture so fresh evidence is processed in the
+    // same sweep that committed it.
+    let extraction = extract_pending(store, PENDING_PER_SWEEP, now);
+    if extraction.claimed > 0 {
+        eprintln!(
+            "[lored] extraction sweep: claimed={} applied={} retired={} suppressed={} unresolved={} failed={}",
+            extraction.claimed,
+            extraction.applied,
+            extraction.retired,
+            extraction.suppressed,
+            extraction.unresolved,
+            extraction.failed
+        );
     }
     report
 }
@@ -445,6 +555,102 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
         accepted: true,
         coalesced: false,
     };
+    json(
+        StatusCode::OK,
+        &OkEnvelope {
+            ok: true,
+            request_id,
+            store_id,
+            result,
+        },
+    )
+}
+
+pub async fn handle_extraction_retry(
+    raw: &[u8],
+    state: &Arc<State>,
+    fallback_id: Option<String>,
+) -> Resp {
+    let envelope =
+        match parse_route::<ExtractionRetryParams>(raw, fallback_id.as_deref(), &state.store_id) {
+            Ok(envelope) => envelope,
+            Err(response) => return response,
+        };
+    let request_id = envelope.meta.request_id.clone();
+    let store_id = state.store_id.clone();
+    if let Some(response) = require_store(&envelope.meta, &store_id, true) {
+        return response;
+    }
+    if !state.enabled {
+        return disabled_response(&envelope.meta, &store_id);
+    }
+    let client_id = envelope.meta.client_id.clone();
+    let key = envelope.params.idempotency_key.clone();
+    let hash =
+        lore_core::policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
+    match state
+        .store
+        .lookup_receipt_json(&client_id, "extraction.retry", &key)
+    {
+        Ok(Some((stored_hash, response))) => {
+            if stored_hash != hash {
+                return fail_response(
+                    StatusCode::CONFLICT,
+                    "ALREADY_EXISTS",
+                    "IDEMPOTENCY_CONFLICT",
+                    false,
+                    Some(&request_id),
+                    Some(&store_id),
+                );
+            }
+            return match serde_json::from_str::<ExtractionRetryResult>(&response) {
+                Ok(result) => json(
+                    StatusCode::OK,
+                    &OkEnvelope {
+                        ok: true,
+                        request_id,
+                        store_id,
+                        result,
+                    },
+                ),
+                Err(_) => fail_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    code::INTERNAL,
+                    reason::INTERNAL_FAILURE,
+                    false,
+                    Some(&request_id),
+                    Some(&store_id),
+                ),
+            };
+        }
+        Ok(None) => {}
+        Err(error) => return core_response(error, &request_id, &store_id),
+    }
+    let rule_version = envelope
+        .params
+        .rule_version
+        .clone()
+        .unwrap_or_else(|| RULE_VERSION.to_string());
+    let now = now_ms();
+    let reset = match state.store.reset_extraction_intents(&rule_version, now) {
+        Ok(reset) => reset,
+        Err(error) => return core_response(error, &request_id, &store_id),
+    };
+    let result = ExtractionRetryResult {
+        reset,
+        rule_version: rule_version.clone(),
+    };
+    if let Ok(response) = serde_json::to_string(&result) {
+        let _ = state.store.store_receipt_json(
+            &client_id,
+            "extraction.retry",
+            &key,
+            &hash,
+            &response,
+            now,
+        );
+    }
+    state.scheduler.wake();
     json(
         StatusCode::OK,
         &OkEnvelope {

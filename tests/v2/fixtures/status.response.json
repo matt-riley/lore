@@ -6,7 +6,7 @@
     "apiMajor": 2,
     "apiMinor": 0,
     "daemonVersion": "0.1.0",
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "storeId": "store-fixture",
     "processInstanceId": "fixture-process-1",
     "uptimeMs": 42,

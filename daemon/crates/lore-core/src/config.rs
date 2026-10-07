@@ -356,7 +356,9 @@ impl ResolvedConfig {
             .unwrap_or_default();
         let embedding = resolve_embedding(&providers)?;
         let sources = resolve_sources(
-            file.as_ref().map(|file| file.sources.clone()).unwrap_or_default(),
+            file.as_ref()
+                .map(|file| file.sources.clone())
+                .unwrap_or_default(),
             &base,
         )?;
 

@@ -59,10 +59,13 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// Canonicalize an approved source path and reject escapes. The returned path
 /// is the canonical path used for identity; validation happens before every
 /// open, not only at registration.
-pub fn safe_source_path(root: &ResolvedSourceRoot, path: &Path, expect_file: bool) -> CoreResult<PathBuf> {
-    let canonical_root = std::fs::canonicalize(&root.path).map_err(|error| {
-        CoreError::precondition("SOURCE_ROOT_UNAVAILABLE", format!("{error}"))
-    })?;
+pub fn safe_source_path(
+    root: &ResolvedSourceRoot,
+    path: &Path,
+    expect_file: bool,
+) -> CoreResult<PathBuf> {
+    let canonical_root = std::fs::canonicalize(&root.path)
+        .map_err(|error| CoreError::precondition("SOURCE_ROOT_UNAVAILABLE", format!("{error}")))?;
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|error| CoreError::precondition("SOURCE_UNAVAILABLE", format!("{error}")))?;
     if metadata.file_type().is_symlink() {
@@ -71,9 +74,8 @@ pub fn safe_source_path(root: &ResolvedSourceRoot, path: &Path, expect_file: boo
             "source path is a symbolic link",
         ));
     }
-    let canonical = std::fs::canonicalize(path).map_err(|error| {
-        CoreError::precondition("SOURCE_UNAVAILABLE", format!("{error}"))
-    })?;
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|error| CoreError::precondition("SOURCE_UNAVAILABLE", format!("{error}")))?;
     if !canonical.starts_with(&canonical_root) {
         return Err(CoreError::precondition(
             "SOURCE_ESCAPED_ROOT",
@@ -91,7 +93,11 @@ pub fn safe_source_path(root: &ResolvedSourceRoot, path: &Path, expect_file: boo
 
 /// Read at most the source byte quantum starting at `offset`, retaining any
 /// trailing incomplete record for the next quantum. Returns complete lines.
-fn read_quantum(file: &mut std::fs::File, offset: i64, quantum: usize) -> CoreResult<(Vec<Vec<u8>>, i64)> {
+fn read_quantum(
+    file: &mut std::fs::File,
+    offset: i64,
+    quantum: usize,
+) -> CoreResult<(Vec<Vec<u8>>, i64)> {
     file.seek(SeekFrom::Start(offset as u64))?;
     let mut buffer = vec![0u8; quantum];
     let mut filled = 0usize;
@@ -171,7 +177,11 @@ pub fn capture_source(
         conflict: false,
         reason: None,
     };
-    let root = match sources.roots.iter().find(|root| root.root_id == row.root_id) {
+    let root = match sources
+        .roots
+        .iter()
+        .find(|root| root.root_id == row.root_id)
+    {
         Some(root) => root,
         None => {
             report.state = "unavailable".into();
@@ -194,7 +204,14 @@ pub fn capture_source(
                 "SOURCE_ESCAPED_ROOT" => ("ambiguous", "SOURCE_AMBIGUOUS"),
                 _ => ("unavailable", "SOURCE_UNAVAILABLE"),
             };
-            let _ = store.mark_source_state(&row.source_id, state, Some(reason), None, row.pending_bytes, now_ms);
+            let _ = store.mark_source_state(
+                &row.source_id,
+                state,
+                Some(reason),
+                None,
+                row.pending_bytes,
+                now_ms,
+            );
             report.state = state.into();
             report.reason = Some(reason.into());
             return report;
@@ -220,7 +237,14 @@ fn capture_jsonl(
         Err(_) => {
             report.state = "unavailable".into();
             report.reason = Some("SOURCE_UNAVAILABLE".into());
-            let _ = store.mark_source_state(&row.source_id, "unavailable", Some("SOURCE_UNAVAILABLE"), None, row.pending_bytes, now_ms);
+            let _ = store.mark_source_state(
+                &row.source_id,
+                "unavailable",
+                Some("SOURCE_UNAVAILABLE"),
+                None,
+                row.pending_bytes,
+                now_ms,
+            );
             return;
         }
     };
@@ -257,7 +281,13 @@ fn capture_jsonl(
         && row.prefix_hash == prior_prefix
         && row.boundary_hash == boundary_hash;
     let (generation, generation_seq, offset, prefix_hash, _) = if anchored {
-        (row.generation.clone(), row.generation_seq, row.offset, prefix_hash, boundary_hash)
+        (
+            row.generation.clone(),
+            row.generation_seq,
+            row.offset,
+            prefix_hash,
+            boundary_hash,
+        )
     } else {
         report.reset = observed_size != 0 || row.offset != 0;
         (
@@ -375,12 +405,7 @@ fn path_identity(row: &SourceRow, path: &Path) -> String {
 
 /// Read changed rows from a Copilot-style session store. Host databases are
 /// opened read-only and are never migrated or written.
-fn capture_copilot(
-    store: &Store,
-    path: &Path,
-    row: &SourceRow,
-    now_ms: i64,
-) -> CaptureReport {
+fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> CaptureReport {
     let mut report = CaptureReport {
         source_id: row.source_id.clone(),
         generation: row.generation.clone(),
@@ -410,15 +435,19 @@ fn capture_copilot(
         .map(|count| count >= 2)
         .unwrap_or(false);
     if !schema_ok {
-        let _ = store.mark_source_state(&row.source_id, "failed", Some("SOURCE_UNKNOWN_SCHEMA"), None, 0, now_ms);
+        let _ = store.mark_source_state(
+            &row.source_id,
+            "failed",
+            Some("SOURCE_UNKNOWN_SCHEMA"),
+            None,
+            0,
+            now_ms,
+        );
         report.state = "failed".into();
         report.reason = Some("SOURCE_UNKNOWN_SCHEMA".into());
         return report;
     }
-    let cursor = parser_state(row, store)
-        .cursor
-        .clone()
-        .unwrap_or_default();
+    let cursor = parser_state(row, store).cursor.clone().unwrap_or_default();
     let mut statement = match connection.prepare(
         "SELECT id, COALESCE(updated_at, created_at, ''), cwd, repository FROM sessions \
          WHERE COALESCE(updated_at, created_at, '') > ?1 OR (COALESCE(updated_at, created_at, '') = ?1 AND id > ?2) \
@@ -436,14 +465,17 @@ fn capture_copilot(
         .map(|(time, id)| (time.to_string(), id.to_string()))
         .unwrap_or_default();
     let sessions = statement
-        .query_map(rusqlite::params![cursor_time, cursor_id, MAX_SQLITE_PAGE as i64], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
-        })
+        .query_map(
+            rusqlite::params![cursor_time, cursor_id, MAX_SQLITE_PAGE as i64],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
         .map(|rows| rows.collect::<Result<Vec<_>, _>>())
         .unwrap_or_else(|_| Ok(Vec::new()));
     let sessions = match sessions {
@@ -523,7 +555,10 @@ fn capture_copilot(
             turn_index: None,
             parent_key: None,
             branch: None,
-            text: cwd.clone().or_else(|| repository.clone()).unwrap_or_default(),
+            text: cwd
+                .clone()
+                .or_else(|| repository.clone())
+                .unwrap_or_default(),
             completeness: "complete".into(),
             revision: 1,
         });
@@ -548,7 +583,11 @@ fn capture_copilot(
         prefix_hash: None,
         boundary_hash: None,
         parser_version: "1".into(),
-        state: if complete { "caught_up".into() } else { "growing".into() },
+        state: if complete {
+            "caught_up".into()
+        } else {
+            "growing".into()
+        },
         skipped_records: row.skipped_records + skipped,
         pending_bytes: if complete { 0 } else { 1 },
         last_error: None,
@@ -622,7 +661,10 @@ fn register_discovered(
     path: &Path,
     now_ms: i64,
 ) -> CoreResult<Option<SourceRow>> {
-    let extension = path.extension().and_then(|value| value.to_str()).unwrap_or("");
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
     let acceptable = match root.client.as_str() {
         "copilot" => matches!(extension, "db" | "sqlite" | "sqlite3"),
         "antigravity" => matches!(extension, "json" | "jsonl"),
@@ -643,7 +685,10 @@ fn register_discovered(
         if !matches_client(&root.client, &first) {
             return Ok(None);
         }
-        (header_identity(&root.client, &first), root.repository.clone())
+        (
+            header_identity(&root.client, &first),
+            root.repository.clone(),
+        )
     };
     let identity = native
         .clone()
@@ -684,9 +729,18 @@ fn first_line(path: &Path) -> CoreResult<Option<String>> {
 fn header_identity(client: &str, line: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     match client {
-        "codex" => value.pointer("/payload/id").and_then(|value| value.as_str()).map(str::to_string),
-        "pi" => value.get("id").and_then(|value| value.as_str()).map(str::to_string),
-        "claude" => value.get("sessionId").and_then(|value| value.as_str()).map(str::to_string),
+        "codex" => value
+            .pointer("/payload/id")
+            .and_then(|value| value.as_str())
+            .map(str::to_string),
+        "pi" => value
+            .get("id")
+            .and_then(|value| value.as_str())
+            .map(str::to_string),
+        "claude" => value
+            .get("sessionId")
+            .and_then(|value| value.as_str())
+            .map(str::to_string),
         _ => None,
     }
 }
@@ -703,8 +757,12 @@ fn normalize_repository_hint(value: &str) -> Option<String> {
     if parts.next().is_some()
         || owner.is_empty()
         || name.is_empty()
-        || !owner.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-        || !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        || !owner
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     {
         return None;
     }
@@ -726,7 +784,11 @@ pub fn register_hinted_source(
         let repository = repository_hint
             .and_then(normalize_repository_hint)
             .or_else(|| root.repository.clone());
-        (native_hint.map(str::to_string), root.repository.is_some(), repository)
+        (
+            native_hint.map(str::to_string),
+            root.repository.is_some(),
+            repository,
+        )
     } else {
         let first = first_line(&canonical)?.unwrap_or_default();
         let derived = header_identity(&root.client, &first);
@@ -767,7 +829,11 @@ pub fn register_hinted_source(
 }
 
 /// Resolve a configured root by ID and client, rejecting client mismatches.
-pub fn root_for<'a>(sources: &'a ResolvedSources, root_id: &str, client: &str) -> CoreResult<&'a ResolvedSourceRoot> {
+pub fn root_for<'a>(
+    sources: &'a ResolvedSources,
+    root_id: &str,
+    client: &str,
+) -> CoreResult<&'a ResolvedSourceRoot> {
     sources
         .roots
         .iter()
@@ -784,7 +850,10 @@ pub fn root_for<'a>(sources: &'a ResolvedSources, root_id: &str, client: &str) -
 /// Lexically normalizing helper: reject `..` components in configured roots
 /// before they are used for any filesystem call.
 pub fn reject_relative_escape(path: &Path) -> CoreResult<()> {
-    if path.components().any(|component| matches!(component, Component::ParentDir)) {
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
         return Err(CoreError::precondition(
             "SOURCE_ROOT_INVALID",
             "source root must not contain parent traversal",

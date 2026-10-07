@@ -165,7 +165,10 @@ async fn registration_captures_and_reports_without_exposing_paths() {
     )
     .await;
     assert_eq!(status, 200, "body: {body}");
-    let source_id = body["result"]["sourceId"].as_str().expect("source id").to_string();
+    let source_id = body["result"]["sourceId"]
+        .as_str()
+        .expect("source id")
+        .to_string();
     assert_eq!(body["result"]["accepted"], true);
 
     // Repeated registration of the same source coalesces to one identity.
@@ -193,8 +196,15 @@ async fn registration_captures_and_reports_without_exposing_paths() {
         .expect("registered source");
     assert_eq!(source["client"], "pi");
     assert_eq!(source["repository"], "owner/name");
-    assert_eq!(source["repositoryVerified"], false, "a hint is not verified identity");
-    assert_eq!(source["path"], Value::Null, "paths are absent from normal status");
+    assert_eq!(
+        source["repositoryVerified"], false,
+        "a hint is not verified identity"
+    );
+    assert_eq!(
+        source["path"],
+        Value::Null,
+        "paths are absent from normal status"
+    );
     assert!(source["offset"].as_i64().unwrap_or(0) > 0);
     assert_eq!(source["skippedRecords"], 0);
     assert!(body["result"]["counts"]["caughtUp"].as_i64().unwrap_or(0) >= 1);
@@ -233,7 +243,10 @@ async fn hints_coalesce_and_unknown_roots_or_identities_are_rejected() {
         }),
     )
     .await;
-    let source_id = body["result"]["sourceId"].as_str().expect("source").to_string();
+    let source_id = body["result"]["sourceId"]
+        .as_str()
+        .expect("source")
+        .to_string();
 
     let (status, first) = call(
         &daemon.socket,
@@ -261,7 +274,10 @@ async fn hints_coalesce_and_unknown_roots_or_identities_are_rejected() {
         }),
     )
     .await;
-    assert_eq!(repeat["result"]["coalesced"], true, "repeated event IDs coalesce");
+    assert_eq!(
+        repeat["result"]["coalesced"], true,
+        "repeated event IDs coalesce"
+    );
 
     let (status, unknown) = call(
         &daemon.socket,

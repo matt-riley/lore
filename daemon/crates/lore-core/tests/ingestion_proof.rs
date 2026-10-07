@@ -10,8 +10,7 @@ use lore_core::store::Store;
 const PI: &str = include_str!("../../../../tests/v2/fixtures/sources/pi.jsonl");
 const CODEX: &str = include_str!("../../../../tests/v2/fixtures/sources/codex.jsonl");
 const CLAUDE: &str = include_str!("../../../../tests/v2/fixtures/sources/claude.jsonl");
-const ANTIGRAVITY: &str =
-    include_str!("../../../../tests/v2/fixtures/sources/antigravity.jsonl");
+const ANTIGRAVITY: &str = include_str!("../../../../tests/v2/fixtures/sources/antigravity.jsonl");
 
 fn sources_dir(dir: &Path) -> PathBuf {
     let path = dir.join("sources");
@@ -50,24 +49,28 @@ fn write(dir: &Path, name: &str, contents: &str) -> PathBuf {
     path
 }
 
-fn register(store: &Store, config: &ResolvedConfig, path: &Path, hint: Option<&str>) -> lore_core::store::SourceRow {
-    register_hinted_source(
-        store,
-        &config.sources.roots[0],
-        path,
-        hint,
-        None,
-        1_000,
-    )
-    .expect("register")
+fn register(
+    store: &Store,
+    config: &ResolvedConfig,
+    path: &Path,
+    hint: Option<&str>,
+) -> lore_core::store::SourceRow {
+    register_hinted_source(store, &config.sources.roots[0], path, hint, None, 1_000)
+        .expect("register")
 }
 
-fn capture(store: &Store, config: &ResolvedConfig, row: &lore_core::store::SourceRow, now: i64) -> lore_core::ingestion::CaptureReport {
+fn capture(
+    store: &Store,
+    config: &ResolvedConfig,
+    row: &lore_core::store::SourceRow,
+    now: i64,
+) -> lore_core::ingestion::CaptureReport {
     capture_source(store, &config.sources, row, now)
 }
 
 fn parse_all(client: &str, contents: &str) -> Vec<lore_core::store::SourceRecord> {
-    let mut parser = lore_core::ingestion::parsers::LineParser::new(client, "fixture", ParserState::default());
+    let mut parser =
+        lore_core::ingestion::parsers::LineParser::new(client, "fixture", ParserState::default());
     let mut records = Vec::new();
     for line in contents.lines() {
         records.extend(parser.parse(line).records);
@@ -79,7 +82,10 @@ fn parse_all(client: &str, contents: &str) -> Vec<lore_core::store::SourceRecord
 fn pi_golden_fixture_normalizes_session_turns_tools_and_summaries() {
     let records = parse_all("pi", PI);
     let kinds: Vec<&str> = records.iter().map(|record| record.kind.as_str()).collect();
-    assert_eq!(kinds, vec!["session", "user_turn", "assistant_turn", "tool", "summary"]);
+    assert_eq!(
+        kinds,
+        vec!["session", "user_turn", "assistant_turn", "tool", "summary"]
+    );
     assert_eq!(records[1].turn_index, Some(1));
     assert_eq!(records[2].role.as_deref(), Some("assistant"));
     assert!(records[3].text.contains("capture.mjs"));
@@ -92,12 +98,20 @@ fn codex_golden_fixture_skips_analysis_channels() {
     let kinds: Vec<&str> = records.iter().map(|record| record.kind.as_str()).collect();
     assert_eq!(kinds, vec!["session", "user_turn", "assistant_turn"]);
     assert_eq!(records[1].turn_index, Some(1));
-    assert!(records.iter().all(|record| !record.text.contains("internal reasoning")));
+    assert!(
+        records
+            .iter()
+            .all(|record| !record.text.contains("internal reasoning"))
+    );
 }
 
 #[test]
 fn claude_golden_fixture_preserves_parents_and_abandons_side_branches() {
-    let mut parser = lore_core::ingestion::parsers::LineParser::new("claude", "cl-golden-1", ParserState::default());
+    let mut parser = lore_core::ingestion::parsers::LineParser::new(
+        "claude",
+        "cl-golden-1",
+        ParserState::default(),
+    );
     let mut records = Vec::new();
     let mut corrections = Vec::new();
     for line in CLAUDE.lines() {
@@ -107,14 +121,28 @@ fn claude_golden_fixture_preserves_parents_and_abandons_side_branches() {
     }
     assert_eq!(records.len(), 4, "meta record is skipped: {records:?}");
     assert_eq!(records[0].parent_key, None);
-    assert!(records[1].parent_key.as_deref().unwrap_or_default().ends_with('a'));
+    assert!(
+        records[1]
+            .parent_key
+            .as_deref()
+            .unwrap_or_default()
+            .ends_with('a')
+    );
     // The last node returns to the main chain, so the side branch is abandoned.
-    assert!(corrections.iter().any(|(_, completeness)| completeness == "abandoned"));
+    assert!(
+        corrections
+            .iter()
+            .any(|(_, completeness)| completeness == "abandoned")
+    );
 }
 
 #[test]
 fn antigravity_golden_fixture_revises_step_two() {
-    let mut parser = lore_core::ingestion::parsers::LineParser::new("antigravity", "fixture", ParserState::default());
+    let mut parser = lore_core::ingestion::parsers::LineParser::new(
+        "antigravity",
+        "fixture",
+        ParserState::default(),
+    );
     let mut records = Vec::new();
     let mut corrections = Vec::new();
     for line in ANTIGRAVITY.lines() {
@@ -145,16 +173,27 @@ fn capture_is_atomic_and_append_continues_the_generation() {
 
     // Append: same generation, offset advances, no duplicate evidence.
     std::fs::write(&path, PI).expect("append");
-    let row = store.source_by_id(&row.source_id).expect("get").expect("row");
+    let row = store
+        .source_by_id(&row.source_id)
+        .expect("get")
+        .expect("row");
     let report = capture(&store, &config, &row, 3_000);
-    assert_eq!(report.generation, first_generation, "append keeps the generation");
+    assert_eq!(
+        report.generation, first_generation,
+        "append keeps the generation"
+    );
     assert!(report.offset > first_offset);
     assert!(!report.reset);
-    let count = store.source_record_count(&row.source_id, &report.generation).expect("count");
+    let count = store
+        .source_record_count(&row.source_id, &report.generation)
+        .expect("count");
     assert_eq!(count, 5);
 
     // Re-capturing an unchanged source is a no-op.
-    let row = store.source_by_id(&row.source_id).expect("get").expect("row");
+    let row = store
+        .source_by_id(&row.source_id)
+        .expect("get")
+        .expect("row");
     let report = capture(&store, &config, &row, 4_000);
     assert_eq!(report.records, 0);
     assert_eq!(report.offset, row.offset);
@@ -171,20 +210,31 @@ fn truncation_and_replacement_start_a_new_generation() {
     assert!(first.records > 0);
 
     // Same-size replacement with different content resets the generation.
-    let replaced = CODEX.replace("Which table stores extraction intent?", "Which table stores capture evidence?   ");
+    let replaced = CODEX.replace(
+        "Which table stores extraction intent?",
+        "Which table stores capture evidence?   ",
+    );
     std::fs::write(&path, replaced).expect("replace");
-    let row = store.source_by_id(&row.source_id).expect("get").expect("row");
+    let row = store
+        .source_by_id(&row.source_id)
+        .expect("get")
+        .expect("row");
     let second = capture(&store, &config, &row, 3_000);
     assert_ne!(second.generation, first.generation);
     assert!(second.reset);
     assert_eq!(
-        store.generation_disposition(&row.source_id, &first.generation).expect("disposition"),
+        store
+            .generation_disposition(&row.source_id, &first.generation)
+            .expect("disposition"),
         Some("superseded".to_string())
     );
 
     // Truncation below the committed offset also resets.
     std::fs::write(&path, &CODEX[..20]).expect("truncate");
-    let row = store.source_by_id(&row.source_id).expect("get").expect("row");
+    let row = store
+        .source_by_id(&row.source_id)
+        .expect("get")
+        .expect("row");
     let third = capture(&store, &config, &row, 4_000);
     assert_ne!(third.generation, second.generation);
 }
@@ -195,18 +245,31 @@ fn trailing_partial_records_are_retained_and_oversized_records_are_skipped() {
     let mut config = config(dir.path(), "pi", None);
     config.sources.max_record_bytes = 2 * 1024;
     let store = Store::open(&config).expect("open");
-    let oversized = format!("{{\"type\":\"message\",\"pad\":\"{}\"}}\n", "x".repeat(4 * 1024));
+    let oversized = format!(
+        "{{\"type\":\"message\",\"pad\":\"{}\"}}\n",
+        "x".repeat(4 * 1024)
+    );
     let contents = format!("{}{}", PI, oversized);
     let path = write(dir.path(), "session.jsonl", &contents);
     let row = register(&store, &config, &path, Some("pi-golden-1"));
     let report = capture(&store, &config, &row, 2_000);
-    assert_eq!(report.skipped, 1, "oversized record is counted, not materialized");
-    assert_eq!(store.source_record_count(&row.source_id, &report.generation).expect("count"), 5);
-    assert!(store
-        .source_records(&row.source_id, &report.generation, 100)
-        .expect("records")
-        .iter()
-        .all(|record| record.text.len() < 64 * 1024));
+    assert_eq!(
+        report.skipped, 1,
+        "oversized record is counted, not materialized"
+    );
+    assert_eq!(
+        store
+            .source_record_count(&row.source_id, &report.generation)
+            .expect("count"),
+        5
+    );
+    assert!(
+        store
+            .source_records(&row.source_id, &report.generation, 100)
+            .expect("records")
+            .iter()
+            .all(|record| record.text.len() < 64 * 1024)
+    );
 
     // A partial trailing line is not consumed until it completes.
     let mut partial = PI.replace("pi-golden-1", "pi-partial-1");
@@ -216,12 +279,25 @@ fn trailing_partial_records_are_retained_and_oversized_records_are_skipped() {
     let report = capture(&store, &config, &row, 3_000);
     assert_eq!(report.state, "growing");
     assert!(report.offset < std::fs::metadata(&path).expect("meta").len() as i64);
-    assert_eq!(store.source_record_count(&row.source_id, &report.generation).expect("count"), 4);
+    assert_eq!(
+        store
+            .source_record_count(&row.source_id, &report.generation)
+            .expect("count"),
+        4
+    );
     std::fs::write(&path, PI.replace("pi-golden-1", "pi-partial-1")).expect("complete");
-    let row = store.source_by_id(&row.source_id).expect("get").expect("row");
+    let row = store
+        .source_by_id(&row.source_id)
+        .expect("get")
+        .expect("row");
     let report = capture(&store, &config, &row, 4_000);
     assert_eq!(report.state, "caught_up");
-    assert_eq!(store.source_record_count(&row.source_id, &report.generation).expect("count"), 5);
+    assert_eq!(
+        store
+            .source_record_count(&row.source_id, &report.generation)
+            .expect("count"),
+        5
+    );
 }
 
 #[test]
@@ -232,13 +308,26 @@ fn missing_and_symlinked_sources_never_delete_evidence() {
     let path = write(dir.path(), "session.jsonl", PI);
     let row = register(&store, &config, &path, Some("pi-golden-1"));
     let first = capture(&store, &config, &row, 2_000);
-    assert_eq!(store.source_record_count(&row.source_id, &first.generation).expect("count"), 5);
+    assert_eq!(
+        store
+            .source_record_count(&row.source_id, &first.generation)
+            .expect("count"),
+        5
+    );
 
     std::fs::remove_file(&path).expect("remove");
-    let row = store.source_by_id(&row.source_id).expect("get").expect("row");
+    let row = store
+        .source_by_id(&row.source_id)
+        .expect("get")
+        .expect("row");
     let report = capture(&store, &config, &row, 3_000);
     assert_eq!(report.state, "unavailable");
-    assert_eq!(store.source_record_count(&row.source_id, &first.generation).expect("count"), 5);
+    assert_eq!(
+        store
+            .source_record_count(&row.source_id, &first.generation)
+            .expect("count"),
+        5
+    );
 
     // A symlink escaping the approved root is rejected as ambiguous.
     let outside = tempfile::tempdir().expect("outside");
@@ -262,7 +351,10 @@ fn capture_conflicts_do_not_advance_offsets() {
     // A second capture built on the pre-commit row must not move the checkpoint.
     let stale = capture(&store, &config, &row, 3_000);
     assert!(stale.conflict || stale.offset == row.offset);
-    let current = store.source_by_id(&row.source_id).expect("get").expect("row");
+    let current = store
+        .source_by_id(&row.source_id)
+        .expect("get")
+        .expect("row");
     assert_eq!(current.offset, first.offset);
 }
 
@@ -291,7 +383,12 @@ fn copilot_sources_are_read_only() {
     let row = register(&store, &config, &path, None);
     let report = capture(&store, &config, &row, 2_000);
     assert_eq!(report.state, "caught_up");
-    assert_eq!(store.source_record_count(&row.source_id, &report.generation).expect("count"), 3);
+    assert_eq!(
+        store
+            .source_record_count(&row.source_id, &report.generation)
+            .expect("count"),
+        3
+    );
     let after = std::fs::metadata(&path).expect("meta").len();
     assert_eq!(before, after, "host database bytes are untouched");
 
@@ -311,9 +408,15 @@ fn copilot_sources_are_read_only() {
             )
             .expect("insert");
     }
-    let row = store.source_by_id(&row.source_id).expect("get").expect("row");
+    let row = store
+        .source_by_id(&row.source_id)
+        .expect("get")
+        .expect("row");
     let report = capture(&store, &config, &row, 3_000);
-    assert!(report.records >= 2, "changed and new turns are captured: {report:?}");
+    assert!(
+        report.records >= 2,
+        "changed and new turns are captured: {report:?}"
+    );
 }
 
 #[test]
@@ -353,7 +456,10 @@ fn unresolved_repository_hints_stay_unverified() {
     )
     .expect("register");
     assert_eq!(row.repository.as_deref(), Some("owner/name"));
-    assert!(!row.repository_verified, "a hint alone is not verified identity");
+    assert!(
+        !row.repository_verified,
+        "a hint alone is not verified identity"
+    );
 
     let verified = register_hinted_source(
         &store,

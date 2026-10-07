@@ -8,8 +8,9 @@ hooks, installers, database imports or support-claim changes.
 ## Crates
 
 - `crates/protocol` — wire types plus JSON Schema parity and fixture tests.
-- `crates/lore-core` — configuration, SQLite store (schema 2 with embedding
-  intents, jobs and vectors), policy, retrieval and store/endpoint lifecycle.
+- `crates/lore-core` — configuration, SQLite store (schema 3 with embedding
+  intents, jobs, vectors and source capture), policy, retrieval, ingestion and
+  store/endpoint lifecycle.
 - `crates/lore-provider` — OpenAI-compatible embedding client with contract-grade
   response validation.
 - `crates/lored` — daemon: config-driven startup, ownership locks, routes,
@@ -22,9 +23,18 @@ hooks, installers, database imports or support-claim changes.
 ## Routes and storage
 
 `POST /v2/status`, `/v2/retain`, `/v2/forget`, `/v2/recall`, `/v2/jobs/status`,
-`/v2/jobs/retry` and `/v2/config/reload` over a Unix socket. Memory lives in
+`/v2/jobs/retry`, `/v2/config/reload`, `/v2/sources/register`,
+`/v2/sources/hint` and `/v2/sources/status` over a Unix socket. Memory lives in
 SQLite (WAL, `synchronous=FULL`, FTS5) with idempotency receipts, ID tombstones,
 content-fingerprint suppression, scope policy and maintained counters.
+
+Approved source roots (stage 4) are captured in bounded quanta under a
+checkpoint compare-and-swap: per-client parsers normalize evidence, appends
+continue a generation, replacement starts a new one, and a durable directory
+cursor plus 60-second sweep catches missed notifications. Host session
+databases are opened read-only and never migrated. Advertised capabilities
+then include `sources.register`, `sources.hint` and `sources.status`;
+expression of that evidence into memories is stage 5A.
 
 With `providers.embeddings.enabled`, a background worker reconciles eligible
 memories into materialized jobs, embeds them in bounded batches and stores
@@ -58,6 +68,22 @@ and `config.reload`.
 Embeddings are off unless enabled; dimensions are required; non-loopback
 endpoints need `allowRemote: true`.
 
+Source capture is off until a root is listed:
+
+```json
+{
+  "sources": {
+    "roots": [
+      { "rootId": "pi-sessions", "client": "pi", "path": "/Users/me/.pi/agent/sessions", "repository": "owner/name" }
+    ],
+    "sweepSeconds": 60
+  }
+}
+```
+
+`repository` is optional and is the only path to `repositoryVerified`; path
+hints never set it.
+
 `enabled: false` serves Status with `CONFIG_DISABLED` and rejects memory
 operations. Relative paths resolve against the config directory. A v1
 `lore.db` inside `dataDir` is refused.
@@ -86,6 +112,7 @@ mise exec rust@1.99.0 -- cargo build --release --manifest-path daemon/Cargo.toml
 LORED_BIN=$PWD/daemon/target/release/lored node daemon/tests/benchmark-lexical.mjs --count 10000 --queries 200
 node daemon/tests/v1-lexical-baseline.mjs --count 10000 --queries 200
 LORED_BIN=$PWD/daemon/target/release/lored node daemon/tests/benchmark-semantic.mjs --report /tmp/g3-latency.json
+LORED_BIN=$PWD/daemon/target/debug/lored node daemon/tests/ingestion-load.mjs
 ```
 
 Semantic quality (requires a configured local embedding provider; the default
@@ -103,6 +130,8 @@ node daemon/tests/semantic-quality.mjs --mode v1-semantic --split held-out --thr
 - G2 passed 2026-10-07 — [evidence](../docs/v2/evidence/g2.md).
 - G3 passed 2026-10-07 — [evidence](../docs/v2/evidence/g3.md) (one recorded
   fusion deviation).
+- G4 stage-4 capture passed 2026-10-07 — [evidence](../docs/v2/evidence/g4.md);
+  extraction parity (stage 5A) still required.
 
-Not yet implemented: ingestion (stage 4), extraction and migration (stage 5),
-adapters and administration (stage 6), packaging and cutover (stage 7).
+Not yet implemented: extraction and migration (stage 5), adapters and
+administration (stage 6), packaging and cutover (stage 7).

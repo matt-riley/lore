@@ -1,0 +1,71 @@
+{
+  "generatedAt": "2026-10-07T13:17:05.937Z",
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "node": "v26.9.0"
+  },
+  "clients": 4,
+  "recalls": 240,
+  "retains": 160,
+  "recallMs": {
+    "p50": 2.12,
+    "p95": 2.81,
+    "p99": 4.03
+  },
+  "retainMs": {
+    "p50": 0.86,
+    "p95": 1.61,
+    "p99": 4.34
+  },
+  "captured": {
+    "source": {
+      "sourceId": "src_50243fc462cda43d685dc0112bc5393c",
+      "client": "pi",
+      "rootId": "load-root",
+      "nativeSessionId": "load-proof-1",
+      "repositoryVerified": false,
+      "state": "caught_up",
+      "generation": "81e423f9-7687-4457-9fbe-9d30d3d19394",
+      "generationSeq": 1,
+      "observedSize": 235193,
+      "offset": 235193,
+      "pendingBytes": 0,
+      "captureRevision": 235193,
+      "normalizedRecords": 1501,
+      "skippedRecords": 0,
+      "lastProgressMs": 1791379025868
+    },
+    "churn": {
+      "sourceId": "src_ebc33f6003bc66d59473cbb245bf9e29",
+      "client": "pi",
+      "rootId": "load-root",
+      "nativeSessionId": "load-churn-1",
+      "repositoryVerified": false,
+      "state": "caught_up",
+      "generation": "67ecbce9-e00f-4568-828f-f4da994515b1",
+      "generationSeq": 1,
+      "observedSize": 54718,
+      "offset": 54718,
+      "pendingBytes": 0,
+      "captureRevision": 54718,
+      "normalizedRecords": 351,
+      "skippedRecords": 0,
+      "lastProgressMs": 1791379025868
+    },
+    "counts": {
+      "discovered": 0,
+      "caughtUp": 2,
+      "growing": 0,
+      "unavailable": 0,
+      "ambiguous": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "pendingExtraction": 0,
+    "observedAt": 1791379025936
+  },
+  "appendedDuringLoad": 300,
+  "churnLinesWritten": 300,
+  "elapsedMs": 5077
+}

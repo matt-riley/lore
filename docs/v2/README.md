@@ -25,7 +25,7 @@ At this baseline, `lib/memory/semantic-search.mjs` uses a 10,000 ms default sema
 | 1 | HTTP/JSON contract and minimal Rust/Node/Bun socket proof | [Contracts](01-contracts.md) | [G1 evidence](evidence/g1.md): wire, host-loading, cold-process, identity and deadline tests |
 | 2 | Durable Status, Retain, Forget and lexical Recall | [Daemon core](02-daemon-core.md) | [G2 evidence](evidence/g2.md): two clients, safety fixtures, crash/retry proof, lexical baseline |
 | 3 | Background memory embeddings and bounded query inference | [Embeddings](03-background-embeddings.md) | [G3 evidence](evidence/g3.md): cold-query quality, degraded retrieval, resource and backlog report |
-| 4 | Background source discovery and checkpointed capture | [Ingestion](04-ingestion.md) | Every client format; replacement, compaction and restart evidence |
+| 4 | Background source discovery and checkpointed capture | [Ingestion](04-ingestion.md) | [G4 capture evidence](evidence/g4.md): every client format; replacement, compaction and restart evidence |
 | 5A | Rust extraction and complete context assembly | [Extraction](05-extraction.md) | Reliability, mandatory-context and provenance gates |
 | 5B | Explicit v1 migration, backup and suppression-safe recovery | [Migration/recovery](05-migration-recovery.md) | Released-schema accounting and recovery rehearsal |
 | 6A | Thin adapters and compatible human/script interfaces | [Client adapters](06-client-adapters.md) | Pi, Copilot, Codex, Claude Code, Antigravity host evidence |
@@ -77,7 +77,7 @@ Gate G2 (stage 2): acknowledged writes survive process failure; retries and Forg
 
 Gate G3 (stage 3): first-seen query quality, fallback quality, memory coverage, latency, RSS, write contention, and recovery all meet [validation](validation.md). Publish the report and record an explicit go/no-go before starting the large extraction port. A failed gate blocks expansion; it does not authorize a silent threshold change or language switch. Passed 2026-10-07 ([evidence](evidence/g3.md)).
 
-Gate G4 (stages 4-5A): source capture is accounted for and the independent reliability corpus passes. Empty queues cannot establish capture completeness.
+Gate G4 (stages 4-5A): source capture is accounted for and the independent reliability corpus passes. Empty queues cannot establish capture completeness. Stage-4 capture passed 2026-10-07 ([evidence](evidence/g4.md)); extraction parity remains with stage 5A, so G4 is not closed.
 
 Gate G5 (stages 5B-6B): migration and recovery are rehearsed, all capability rows are implemented, and each host has real integration evidence. Pi may enter an explicitly partial experimental cohort earlier on synthetic data; full replacement claims wait for G5.
 

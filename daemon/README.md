@@ -39,7 +39,7 @@ LORED_BIN=$PWD/daemon/target/debug/lored bun  daemon/clients/js/status-probe.mjs
 
 ## G1 status
 
-Passed 2026-10-07 at `ebef6d6` — full record in
+Passed 2026-10-07 at `2e8bff4` — full record in
 [`docs/v2/evidence/g1.md`](../docs/v2/evidence/g1.md).
 
 Proven locally and in CI:

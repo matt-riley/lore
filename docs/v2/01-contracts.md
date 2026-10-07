@@ -1,6 +1,6 @@
 # Slice 1: protocol and compatibility contracts
 
-Status: G1 passed 2026-10-07 at `ebef6d6` — evidence in [evidence/g1.md](evidence/g1.md); the proof scaffold lives in [`daemon/`](../../daemon/README.md). Depends on the [decisions](architecture-decisions.md), [limits/storage](configuration-storage.md) and [validation](validation.md). Exit: G1.
+Status: G1 passed 2026-10-07 at `2e8bff4` — evidence in [evidence/g1.md](evidence/g1.md); the proof scaffold lives in [`daemon/`](../../daemon/README.md). Depends on the [decisions](architecture-decisions.md), [limits/storage](configuration-storage.md) and [validation](validation.md). Exit: G1.
 
 ## Deliverables and first executable proof
 

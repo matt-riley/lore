@@ -167,6 +167,11 @@ jobs:
       - name: Two-client and lexical quality proofs
         run: LORED_BIN="$PWD/target/debug/lored" node --test tests/two-client.test.mjs tests/lexical-quality.test.mjs
 
+      - name: Capability catalog and adapter proofs
+        run: |
+          node --test tests/capability-catalog.test.mjs
+          LORED_BIN="$PWD/target/debug/lored" node --test tests/adapter.test.mjs
+
       - name: Ingestion load proof (capture under foreground load)
         run: LORED_BIN="$PWD/target/debug/lored" node tests/ingestion-load.mjs
 

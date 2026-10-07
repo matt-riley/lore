@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -22,8 +22,12 @@ if (!binary) {
 const runtime = typeof Bun === "undefined" ? "node" : "bun";
 const dir = mkdtempSync(path.join(tmpdir(), "lore-v2-probe-"));
 const socket = path.join(dir, "lored.sock");
-const storeId = "store-probe-test";
-const child = spawn(binary, ["--socket", socket, "--store-id", storeId], {
+const configPath = path.join(dir, "lore.json");
+writeFileSync(
+  configPath,
+  `${JSON.stringify({ configVersion: 2, enabled: true, dataDir: dir, socketPath: socket }, null, 2)}\n`,
+);
+const child = spawn(binary, ["--config", configPath], {
   stdio: ["ignore", "ignore", "inherit"],
 });
 
@@ -38,10 +42,10 @@ try {
   assert.equal(outcome.statusCode, 200, outcome.body);
   const payload = JSON.parse(outcome.body);
   assert.equal(payload.ok, true);
-  assert.equal(payload.storeId, storeId);
+  assert.ok(payload.storeId, "storeId should be present");
+  assert.equal(payload.storeId, payload.result.storeId);
   assert.equal(payload.result.apiMajor, 2);
   assert.equal(payload.result.apiMinor, 0);
-  assert.equal(payload.result.storeId, storeId);
   assert.ok(payload.result.capabilities.includes("status.basic"));
 
   console.log(`probe ok: runtime=${runtime} apiMajor=${payload.result.apiMajor} storeId=${payload.storeId}`);

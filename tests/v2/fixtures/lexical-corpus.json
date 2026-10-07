@@ -1,0 +1,32 @@
+{
+  "seed": 7,
+  "note": "Curated synthetic lexical cases. Keys map to memory index order when loading.",
+  "memories": [
+    { "key": "pnpm", "type": "note", "content": "The package manager for the build is pnpm workspaces with a frozen lockfile.", "scope": "global" },
+    { "key": "deploy", "type": "note", "content": "Deploys run through GitHub Actions on the main branch.", "scope": "global" },
+    { "key": "sqlite", "type": "note", "content": "The daemon stores memories in SQLite with write-ahead logging.", "scope": "global" },
+    { "key": "identity", "type": "note", "content": "Repository identity prefers the origin remote and falls back to a local hash.", "scope": "global" },
+    { "key": "release", "type": "note", "content": "Releases are published with release-please from conventional commits.", "scope": "global" },
+    { "key": "dashboard", "type": "note", "content": "The dashboard binds to loopback only and is read-only.", "scope": "global" },
+    { "key": "node floor", "type": "note", "content": "Node 24 is the supported floor for the JavaScript client.", "scope": "global" },
+    { "key": "defaults", "type": "note", "content": "Recall returns at most six results by default and twenty on request.", "scope": "global" },
+    { "key": "unrelated", "type": "note", "content": "Coffee machine cleaning is scheduled every Friday afternoon.", "scope": "global" },
+    { "key": "prompt path", "type": "note", "content": "Prompt recall must never embed memories on the prompt path.", "scope": "global" },
+    { "key": "tombstones", "type": "note", "content": "Forgotten memories keep an ID tombstone and cannot be resurrected by retries.", "scope": "global" },
+    { "key": "scope policy", "type": "note", "content": "Scope policy admits transferable rows cross-repository only with explicit consent.", "scope": "global" }
+  ],
+  "queries": [
+    { "query": "which package manager does the build use", "relevant": ["pnpm"] },
+    { "query": "where do deploys run", "relevant": ["deploy"] },
+    { "query": "SQLite write-ahead logging", "relevant": ["sqlite"] },
+    { "query": "origin remote repository identity", "relevant": ["identity"] },
+    { "query": "release-please conventional commits", "relevant": ["release"] },
+    { "query": "loopback dashboard read-only", "relevant": ["dashboard"] },
+    { "query": "Node 24 supported floor", "relevant": ["node floor"] },
+    { "query": "recall results by default", "relevant": ["defaults"] },
+    { "query": "embed memories prompt path", "relevant": ["prompt path"] },
+    { "query": "forgotten tombstone resurrected retries", "relevant": ["tombstones"] },
+    { "query": "transferable cross-repository explicit consent", "relevant": ["scope policy"] }
+  ],
+  "forbidden": { "coffee": ["unrelated"] }
+}

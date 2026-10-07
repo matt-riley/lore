@@ -20,11 +20,21 @@ impl Daemon {
     fn start_with(extra: &[&str]) -> Self {
         let dir = tempfile::tempdir().expect("tempdir");
         let socket = dir.path().join("lored.sock");
+        let config_path = dir.path().join("lore.json");
+        let config = serde_json::json!({
+            "configVersion": 2,
+            "enabled": true,
+            "dataDir": dir.path().to_str().expect("utf8 dir"),
+            "socketPath": socket.to_str().expect("utf8 socket"),
+        });
+        std::fs::write(
+            &config_path,
+            serde_json::to_vec_pretty(&config).expect("config json"),
+        )
+        .expect("write config");
         let child = Command::new(env!("CARGO_BIN_EXE_lored"))
-            .arg("--socket")
-            .arg(&socket)
-            .arg("--store-id")
-            .arg("store-test")
+            .arg("--config")
+            .arg(&config_path)
             .args(extra)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -129,7 +139,9 @@ async fn status_round_trip_is_contract_shaped() {
     assert_eq!(outcome.status_code, 200, "body: {}", outcome.body);
     let json = outcome.json().expect("json");
     assert_eq!(json["ok"], true);
-    assert_eq!(json["storeId"], "store-test");
+    let store_id = json["storeId"].as_str().expect("storeId string");
+    assert!(!store_id.is_empty());
+    assert_eq!(json["result"]["storeId"], store_id);
     assert_eq!(json["result"]["apiMajor"], 2);
     assert_eq!(json["result"]["apiMinor"], 0);
     assert_eq!(json["result"]["schemaVersion"], 1);
@@ -177,7 +189,7 @@ async fn unknown_route_is_unimplemented() {
     let (status, body) = raw(
         daemon.socket(),
         "POST",
-        "/v2/retain",
+        "/v2/unknown",
         "lore.local",
         "application/json",
         r#"{"meta":{"clientId":"t","requestId":"r"}}"#,

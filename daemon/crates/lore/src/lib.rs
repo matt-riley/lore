@@ -9,9 +9,10 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::Request;
 use hyper_util::rt::TokioIo;
+use serde_json::Value;
 use tokio::net::UnixStream;
 
-use protocol::{Envelope, HOST, RequestMeta, StatusParams};
+use protocol::{HOST, RequestMeta, StatusParams};
 
 /// Raw outcome of a status request, so callers can assert on both the HTTP
 /// status and the protocol body.
@@ -33,11 +34,12 @@ impl StatusOutcome {
     }
 }
 
-/// Send one `POST /v2/status` request over the daemon socket.
-pub async fn request_status(
+/// Send one `POST` request over the daemon socket.
+pub async fn request(
     socket: &Path,
+    path: &str,
     meta: RequestMeta,
-    params: StatusParams,
+    params: Value,
 ) -> Result<StatusOutcome> {
     let stream = UnixStream::connect(socket)
         .await
@@ -49,11 +51,11 @@ pub async fn request_status(
         let _ = connection.await;
     });
 
-    let envelope = Envelope { meta, params };
+    let envelope = serde_json::json!({ "meta": meta, "params": params });
     let body = serde_json::to_vec(&envelope).context("encode request")?;
     let request = Request::builder()
         .method("POST")
-        .uri(format!("http://{HOST}/v2/status"))
+        .uri(format!("http://{HOST}{path}"))
         .header(hyper::header::HOST, HOST)
         .header(hyper::header::CONTENT_TYPE, "application/json")
         .body(Full::new(Bytes::from(body)))
@@ -70,4 +72,19 @@ pub async fn request_status(
         status_code,
         body: String::from_utf8_lossy(&bytes).into_owned(),
     })
+}
+
+/// Send one `POST /v2/status` request over the daemon socket.
+pub async fn request_status(
+    socket: &Path,
+    meta: RequestMeta,
+    params: StatusParams,
+) -> Result<StatusOutcome> {
+    request(
+        socket,
+        "/v2/status",
+        meta,
+        serde_json::to_value(params).context("encode status params")?,
+    )
+    .await
 }

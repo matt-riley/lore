@@ -21,7 +21,11 @@
         "processInstanceId",
         "uptimeMs",
         "readiness",
-        "capabilities"
+        "capabilities",
+        "memoryRevision",
+        "derivedGeneration",
+        "counts",
+        "queue"
       ],
       "properties": {
         "apiMajor": { "const": 2 },
@@ -32,11 +36,37 @@
         "processInstanceId": { "type": "string", "minLength": 1 },
         "uptimeMs": { "type": "integer", "minimum": 0 },
         "readiness": { "enum": ["ready", "degraded", "unavailable"] },
+        "reason": { "type": "string", "minLength": 1 },
         "capabilities": {
           "type": "array",
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
-        }
+        },
+        "memoryRevision": { "type": "string", "pattern": "^[0-9]+$" },
+        "derivedGeneration": { "type": "string", "pattern": "^[0-9]+$" },
+        "counts": { "$ref": "#/$defs/counts" },
+        "queue": { "$ref": "#/$defs/queue" }
+      }
+    }
+  },
+  "$defs": {
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["activeMemories", "forgottenMemories", "receipts"],
+      "properties": {
+        "activeMemories": { "type": "string", "pattern": "^[0-9]+$" },
+        "forgottenMemories": { "type": "string", "pattern": "^[0-9]+$" },
+        "receipts": { "type": "string", "pattern": "^[0-9]+$" }
+      }
+    },
+    "queue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queued", "running"],
+      "properties": {
+        "queued": { "type": "string", "pattern": "^[0-9]+$" },
+        "running": { "type": "string", "pattern": "^[0-9]+$" }
       }
     }
   }

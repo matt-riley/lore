@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "requestId": "fixture-status-1",
+  "storeId": "store-fixture",
+  "result": {
+    "apiMajor": 2,
+    "apiMinor": 0,
+    "daemonVersion": "0.1.0",
+    "schemaVersion": 1,
+    "storeId": "store-fixture",
+    "processInstanceId": "fixture-process-1",
+    "uptimeMs": 42,
+    "readiness": "ready",
+    "capabilities": [
+      "status.basic",
+      "memory.retain.manual",
+      "memory.forget",
+      "recall.lexical"
+    ],
+    "memoryRevision": "3",
+    "derivedGeneration": "0",
+    "counts": {
+      "activeMemories": "2",
+      "forgottenMemories": "1",
+      "receipts": "4"
+    },
+    "queue": { "queued": "0", "running": "0" }
+  }
+}

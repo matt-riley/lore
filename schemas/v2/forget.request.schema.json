@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lore:v2:forget.request",
+  "title": "Lore v2 forget request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meta"],
+  "properties": {
+    "meta": { "$ref": "#/$defs/meta" },
+    "params": { "$ref": "#/$defs/params" }
+  },
+  "$defs": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientId", "requestId"],
+      "properties": {
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sessionId": { "type": "string", "maxLength": 256 },
+        "expectedStoreId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "timeoutMs": { "type": "integer", "minimum": 1 },
+        "requiredCapabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["idempotencyKey", "memoryId"],
+      "properties": {
+        "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "memoryId": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "maxLength": 512 }
+      }
+    }
+  }
+}

@@ -18,9 +18,32 @@ Node adapter proofs.
 | Journal | `uncertain-writes.json` in the owned data dir, 0600, atomic temp+fsync+rename, capacity 100 before dispatch, payload dropped on resolve; `lore retries list|resolve`. |
 | Thin adapter | `daemon/clients/js/lore-adapter.mjs`: capability negotiation, cached store identity, Recall/Retain/Forget with `AbortSignal` cancellation that destroys the in-flight request. No SQLite import. |
 
-Implemented canonical operations: `lore_status`, `lore_retain`, `lore_forget`,
-`lore_recall` (4 of 27). The remaining 23 are marked `planned` in the catalog
-and refuse dispatch.
+Implemented canonical operations (10 of 27): `lore_status`, `lore_retain`,
+`lore_forget`, `lore_recall`, `lore_search`, `lore_explain`, `lore_validate`,
+`lore_doctor`, `lore_audit_extractions` and `memory_capability_inventory`.
+The remaining 17 are marked `planned` in the catalog and refuse dispatch.
+
+### Read-only administration (first matrix slice)
+
+`/v2/admin/{search,explain,validate,doctor,audit/extractions}` are bounded
+synchronous reads with capability IDs `search.browse`, `explain.context`,
+`validate.read`, `doctor.read` and `audit.read`:
+
+- **Search** is lexical browsing with explicit scope selection, suppression,
+  expiry and supersession applied, plus keyset pagination and an explicit
+  all-repositories administrative selection. A missing query fails before any
+  work (`ADMIN_ARGUMENT_INVALID`).
+- **Explain** runs the same Recall assembly and reports sections, represented
+  IDs and bounded diagnostics without persisting the query.
+- **Validate** reports quick/deep integrity, foreign-key violations, schema
+  parity and FTS health.
+- **Doctor** is observe-only: health, coverage, skipped records, pending
+  extraction and categorical hints.
+- **Audit extractions** reports per-source capture state, normalized record
+  counts, extraction intent state/rule version and gaps separately from
+  completion.
+- **Capability inventory** merges the checked-in catalog with live daemon
+  capabilities; it works without a daemon and reports `storeId: null`.
 
 ## 6B — administration and dashboard
 
@@ -48,10 +71,12 @@ and refuse dispatch.
   hooks are exercised against a fake daemon and the adapter against a real
   daemon, but no host application has been driven. G5's per-host integration
   evidence therefore remains open, and support claims stay experimental.
-- **23 of 27 canonical operations are planned**, including correct/repair/
+- **17 of 27 canonical operations are planned**, including correct/repair/
   purge/scope-override, maintenance, reflection, backfill, portable bundles
-  and validate/replay runs. Human/slash surfaces for those verbs fail
-  explicitly rather than pretending support.
+  and replay runs. Human/slash surfaces for those verbs fail explicitly
+  rather than pretending support. The durable run model for expensive
+  operations is not implemented yet; the current admin set is deliberately
+  bounded synchronous reads.
 - Hook source hints and capture observations are not wired: capture relies on
   the daemon's scheduled discovery, which is proven to catch up without
   hints. Hooks do prompt Recall and lifecycle-neutral responses only.

@@ -588,13 +588,30 @@ version = "0.1.0"
 dependencies = [
  "fd-lock",
  "libc",
+ "lore-provider",
  "protocol",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
+ "url",
  "uuid",
+]
+
+[[package]]
+name = "lore-provider"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -610,9 +627,11 @@ dependencies = [
  "libc",
  "lore",
  "lore-core",
+ "lore-provider",
  "protocol",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "uuid",

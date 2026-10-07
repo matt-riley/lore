@@ -6,8 +6,9 @@ use stopwords::STOPWORDS;
 
 /// Maximum number of MATCH terms derived from one query.
 pub const MAX_TERMS: usize = 32;
-/// Minimum token length that receives a prefix match.
-pub const PREFIX_LENGTH: usize = 4;
+/// Minimum token length that receives a prefix match. Three lets paraphrase
+/// pairs such as key/keys and rotate/rotating meet the same term.
+pub const PREFIX_LENGTH: usize = 3;
 
 /// Normalize a query into safe, deduplicated terms.
 ///
@@ -123,9 +124,9 @@ mod tests {
     fn fts_terms_are_quoted_and_prefixed() {
         assert_eq!(
             fts_query(&["sql".to_string(), "memory".to_string()]),
-            "\"sql\" AND \"memory\"*"
+            "\"sql\"* AND \"memory\"*"
         );
-        assert_eq!(fts_query(&["a\"b".to_string()]), "\"a\"\"b\"");
+        assert_eq!(fts_query(&["a\"b".to_string()]), "\"a\"\"b\"*");
     }
 
     #[test]

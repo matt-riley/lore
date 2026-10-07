@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -26,15 +27,25 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-use lore_core::config::ResolvedConfig;
+use lore_core::config::{ResolvedConfig, ResolvedEmbedding};
 use lore_core::error::CoreError;
 use lore_core::lifecycle;
 use lore_core::policy;
-use lore_core::store::Store;
+use lore_core::store::{EmbeddingCounts, SemanticInput, Store};
+use lore_provider::{EmbeddingProvider, ProviderIdentity};
+use tokio::sync::Notify;
+
+use semantics::{QueryOutcome, Semantics};
+use worker::{WorkerState, spawn as spawn_worker};
+
+mod semantics;
+mod worker;
 use protocol::{
-    API_MAJOR, API_MINOR, BODY_DEADLINE_MS, Envelope, ErrorDetail, ErrorEnvelope, ForgetParams,
-    HOST, MAX_BODY_BYTES, MAX_TIMEOUT_MS, OkEnvelope, Readiness, RecallParams, RequestMeta,
-    RetainParams, StatusCounts, StatusParams, StatusQueue, StatusResult, code, reason,
+    API_MAJOR, API_MINOR, BODY_DEADLINE_MS, ConfigReloadParams, ConfigReloadResult,
+    EmbeddingStatus, Envelope, ErrorDetail, ErrorEnvelope, ForgetParams, HOST, JobCounts,
+    JobRecord, JobsRetryParams, JobsRetryResult, JobsStatusParams, JobsStatusResult,
+    MAX_BODY_BYTES, MAX_TIMEOUT_MS, OkEnvelope, Readiness, RecallParams, RequestMeta, RetainParams,
+    StatusCounts, StatusParams, StatusQueue, StatusResult, code, reason,
 };
 
 type Resp = Response<Full<Bytes>>;
@@ -69,12 +80,17 @@ struct State {
     store: Arc<Store>,
     store_id: String,
     enabled: bool,
-    limits: lore_core::config::Limits,
+    config: ResolvedConfig,
     process_instance_id: String,
     started: Instant,
     inflight: Arc<Semaphore>,
     max_inflight: usize,
     clients: Mutex<HashMap<String, usize>>,
+    semantics: Arc<Semantics>,
+    worker_state: Arc<WorkerState>,
+    notify: Arc<Notify>,
+    generation: AtomicU32,
+    config_path: Option<PathBuf>,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -109,16 +125,54 @@ async fn main() -> Result<()> {
         .ino();
 
     let max_inflight = args.max_inflight.max(1);
+    let provider = match &config.embedding {
+        Some(embedding) => Some(Arc::new(build_provider(embedding).map_err(to_anyhow)?)),
+        None => None,
+    };
+    let min_similarity = config
+        .embedding
+        .as_ref()
+        .map(|embedding| embedding.min_similarity)
+        .unwrap_or(0.0);
+    let semantics = Arc::new(Semantics::new(
+        provider,
+        config.embedding_identity.clone(),
+        min_similarity,
+    ));
+    let worker_state = Arc::new(WorkerState::new());
+    let notify = Arc::new(Notify::new());
+    let worker_handle = if config.embedding.is_some() {
+        let handle = spawn_worker(
+            Arc::clone(&semantics),
+            Arc::clone(&store),
+            Arc::clone(&notify),
+            Arc::clone(&worker_state),
+        );
+        notify.notify_one();
+        Some(handle)
+    } else {
+        None
+    };
+    let generation = config
+        .embedding
+        .as_ref()
+        .map(|embedding| embedding.generation)
+        .unwrap_or(0);
     let state = Arc::new(State {
         store,
         store_id: initial.store_id,
         enabled: config.enabled,
-        limits: config.limits.clone(),
+        config: config.clone(),
         process_instance_id: Uuid::new_v4().to_string(),
         started: Instant::now(),
         inflight: Arc::new(Semaphore::new(max_inflight)),
         max_inflight,
         clients: Mutex::new(HashMap::new()),
+        semantics,
+        worker_state,
+        notify,
+        generation: AtomicU32::new(generation),
+        config_path: config.config_path.clone(),
     });
     eprintln!(
         "[lored] listening on {} (store {})",
@@ -151,7 +205,26 @@ async fn main() -> Result<()> {
     {
         let _ = std::fs::remove_file(&config.socket_path);
     }
+    if let Some(handle) = worker_handle {
+        handle.abort();
+    }
     Ok(())
+}
+
+fn build_provider(embedding: &ResolvedEmbedding) -> Result<EmbeddingProvider, CoreError> {
+    let identity = ProviderIdentity::new(
+        &embedding.endpoint,
+        &embedding.model,
+        embedding.generation,
+        embedding.dimensions,
+    )
+    .map_err(|error| CoreError::invalid(error.category(), error.to_string()))?;
+    EmbeddingProvider::new(
+        identity,
+        &embedding.endpoint,
+        Duration::from_millis(embedding.timeout_ms),
+    )
+    .map_err(|error| CoreError::invalid(error.category(), error.to_string()))
 }
 
 /// Validate or clear an existing endpoint before binding.
@@ -224,7 +297,13 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
     let path = request.uri().path().to_string();
     if !matches!(
         path.as_str(),
-        "/v2/status" | "/v2/retain" | "/v2/forget" | "/v2/recall"
+        "/v2/status"
+            | "/v2/retain"
+            | "/v2/forget"
+            | "/v2/recall"
+            | "/v2/jobs/status"
+            | "/v2/jobs/retry"
+            | "/v2/config/reload"
     ) {
         return fail_response(
             StatusCode::NOT_IMPLEMENTED,
@@ -346,6 +425,9 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
         "/v2/status" => handle_status(&raw, &state, request_id).await,
         "/v2/retain" => handle_retain(&raw, &state, request_id).await,
         "/v2/forget" => handle_forget(&raw, &state, request_id).await,
+        "/v2/jobs/status" => handle_jobs_status(&raw, &state, request_id).await,
+        "/v2/jobs/retry" => handle_jobs_retry(&raw, &state, request_id).await,
+        "/v2/config/reload" => handle_config_reload(&raw, &state, request_id).await,
         _ => handle_recall(&raw, &state, request_id).await,
     }
 }
@@ -495,7 +577,16 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     }
 
     let store = Arc::clone(&state.store);
-    let work = tokio::task::spawn_blocking(move || store.status());
+    let identity = state.semantics.identity();
+    let now = now_ms();
+    let work = tokio::task::spawn_blocking(move || {
+        let status = store.status()?;
+        let counts = match &identity {
+            Some(identity) => store.embedding_counts(identity, now)?,
+            None => EmbeddingCounts::default(),
+        };
+        Ok::<_, CoreError>((status, counts))
+    });
     let budget = Duration::from_millis(
         envelope
             .meta
@@ -521,17 +612,22 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             Some(&store_id),
         ),
         Ok(Ok(Err(error))) => core_response(error, &request_id, &store_id),
-        Ok(Ok(Ok(status))) => {
-            let capabilities = if state.enabled {
-                vec![
-                    "status.basic".to_string(),
-                    "memory.retain.manual".to_string(),
-                    "memory.forget".to_string(),
-                    "recall.lexical".to_string(),
-                ]
-            } else {
-                vec!["status.basic".to_string()]
-            };
+        Ok(Ok(Ok((status, counts)))) => {
+            let mut capabilities = vec![
+                "status.basic".to_string(),
+                "memory.retain.manual".to_string(),
+                "memory.forget".to_string(),
+                "recall.lexical".to_string(),
+            ];
+            if state.semantics.identity().is_some() {
+                capabilities.push("recall.semantic.bounded".to_string());
+                capabilities.push("embedding.status".to_string());
+                capabilities.push("embedding.retry".to_string());
+                capabilities.push("config.reload".to_string());
+            }
+            if !state.enabled {
+                capabilities = vec!["status.basic".to_string()];
+            }
             json(
                 StatusCode::OK,
                 &OkEnvelope {
@@ -542,7 +638,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                         api_major: API_MAJOR,
                         api_minor: API_MINOR,
                         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
-                        schema_version: 1,
+                        schema_version: 2,
                         store_id: state.store_id.clone(),
                         process_instance_id: state.process_instance_id.clone(),
                         uptime_ms: state.started.elapsed().as_millis() as u64,
@@ -565,8 +661,32 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                             receipts: status.receipts.to_string(),
                         },
                         queue: StatusQueue {
-                            queued: "0".to_string(),
-                            running: "0".to_string(),
+                            queued: counts.queued.to_string(),
+                            running: counts.running.to_string(),
+                        },
+                        embedding: EmbeddingStatus {
+                            provider: state
+                                .config
+                                .embedding
+                                .as_ref()
+                                .map(|embedding| embedding.display.clone()),
+                            state: if state.config.embedding.is_none() {
+                                "disabled".to_string()
+                            } else {
+                                state.worker_state.status()
+                            },
+                            dimensions: state
+                                .config
+                                .embedding
+                                .as_ref()
+                                .map(|embedding| embedding.dimensions as u64)
+                                .unwrap_or(0),
+                            coverage_current: counts.current_vectors.to_string(),
+                            coverage_eligible: counts.eligible_memories.to_string(),
+                            pending: counts.pending.to_string(),
+                            failed: counts.failed.to_string(),
+                            oldest_pending_ms: counts.oldest_pending_ms,
+                            last_error: state.worker_state.last_error(),
                         },
                     },
                 },
@@ -598,7 +718,7 @@ async fn handle_retain(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     if !state.enabled {
         return disabled_response(&envelope.meta, &store_id);
     }
-    if let Err(error) = policy::validate_retain(&envelope.params, &state.limits) {
+    if let Err(error) = policy::validate_retain(&envelope.params, &state.config.limits) {
         return core_response(error, &request_id, &store_id);
     }
     let _guard = match acquire_client(&envelope.meta.client_id, state) {
@@ -630,15 +750,19 @@ async fn handle_retain(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             Some(&store_id),
         ),
         Ok(Ok(Err(error))) => core_response(error, &request_id, &store_id),
-        Ok(Ok(Ok(result))) => json(
-            StatusCode::OK,
-            &OkEnvelope {
-                ok: true,
-                request_id,
-                store_id,
-                result,
-            },
-        ),
+        Ok(Ok(Ok(result))) => {
+            state.worker_state.mark_dirty();
+            state.notify.notify_one();
+            json(
+                StatusCode::OK,
+                &OkEnvelope {
+                    ok: true,
+                    request_id,
+                    store_id,
+                    result,
+                },
+            )
+        }
     }
 }
 
@@ -732,28 +856,92 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     if !state.enabled {
         return disabled_response(&envelope.meta, &store_id);
     }
-    let (limit, context_bytes) = match policy::resolve_recall(&envelope.params, &state.limits) {
-        Ok(resolved) => resolved,
-        Err(error) => return core_response(error, &request_id, &store_id),
-    };
+    let (limit, context_bytes) =
+        match policy::resolve_recall(&envelope.params, &state.config.limits) {
+            Ok(resolved) => resolved,
+            Err(error) => return core_response(error, &request_id, &store_id),
+        };
     let _guard = match acquire_client(&envelope.meta.client_id, state) {
         Ok(guard) => guard,
         Err(response) => return response,
     };
 
-    let server_ms = state.limits.recall_server_ms.max(1);
+    let server_ms = state.config.limits.recall_server_ms.max(1);
     let budget_ms = envelope
         .meta
         .timeout_ms
         .unwrap_or(server_ms)
         .clamp(1, server_ms);
-    let deadline = Instant::now() + Duration::from_millis(budget_ms);
-
+    let request_start = Instant::now();
+    let deadline = request_start + Duration::from_millis(budget_ms);
+    let now = now_ms();
     let store = Arc::clone(&state.store);
     let params = envelope.params.clone();
-    let now = now_ms();
+
+    // Speculative lexical snapshot runs while inference is attempted.
+    let lexical_store = Arc::clone(&store);
+    let lexical_params = params.clone();
+    let speculative = tokio::task::spawn_blocking(move || {
+        lexical_store.lexical_snapshot(&lexical_params, now, Some(deadline))
+    })
+    .await;
+    let speculative = match speculative {
+        Ok(Ok(snapshot)) => Some(snapshot),
+        _ => None,
+    };
+
+    // Bounded query inference: exact cache first, then one provider call.
+    let remaining_ms = budget_ms.saturating_sub(request_start.elapsed().as_millis() as u64);
+    let allowance = Semantics::allowance_ms(remaining_ms);
+    let outcome = if state.semantics.identity().is_none() {
+        QueryOutcome {
+            vector: None,
+            cache: "disabled",
+            fallback: Some("DISABLED".to_string()),
+        }
+    } else if allowance == 0 {
+        QueryOutcome {
+            vector: None,
+            cache: "miss",
+            fallback: Some("QUERY_BUDGET".to_string()),
+        }
+    } else {
+        let key = state.semantics.cache_key(
+            &params.query,
+            params.repository.as_deref(),
+            params.include_other_repositories,
+        );
+        state
+            .semantics
+            .query_vector(&key, &params.query, allowance)
+            .await
+    };
+
+    let identity = state.semantics.identity().unwrap_or_default();
+    let min_similarity = state.semantics.min_similarity();
+    let vector = outcome.vector.clone();
+    let fallback = outcome.fallback.clone();
+    let cache_state = outcome.cache.to_string();
+
+    let final_store = Arc::clone(&store);
+    let final_params = params.clone();
     let work = tokio::task::spawn_blocking(move || {
-        store.recall(&params, now, limit, context_bytes, Some(deadline))
+        let semantic = SemanticInput {
+            identity: &identity,
+            vector: vector.as_deref(),
+            min_similarity,
+            fallback_reason: fallback.as_deref(),
+            cache_state: &cache_state,
+        };
+        final_store.recall_fused(
+            &final_params,
+            now,
+            limit,
+            context_bytes,
+            speculative.as_ref(),
+            semantic,
+            Some(deadline),
+        )
     });
     match tokio::time::timeout(Duration::from_millis(budget_ms + 250), work).await {
         Err(_) => fail_response(
@@ -783,6 +971,313 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             },
         ),
     }
+}
+
+async fn handle_jobs_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<String>) -> Resp {
+    let envelope =
+        match parse_route::<JobsStatusParams>(raw, fallback_id.as_deref(), &state.store_id) {
+            Ok(envelope) => envelope,
+            Err(response) => return response,
+        };
+    let request_id = envelope.meta.request_id.clone();
+    let store_id = state.store_id.clone();
+    if let Some(response) = require_store(&envelope.meta, &store_id, true) {
+        return response;
+    }
+    if !state.enabled {
+        return disabled_response(&envelope.meta, &store_id);
+    }
+    let _guard = match acquire_client(&envelope.meta.client_id, state) {
+        Ok(guard) => guard,
+        Err(response) => return response,
+    };
+    let limit = envelope.params.limit.unwrap_or(50).clamp(1, 200) as usize;
+    let state_filter = envelope.params.state.clone();
+    let cursor = envelope.params.cursor.clone();
+    let store = Arc::clone(&state.store);
+    let identity = state.semantics.identity();
+    let now = now_ms();
+    let work = tokio::task::spawn_blocking(move || {
+        let jobs = store.list_jobs(state_filter.as_deref(), cursor.as_deref(), limit)?;
+        let counts = match &identity {
+            Some(identity) => store.embedding_counts(identity, now)?,
+            None => EmbeddingCounts::default(),
+        };
+        Ok::<_, CoreError>((jobs, counts))
+    });
+    match tokio::time::timeout(effective_deadline(&envelope.meta, MAX_TIMEOUT_MS), work).await {
+        Err(_) => fail_response(
+            StatusCode::GATEWAY_TIMEOUT,
+            code::DEADLINE_EXCEEDED,
+            reason::REQUEST_DEADLINE,
+            true,
+            Some(&request_id),
+            Some(&store_id),
+        ),
+        Ok(Err(_)) => fail_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            code::INTERNAL,
+            reason::INTERNAL_FAILURE,
+            false,
+            Some(&request_id),
+            Some(&store_id),
+        ),
+        Ok(Ok(Err(error))) => core_response(error, &request_id, &store_id),
+        Ok(Ok(Ok((jobs, counts)))) => {
+            let next_cursor = if jobs.len() == limit {
+                jobs.last().map(|job| job.job_id.clone())
+            } else {
+                None
+            };
+            json(
+                StatusCode::OK,
+                &OkEnvelope {
+                    ok: true,
+                    request_id,
+                    store_id,
+                    result: JobsStatusResult {
+                        jobs: jobs
+                            .into_iter()
+                            .map(|job| JobRecord {
+                                job_id: job.job_id,
+                                memory_id: job.memory_id,
+                                state: job.state,
+                                attempts: job.attempts.max(0) as u64,
+                                next_attempt_ms: job.next_attempt_ms,
+                                terminal_reason: job.terminal_reason,
+                            })
+                            .collect(),
+                        next_cursor,
+                        counts: JobCounts {
+                            queued: counts.queued.to_string(),
+                            running: counts.running.to_string(),
+                            retry_wait: counts.retry_wait.to_string(),
+                            failed: counts.failed.to_string(),
+                        },
+                    },
+                },
+            )
+        }
+    }
+}
+
+async fn handle_jobs_retry(raw: &[u8], state: &Arc<State>, fallback_id: Option<String>) -> Resp {
+    let envelope =
+        match parse_route::<JobsRetryParams>(raw, fallback_id.as_deref(), &state.store_id) {
+            Ok(envelope) => envelope,
+            Err(response) => return response,
+        };
+    let request_id = envelope.meta.request_id.clone();
+    let store_id = state.store_id.clone();
+    if let Some(response) = require_store(&envelope.meta, &store_id, true) {
+        return response;
+    }
+    if !state.enabled {
+        return disabled_response(&envelope.meta, &store_id);
+    }
+    let _guard = match acquire_client(&envelope.meta.client_id, state) {
+        Ok(guard) => guard,
+        Err(response) => return response,
+    };
+    let client_id = envelope.meta.client_id.clone();
+    let key = envelope.params.idempotency_key.clone();
+    let hash = policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
+    match state
+        .store
+        .lookup_receipt_json(&client_id, "jobs.retry", &key)
+    {
+        Ok(Some((stored_hash, response))) => {
+            if stored_hash != hash {
+                return fail_response(
+                    StatusCode::CONFLICT,
+                    "ALREADY_EXISTS",
+                    "IDEMPOTENCY_CONFLICT",
+                    false,
+                    Some(&request_id),
+                    Some(&store_id),
+                );
+            }
+            match serde_json::from_str::<JobsRetryResult>(&response) {
+                Ok(result) => {
+                    return json(
+                        StatusCode::OK,
+                        &OkEnvelope {
+                            ok: true,
+                            request_id,
+                            store_id,
+                            result,
+                        },
+                    );
+                }
+                Err(_) => {
+                    return fail_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        code::INTERNAL,
+                        reason::INTERNAL_FAILURE,
+                        false,
+                        Some(&request_id),
+                        Some(&store_id),
+                    );
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(error) => return core_response(error, &request_id, &store_id),
+    }
+
+    let identity = envelope
+        .params
+        .provider_id
+        .clone()
+        .or_else(|| state.semantics.identity());
+    let memory_ids = envelope.params.memory_ids.clone();
+    let ids = if memory_ids.is_empty() {
+        None
+    } else {
+        Some(memory_ids)
+    };
+    let store = Arc::clone(&state.store);
+    let now = now_ms();
+    let work = tokio::task::spawn_blocking(move || {
+        store.retry_failed_jobs(identity.as_deref(), ids.as_deref(), now)
+    });
+    let reset = match tokio::time::timeout(effective_deadline(&envelope.meta, MAX_TIMEOUT_MS), work)
+        .await
+    {
+        Err(_) => {
+            return fail_response(
+                StatusCode::GATEWAY_TIMEOUT,
+                code::DEADLINE_EXCEEDED,
+                reason::REQUEST_DEADLINE,
+                true,
+                Some(&request_id),
+                Some(&store_id),
+            );
+        }
+        Ok(Err(_)) => {
+            return fail_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                code::INTERNAL,
+                reason::INTERNAL_FAILURE,
+                false,
+                Some(&request_id),
+                Some(&store_id),
+            );
+        }
+        Ok(Ok(Err(error))) => return core_response(error, &request_id, &store_id),
+        Ok(Ok(Ok(reset))) => reset,
+    };
+    let result = JobsRetryResult { reset };
+    if let Ok(response) = serde_json::to_string(&result) {
+        let _ =
+            state
+                .store
+                .store_receipt_json(&client_id, "jobs.retry", &key, &hash, &response, now);
+    }
+    state.worker_state.request_resume();
+    state.notify.notify_one();
+    json(
+        StatusCode::OK,
+        &OkEnvelope {
+            ok: true,
+            request_id,
+            store_id,
+            result,
+        },
+    )
+}
+
+async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Option<String>) -> Resp {
+    let envelope =
+        match parse_route::<ConfigReloadParams>(raw, fallback_id.as_deref(), &state.store_id) {
+            Ok(envelope) => envelope,
+            Err(response) => return response,
+        };
+    let request_id = envelope.meta.request_id.clone();
+    let store_id = state.store_id.clone();
+    if let Some(response) = require_store(&envelope.meta, &store_id, true) {
+        return response;
+    }
+    let _guard = match acquire_client(&envelope.meta.client_id, state) {
+        Ok(guard) => guard,
+        Err(response) => return response,
+    };
+    let Some(config_path) = state.config_path.clone() else {
+        return fail_response(
+            StatusCode::PRECONDITION_FAILED,
+            code::FAILED_PRECONDITION,
+            "CONFIG_RELOAD_REJECTED",
+            false,
+            Some(&request_id),
+            Some(&store_id),
+        );
+    };
+    let fresh = match ResolvedConfig::load(Some(&config_path), None, None) {
+        Ok(config) => config,
+        Err(error) => return core_response(error, &request_id, &store_id),
+    };
+    if fresh.data_dir != state.config.data_dir || fresh.socket_path != state.config.socket_path {
+        return fail_response(
+            StatusCode::PRECONDITION_FAILED,
+            code::FAILED_PRECONDITION,
+            "CONFIG_RELOAD_REJECTED",
+            false,
+            Some(&request_id),
+            Some(&store_id),
+        );
+    }
+    let next_identity = fresh.embedding_identity.clone();
+    if next_identity == state.semantics.identity() {
+        return json(
+            StatusCode::OK,
+            &OkEnvelope {
+                ok: true,
+                request_id,
+                store_id,
+                result: ConfigReloadResult {
+                    reloaded: false,
+                    generation: state.generation.load(Ordering::Relaxed),
+                    reason: "UNCHANGED".to_string(),
+                },
+            },
+        );
+    }
+    let provider = match &fresh.embedding {
+        Some(embedding) => match build_provider(embedding) {
+            Ok(provider) => Some(Arc::new(provider)),
+            Err(error) => return core_response(error, &request_id, &store_id),
+        },
+        None => None,
+    };
+    let min_similarity = fresh
+        .embedding
+        .as_ref()
+        .map(|embedding| embedding.min_similarity)
+        .unwrap_or(0.0);
+    let generation = fresh
+        .embedding
+        .as_ref()
+        .map(|embedding| embedding.generation)
+        .unwrap_or(0);
+    state
+        .semantics
+        .replace(provider, next_identity, min_similarity);
+    state.generation.store(generation, Ordering::Relaxed);
+    state.worker_state.request_resume();
+    state.notify.notify_one();
+    json(
+        StatusCode::OK,
+        &OkEnvelope {
+            ok: true,
+            request_id,
+            store_id,
+            result: ConfigReloadResult {
+                reloaded: true,
+                generation,
+                reason: "PROVIDER_GENERATION_CHANGED".to_string(),
+            },
+        },
+    )
 }
 
 fn json<T: Serialize>(status: StatusCode, value: &T) -> Resp {

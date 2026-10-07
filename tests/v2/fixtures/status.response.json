@@ -24,6 +24,15 @@
       "forgottenMemories": "1",
       "receipts": "4"
     },
-    "queue": { "queued": "0", "running": "0" }
+    "queue": { "queued": "0", "running": "0" },
+    "embedding": {
+      "provider": "fixture-model#0123456789abcdef",
+      "state": "ready",
+      "dimensions": 768,
+      "coverageCurrent": "2",
+      "coverageEligible": "2",
+      "pending": "0",
+      "failed": "0"
+    }
   }
 }

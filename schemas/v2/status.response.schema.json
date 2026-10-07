@@ -25,7 +25,8 @@
         "memoryRevision",
         "derivedGeneration",
         "counts",
-        "queue"
+        "queue",
+        "embedding"
       ],
       "properties": {
         "apiMajor": { "const": 2 },
@@ -45,11 +46,35 @@
         "memoryRevision": { "type": "string", "pattern": "^[0-9]+$" },
         "derivedGeneration": { "type": "string", "pattern": "^[0-9]+$" },
         "counts": { "$ref": "#/$defs/counts" },
-        "queue": { "$ref": "#/$defs/queue" }
+        "queue": { "$ref": "#/$defs/queue" },
+        "embedding": { "$ref": "#/$defs/embedding" }
       }
     }
   },
   "$defs": {
+    "embedding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "dimensions",
+        "coverageCurrent",
+        "coverageEligible",
+        "pending",
+        "failed"
+      ],
+      "properties": {
+        "provider": { "type": "string" },
+        "state": { "enum": ["disabled", "ready", "paused", "invalid"] },
+        "dimensions": { "type": "integer", "minimum": 0 },
+        "coverageCurrent": { "type": "string", "pattern": "^[0-9]+$" },
+        "coverageEligible": { "type": "string", "pattern": "^[0-9]+$" },
+        "pending": { "type": "string", "pattern": "^[0-9]+$" },
+        "failed": { "type": "string", "pattern": "^[0-9]+$" },
+        "oldestPendingMs": { "type": "integer" },
+        "lastError": { "type": "string" }
+      }
+    },
     "counts": {
       "type": "object",
       "additionalProperties": false,

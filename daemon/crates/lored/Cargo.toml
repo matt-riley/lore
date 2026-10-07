@@ -14,9 +14,11 @@ http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 lore-core.workspace = true
+lore-provider.workspace = true
 protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 tokio.workspace = true
 uuid.workspace = true
 

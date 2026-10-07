@@ -192,6 +192,106 @@ pub struct ForgetResult {
     pub write_result: String,
 }
 
+/// Embedding provider and coverage state reported by Status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingStatus {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    pub state: String,
+    pub dimensions: u64,
+    pub coverage_current: String,
+    pub coverage_eligible: String,
+    pub pending: String,
+    pub failed: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oldest_pending_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+/// `/v2/jobs/status` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct JobsStatusParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// One job row on the wire.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobRecord {
+    pub job_id: String,
+    pub memory_id: String,
+    pub state: String,
+    pub attempts: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_attempt_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_reason: Option<String>,
+}
+
+/// `/v2/jobs/status` result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobsStatusResult {
+    pub jobs: Vec<JobRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    pub counts: JobCounts,
+}
+
+/// Queue counts by state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobCounts {
+    pub queued: String,
+    pub running: String,
+    pub retry_wait: String,
+    pub failed: String,
+}
+
+/// `/v2/jobs/retry` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct JobsRetryParams {
+    pub idempotency_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub memory_ids: Vec<String>,
+}
+
+/// `/v2/jobs/retry` result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobsRetryResult {
+    pub reset: u64,
+}
+
+/// `/v2/config/reload` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConfigReloadParams {
+    pub idempotency_key: String,
+}
+
+/// `/v2/config/reload` result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigReloadResult {
+    pub reloaded: bool,
+    pub generation: u32,
+    pub reason: String,
+}
+
 /// `/v2/recall` parameters.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -302,6 +402,7 @@ pub struct StatusResult {
     pub derived_generation: String,
     pub counts: StatusCounts,
     pub queue: StatusQueue,
+    pub embedding: EmbeddingStatus,
 }
 
 /// Reject integers that cannot round-trip through a JavaScript number.
@@ -379,6 +480,17 @@ mod tests {
             queue: StatusQueue {
                 queued: "0".to_string(),
                 running: "0".to_string(),
+            },
+            embedding: EmbeddingStatus {
+                provider: None,
+                state: "disabled".to_string(),
+                dimensions: 0,
+                coverage_current: "0".to_string(),
+                coverage_eligible: "0".to_string(),
+                pending: "0".to_string(),
+                failed: "0".to_string(),
+                oldest_pending_ms: None,
+                last_error: None,
             },
         }
     }
@@ -482,7 +594,7 @@ mod tests {
 
     #[test]
     fn additive_response_fields_are_ignored() {
-        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":1,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"extra":true}}"#;
+        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":1,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"extra":true}}"#;
         let parsed: OkEnvelope<StatusResult> =
             serde_json::from_str(raw).expect("additive response fields are ignored");
         assert_eq!(parsed.result.api_major, 2);

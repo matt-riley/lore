@@ -22,7 +22,7 @@ At this baseline, `lib/memory/semantic-search.mjs` uses a 10,000 ms default sema
 | Stage | Deliverable | Implementation plan | Exit evidence |
 | --- | --- | --- | --- |
 | Foundation | Decisions, configuration, parity inventory, evaluation rules | [Decisions](architecture-decisions.md), [configuration/storage](configuration-storage.md), [parity](capability-parity.md), [validation](validation.md) | Requirements and fixtures frozen before handlers |
-| 1 | HTTP/JSON contract and minimal Rust/Node/Bun socket proof | [Contracts](01-contracts.md) | Wire, host-loading, cold-process, identity and deadline tests |
+| 1 | HTTP/JSON contract and minimal Rust/Node/Bun socket proof | [Contracts](01-contracts.md) | [G1 evidence](evidence/g1.md): wire, host-loading, cold-process, identity and deadline tests |
 | 2 | Durable Status, Retain, Forget and lexical Recall | [Daemon core](02-daemon-core.md) | Two clients, safety fixtures, crash/retry proof, lexical baseline |
 | 3 | Background memory embeddings and bounded query inference | [Embeddings](03-background-embeddings.md) | Cold-query quality, degraded retrieval, resource and backlog report |
 | 4 | Background source discovery and checkpointed capture | [Ingestion](04-ingestion.md) | Every client format; replacement, compaction and restart evidence |
@@ -71,7 +71,7 @@ Production ownership is one selected store and service per OS user. Explicit add
 
 ## Milestones and decisions to continue
 
-Gate G1 (stage 1): practical HTTP/JSON interoperability, cold CLI cost, JSON validation, and repository identity work on macOS/Linux. Build the smallest executable boundary first; no second Node daemon implementation.
+Gate G1 (stage 1): practical HTTP/JSON interoperability, cold CLI cost, JSON validation, and repository identity work on macOS/Linux. Build the smallest executable boundary first; no second Node daemon implementation. Passed 2026-10-07 ([evidence](evidence/g1.md)).
 
 Gate G2 (stage 2): acknowledged writes survive process failure; retries and Forget work through the actual API; scope fixtures have zero leaks; lexical recall meets its measured baseline gate.
 

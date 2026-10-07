@@ -28,6 +28,7 @@ import { Type } from "typebox";
 import { execFileSync, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolveRepositoryIdentity } from "./lib/utils/repository-identity.mjs";
+import { wrapLoreContext } from "./lib/context/context-escape.mjs";
 import { createPiServerClient } from "./lib/clients/pi-server-client.mjs";
 import { getLoreCapabilitySpec, LORE_CAPABILITY_SPECS } from "./lib/capabilities/capability-manifest.mjs";
 import { jsonSchemaToTypeBox } from "./lib/runtime/json-schema-to-typebox.mjs";
@@ -313,7 +314,12 @@ export default function (pi: ExtensionAPI) {
       const text = toolResultText(capsule).trim();
       if (text) {
         return {
-          message: { customType: "lore", content: text, display: false, lorePhase: "session_start" },
+          message: {
+            customType: "lore",
+            content: wrapLoreContext(text),
+            display: false,
+            lorePhase: "session_start",
+          },
         };
       }
     } catch {
@@ -344,7 +350,7 @@ export default function (pi: ExtensionAPI) {
         }
         recallCache.set(cacheKey, { termKey, memoryVersion });
         return {
-          message: { customType: "lore", content: text, display: false },
+          message: { customType: "lore", content: wrapLoreContext(text), display: false },
         };
       }
     } catch (error) {

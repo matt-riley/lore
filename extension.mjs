@@ -13,6 +13,7 @@ import {
 } from "./lib/sessions/backfill.mjs";
 import { runMaintenanceSweep } from "./lib/maintenance/maintenance-scheduler.mjs";
 import { assembleRecall } from "./lib/context/recall-assembler.mjs";
+import { wrapLoreContext } from "./lib/context/context-escape.mjs";
 import { createLoreSession } from "./lib/runtime/lore-runtime.mjs";
 import { listCopilotJoinTools } from "./lib/runtime/tool-registry.mjs";
 import {
@@ -1019,7 +1020,7 @@ async function handleSessionStartHook({
   });
 
   return additionalContext
-    ? { additionalContext }
+    ? { additionalContext: wrapLoreContext(additionalContext) }
     : undefined;
 }
 
@@ -1604,7 +1605,7 @@ const session = await joinSession({
       }
 
       return {
-        additionalContext,
+        additionalContext: wrapLoreContext(additionalContext),
       };
     },
 

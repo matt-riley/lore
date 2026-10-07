@@ -1,6 +1,6 @@
 # Slice 3: background embeddings and bounded semantic recall
 
-Status: planned. Depends on G2. Exit: G3. Decision: [ADR-004/005/006](architecture-decisions.md).
+Status: G3 passed 2026-10-07 — evidence in [evidence/g3.md](evidence/g3.md). Depends on G2. Exit: G3. Decision: [ADR-004/005/006](architecture-decisions.md).
 
 ## Objective
 

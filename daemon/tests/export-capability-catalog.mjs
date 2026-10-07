@@ -15,6 +15,12 @@ const IMPLEMENTED = {
   lore_retain: { route: "/v2/retain", mutability: "write" },
   lore_forget: { route: "/v2/forget", mutability: "write" },
   lore_recall: { route: "/v2/recall", mutability: "read" },
+  lore_search: { route: "/v2/admin/search", mutability: "read" },
+  lore_explain: { route: "/v2/admin/explain", mutability: "read" },
+  lore_validate: { route: "/v2/admin/validate", mutability: "read" },
+  lore_doctor: { route: "/v2/admin/doctor", mutability: "read" },
+  lore_audit_extractions: { route: "/v2/admin/audit/extractions", mutability: "read" },
+  memory_capability_inventory: { route: "local:capabilities", mutability: "read" },
 };
 
 /** Daemon capabilities with no v1 canonical row. */

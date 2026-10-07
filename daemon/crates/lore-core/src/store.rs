@@ -23,11 +23,13 @@ use crate::error::{CoreError, CoreResult};
 use crate::policy;
 use crate::retrieval;
 
+mod admin;
 mod embedding;
 mod extraction;
 mod migration;
 mod source;
 mod views;
+pub use admin::{ADMIN_PAGE_DEFAULT, ADMIN_PAGE_MAX, known_admin, require_query};
 pub use embedding::{
     ClaimedJob, CompleteOutcome, EmbeddingCounts, FailOutcome, JobView, ReconcilePage,
     StoredVector, blob_to_vector, jittered_backoff_ms, vector_norm,

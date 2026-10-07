@@ -364,6 +364,35 @@ pub struct AdminParams {
     pub context_bytes: Option<u32>,
     #[serde(default)]
     pub deep: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub memory_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// `preview`, `apply`, `set` or `clear`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_fingerprint: Option<String>,
+    #[serde(default)]
+    pub include_dependent_aggregates: bool,
+    #[serde(default)]
+    pub global: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    #[serde(default)]
+    pub clear: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<i64>,
 }
 
 /// `/v2/views/<name>` parameters. Permissive: the browser gateway forwards
@@ -659,7 +688,7 @@ mod tests {
             api_major: API_MAJOR,
             api_minor: API_MINOR,
             daemon_version: "0.1.0".to_string(),
-            schema_version: 5,
+            schema_version: 6,
             store_id: "store-test".to_string(),
             process_instance_id: "1-2".to_string(),
             uptime_ms: 0,
@@ -799,7 +828,7 @@ mod tests {
 
     #[test]
     fn additive_response_fields_are_ignored() {
-        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":5,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"sources":{"discovered":0,"caughtUp":0,"growing":0,"unavailable":0,"ambiguous":0,"failed":0,"skipped":0},"extra":true}}"#;
+        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":6,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"sources":{"discovered":0,"caughtUp":0,"growing":0,"unavailable":0,"ambiguous":0,"failed":0,"skipped":0},"extra":true}}"#;
         let parsed: OkEnvelope<StatusResult> =
             serde_json::from_str(raw).expect("additive response fields are ignored");
         assert_eq!(parsed.result.api_major, 2);

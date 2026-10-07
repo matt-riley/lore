@@ -149,7 +149,7 @@ fn planned_operations_fail_before_dispatch() {
             "--socket",
             "/tmp/does-not-exist.sock",
             "tool",
-            "lore_correct",
+            "lore_repair",
         ],
         Some("{}"),
     );

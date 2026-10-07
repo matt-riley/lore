@@ -215,9 +215,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/scope-override"
     },
     {
       "name": "memory_scope_audit",
@@ -227,9 +227,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "read",
-      "route": null
+      "route": "/v2/admin/scope-audit"
     },
     {
       "name": "lore_forget",
@@ -255,9 +255,9 @@
         "cli": true,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/correct"
     },
     {
       "name": "lore_repair",
@@ -283,9 +283,9 @@
         "cli": true,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/purge"
     },
     {
       "name": "memory_deferred_process",

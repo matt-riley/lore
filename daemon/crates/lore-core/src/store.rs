@@ -5,7 +5,7 @@
 //! together, so an acknowledgement survives process failure.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -27,6 +27,7 @@ mod admin;
 mod embedding;
 mod extraction;
 mod migration;
+mod ops;
 mod source;
 mod views;
 pub use admin::{ADMIN_PAGE_DEFAULT, ADMIN_PAGE_MAX, known_admin, require_query};
@@ -34,6 +35,7 @@ pub use embedding::{
     ClaimedJob, CompleteOutcome, EmbeddingCounts, FailOutcome, JobView, ReconcilePage,
     StoredVector, blob_to_vector, jittered_backoff_ms, vector_norm,
 };
+pub use ops::{CorrectOutcome, OperationRun, PurgeOutcome, ScopeOutcome};
 pub use source::{
     CaptureCommit, CaptureOutcome, SourceFilter, SourceRecord, SourceRootRow, SourceRow,
     content_hash, open_readonly, source_id_for,
@@ -234,6 +236,47 @@ CREATE TABLE IF NOT EXISTS extraction_intents (
 CREATE INDEX IF NOT EXISTS idx_extraction_intents_state ON extraction_intents (state, next_attempt_ms);
 "#;
 
+/// Forward migration 5 -> 6: durable operation runs, run items and the
+/// scope-override audit ledger.
+const MIGRATION_6_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS operation_runs (
+    run_id TEXT PRIMARY KEY,
+    operation TEXT NOT NULL,
+    state TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    plan_fingerprint TEXT,
+    store_id TEXT NOT NULL,
+    actor TEXT,
+    created_ms INTEGER NOT NULL,
+    updated_ms INTEGER NOT NULL,
+    finished_ms INTEGER,
+    counts_json TEXT NOT NULL DEFAULT '{}',
+    terminal_reason TEXT
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_operation_runs_state ON operation_runs (state, updated_ms);
+CREATE TABLE IF NOT EXISTS operation_run_items (
+    run_id TEXT NOT NULL,
+    item_index INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    state TEXT NOT NULL,
+    detail TEXT,
+    updated_ms INTEGER NOT NULL,
+    PRIMARY KEY (run_id, item_index)
+) STRICT;
+CREATE TABLE IF NOT EXISTS scope_override_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    memory_id TEXT NOT NULL,
+    previous_scope TEXT,
+    previous_repository TEXT,
+    scope TEXT,
+    repository TEXT,
+    actor TEXT,
+    reason TEXT,
+    created_ms INTEGER NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_scope_override_audit_memory ON scope_override_audit (memory_id, created_ms);
+"#;
+
 /// Forward migration 4 -> 5: migration manifests, id maps, repository
 /// mappings and suppression state.
 const MIGRATION_5_SQL: &str = r#"
@@ -335,6 +378,8 @@ pub struct Store {
     writer: Mutex<Connection>,
     readers: Vec<Mutex<Connection>>,
     next_reader: AtomicUsize,
+    /// Path of the SQLite file, used for pre-apply snapshots.
+    store_path: PathBuf,
     limits: Limits,
     /// Provider identity when embeddings are enabled.
     embedding_identity: Option<String>,
@@ -355,6 +400,7 @@ impl Store {
             writer: Mutex::new(writer),
             readers,
             next_reader: AtomicUsize::new(0),
+            store_path: config.store_path.clone(),
             limits: config.limits.clone(),
             embedding_identity: config.embedding_identity.clone(),
             embedding_enabled: config.embedding_identity.is_some(),
@@ -373,6 +419,7 @@ impl Store {
             writer: Mutex::new(writer),
             readers,
             next_reader: AtomicUsize::new(0),
+            store_path: path.to_path_buf(),
             limits: Limits::default(),
             embedding_identity: None,
             embedding_enabled: false,
@@ -1609,54 +1656,35 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
             |row| row.get(0),
         )
         .optional()?;
-    match version {
-        Some(1) => {
-            connection.execute_batch(MIGRATION_2_SQL)?;
-            connection.execute_batch(MIGRATION_3_SQL)?;
-            connection.execute_batch(MIGRATION_4_SQL)?;
-            connection.execute_batch(MIGRATION_5_SQL)?;
-            connection.execute(
-                "UPDATE store_metadata SET schema_version = 5 WHERE id = 1",
-                [],
-            )?;
+    let mut version = version.expect("version checked above");
+    // Forward-only migration chain: every legacy version walks to the current
+    // schema, so a fresh store and an upgraded store converge on the same
+    // tables in one open.
+    while version < STORE_SCHEMA_VERSION {
+        match version {
+            1 => connection.execute_batch(MIGRATION_2_SQL)?,
+            2 => connection.execute_batch(MIGRATION_3_SQL)?,
+            3 => connection.execute_batch(MIGRATION_4_SQL)?,
+            4 => connection.execute_batch(MIGRATION_5_SQL)?,
+            5 => connection.execute_batch(MIGRATION_6_SQL)?,
+            other => {
+                return Err(CoreError::internal(
+                    "SCHEMA_UNSUPPORTED",
+                    format!("no migration path from store schema {other}"),
+                ));
+            }
         }
-        Some(2) => {
-            connection.execute_batch(MIGRATION_3_SQL)?;
-            connection.execute_batch(MIGRATION_4_SQL)?;
-            connection.execute_batch(MIGRATION_5_SQL)?;
-            connection.execute(
-                "UPDATE store_metadata SET schema_version = 5 WHERE id = 1",
-                [],
-            )?;
-        }
-        Some(3) => {
-            connection.execute_batch(MIGRATION_4_SQL)?;
-            connection.execute_batch(MIGRATION_5_SQL)?;
-            connection.execute(
-                "UPDATE store_metadata SET schema_version = 5 WHERE id = 1",
-                [],
-            )?;
-        }
-        Some(4) => {
-            connection.execute_batch(MIGRATION_5_SQL)?;
-            connection.execute(
-                "UPDATE store_metadata SET schema_version = 5 WHERE id = 1",
-                [],
-            )?;
-        }
-        Some(version) if version == STORE_SCHEMA_VERSION => {}
-        Some(version) => {
-            return Err(CoreError::internal(
-                "SCHEMA_UNSUPPORTED",
-                format!("store schema {version} is not supported"),
-            ));
-        }
-        None => {
-            return Err(CoreError::internal(
-                "SCHEMA_UNSUPPORTED",
-                "store metadata row is missing",
-            ));
-        }
+        version += 1;
+        connection.execute(
+            "UPDATE store_metadata SET schema_version = ?1 WHERE id = 1",
+            params![version],
+        )?;
+    }
+    if version != STORE_SCHEMA_VERSION {
+        return Err(CoreError::internal(
+            "SCHEMA_UNSUPPORTED",
+            format!("store schema {version} is not supported"),
+        ));
     }
     // Fail closed when FTS5 is unavailable or the index is unhealthy.
     connection.query_row("SELECT COUNT(*) FROM memory_fts", [], |row| {

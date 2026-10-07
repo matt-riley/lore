@@ -229,7 +229,7 @@ async fn admin_reads_report_search_explain_validate_doctor_and_audit() {
     .await;
     assert_eq!(code, 200, "{validate}");
     assert_eq!(validate["result"]["ok"], true, "{validate}");
-    assert_eq!(validate["result"]["schemaVersion"], 5);
+    assert_eq!(validate["result"]["schemaVersion"], 6);
     assert_eq!(validate["result"]["foreignKeyViolations"], 0);
 
     let (code, doctor) = call(

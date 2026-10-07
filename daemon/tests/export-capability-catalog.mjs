@@ -21,6 +21,10 @@ const IMPLEMENTED = {
   lore_doctor: { route: "/v2/admin/doctor", mutability: "read" },
   lore_audit_extractions: { route: "/v2/admin/audit/extractions", mutability: "read" },
   memory_capability_inventory: { route: "local:capabilities", mutability: "read" },
+  lore_correct: { route: "/v2/admin/correct", mutability: "write" },
+  lore_purge: { route: "/v2/admin/purge", mutability: "write" },
+  memory_scope_override: { route: "/v2/admin/scope-override", mutability: "write" },
+  memory_scope_audit: { route: "/v2/admin/scope-audit", mutability: "read" },
 };
 
 /** Daemon capabilities with no v1 canonical row. */

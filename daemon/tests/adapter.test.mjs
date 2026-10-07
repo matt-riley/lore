@@ -63,7 +63,7 @@ test("adapter refuses capabilities the daemon does not advertise", async () => {
     await waitForLiveStatus(daemon.socket);
     const client = createLoreClient({ socketPath: daemon.socket, clientId: "adapter.caps" });
     await assert.rejects(
-      () => client.requireCapability("memory.correct"),
+      () => client.requireCapability("analysis.chat"),
       (error) => error.reason === "CAPABILITY_UNAVAILABLE",
     );
   } finally {

@@ -13,14 +13,19 @@
         "confidence": 0.9,
         "createdMs": 1759800000000,
         "updatedMs": 1759800000000,
-        "tags": ["build", "tooling"]
+        "tags": [
+          "build",
+          "tooling"
+        ]
       }
     ],
     "context": "- The build uses pnpm workspaces.",
     "sections": [
       {
         "id": "topical",
-        "memoryIds": ["1f0f8f5a-6d5b-4f5e-9f1e-2b6f5a6d5b4f"],
+        "memoryIds": [
+          "1f0f8f5a-6d5b-4f5e-9f1e-2b6f5a6d5b4f"
+        ],
         "text": "- The build uses pnpm workspaces.",
         "omitted": 0
       }
@@ -36,7 +41,9 @@
       "candidatePoolTruncated": false,
       "fallbackReason": "DISABLED",
       "responseBytes": 0,
-      "omittedCount": 0
+      "omittedCount": 0,
+      "mandatoryTruncated": false,
+      "mandatoryOmitted": 0
     }
   }
 }

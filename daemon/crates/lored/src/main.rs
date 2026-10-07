@@ -314,6 +314,7 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
             | "/v2/sources/register"
             | "/v2/sources/hint"
             | "/v2/sources/status"
+            | "/v2/extraction/retry"
     ) {
         return fail_response(
             StatusCode::NOT_IMPLEMENTED,
@@ -441,6 +442,7 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
         "/v2/sources/register" => sources::handle_register(&raw, &state, request_id).await,
         "/v2/sources/hint" => sources::handle_hint(&raw, &state, request_id).await,
         "/v2/sources/status" => sources::handle_status(&raw, &state, request_id).await,
+        "/v2/extraction/retry" => sources::handle_extraction_retry(&raw, &state, request_id).await,
         _ => handle_recall(&raw, &state, request_id).await,
     }
 }
@@ -651,7 +653,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                         api_major: API_MAJOR,
                         api_minor: API_MINOR,
                         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
-                        schema_version: 3,
+                        schema_version: 4,
                         store_id: state.store_id.clone(),
                         process_instance_id: state.process_instance_id.clone(),
                         uptime_ms: state.started.elapsed().as_millis() as u64,

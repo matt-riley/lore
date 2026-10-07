@@ -345,6 +345,23 @@ pub struct SourceHintResult {
     pub coalesced: bool,
 }
 
+/// `/v2/extraction/retry` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExtractionRetryParams {
+    pub idempotency_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_version: Option<String>,
+}
+
+/// `/v2/extraction/retry` result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractionRetryResult {
+    pub reset: u64,
+    pub rule_version: String,
+}
+
 /// `/v2/sources/status` parameters.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -479,6 +496,10 @@ pub struct RecallDiagnostics {
     pub fallback_reason: String,
     pub response_bytes: u64,
     pub omitted_count: u64,
+    /// Required (mandatory) context was truncated to fit the budget.
+    pub mandatory_truncated: bool,
+    /// Required items omitted from the rendered mandatory sections.
+    pub mandatory_omitted: u64,
 }
 
 /// `/v2/recall` result.
@@ -592,7 +613,7 @@ mod tests {
             api_major: API_MAJOR,
             api_minor: API_MINOR,
             daemon_version: "0.1.0".to_string(),
-            schema_version: 1,
+            schema_version: 4,
             store_id: "store-test".to_string(),
             process_instance_id: "1-2".to_string(),
             uptime_ms: 0,
@@ -732,7 +753,7 @@ mod tests {
 
     #[test]
     fn additive_response_fields_are_ignored() {
-        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":1,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"sources":{"discovered":0,"caughtUp":0,"growing":0,"unavailable":0,"ambiguous":0,"failed":0,"skipped":0},"extra":true}}"#;
+        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":4,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"sources":{"discovered":0,"caughtUp":0,"growing":0,"unavailable":0,"ambiguous":0,"failed":0,"skipped":0},"extra":true}}"#;
         let parsed: OkEnvelope<StatusResult> =
             serde_json::from_str(raw).expect("additive response fields are ignored");
         assert_eq!(parsed.result.api_major, 2);

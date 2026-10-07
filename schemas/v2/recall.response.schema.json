@@ -84,7 +84,9 @@
         "candidatePoolTruncated",
         "fallbackReason",
         "responseBytes",
-        "omittedCount"
+        "omittedCount",
+        "mandatoryTruncated",
+        "mandatoryOmitted"
       ],
       "properties": {
         "retrievalMode": { "enum": ["lexical", "hybrid"] },
@@ -94,7 +96,9 @@
         "candidatePoolTruncated": { "type": "boolean" },
         "fallbackReason": { "type": "string" },
         "responseBytes": { "type": "integer", "minimum": 0 },
-        "omittedCount": { "type": "integer", "minimum": 0 }
+        "omittedCount": { "type": "integer", "minimum": 0 },
+        "mandatoryTruncated": { "type": "boolean" },
+        "mandatoryOmitted": { "type": "integer", "minimum": 0 }
       }
     }
   }

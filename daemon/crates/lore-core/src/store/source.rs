@@ -510,11 +510,9 @@ impl Store {
             }
         }
 
-        let pending = if commit.offset < commit.observed_size {
-            "pending"
-        } else {
-            "complete"
-        };
+        // Capture completion is not extraction completion: the intent stays
+        // pending until the extractor applies this generation.
+        let pending = "pending";
         transaction.execute(
             "INSERT INTO extraction_intents (source_id, generation, state, through_offset, attempts, \
              next_attempt_ms, terminal_reason, updated_ms) VALUES (?1, ?2, ?3, ?4, 0, NULL, NULL, ?5) \

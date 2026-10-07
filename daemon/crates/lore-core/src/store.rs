@@ -4,6 +4,7 @@
 //! transaction commits memory, FTS, intent, revision, counters and receipt
 //! together, so an acknowledgement survives process failure.
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,12 +23,26 @@ use crate::error::{CoreError, CoreResult};
 use crate::policy;
 use crate::retrieval;
 
+mod embedding;
+pub use embedding::{
+    ClaimedJob, CompleteOutcome, EmbeddingCounts, FailOutcome, JobView, ReconcilePage,
+    StoredVector, blob_to_vector, jittered_backoff_ms, vector_norm,
+};
+
 const RECEIPT_OP_RETAIN: &str = "retain";
 const RECEIPT_OP_FORGET: &str = "forget";
 /// Leave headroom for the envelope around a recall result.
 const RESPONSE_HEADROOM: usize = 4 * 1024;
+/// Maximum eligible vectors scored per recall (configuration-storage cap).
+const MAX_VECTOR_SCAN: usize = 10_000;
+/// Stored-vector page size.
+const VECTOR_PAGE: usize = 128;
+/// Reciprocal-rank-fusion constant retained for documentation; the current
+/// merge keeps semantic precedence as recorded in the G3 calibration report.
+#[allow(dead_code)]
+const RRF_K: f64 = 60.0;
 
-const SCHEMA_SQL: &str = r#"
+const SCHEMA_V1_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS store_metadata (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     store_id TEXT NOT NULL,
@@ -58,7 +73,7 @@ CREATE TABLE IF NOT EXISTS memories (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories (scope, repository, forgotten, superseded_by);
 CREATE INDEX IF NOT EXISTS idx_memories_expiry ON memories (expires_at_ms, forgotten);
-CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(content, kind, tags, memory_id UNINDEXED);
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(content, kind, tags, memory_id UNINDEXED, tokenize = 'porter unicode61');
 CREATE TABLE IF NOT EXISTS suppressions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     memory_id TEXT,
@@ -90,6 +105,64 @@ CREATE TABLE IF NOT EXISTS embedding_intents (
 ) STRICT;
 "#;
 
+/// Forward migration 1 -> 2: embedding intents gain identity columns,
+/// materialized jobs and stored vectors arrive.
+const MIGRATION_2_SQL: &str = r#"
+ALTER TABLE store_metadata ADD COLUMN provider_identity TEXT;
+ALTER TABLE store_metadata ADD COLUMN reconciliation_cursor TEXT;
+ALTER TABLE embedding_intents ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE embedding_intents ADD COLUMN model_identity TEXT NOT NULL DEFAULT '';
+ALTER TABLE embedding_intents ADD COLUMN updated_ms INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS embedding_jobs (
+    job_id TEXT PRIMARY KEY,
+    memory_id TEXT NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
+    target_revision INTEGER NOT NULL,
+    target_hash TEXT NOT NULL,
+    model_identity TEXT NOT NULL,
+    state TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_ms INTEGER,
+    lease_token TEXT,
+    lease_owner TEXT,
+    lease_expires_ms INTEGER,
+    terminal_reason TEXT,
+    updated_ms INTEGER NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_embedding_jobs_state ON embedding_jobs (state, next_attempt_ms);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_embedding_jobs_target ON embedding_jobs (memory_id, model_identity)
+    WHERE state IN ('queued', 'running', 'retry_wait');
+CREATE TABLE IF NOT EXISTS memory_vectors (
+    memory_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    model_identity TEXT NOT NULL,
+    dimensions INTEGER NOT NULL,
+    norm REAL NOT NULL,
+    vector BLOB NOT NULL,
+    created_ms INTEGER NOT NULL,
+    PRIMARY KEY (memory_id, model_identity)
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_memory_vectors_identity ON memory_vectors (model_identity, memory_id);
+"#;
+
+/// Lexical candidates plus the snapshot revision they were read at.
+#[derive(Debug, Clone)]
+pub struct LexicalSnapshot {
+    pub memory_revision: i64,
+    pub derived_generation: i64,
+    pub pool: Vec<MemoryRecord>,
+    pub truncated: bool,
+}
+
+/// Semantic inputs for a fused recall.
+pub struct SemanticInput<'a> {
+    pub identity: &'a str,
+    pub vector: Option<&'a [f32]>,
+    pub min_similarity: f64,
+    pub fallback_reason: Option<&'a str>,
+    pub cache_state: &'a str,
+}
+
 /// Maintained status view of one store.
 #[derive(Debug, Clone)]
 pub struct StoreStatus {
@@ -108,6 +181,10 @@ pub struct Store {
     readers: Vec<Mutex<Connection>>,
     next_reader: AtomicUsize,
     limits: Limits,
+    /// Provider identity when embeddings are enabled.
+    embedding_identity: Option<String>,
+    /// Whether a provider is configured at all (intents become pending).
+    embedding_enabled: bool,
 }
 
 impl Store {
@@ -124,7 +201,60 @@ impl Store {
             readers,
             next_reader: AtomicUsize::new(0),
             limits: config.limits.clone(),
+            embedding_identity: config.embedding_identity.clone(),
+            embedding_enabled: config.embedding_identity.is_some(),
         })
+    }
+
+    /// Provider identity for embedding work, when enabled.
+    pub fn embedding_identity(&self) -> Option<&str> {
+        self.embedding_identity.as_deref()
+    }
+
+    /// Persisted reconciliation cursor, if a page is in flight.
+    pub fn reconciliation_cursor(&self) -> CoreResult<Option<String>> {
+        let connection = self.writer.lock().expect("writer lock");
+        Ok(connection
+            .query_row(
+                "SELECT reconciliation_cursor FROM store_metadata WHERE id = 1",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
+    /// Read an operation receipt for explicit operator actions.
+    pub fn lookup_receipt_json(
+        &self,
+        client_id: &str,
+        operation: &str,
+        key: &str,
+    ) -> CoreResult<Option<(String, String)>> {
+        let connection = self.writer.lock().expect("writer lock");
+        lookup_receipt(&connection, client_id, operation, key)
+    }
+
+    /// Persist an operation receipt for explicit operator actions.
+    pub fn store_receipt_json(
+        &self,
+        client_id: &str,
+        operation: &str,
+        key: &str,
+        request_hash: &str,
+        response_json: &str,
+        now_ms: i64,
+    ) -> CoreResult<()> {
+        let connection = self.writer.lock().expect("writer lock");
+        store_receipt(
+            &connection,
+            client_id,
+            operation,
+            key,
+            request_hash,
+            response_json,
+            now_ms,
+        )
     }
 
     /// Limits in effect for this store.
@@ -252,9 +382,23 @@ impl Store {
             "INSERT INTO memory_fts (content, kind, tags, memory_id) VALUES (?1, ?2, ?3, ?4)",
             params![params.content, params.kind, tags.join(" "), memory_id],
         )?;
+        let intent_state = if self.embedding_enabled {
+            "pending"
+        } else {
+            "disabled"
+        };
         transaction.execute(
-            "INSERT INTO embedding_intents (memory_id, desired_revision, state) VALUES (?1, ?2, 'disabled')",
-            params![memory_id, revision],
+            "INSERT INTO embedding_intents \
+             (memory_id, desired_revision, state, attempts, next_attempt_ms, terminal_reason, content_hash, model_identity, updated_ms) \
+             VALUES (?1, ?2, ?3, 0, NULL, NULL, ?4, ?5, ?6)",
+            params![
+                memory_id,
+                revision,
+                intent_state,
+                content_hash,
+                self.embedding_identity.as_deref().unwrap_or(""),
+                now_ms
+            ],
         )?;
         transaction.execute(
             "UPDATE store_metadata SET memory_revision = ?1, active_memories = active_memories + 1 WHERE id = 1",
@@ -359,6 +503,20 @@ impl Store {
             transaction.execute(
                 "DELETE FROM memory_fts WHERE memory_id = ?1",
                 params![params.memory_id],
+            )?;
+            transaction.execute(
+                "DELETE FROM memory_vectors WHERE memory_id = ?1",
+                params![params.memory_id],
+            )?;
+            transaction.execute(
+                "UPDATE embedding_jobs SET state = 'obsolete', lease_token = NULL, lease_owner = NULL, \
+                 lease_expires_ms = NULL, updated_ms = ?1 WHERE memory_id = ?2 \
+                 AND state IN ('queued', 'running', 'retry_wait')",
+                params![now_ms, params.memory_id],
+            )?;
+            transaction.execute(
+                "UPDATE embedding_intents SET state = 'obsolete', updated_ms = ?1 WHERE memory_id = ?2",
+                params![now_ms, params.memory_id],
             )?;
             transaction.execute(
                 "INSERT INTO suppressions (memory_id, scope, repository, fingerprint, reason, revision, created_ms) \
@@ -550,6 +708,374 @@ impl Store {
             omitted += 1;
         }
     }
+
+    /// Lexical candidates plus the revision they were read at. The speculative
+    /// result is reusable only while the revision is unchanged.
+    pub fn lexical_snapshot(
+        &self,
+        params: &RecallParams,
+        now_ms: i64,
+        deadline: Option<Instant>,
+    ) -> CoreResult<LexicalSnapshot> {
+        ensure_within(deadline)?;
+        let index = self.next_reader.fetch_add(1, Ordering::Relaxed) % self.readers.len();
+        let connection = self.readers[index].lock().expect("reader lock");
+        let transaction = connection.unchecked_transaction()?;
+        let (memory_revision, derived_generation): (i64, i64) = transaction.query_row(
+            "SELECT memory_revision, derived_generation FROM store_metadata WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let terms = retrieval::extract_terms(&params.query);
+        if terms.is_empty() {
+            return Ok(LexicalSnapshot {
+                memory_revision,
+                derived_generation,
+                pool: Vec::new(),
+                truncated: false,
+            });
+        }
+        let mut pool =
+            self.fetch_candidates(&transaction, &retrieval::fts_query(&terms), params, now_ms)?;
+        if pool.is_empty() && terms.len() > 1 {
+            pool = self.fetch_candidates(
+                &transaction,
+                &retrieval::fts_query_or(&terms),
+                params,
+                now_ms,
+            )?;
+        }
+        let truncated = pool.len() >= self.limits.candidate_pool;
+        Ok(LexicalSnapshot {
+            memory_revision,
+            derived_generation,
+            pool,
+            truncated,
+        })
+    }
+
+    /// Fused lexical and semantic recall under one read snapshot.
+    #[allow(clippy::too_many_arguments)]
+    pub fn recall_fused(
+        &self,
+        params: &RecallParams,
+        now_ms: i64,
+        limit: u32,
+        context_bytes: u32,
+        speculative: Option<&LexicalSnapshot>,
+        semantic: SemanticInput<'_>,
+        deadline: Option<Instant>,
+    ) -> CoreResult<RecallResult> {
+        ensure_within(deadline)?;
+        let index = self.next_reader.fetch_add(1, Ordering::Relaxed) % self.readers.len();
+        let connection = self.readers[index].lock().expect("reader lock");
+        let done = Arc::new(AtomicBool::new(false));
+        let expired = Arc::new(AtomicBool::new(false));
+        let watchdog = deadline.map(|deadline_at| {
+            let done = Arc::clone(&done);
+            let expired = Arc::clone(&expired);
+            let handle = connection.get_interrupt_handle();
+            std::thread::spawn(move || {
+                loop {
+                    let now = Instant::now();
+                    if now >= deadline_at {
+                        break;
+                    }
+                    std::thread::sleep((deadline_at - now).min(Duration::from_millis(5)));
+                }
+                if !done.load(Ordering::Acquire) {
+                    expired.store(true, Ordering::Release);
+                    handle.interrupt();
+                }
+            })
+        });
+        let result = self.recall_fused_on(
+            &connection,
+            params,
+            now_ms,
+            limit,
+            context_bytes,
+            speculative,
+            semantic,
+            deadline,
+        );
+        done.store(true, Ordering::Release);
+        drop(watchdog);
+        if expired.load(Ordering::Acquire) {
+            return Err(CoreError::deadline("recall deadline exceeded"));
+        }
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn recall_fused_on(
+        &self,
+        connection: &Connection,
+        params: &RecallParams,
+        now_ms: i64,
+        limit: u32,
+        context_bytes: u32,
+        speculative: Option<&LexicalSnapshot>,
+        semantic: SemanticInput<'_>,
+        deadline: Option<Instant>,
+    ) -> CoreResult<RecallResult> {
+        let transaction = connection.unchecked_transaction()?;
+        let (memory_revision, derived_generation): (i64, i64) = transaction.query_row(
+            "SELECT memory_revision, derived_generation FROM store_metadata WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let terms = retrieval::extract_terms(&params.query);
+
+        // Lexical candidates: reuse a speculative snapshot only when the
+        // authoritative revision did not move under it.
+        let (pool, lexical_truncated) = match speculative {
+            Some(snapshot) if snapshot.memory_revision == memory_revision && !terms.is_empty() => {
+                (snapshot.pool.clone(), snapshot.truncated)
+            }
+            _ => {
+                if terms.is_empty() {
+                    (Vec::new(), false)
+                } else {
+                    let mut pool = self.fetch_candidates(
+                        &transaction,
+                        &retrieval::fts_query(&terms),
+                        params,
+                        now_ms,
+                    )?;
+                    if pool.is_empty() && terms.len() > 1 {
+                        pool = self.fetch_candidates(
+                            &transaction,
+                            &retrieval::fts_query_or(&terms),
+                            params,
+                            now_ms,
+                        )?;
+                    }
+                    let truncated = pool.len() >= self.limits.candidate_pool;
+                    (pool, truncated)
+                }
+            }
+        };
+
+        // Vector scoring in bounded pages, capped by eligible-vector work.
+        let mut vector_rank: Vec<(String, f64)> = Vec::new();
+        let mut fallback_reason = semantic.fallback_reason.unwrap_or("NONE").to_string();
+        if let Some(vector) = semantic.vector {
+            if semantic.identity.is_empty() {
+                fallback_reason = "DISABLED".to_string();
+            } else {
+                let query_norm = embedding::vector_norm(vector);
+                let mut after: Option<String> = None;
+                let mut scanned = 0usize;
+                let mut budget_exhausted = false;
+                while scanned < MAX_VECTOR_SCAN {
+                    let page = self.vector_page(
+                        &transaction,
+                        semantic.identity,
+                        after.as_deref(),
+                        VECTOR_PAGE,
+                        params.repository.as_deref(),
+                        params.include_other_repositories,
+                        now_ms,
+                    )?;
+                    if page.is_empty() {
+                        break;
+                    }
+                    after = page.last().map(|stored| stored.memory_id.clone());
+                    for stored in page {
+                        scanned += 1;
+                        let score = embedding::cosine(
+                            vector,
+                            query_norm,
+                            &stored.vector,
+                            embedding::vector_norm(&stored.vector),
+                        );
+                        if score >= semantic.min_similarity {
+                            vector_rank.push((stored.memory_id, score));
+                        }
+                    }
+                    if ensure_within(deadline).is_err() {
+                        budget_exhausted = true;
+                        break;
+                    }
+                }
+                if budget_exhausted {
+                    vector_rank.clear();
+                    fallback_reason = "VECTOR_BUDGET".to_string();
+                } else {
+                    vector_rank.sort_by(|left, right| {
+                        right
+                            .1
+                            .partial_cmp(&left.1)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| left.0.cmp(&right.0))
+                    });
+                    if scanned == 0 {
+                        fallback_reason = "NO_CURRENT_VECTORS".to_string();
+                    } else if vector_rank.is_empty() && fallback_reason == "NONE" {
+                        fallback_reason = "NO_RELEVANT_VECTOR".to_string();
+                    }
+                }
+            }
+        }
+
+        // Candidate merge. A healthy vector list is authoritative for its
+        // qualifying rows (ordered by cosine), and lexical-only rows fill
+        // remaining slots in bm25 order. The planning note called for
+        // equal-weight RRF; the calibration report records that equal weights
+        // systematically demoted pure-semantic matches below the equivalent
+        // v1 semantic mode, so this implementation keeps semantic precedence
+        // and uses lexical rank only where no qualifying vector exists.
+        let vector_ids: HashSet<String> = vector_rank.iter().map(|(id, _)| id.clone()).collect();
+        let mut fused: Vec<(String, u8, usize)> = Vec::new();
+        for (rank, (id, _)) in vector_rank.iter().enumerate() {
+            fused.push((id.clone(), 0, rank));
+        }
+        for (rank, record) in pool.iter().enumerate() {
+            if !vector_ids.contains(&record.id) {
+                fused.push((record.id.clone(), 1, rank));
+            }
+        }
+        fused.sort_by(|left, right| {
+            left.1
+                .cmp(&right.1)
+                .then_with(|| left.2.cmp(&right.2))
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        fused.truncate(limit as usize);
+
+        // Materialize complete records in fused order from this snapshot.
+        let by_id: HashMap<&str, &MemoryRecord> = pool
+            .iter()
+            .map(|record| (record.id.as_str(), record))
+            .collect();
+        let missing: Vec<String> = fused
+            .iter()
+            .filter(|(id, _, _)| !by_id.contains_key(id.as_str()))
+            .map(|(id, _, _)| id.clone())
+            .collect();
+        let fetched = if missing.is_empty() {
+            Vec::new()
+        } else {
+            self.fetch_records_by_ids(&transaction, &missing)?
+        };
+        let fetched_map: HashMap<&str, &MemoryRecord> = fetched
+            .iter()
+            .map(|record| (record.id.as_str(), record))
+            .collect();
+        let mut selected: Vec<MemoryRecord> = Vec::with_capacity(fused.len());
+        for (id, _, _) in &fused {
+            if let Some(record) = by_id.get(id.as_str()) {
+                selected.push((*record).clone());
+            } else if let Some(record) = fetched_map.get(id.as_str()) {
+                selected.push((*record).clone());
+            }
+        }
+
+        let vector_contribution = selected
+            .iter()
+            .filter(|record| vector_ids.contains(&record.id))
+            .count() as u64;
+        let retrieval_mode = if vector_contribution > 0 {
+            "hybrid"
+        } else {
+            "lexical"
+        };
+        if vector_contribution == 0 && semantic.vector.is_some() && fallback_reason == "NONE" {
+            fallback_reason = "NO_RELEVANT_VECTOR".to_string();
+        }
+
+        // Bound the encoded response; drop whole records from the tail.
+        let mut omitted = 0u64;
+        loop {
+            ensure_within(deadline)?;
+            let contents: Vec<String> = selected
+                .iter()
+                .map(|record| record.content.clone())
+                .collect();
+            let (text, included, context_omitted) =
+                retrieval::render_topical(&contents, context_bytes as usize);
+            let section = if selected.is_empty() {
+                Vec::new()
+            } else {
+                vec![RecallSection {
+                    id: "topical".to_string(),
+                    memory_ids: selected
+                        .iter()
+                        .take(included)
+                        .map(|record| record.id.clone())
+                        .collect(),
+                    text: text.clone(),
+                    omitted: context_omitted as u64,
+                }]
+            };
+            let result = RecallResult {
+                records: selected.clone(),
+                context: text,
+                sections: section,
+                memory_revision: memory_revision.to_string(),
+                evaluated_at_ms: now_ms,
+                derived_generation: derived_generation.to_string(),
+                diagnostics: RecallDiagnostics {
+                    retrieval_mode: retrieval_mode.to_string(),
+                    cache: semantic.cache_state.to_string(),
+                    vector_contribution,
+                    candidate_pool_limit: self.limits.candidate_pool as u64,
+                    candidate_pool_truncated: lexical_truncated,
+                    fallback_reason: fallback_reason.clone(),
+                    response_bytes: 0,
+                    omitted_count: omitted + context_omitted as u64,
+                },
+            };
+            let encoded = serde_json::to_vec(&result)?;
+            if encoded.len() + RESPONSE_HEADROOM <= MAX_BODY_BYTES || selected.is_empty() {
+                let mut final_result = result;
+                final_result.diagnostics.response_bytes = encoded.len() as u64;
+                return Ok(final_result);
+            }
+            selected.pop();
+            omitted += 1;
+        }
+    }
+
+    /// Fetch complete records for specific IDs from one snapshot.
+    fn fetch_records_by_ids(
+        &self,
+        connection: &Connection,
+        ids: &[String],
+    ) -> CoreResult<Vec<MemoryRecord>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = vec!["?"; ids.len()].join(", ");
+        let sql = format!(
+            "SELECT id, kind, content, scope, repository, authority, confidence, created_ms, \
+             updated_ms, expires_at_ms, source_session_id, tags_json FROM memories \
+             WHERE forgotten = 0 AND superseded_by IS NULL AND id IN ({placeholders})"
+        );
+        let values: Vec<Value> = ids.iter().map(|id| Value::Text(id.clone())).collect();
+        let mut statement = connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(values.iter()), |row| {
+            let tags_json: String = row.get(11)?;
+            let scope: String = row.get(3)?;
+            Ok(MemoryRecord {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                content: row.get(2)?,
+                scope: parse_scope(&scope),
+                repository: row.get(4)?,
+                authority: row.get(5)?,
+                confidence: row.get(6)?,
+                created_ms: row.get(7)?,
+                updated_ms: row.get(8)?,
+                expires_at_ms: row.get(9)?,
+                source_session_id: row.get(10)?,
+                tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     fn fetch_candidates(
         &self,
         connection: &Connection,
@@ -663,34 +1189,40 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
                 "database contains tables but no v2 metadata",
             ));
         }
-        connection.execute_batch(SCHEMA_SQL)?;
+        connection.execute_batch(SCHEMA_V1_SQL)?;
         connection.execute(
             "INSERT INTO store_metadata (id, store_id, schema_version, memory_revision, \
-             derived_generation, active_memories, forgotten_memories) VALUES (1, ?1, ?2, 0, 0, 0, 0)",
-            params![Uuid::new_v4().to_string(), STORE_SCHEMA_VERSION],
+             derived_generation, active_memories, forgotten_memories) VALUES (1, ?1, 1, 0, 0, 0, 0)",
+            params![Uuid::new_v4().to_string()],
         )?;
-    } else {
-        let version: Option<i64> = connection
-            .query_row(
-                "SELECT schema_version FROM store_metadata WHERE id = 1",
+    }
+    let version: Option<i64> = connection
+        .query_row(
+            "SELECT schema_version FROM store_metadata WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    match version {
+        Some(1) => {
+            connection.execute_batch(MIGRATION_2_SQL)?;
+            connection.execute(
+                "UPDATE store_metadata SET schema_version = 2 WHERE id = 1",
                 [],
-                |row| row.get(0),
-            )
-            .optional()?;
-        match version {
-            Some(version) if version == STORE_SCHEMA_VERSION => {}
-            Some(version) => {
-                return Err(CoreError::internal(
-                    "SCHEMA_UNSUPPORTED",
-                    format!("store schema {version} is not supported"),
-                ));
-            }
-            None => {
-                return Err(CoreError::internal(
-                    "SCHEMA_UNSUPPORTED",
-                    "store metadata row is missing",
-                ));
-            }
+            )?;
+        }
+        Some(version) if version == STORE_SCHEMA_VERSION => {}
+        Some(version) => {
+            return Err(CoreError::internal(
+                "SCHEMA_UNSUPPORTED",
+                format!("store schema {version} is not supported"),
+            ));
+        }
+        None => {
+            return Err(CoreError::internal(
+                "SCHEMA_UNSUPPORTED",
+                "store metadata row is missing",
+            ));
         }
     }
     // Fail closed when FTS5 is unavailable or the index is unhealthy.

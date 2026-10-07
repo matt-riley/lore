@@ -13,9 +13,80 @@ use sha2::{Digest, Sha256};
 use crate::error::{CoreError, CoreResult};
 
 /// Wire/store schema version this build owns.
-pub const STORE_SCHEMA_VERSION: i64 = 1;
+pub const STORE_SCHEMA_VERSION: i64 = 2;
 /// Configuration version accepted by this build.
 pub const CONFIG_VERSION: u32 = 2;
+
+fn default_embedding_endpoint() -> String {
+    "http://127.0.0.1:12434/v1".to_string()
+}
+fn default_provider_timeout_ms() -> u64 {
+    30_000
+}
+fn default_min_similarity() -> f64 {
+    0.35
+}
+
+/// Embedding provider configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EmbeddingsProviderFile {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_embedding_endpoint")]
+    pub endpoint: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub dimensions: usize,
+    #[serde(default)]
+    pub generation: u32,
+    #[serde(default = "default_provider_timeout_ms")]
+    pub timeout_ms: u64,
+    /// Explicit opt-in before a non-loopback endpoint receives any text.
+    #[serde(default)]
+    pub allow_remote: bool,
+    #[serde(default = "default_min_similarity")]
+    pub min_similarity: f64,
+}
+
+impl Default for EmbeddingsProviderFile {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: default_embedding_endpoint(),
+            model: String::new(),
+            dimensions: 0,
+            generation: 0,
+            timeout_ms: default_provider_timeout_ms(),
+            allow_remote: false,
+            min_similarity: default_min_similarity(),
+        }
+    }
+}
+
+/// Provider configuration block.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProvidersFile {
+    #[serde(default)]
+    pub embeddings: EmbeddingsProviderFile,
+}
+
+/// Validated embedding settings exposed to the daemon.
+#[derive(Debug, Clone)]
+pub struct ResolvedEmbedding {
+    pub endpoint: String,
+    pub model: String,
+    pub dimensions: usize,
+    pub generation: u32,
+    pub timeout_ms: u64,
+    pub min_similarity: f64,
+    /// Sanitized identity slug persisted beside vectors and intents.
+    pub identity: String,
+    /// Short display identity for Status.
+    pub display: String,
+}
 
 fn default_content_bytes() -> usize {
     64 * 1024
@@ -117,6 +188,8 @@ pub struct ConfigFile {
     pub socket_path: Option<String>,
     #[serde(default)]
     pub limits: Limits,
+    #[serde(default)]
+    pub providers: ProvidersFile,
 }
 
 /// Config with every path resolved and validated.
@@ -128,6 +201,10 @@ pub struct ResolvedConfig {
     pub socket_path: PathBuf,
     pub store_path: PathBuf,
     pub limits: Limits,
+    /// Embedding identity slug when the provider is enabled.
+    pub embedding_identity: Option<String>,
+    /// Validated embedding settings when the provider is enabled.
+    pub embedding: Option<ResolvedEmbedding>,
 }
 
 impl ResolvedConfig {
@@ -198,13 +275,26 @@ impl ResolvedConfig {
         })?;
         ensure_private_dir(socket_parent, "socket directory")?;
 
+        let providers = file
+            .as_ref()
+            .map(|file| file.providers.clone())
+            .unwrap_or_default();
+        let embedding = resolve_embedding(&providers)?;
+
         Ok(Self {
             enabled: file.as_ref().map(|file| file.enabled).unwrap_or(false),
             config_path,
             data_dir,
             socket_path,
             store_path,
-            limits: file.map(|file| file.limits).unwrap_or_default(),
+            limits: file
+                .as_ref()
+                .map(|file| file.limits.clone())
+                .unwrap_or_default(),
+            embedding_identity: embedding
+                .as_ref()
+                .map(|embedding| embedding.identity.clone()),
+            embedding,
         })
     }
 }
@@ -215,6 +305,65 @@ fn absolutize(path: &Path, base: &Path) -> PathBuf {
     } else {
         base.join(path)
     }
+}
+
+/// Validate and resolve the embedding provider configuration.
+fn resolve_embedding(providers: &ProvidersFile) -> CoreResult<Option<ResolvedEmbedding>> {
+    let file = &providers.embeddings;
+    if !file.enabled {
+        return Ok(None);
+    }
+    if file.model.trim().is_empty() {
+        return Err(CoreError::invalid(
+            "PROVIDER_MODEL_INVALID",
+            "embedding model is required when embeddings are enabled",
+        ));
+    }
+    if file.dimensions == 0 || file.dimensions > 3_072 {
+        return Err(CoreError::invalid(
+            "PROVIDER_DIMENSIONS",
+            "embedding dimensions must be 1-3072",
+        ));
+    }
+    if !file.min_similarity.is_finite() || !(0.0..=1.0).contains(&file.min_similarity) {
+        return Err(CoreError::invalid(
+            "PROVIDER_CONFIG",
+            "minSimilarity must be within 0-1",
+        ));
+    }
+    let parsed = url::Url::parse(&file.endpoint).map_err(|_| {
+        CoreError::invalid(
+            "PROVIDER_CONFIG",
+            "embedding endpoint must be an absolute URL",
+        )
+    })?;
+    let loopback = matches!(
+        parsed.host_str().unwrap_or_default(),
+        "127.0.0.1" | "::1" | "[::1]" | "localhost"
+    );
+    if !loopback && !file.allow_remote {
+        return Err(CoreError::precondition(
+            "PROVIDER_REMOTE_NOT_ALLOWED",
+            "remote embedding endpoints require allowRemote: true",
+        ));
+    }
+    let identity = lore_provider::ProviderIdentity::new(
+        &file.endpoint,
+        &file.model,
+        file.generation,
+        file.dimensions,
+    )
+    .map_err(|error| CoreError::invalid(error.category(), error.to_string()))?;
+    Ok(Some(ResolvedEmbedding {
+        endpoint: file.endpoint.clone(),
+        model: file.model.clone(),
+        dimensions: file.dimensions,
+        generation: file.generation,
+        timeout_ms: file.timeout_ms.clamp(50, 60_000),
+        min_similarity: file.min_similarity,
+        identity: identity.slug(),
+        display: identity.display(),
+    }))
 }
 
 fn read_config(

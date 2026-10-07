@@ -15,6 +15,8 @@ fn config_with(dir: &Path, limits: Limits) -> ResolvedConfig {
         socket_path: dir.join("test.sock"),
         store_path: dir.join("lore-v2.db"),
         limits,
+        embedding_identity: None,
+        embedding: None,
     }
 }
 

@@ -1,5 +1,5 @@
 [package]
-name = "lored"
+name = "lore-provider"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,23 +7,12 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-anyhow.workspace = true
 bytes.workspace = true
-clap.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
-lore-core.workspace = true
-lore-provider.workspace = true
-protocol.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2 = "0.10"
 tokio.workspace = true
-uuid.workspace = true
-
-[dev-dependencies]
-libc = "0.2"
-lore.workspace = true
-serde_json.workspace = true
-tempfile.workspace = true
+url = "2"

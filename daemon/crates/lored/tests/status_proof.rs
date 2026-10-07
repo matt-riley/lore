@@ -144,7 +144,7 @@ async fn status_round_trip_is_contract_shaped() {
     assert_eq!(json["result"]["storeId"], store_id);
     assert_eq!(json["result"]["apiMajor"], 2);
     assert_eq!(json["result"]["apiMinor"], 0);
-    assert_eq!(json["result"]["schemaVersion"], 1);
+    assert_eq!(json["result"]["schemaVersion"], 2);
     assert_eq!(json["result"]["readiness"], "ready");
     assert!(json["result"]["uptimeMs"].as_u64().is_some());
     let capabilities = json["result"]["capabilities"]

@@ -1,0 +1,17 @@
+{
+  "meta": {
+    "clientId": "fixture",
+    "requestId": "fixture-retain-1",
+    "expectedStoreId": "store-fixture",
+    "timeoutMs": 2000
+  },
+  "params": {
+    "idempotencyKey": "fixture-retain-key-1",
+    "type": "user_preference",
+    "content": "The build uses pnpm workspaces.",
+    "scope": "global",
+    "confidence": 0.9,
+    "tags": ["build", "tooling"],
+    "sourceSessionId": "session-fixture-1"
+  }
+}

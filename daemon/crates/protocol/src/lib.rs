@@ -132,7 +132,158 @@ pub enum Readiness {
     Unavailable,
 }
 
-/// `/v2/status` result. G1 proof fields only; later stages add the full set.
+/// Memory scope on the wire.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scope {
+    #[default]
+    Global,
+    Repo,
+    Transferable,
+}
+
+/// `/v2/retain` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RetainParams {
+    pub idempotency_key: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub content: String,
+    pub scope: Scope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_session_id: Option<String>,
+}
+
+/// `/v2/retain` result. 64-bit counters are decimal strings on the wire.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetainResult {
+    pub memory_id: String,
+    pub committed_revision: String,
+    pub write_result: String,
+    pub embedding_status: String,
+}
+
+/// `/v2/forget` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ForgetParams {
+    pub idempotency_key: String,
+    pub memory_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// `/v2/forget` result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgetResult {
+    pub memory_id: String,
+    pub committed_revision: String,
+    pub write_result: String,
+}
+
+/// `/v2/recall` parameters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecallParams {
+    pub query: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub include_other_repositories: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_bytes: Option<u32>,
+}
+
+/// One complete structured memory record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryRecord {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub content: String,
+    pub scope: Scope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    pub authority: String,
+    pub confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<i64>,
+    pub created_ms: i64,
+    pub updated_ms: i64,
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_session_id: Option<String>,
+}
+
+/// One ordered rendered section.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecallSection {
+    pub id: String,
+    pub memory_ids: Vec<String>,
+    pub text: String,
+    pub omitted: u64,
+}
+
+/// Bounded, content-free recall diagnostics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecallDiagnostics {
+    pub retrieval_mode: String,
+    pub cache: String,
+    pub vector_contribution: u64,
+    pub candidate_pool_limit: u64,
+    pub candidate_pool_truncated: bool,
+    pub fallback_reason: String,
+    pub response_bytes: u64,
+    pub omitted_count: u64,
+}
+
+/// `/v2/recall` result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecallResult {
+    pub records: Vec<MemoryRecord>,
+    pub context: String,
+    pub sections: Vec<RecallSection>,
+    pub memory_revision: String,
+    pub evaluated_at_ms: i64,
+    pub derived_generation: String,
+    pub diagnostics: RecallDiagnostics,
+}
+
+/// Maintained store counters reported by Status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusCounts {
+    pub active_memories: String,
+    pub forgotten_memories: String,
+    pub receipts: String,
+}
+
+/// In-flight work reported by Status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusQueue {
+    pub queued: String,
+    pub running: String,
+}
+
+/// `/v2/status` result. G1 proof fields plus stage-2 counters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusResult {
@@ -144,7 +295,13 @@ pub struct StatusResult {
     pub process_instance_id: String,
     pub uptime_ms: u64,
     pub readiness: Readiness,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     pub capabilities: Vec<String>,
+    pub memory_revision: String,
+    pub derived_generation: String,
+    pub counts: StatusCounts,
+    pub queue: StatusQueue,
 }
 
 /// Reject integers that cannot round-trip through a JavaScript number.
@@ -210,7 +367,19 @@ mod tests {
             process_instance_id: "1-2".to_string(),
             uptime_ms: 0,
             readiness: Readiness::Ready,
+            reason: None,
             capabilities: vec!["status.basic".to_string()],
+            memory_revision: "0".to_string(),
+            derived_generation: "0".to_string(),
+            counts: StatusCounts {
+                active_memories: "0".to_string(),
+                forgotten_memories: "0".to_string(),
+                receipts: "0".to_string(),
+            },
+            queue: StatusQueue {
+                queued: "0".to_string(),
+                running: "0".to_string(),
+            },
         }
     }
 
@@ -313,7 +482,7 @@ mod tests {
 
     #[test]
     fn additive_response_fields_are_ignored() {
-        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":1,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"extra":true}}"#;
+        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":1,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"extra":true}}"#;
         let parsed: OkEnvelope<StatusResult> =
             serde_json::from_str(raw).expect("additive response fields are ignored");
         assert_eq!(parsed.result.api_major, 2);
@@ -338,5 +507,147 @@ mod tests {
             value.get("sessionId").is_none(),
             "unset optional fields are omitted"
         );
+    }
+
+    fn parse(json: &str) -> Value {
+        serde_json::from_str(json).expect("json parses")
+    }
+
+    fn resolve<'a>(schema: &'a Value, node: &'a Value) -> &'a Value {
+        if let Some(reference) = node.get("$ref").and_then(Value::as_str) {
+            let pointer = reference.strip_prefix('#').unwrap_or(reference);
+            return schema
+                .pointer(pointer)
+                .unwrap_or_else(|| panic!("unresolved $ref {reference}"));
+        }
+        node
+    }
+
+    /// Validate a fixture against a schema: required fields present, declared
+    /// fields only, recursively through objects and array items.
+    fn validate_node(schema: &Value, node: &Value, value: &Value, path: &str) {
+        let node = resolve(schema, node);
+        if let Some(required) = node.get("required").and_then(Value::as_array) {
+            let object = value
+                .as_object()
+                .unwrap_or_else(|| panic!("{path}: expected an object"));
+            for field in required {
+                let field = field.as_str().expect("required entries are strings");
+                assert!(
+                    object.contains_key(field),
+                    "{path}: missing required {field}"
+                );
+            }
+        }
+        if let (Some(properties), Value::Object(map)) =
+            (node.get("properties").and_then(Value::as_object), value)
+        {
+            for (key, child) in map {
+                match properties.get(key) {
+                    Some(property) => {
+                        validate_node(schema, property, child, &format!("{path}.{key}"))
+                    }
+                    None => panic!("{path}: undeclared field {key}"),
+                }
+            }
+        }
+        if let (Some(items), Value::Array(entries)) = (node.get("items"), value) {
+            for (index, entry) in entries.iter().enumerate() {
+                validate_node(schema, items, entry, &format!("{path}[{index}]"));
+            }
+        }
+    }
+
+    #[test]
+    fn request_fixtures_parse_into_typed_envelopes() {
+        let status: Envelope<StatusParams> = serde_json::from_str(include_str!(
+            "../../../../tests/v2/fixtures/status.request.json"
+        ))
+        .expect("status fixture");
+        assert_eq!(status.meta.client_id, "fixture");
+
+        let retain: Envelope<RetainParams> = serde_json::from_str(include_str!(
+            "../../../../tests/v2/fixtures/retain.request.json"
+        ))
+        .expect("retain fixture");
+        assert_eq!(retain.params.scope, Scope::Global);
+        assert_eq!(retain.params.tags.len(), 2);
+
+        let forget: Envelope<ForgetParams> = serde_json::from_str(include_str!(
+            "../../../../tests/v2/fixtures/forget.request.json"
+        ))
+        .expect("forget fixture");
+        assert_eq!(forget.params.memory_id.len(), 36);
+
+        let recall: Envelope<RecallParams> = serde_json::from_str(include_str!(
+            "../../../../tests/v2/fixtures/recall.request.json"
+        ))
+        .expect("recall fixture");
+        assert_eq!(recall.params.limit, Some(6));
+        assert!(!recall.params.include_other_repositories);
+    }
+
+    #[test]
+    fn fixtures_match_their_schemas() {
+        let cases: [(&str, &str, &str, &str); 8] = [
+            (
+                "status",
+                include_str!("../../../../schemas/v2/status.request.schema.json"),
+                "fixture",
+                include_str!("../../../../tests/v2/fixtures/status.request.json"),
+            ),
+            (
+                "retain",
+                include_str!("../../../../schemas/v2/retain.request.schema.json"),
+                "fixture",
+                include_str!("../../../../tests/v2/fixtures/retain.request.json"),
+            ),
+            (
+                "forget",
+                include_str!("../../../../schemas/v2/forget.request.schema.json"),
+                "fixture",
+                include_str!("../../../../tests/v2/fixtures/forget.request.json"),
+            ),
+            (
+                "recall",
+                include_str!("../../../../schemas/v2/recall.request.schema.json"),
+                "fixture",
+                include_str!("../../../../tests/v2/fixtures/recall.request.json"),
+            ),
+            (
+                "status",
+                include_str!("../../../../schemas/v2/status.response.schema.json"),
+                "fixture",
+                include_str!("../../../../tests/v2/fixtures/status.response.json"),
+            ),
+            (
+                "retain",
+                include_str!("../../../../schemas/v2/retain.response.schema.json"),
+                "fixture",
+                include_str!("../../../../tests/v2/fixtures/retain.response.json"),
+            ),
+            (
+                "forget",
+                include_str!("../../../../schemas/v2/forget.response.schema.json"),
+                "fixture",
+                include_str!("../../../../tests/v2/fixtures/forget.response.json"),
+            ),
+            (
+                "recall",
+                include_str!("../../../../schemas/v2/recall.response.schema.json"),
+                "fixture",
+                include_str!("../../../../tests/v2/fixtures/recall.response.json"),
+            ),
+        ];
+        for (name, schema, fixture_name, fixture) in cases {
+            let schema = parse(schema);
+            let fixture = parse(fixture);
+            validate_node(
+                &schema,
+                &schema,
+                &fixture,
+                &format!("{name}:{fixture_name}"),
+            );
+        }
     }
 }

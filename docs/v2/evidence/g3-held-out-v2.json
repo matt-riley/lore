@@ -1,0 +1,26 @@
+{
+  "split": "held-out",
+  "threshold": 0.45,
+  "corpusHash": "5c86e0cca502556e2e3d15a103cf676f3192bae64d96f48aaeb099d659a7b7f7",
+  "families": 94,
+  "mode": "v2",
+  "coverage": {
+    "provider": "docker.io/ai/embeddinggemma:latest#ce74377f2b7cbb40",
+    "state": "ready",
+    "dimensions": 768,
+    "coverageCurrent": "94",
+    "coverageEligible": "94",
+    "pending": "0",
+    "failed": "0"
+  },
+  "positiveQueries": 188,
+  "recallAt6": 0.776595744680851,
+  "mrrAt6": 0.5051418439716313,
+  "irrelevantRate": 0.8776194467728415,
+  "canaryHits": 0,
+  "negativeQueries": 20,
+  "negativeReturned": 65,
+  "fallbackCounts": {
+    "NONE": 188
+  }
+}

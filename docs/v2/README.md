@@ -24,7 +24,7 @@ At this baseline, `lib/memory/semantic-search.mjs` uses a 10,000 ms default sema
 | Foundation | Decisions, configuration, parity inventory, evaluation rules | [Decisions](architecture-decisions.md), [configuration/storage](configuration-storage.md), [parity](capability-parity.md), [validation](validation.md) | Requirements and fixtures frozen before handlers |
 | 1 | HTTP/JSON contract and minimal Rust/Node/Bun socket proof | [Contracts](01-contracts.md) | [G1 evidence](evidence/g1.md): wire, host-loading, cold-process, identity and deadline tests |
 | 2 | Durable Status, Retain, Forget and lexical Recall | [Daemon core](02-daemon-core.md) | [G2 evidence](evidence/g2.md): two clients, safety fixtures, crash/retry proof, lexical baseline |
-| 3 | Background memory embeddings and bounded query inference | [Embeddings](03-background-embeddings.md) | Cold-query quality, degraded retrieval, resource and backlog report |
+| 3 | Background memory embeddings and bounded query inference | [Embeddings](03-background-embeddings.md) | [G3 evidence](evidence/g3.md): cold-query quality, degraded retrieval, resource and backlog report |
 | 4 | Background source discovery and checkpointed capture | [Ingestion](04-ingestion.md) | Every client format; replacement, compaction and restart evidence |
 | 5A | Rust extraction and complete context assembly | [Extraction](05-extraction.md) | Reliability, mandatory-context and provenance gates |
 | 5B | Explicit v1 migration, backup and suppression-safe recovery | [Migration/recovery](05-migration-recovery.md) | Released-schema accounting and recovery rehearsal |
@@ -75,7 +75,7 @@ Gate G1 (stage 1): practical HTTP/JSON interoperability, cold CLI cost, JSON val
 
 Gate G2 (stage 2): acknowledged writes survive process failure; retries and Forget work through the actual API; scope fixtures have zero leaks; lexical recall meets its measured baseline gate. Passed 2026-10-07 ([evidence](evidence/g2.md)).
 
-Gate G3 (stage 3): first-seen query quality, fallback quality, memory coverage, latency, RSS, write contention, and recovery all meet [validation](validation.md). Publish the report and record an explicit go/no-go before starting the large extraction port. A failed gate blocks expansion; it does not authorize a silent threshold change or language switch.
+Gate G3 (stage 3): first-seen query quality, fallback quality, memory coverage, latency, RSS, write contention, and recovery all meet [validation](validation.md). Publish the report and record an explicit go/no-go before starting the large extraction port. A failed gate blocks expansion; it does not authorize a silent threshold change or language switch. Passed 2026-10-07 ([evidence](evidence/g3.md)).
 
 Gate G4 (stages 4-5A): source capture is accounted for and the independent reliability corpus passes. Empty queues cannot establish capture completeness.
 

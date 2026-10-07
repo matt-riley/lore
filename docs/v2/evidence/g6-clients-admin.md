@@ -18,10 +18,12 @@ Node adapter proofs.
 | Journal | `uncertain-writes.json` in the owned data dir, 0600, atomic temp+fsync+rename, capacity 100 before dispatch, payload dropped on resolve; `lore retries list|resolve`. |
 | Thin adapter | `daemon/clients/js/lore-adapter.mjs`: capability negotiation, cached store identity, Recall/Retain/Forget with `AbortSignal` cancellation that destroys the in-flight request. No SQLite import. |
 
-Implemented canonical operations (10 of 27): `lore_status`, `lore_retain`,
+Implemented canonical operations (14 of 27): `lore_status`, `lore_retain`,
 `lore_forget`, `lore_recall`, `lore_search`, `lore_explain`, `lore_validate`,
-`lore_doctor`, `lore_audit_extractions` and `memory_capability_inventory`.
-The remaining 17 are marked `planned` in the catalog and refuse dispatch.
+`lore_doctor`, `lore_audit_extractions`, `memory_capability_inventory`,
+`lore_correct`, `lore_purge`, `memory_scope_override` and
+`memory_scope_audit`. The remaining 13 are marked `planned` in the catalog
+and refuse dispatch.
 
 ### Read-only administration (first matrix slice)
 
@@ -44,6 +46,27 @@ synchronous reads with capability IDs `search.browse`, `explain.context`,
   completion.
 - **Capability inventory** merges the checked-in catalog with live daemon
   capabilities; it works without a daemon and reports `storeId: null`.
+
+### Write operations and the run model
+
+Schema 6 adds `operation_runs`, `operation_run_items` and
+`scope_override_audit`. Every apply records a run (state, input hash, plan
+fingerprint, actor, counts) and pages its items through `/v2/admin/run-status`.
+
+- **Correct** previews the replacement, fingerprints operation + store +
+  target revision + proposed fields, then applies in one transaction:
+  manual replacement created, original retired with lineage, FTS rebuilt,
+  vectors and evidence links invalidated, embedding intent queued. Apply
+  requires the exact fingerprint and a pre-apply snapshot
+  (`lore-v2.snapshot-<ms>.db`); a changed dependency is `PREVIEW_STALE`.
+- **Purge** requires explicit selection (IDs, repository or the global flag),
+  shows the dependency closure, and applies by re-forgetting under durable
+  scoped suppression while retaining evidence as provenance. Raw sources and
+  backups are untouched.
+- **Scope override** previews/applys set or clear with actor and reason
+  recorded in the audit ledger; vector eligibility is invalidated immediately
+  and repository-scoped overrides require a repository.
+- **Scope audit** pages the override ledger, newest first.
 
 ## 6B — administration and dashboard
 
@@ -71,12 +94,12 @@ synchronous reads with capability IDs `search.browse`, `explain.context`,
   hooks are exercised against a fake daemon and the adapter against a real
   daemon, but no host application has been driven. G5's per-host integration
   evidence therefore remains open, and support claims stay experimental.
-- **17 of 27 canonical operations are planned**, including correct/repair/
-  purge/scope-override, maintenance, reflection, backfill, portable bundles
-  and replay runs. Human/slash surfaces for those verbs fail explicitly
-  rather than pretending support. The durable run model for expensive
-  operations is not implemented yet; the current admin set is deliberately
-  bounded synchronous reads.
+- **13 of 27 canonical operations are planned**, including repair,
+  maintenance, reflection, backfill, portable bundles, deferred processing,
+  onboard, replay, backlog/ledger/journal and skill validation. Human/slash
+  surfaces for those verbs fail explicitly rather than pretending support.
+  The durable run model exists and records every apply; long-running
+  multi-batch operations are not ported yet.
 - Hook source hints and capture observations are not wired: capture relies on
   the daemon's scheduled discovery, which is proven to catch up without
   hints. Hooks do prompt Recall and lifecycle-neutral responses only.

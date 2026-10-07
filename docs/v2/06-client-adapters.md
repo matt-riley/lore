@@ -1,6 +1,6 @@
 # Slice 6A: thin clients and compatible commands
 
-Status: planned. Depends on G4 and migration/recovery implementation for real-data trials. Exit contributes to G5.
+Status: stage-6A core implemented 2026-10-07 — evidence in [evidence/g6-clients-admin.md](evidence/g6-clients-admin.md); real host evidence and the remaining operations are open. Depends on G4 and migration/recovery implementation for real-data trials. Exit contributes to G5.
 References: `extension.mjs`, `lore-pi.ts`, `lib/clients/setup.mjs`, `lib/clients/cli-runtime.mjs`, `lib/runtime/slash-dispatch.mjs`, `lib/capabilities/capability-manifest.mjs`.
 
 ## Outcome and rollout order

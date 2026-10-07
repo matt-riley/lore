@@ -46,7 +46,7 @@ use protocol::{
     EmbeddingStatus, Envelope, ErrorDetail, ErrorEnvelope, ForgetParams, HOST, JobCounts,
     JobRecord, JobsRetryParams, JobsRetryResult, JobsStatusParams, JobsStatusResult,
     MAX_BODY_BYTES, MAX_TIMEOUT_MS, OkEnvelope, Readiness, RecallParams, RequestMeta, RetainParams,
-    StatusCounts, StatusParams, StatusQueue, StatusResult, code, reason,
+    StatusCounts, StatusParams, StatusQueue, StatusResult, ViewParams, code, reason,
 };
 
 use sources::Scheduler;
@@ -308,20 +308,36 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
         return response;
     }
     let path = request.uri().path().to_string();
-    if !matches!(
-        path.as_str(),
-        "/v2/status"
-            | "/v2/retain"
-            | "/v2/forget"
-            | "/v2/recall"
-            | "/v2/jobs/status"
-            | "/v2/jobs/retry"
-            | "/v2/config/reload"
-            | "/v2/sources/register"
-            | "/v2/sources/hint"
-            | "/v2/sources/status"
-            | "/v2/extraction/retry"
-    ) {
+    let view = path
+        .strip_prefix("/v2/views/")
+        .map(str::to_string)
+        .filter(|name| !name.contains(".."));
+    if view.is_none()
+        && !matches!(
+            path.as_str(),
+            "/v2/status"
+                | "/v2/retain"
+                | "/v2/forget"
+                | "/v2/recall"
+                | "/v2/jobs/status"
+                | "/v2/jobs/retry"
+                | "/v2/config/reload"
+                | "/v2/sources/register"
+                | "/v2/sources/hint"
+                | "/v2/sources/status"
+                | "/v2/extraction/retry"
+        )
+    {
+        return fail_response(
+            StatusCode::NOT_IMPLEMENTED,
+            code::UNIMPLEMENTED,
+            reason::ROUTE_UNIMPLEMENTED,
+            false,
+            None,
+            None,
+        );
+    }
+    if view.is_some() && !lore_core::store::known_view(view.as_deref().unwrap_or("")) {
         return fail_response(
             StatusCode::NOT_IMPLEMENTED,
             code::UNIMPLEMENTED,
@@ -439,6 +455,7 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
     }
 
     match path.as_str() {
+        _ if view.is_some() => handle_view(&raw, &state, request_id, view.unwrap()).await,
         "/v2/status" => handle_status(&raw, &state, request_id).await,
         "/v2/retain" => handle_retain(&raw, &state, request_id).await,
         "/v2/forget" => handle_forget(&raw, &state, request_id).await,
@@ -652,6 +669,13 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                 capabilities.push("embedding.retry".to_string());
                 capabilities.push("config.reload".to_string());
             }
+            // Source, extraction and view capabilities exist regardless of
+            // configured roots; views are always read-only.
+            capabilities.push("sources.register".to_string());
+            capabilities.push("sources.hint".to_string());
+            capabilities.push("sources.status".to_string());
+            capabilities.push("extraction.retry".to_string());
+            capabilities.push("views.read".to_string());
             if !state.enabled || unavailable_reason(state).is_some() {
                 capabilities = vec!["status.basic".to_string()];
             }
@@ -1027,6 +1051,75 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                 store_id,
                 result,
             },
+        ),
+    }
+}
+
+async fn handle_view(
+    raw: &[u8],
+    state: &Arc<State>,
+    fallback_id: Option<String>,
+    view: String,
+) -> Resp {
+    let envelope = match parse_route::<ViewParams>(raw, fallback_id.as_deref(), &state.store_id) {
+        Ok(envelope) => envelope,
+        Err(response) => return response,
+    };
+    let request_id = envelope.meta.request_id.clone();
+    let store_id = state.store_id.clone();
+    if let Some(response) = require_store(&envelope.meta, &store_id, true) {
+        return response;
+    }
+    let params = envelope.params.clone();
+    let store = Arc::clone(&state.store);
+    let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, CoreError> {
+        match view.as_str() {
+            "overview" => store.view_overview(params.repository.as_deref()),
+            "health" => store.view_health(),
+            "memories" => store.view_memories(
+                params.repository.as_deref(),
+                params.kind.as_deref(),
+                params.scope.as_deref(),
+                params.query.as_deref(),
+                params.include_forgotten,
+                params.cursor.as_deref(),
+                params
+                    .page_size
+                    .or(params.limit)
+                    .unwrap_or(lore_core::store::VIEW_PAGE_DEFAULT),
+            ),
+            "memories/filters" => store.view_filters(),
+            "maintenance" => store.view_maintenance(),
+            "episodes" => store.view_episodes(),
+            "drilldown" => match params.id.as_deref() {
+                Some(id) => store.view_drilldown(id),
+                None => Err(CoreError::invalid(
+                    "VIEW_ARGUMENT_INVALID",
+                    "drilldown requires id",
+                )),
+            },
+            _ => Err(CoreError::invalid("VIEW_UNKNOWN", "unknown view")),
+        }
+    })
+    .await;
+    match result {
+        Ok(Ok(value)) => json(
+            StatusCode::OK,
+            &OkEnvelope {
+                ok: true,
+                request_id,
+                store_id,
+                result: value,
+            },
+        ),
+        Ok(Err(error)) => core_response(error, &request_id, &store_id),
+        Err(_) => fail_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            code::INTERNAL,
+            reason::INTERNAL_FAILURE,
+            false,
+            Some(&request_id),
+            Some(&store_id),
         ),
     }
 }

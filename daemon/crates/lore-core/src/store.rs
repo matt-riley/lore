@@ -27,6 +27,7 @@ mod embedding;
 mod extraction;
 mod migration;
 mod source;
+mod views;
 pub use embedding::{
     ClaimedJob, CompleteOutcome, EmbeddingCounts, FailOutcome, JobView, ReconcilePage,
     StoredVector, blob_to_vector, jittered_backoff_ms, vector_norm,
@@ -35,6 +36,7 @@ pub use source::{
     CaptureCommit, CaptureOutcome, SourceFilter, SourceRecord, SourceRootRow, SourceRow,
     content_hash, open_readonly, source_id_for,
 };
+pub use views::{VIEW_PAGE_DEFAULT, known_view};
 
 const RECEIPT_OP_RETAIN: &str = "retain";
 const RECEIPT_OP_FORGET: &str = "forget";

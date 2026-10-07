@@ -587,8 +587,11 @@ dependencies = [
  "hyper-util",
  "lore-core",
  "protocol",
+ "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "url",
 ]
 
 [[package]]

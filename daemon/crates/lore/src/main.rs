@@ -1,6 +1,12 @@
-//! `lore` — the Lore v2 CLI. Stage-2 proof operations: status and the three
-//! durable verbs via `tool <canonical-name>` with a JSON object on stdin.
+//! `lore` — the Lore v2 CLI: status, canonical operations, native hooks,
+//! the uncertain-write journal, and offline migration/backup commands.
 
+mod browser;
+mod hooks;
+mod journal;
+mod registry;
+
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -33,8 +39,42 @@ enum Command {
         #[arg(long = "json")]
         json: bool,
     },
-    /// Invoke one proof operation with a JSON object on stdin.
-    Tool { name: String },
+    /// Invoke one canonical operation with a JSON object on stdin.
+    Tool {
+        name: String,
+        /// Output format for the result: `text` (default) or `json`.
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Recall memory for a prompt using the daemon's policy.
+    Recall {
+        query: String,
+        #[arg(long)]
+        repository: Option<String>,
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Native host hook: translate a host event into daemon calls.
+    Hook { client: String, event: String },
+    /// Serve the read-only dashboard from a loopback gateway.
+    Browser {
+        /// Local port (0 chooses a free port).
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+        /// Open the system browser after binding.
+        #[arg(long)]
+        open: bool,
+    },
+    /// Print the checked-in capability catalog (adapters consume this).
+    Capabilities {
+        #[arg(long, default_value = "json")]
+        output: String,
+    },
+    /// Inspect or resolve durable uncertain writes.
+    Retries {
+        #[command(subcommand)]
+        action: RetriesCommand,
+    },
     /// Create a consistent store snapshot with a manifest.
     Backup {
         #[arg(long)]
@@ -58,6 +98,17 @@ enum Command {
         #[command(subcommand)]
         action: MigrateCommand,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum RetriesCommand {
+    /// List journal entries.
+    List {
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Mark one key resolved (drop its payload).
+    Resolve { key: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -113,6 +164,86 @@ async fn run(cli: Cli) -> Result<(), String> {
         .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or(0);
     match &cli.command {
+        Command::Browser { port, open } => {
+            let socket = lore_core::config::resolve_socket_path(
+                cli.config.as_deref(),
+                cli.socket.as_deref(),
+            )
+            .map_err(core_message)?;
+            return browser::run(&socket, *port, *open).await;
+        }
+        Command::Capabilities { output } => {
+            let rows: Vec<Value> = registry::rows()
+                .iter()
+                .map(|row| serde_json::to_value(row).unwrap_or_default())
+                .collect();
+            if output == "text" {
+                for row in registry::rows() {
+                    println!("{}\t{}\t{}", row.name, row.support, row.mutability);
+                }
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&rows).unwrap_or_default()
+                );
+            }
+            return Ok(());
+        }
+        Command::Retries { action } => {
+            let data_dir = resolve_data_dir(&cli)?;
+            let mut journal = journal::Journal::open(&data_dir)?;
+            match action {
+                RetriesCommand::List { output } => {
+                    let entries: Vec<Value> = journal
+                        .entries()
+                        .map(|entry| serde_json::to_value(entry).unwrap_or_default())
+                        .collect();
+                    if output == "json" {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&entries).unwrap_or_default()
+                        );
+                    } else if entries.is_empty() {
+                        println!("no uncertain writes");
+                    } else {
+                        for entry in &entries {
+                            println!(
+                                "{} {} {}",
+                                entry["key"].as_str().unwrap_or("?"),
+                                entry["operation"].as_str().unwrap_or("?"),
+                                entry["state"].as_str().unwrap_or("?")
+                            );
+                        }
+                    }
+                    return Ok(());
+                }
+                RetriesCommand::Resolve { key } => {
+                    return if journal.resolve(key)? {
+                        println!("resolved {key}");
+                        Ok(())
+                    } else {
+                        Err(format!("unknown retry key: {key}"))
+                    };
+                }
+            }
+        }
+        Command::Hook { client, event } => {
+            let socket = lore_core::config::resolve_socket_path(
+                cli.config.as_deref(),
+                cli.socket.as_deref(),
+            )
+            .map_err(core_message)?;
+            let payload = read_stdin_hook()?;
+            let (response, diagnostic) = hooks::run(client, event, &socket, payload).await;
+            if let Some(diagnostic) = diagnostic {
+                eprintln!("{diagnostic}");
+            }
+            println!(
+                "{}",
+                serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
+            );
+            return Ok(());
+        }
         Command::Backup { destination } => {
             let store = resolve_store_path(&cli)?;
             let manifest =
@@ -228,31 +359,130 @@ async fn run(cli: Cli) -> Result<(), String> {
     let socket =
         lore_core::config::resolve_socket_path(cli.config.as_deref(), cli.socket.as_deref())
             .map_err(core_message)?;
-    match cli.command {
+    match &cli.command {
         Command::Status { json: _ } => {
             let outcome = request(&socket, "/v2/status", &serde_json::json!({}), None).await?;
             print_outcome(&outcome)
         }
-        Command::Tool { name } => {
-            let (route, requires_store) = match name.as_str() {
-                "lore_status" | "memory_status" => ("/v2/status", false),
-                "lore_retain" | "lore_save" | "memory_save" => ("/v2/retain", true),
-                "lore_forget" | "memory_forget" => ("/v2/forget", true),
-                "lore_recall" | "memory_search" => ("/v2/recall", true),
-                other => return Err(format!("unimplemented operation: {other}")),
-            };
+        Command::Tool { name, output } => {
+            let (row, route) = registry::route_for(name)?;
             let params = read_stdin_params()?;
-            let expected = if requires_store {
-                Some(resolve_store_id(&socket).await?)
-            } else {
-                None
-            };
-            let outcome = request(&socket, route, &params, expected.as_deref()).await?;
-            print_outcome(&outcome)
+            let requires_store = row.name != "lore_status";
+            dispatch_tool(&cli, &socket, row, route, params, requires_store, output).await
         }
-        Command::Backup { .. } | Command::Restore { .. } | Command::Migrate { .. } => {
-            unreachable!()
+        Command::Recall {
+            query,
+            repository,
+            output,
+        } => {
+            let (row, route) = registry::route_for("lore_recall")?;
+            let mut params = serde_json::json!({ "query": query });
+            if let Some(repository) = repository {
+                params["repository"] = Value::String(repository.clone());
+            }
+            dispatch_tool(&cli, &socket, row, route, params, true, output).await
         }
+        Command::Backup { .. }
+        | Command::Restore { .. }
+        | Command::Migrate { .. }
+        | Command::Retries { .. }
+        | Command::Capabilities { .. }
+        | Command::Browser { .. }
+        | Command::Hook { .. } => unreachable!(),
+    }
+}
+
+/// Dispatch one canonical operation, journaling mutations before dispatch.
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_tool(
+    cli: &Cli,
+    socket: &Path,
+    row: &registry::RegistryRow,
+    route: &str,
+    params: Value,
+    requires_store: bool,
+    output: &str,
+) -> Result<(), String> {
+    let expected = if requires_store {
+        Some(resolve_store_id(socket).await?)
+    } else {
+        None
+    };
+    let mut journal = if row.mutability == "write" {
+        let key = params
+            .get("idempotencyKey")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("{} requires idempotencyKey", row.name))?;
+        let data_dir = resolve_data_dir(cli)?;
+        let mut journal = journal::Journal::open(&data_dir)?;
+        journal.record(journal::JournalEntry {
+            key: key.to_string(),
+            operation: row.name.clone(),
+            store_id: expected.clone(),
+            client_id: "cli".to_string(),
+            created_ms: now_ms(),
+            state: "uncertain".to_string(),
+            payload: Some(params.clone()),
+        })?;
+        Some((journal, key.to_string()))
+    } else {
+        None
+    };
+    let outcome = request(socket, route, &params, expected.as_deref()).await?;
+    if outcome.is_success()
+        && let Some((journal, key)) = journal.as_mut()
+    {
+        let _ = journal.resolve(key);
+    }
+    print_tool_output(&outcome, &row.name, output)
+}
+
+fn print_tool_output(
+    outcome: &lore::StatusOutcome,
+    operation: &str,
+    output: &str,
+) -> Result<(), String> {
+    let parsed: Option<Value> = serde_json::from_str(&outcome.body).ok();
+    if output == "json" {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&parsed.clone().unwrap_or_default()).unwrap_or_default()
+        );
+    } else if let Some(value) = &parsed {
+        let text = match operation {
+            "lore_retain" | "lore_forget" => value
+                .pointer("/result/memoryId")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            "lore_recall" => value
+                .pointer("/result/context")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            "lore_status" => Some(format!(
+                "{} {}",
+                value
+                    .pointer("/result/readiness")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?"),
+                value
+                    .pointer("/result/storeId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?")
+            )),
+            _ => None,
+        };
+        match text {
+            Some(text) => println!("{text}"),
+            None => println!(
+                "{}",
+                serde_json::to_string_pretty(value).unwrap_or_default()
+            ),
+        }
+    }
+    if outcome.is_success() {
+        Ok(())
+    } else {
+        Err(format!("{} failed: {}", operation, outcome.body))
     }
 }
 
@@ -269,6 +499,38 @@ fn resolve_store_path(cli: &Cli) -> Result<PathBuf, String> {
     )
     .map_err(core_message)?;
     Ok(config.store_path)
+}
+
+/// Resolve the owned data directory used by the write journal.
+fn resolve_data_dir(cli: &Cli) -> Result<PathBuf, String> {
+    let config = lore_core::config::ResolvedConfig::load(
+        cli.config.as_deref(),
+        cli.data_dir.as_deref(),
+        None,
+    )
+    .map_err(core_message)?;
+    Ok(config.data_dir)
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Bounded hook payload read: hosts never get an unbounded stdin copy.
+fn read_stdin_hook() -> Result<Value, String> {
+    let mut raw = String::new();
+    std::io::stdin()
+        .take(1024 * 1024)
+        .read_to_string(&mut raw)
+        .map_err(|error| error.to_string())?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(serde_json::json!({}));
+    }
+    serde_json::from_str(trimmed).map_err(|error| format!("invalid hook JSON: {error}"))
 }
 
 async fn request(

@@ -154,12 +154,18 @@ jobs:
 
       - name: Rust CLI proof (no Node)
         run: |
-          SOCKET="$RUNNER_TEMP/lore-v2-cli.sock"
-          ./target/debug/lored --socket "$SOCKET" --store-id store-cli-proof &
+          DATA_DIR="$(mktemp -d)"
+          SOCKET="$DATA_DIR/lored.sock"
+          CONFIG="$DATA_DIR/lore.json"
+          printf '{"configVersion":2,"enabled":true,"dataDir":"%s","socketPath":"%s"}' "$DATA_DIR" "$SOCKET" > "$CONFIG"
+          ./target/debug/lored --config "$CONFIG" &
           LORED_PID=$!
           for _ in $(seq 1 100); do [ -S "$SOCKET" ] && break; sleep 0.05; done
-          ./target/debug/lore status --socket "$SOCKET" --quiet | grep -q '"apiMajor":2'
+          ./target/debug/lore --socket "$SOCKET" status --json | grep -q '"apiMajor":2'
           kill "$LORED_PID"
+
+      - name: Two-client and lexical quality proofs
+        run: LORED_BIN="$PWD/target/debug/lored" node --test tests/two-client.test.mjs tests/lexical-quality.test.mjs
 
       - name: Node client proof
         run: LORED_BIN="$PWD/target/debug/lored" node clients/js/status-probe.mjs

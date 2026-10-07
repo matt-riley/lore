@@ -14,6 +14,13 @@ export function request(socketPath, path, params = {}, options = {}) {
   if (options.timeoutMs) meta.timeoutMs = options.timeoutMs;
   const payload = JSON.stringify({ meta, params });
   return new Promise((resolve, reject) => {
+    const signal = options.signal;
+    if (signal?.aborted) {
+      const error = new Error("request aborted");
+      error.name = "AbortError";
+      reject(error);
+      return;
+    }
     const request = http.request(
       {
         socketPath,
@@ -34,7 +41,18 @@ export function request(socketPath, path, params = {}, options = {}) {
         response.on("end", () => resolve({ statusCode: response.statusCode, body }));
       },
     );
-    request.on("error", reject);
+    const onAbort = () => {
+      const error = new Error("request aborted");
+      error.name = "AbortError";
+      request.destroy(error);
+    };
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    request.on("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+    request.on("close", cleanup);
     request.setTimeout(options.timeoutMs ?? 2000, () => {
       request.destroy(new Error("request timed out"));
     });

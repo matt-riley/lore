@@ -345,6 +345,27 @@ pub struct SourceHintResult {
     pub coalesced: bool,
 }
 
+/// `/v2/admin/<op>` parameters. Permissive: each operation reads the fields
+/// it needs and ignores the rest.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub include_other_repositories: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_bytes: Option<u32>,
+    #[serde(default)]
+    pub deep: bool,
+}
+
 /// `/v2/views/<name>` parameters. Permissive: the browser gateway forwards
 /// query parameters and unknown extra keys are ignored.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

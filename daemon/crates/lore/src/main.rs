@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Parser, Subcommand};
 use protocol::RequestMeta;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 #[derive(Debug, Parser)]
 #[command(name = "lore", version, about = "Lore v2 CLI")]
@@ -43,6 +43,17 @@ enum Command {
     Tool {
         name: String,
         /// Output format for the result: `text` (default) or `json`.
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Lexically browse stored memory (administrative scope selection).
+    Search {
+        query: String,
+        #[arg(long)]
+        repository: Option<String>,
+        /// Explicit administrative selection across repositories.
+        #[arg(long = "all-repositories")]
+        all_repositories: bool,
         #[arg(long, default_value = "text")]
         output: String,
     },
@@ -370,6 +381,22 @@ async fn run(cli: Cli) -> Result<(), String> {
             let requires_store = row.name != "lore_status";
             dispatch_tool(&cli, &socket, row, route, params, requires_store, output).await
         }
+        Command::Search {
+            query,
+            repository,
+            all_repositories,
+            output,
+        } => {
+            let (row, route) = registry::route_for("lore_search")?;
+            let mut params = serde_json::json!({
+                "query": query,
+                "includeOtherRepositories": all_repositories
+            });
+            if let Some(repository) = repository {
+                params["repository"] = Value::String(repository.clone());
+            }
+            dispatch_tool(&cli, &socket, row, route, params, true, output).await
+        }
         Command::Recall {
             query,
             repository,
@@ -403,6 +430,9 @@ async fn dispatch_tool(
     requires_store: bool,
     output: &str,
 ) -> Result<(), String> {
+    if let Some(local) = route.strip_prefix("local:") {
+        return dispatch_local(local, socket, row, output).await;
+    }
     let expected = if requires_store {
         Some(resolve_store_id(socket).await?)
     } else {
@@ -437,6 +467,49 @@ async fn dispatch_tool(
     print_tool_output(&outcome, &row.name, output)
 }
 
+/// Client-local operations that do not need a daemon route.
+async fn dispatch_local(
+    name: &str,
+    socket: &Path,
+    row: &registry::RegistryRow,
+    output: &str,
+) -> Result<(), String> {
+    match name {
+        "capabilities" => {
+            let daemon = match resolve_store_id(socket).await {
+                Ok(store_id) => {
+                    let outcome =
+                        request(socket, "/v2/status", &serde_json::json!({}), None).await?;
+                    let value: Value =
+                        serde_json::from_str(&outcome.body).map_err(|error| error.to_string())?;
+                    json!({
+                        "storeId": store_id,
+                        "capabilities": value.pointer("/result/capabilities").cloned().unwrap_or(json!([])),
+                    })
+                }
+                Err(_) => json!({ "storeId": null, "capabilities": null }),
+            };
+            let result = json!({
+                "operation": row.name,
+                "rows": registry::rows(),
+                "daemon": daemon,
+            });
+            if output == "json" {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result).unwrap_or_default()
+                );
+            } else {
+                for entry in registry::rows() {
+                    println!("{}\t{}\t{}", entry.name, entry.support, entry.mutability);
+                }
+            }
+            Ok(())
+        }
+        other => Err(format!("unknown local operation: {other}")),
+    }
+}
+
 fn print_tool_output(
     outcome: &lore::StatusOutcome,
     operation: &str,
@@ -458,6 +531,28 @@ fn print_tool_output(
                 .pointer("/result/context")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            "lore_search" => value
+                .pointer("/result/items")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(|item| {
+                            format!(
+                                "{} {} {}",
+                                item["id"].as_str().unwrap_or("?"),
+                                item["kind"].as_str().unwrap_or("?"),
+                                item["content"]
+                                    .as_str()
+                                    .unwrap_or("")
+                                    .chars()
+                                    .take(80)
+                                    .collect::<String>()
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }),
             "lore_status" => Some(format!(
                 "{} {}",
                 value

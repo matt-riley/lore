@@ -33,44 +33,46 @@ fn run_cli(args: &[&str], stdin: Option<&str>) -> (i32, String, String) {
     )
 }
 
-/// One-request fake daemon over a Unix socket.
-fn fake_daemon(body: String) -> (PathBuf, tempfile::TempDir, std::thread::JoinHandle<()>) {
+/// Fake daemon over a Unix socket, serving one canned body per request.
+fn fake_daemon(bodies: Vec<String>) -> (PathBuf, tempfile::TempDir, std::thread::JoinHandle<()>) {
     let dir = tempfile::tempdir().expect("tempdir");
     let socket = dir.path().join("fake.sock");
     let listener = UnixListener::bind(&socket).expect("bind");
     listener.set_nonblocking(true).expect("nonblocking");
     let handle = std::thread::spawn(move || {
-        let started = Instant::now();
-        let mut stream = loop {
-            match listener.accept() {
-                Ok((stream, _)) => break stream,
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if started.elapsed() > Duration::from_secs(5) {
-                        return;
+        for body in bodies {
+            let started = Instant::now();
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if started.elapsed() > Duration::from_secs(5) {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
                     }
-                    std::thread::sleep(Duration::from_millis(10));
+                    Err(error) => panic!("accept: {error}"),
                 }
-                Err(error) => panic!("accept: {error}"),
+            };
+            let mut buffer = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let read = stream.read(&mut chunk).expect("read");
+                if read == 0 {
+                    break;
+                }
+                buffer.extend_from_slice(&chunk[..read]);
+                if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
             }
-        };
-        let mut buffer = Vec::new();
-        let mut chunk = [0u8; 4096];
-        loop {
-            let read = stream.read(&mut chunk).expect("read");
-            if read == 0 {
-                break;
-            }
-            buffer.extend_from_slice(&chunk[..read]);
-            if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
-                break;
-            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
         }
-        let response = format!(
-            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
-            body.len(),
-            body
-        );
-        stream.write_all(response.as_bytes()).expect("write");
     });
     (socket, dir, handle)
 }
@@ -82,6 +84,62 @@ fn capability_catalog_is_served_without_a_daemon() {
     let rows: Vec<serde_json::Value> = serde_json::from_str(&stdout).expect("json");
     assert_eq!(rows.len(), 27);
     assert!(rows.iter().all(|row| row["support"].is_string()));
+}
+
+#[test]
+fn capability_inventory_works_without_a_daemon() {
+    let (code, stdout, stderr) = run_cli(
+        &[
+            "--socket",
+            "/tmp/lore-missing.sock",
+            "tool",
+            "memory_capability_inventory",
+            "--output",
+            "json",
+        ],
+        Some("{}"),
+    );
+    assert_eq!(code, 0, "{stdout} {stderr}");
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(value["rows"].as_array().expect("rows").len(), 27);
+    assert!(value["daemon"]["storeId"].is_null());
+}
+
+#[test]
+fn search_verb_dispatches_to_the_admin_route() {
+    let status = serde_json::json!({
+        "ok": true,
+        "requestId": "r1",
+        "storeId": "s",
+        "result": { "capabilities": ["search.browse"] }
+    })
+    .to_string();
+    let search = serde_json::json!({
+        "ok": true,
+        "requestId": "r2",
+        "storeId": "s",
+        "result": {
+            "items": [{ "id": "mem_1", "kind": "note", "content": "Durable search target", "scope": "Global" }],
+            "nextCursor": null
+        }
+    })
+    .to_string();
+    let (socket, _dir, handle) = fake_daemon(vec![status, search]);
+    let (code, stdout, stderr) = run_cli(
+        &[
+            "--socket",
+            socket.to_str().expect("utf8"),
+            "search",
+            "durable",
+            "--output",
+            "json",
+        ],
+        None,
+    );
+    handle.join().expect("fake daemon");
+    assert_eq!(code, 0, "{stdout} {stderr}");
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(value["result"]["items"][0]["id"], "mem_1");
 }
 
 #[test]
@@ -108,7 +166,7 @@ fn prompt_hooks_return_context_from_recall() {
         "result": { "context": "- Prefer UTC timestamps." }
     })
     .to_string();
-    let (socket, _dir, handle) = fake_daemon(body);
+    let (socket, _dir, handle) = fake_daemon(vec![body]);
     let (code, stdout, stderr) = run_cli(
         &[
             "--socket",

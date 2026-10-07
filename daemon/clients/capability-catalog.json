@@ -62,9 +62,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "read",
-      "route": null
+      "route": "/v2/admin/audit/extractions"
     },
     {
       "name": "memory_improvement_backlog",
@@ -98,9 +98,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "read",
-      "route": null
+      "route": "local:capabilities"
     },
     {
       "name": "lore_recall",
@@ -163,9 +163,9 @@
         "cli": true,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "read",
-      "route": null
+      "route": "/v2/admin/search"
     },
     {
       "name": "lore_explain",
@@ -177,9 +177,9 @@
         "cli": true,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "read",
-      "route": null
+      "route": "/v2/admin/explain"
     },
     {
       "name": "lore_validate",
@@ -191,9 +191,9 @@
         "cli": true,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "read",
-      "route": null
+      "route": "/v2/admin/validate"
     },
     {
       "name": "memory_replay",
@@ -323,9 +323,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "read",
-      "route": null
+      "route": "/v2/admin/doctor"
     },
     {
       "name": "memory_review_gate",

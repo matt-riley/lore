@@ -44,7 +44,7 @@ test("every row declares support, mutability and an implemented route", () => {
     assert.ok(["implemented", "planned"].includes(row.support), row.name);
     assert.ok(["read", "write"].includes(row.mutability), row.name);
     if (row.support === "implemented") {
-      assert.match(row.route, /^\/v2\//, row.name);
+      assert.match(row.route, /^(?:\/v2\/|local:)/, row.name);
     } else {
       assert.equal(row.route, null, row.name);
     }
@@ -52,7 +52,18 @@ test("every row declares support, mutability and an implemented route", () => {
   const implemented = catalog.rows.filter((row) => row.support === "implemented");
   assert.deepEqual(
     implemented.map((row) => row.name).sort(),
-    ["lore_forget", "lore_recall", "lore_retain", "lore_status"],
+    [
+      "lore_audit_extractions",
+      "lore_doctor",
+      "lore_explain",
+      "lore_forget",
+      "lore_recall",
+      "lore_retain",
+      "lore_search",
+      "lore_status",
+      "lore_validate",
+      "memory_capability_inventory",
+    ],
   );
 });
 

@@ -18,12 +18,13 @@ export function loredBinary() {
   return binary;
 }
 
-export function startDaemon({ enabled = true, limits = null, embedding = null } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), "lore-v2-"));
+export function startDaemon({ enabled = true, limits = null, embedding = null, sources = null, dir: providedDir = null } = {}) {
+  const dir = providedDir ?? mkdtempSync(path.join(tmpdir(), "lore-v2-"));
   const socket = path.join(dir, "lored.sock");
   const configPath = path.join(dir, "lore.json");
   const config = { configVersion: 2, enabled, dataDir: dir, socketPath: socket };
   if (limits) config.limits = limits;
+  if (sources) config.sources = sources;
   if (embedding) {
     config.providers = {
       embeddings: {

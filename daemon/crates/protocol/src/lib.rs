@@ -14,6 +14,14 @@ pub const API_MINOR: u16 = 0;
 pub const HOST: &str = "lore.local";
 /// Hard cap for a fully encoded request body (contract: 1 MiB).
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
+/// Largest integer that round-trips through IEEE-754 doubles (2^53 - 1).
+pub const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+/// Server clamp for caller-supplied operation deadlines.
+pub const MAX_TIMEOUT_MS: u64 = 5_000;
+/// Header/body receive deadline, independent of operation execution.
+pub const BODY_DEADLINE_MS: u64 = 1_000;
+/// Default concurrent in-flight request limit.
+pub const MAX_INFLIGHT_DEFAULT: usize = 64;
 
 /// Stable error codes. Clients branch on these, never on message text.
 pub mod code {
@@ -21,6 +29,8 @@ pub mod code {
     pub const UNIMPLEMENTED: &str = "UNIMPLEMENTED";
     pub const FAILED_PRECONDITION: &str = "FAILED_PRECONDITION";
     pub const RESOURCE_EXHAUSTED: &str = "RESOURCE_EXHAUSTED";
+    pub const DEADLINE_EXCEEDED: &str = "DEADLINE_EXCEEDED";
+    pub const INTERNAL: &str = "INTERNAL";
 }
 
 /// Stable error reasons for the G1 proof surface.
@@ -32,6 +42,11 @@ pub mod reason {
     pub const UNSUPPORTED_MEDIA_TYPE: &str = "UNSUPPORTED_MEDIA_TYPE";
     pub const ROUTE_UNIMPLEMENTED: &str = "ROUTE_UNIMPLEMENTED";
     pub const REQUEST_BYTES: &str = "REQUEST_BYTES";
+    pub const REQUEST_DEADLINE: &str = "REQUEST_DEADLINE";
+    pub const REQUEST_TIMEOUT: &str = "REQUEST_TIMEOUT";
+    pub const REQUEST_CAPACITY: &str = "REQUEST_CAPACITY";
+    pub const UNSAFE_INTEGER: &str = "UNSAFE_INTEGER";
+    pub const INTERNAL_FAILURE: &str = "INTERNAL_FAILURE";
     pub const API_MAJOR_MISMATCH: &str = "API_MAJOR_MISMATCH";
     pub const STORE_MISMATCH: &str = "STORE_MISMATCH";
 }
@@ -130,6 +145,26 @@ pub struct StatusResult {
     pub uptime_ms: u64,
     pub readiness: Readiness,
     pub capabilities: Vec<String>,
+}
+
+/// Reject integers that cannot round-trip through a JavaScript number.
+pub fn has_unsafe_integer(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Number(number) => {
+            if let Some(unsigned) = number.as_u64() {
+                unsigned > MAX_SAFE_INTEGER as u64
+            } else if let Some(signed) = number.as_i64() {
+                signed < -MAX_SAFE_INTEGER
+            } else {
+                number
+                    .as_f64()
+                    .is_none_or(|float| !float.is_finite() || float.abs() > MAX_SAFE_INTEGER as f64)
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().any(has_unsafe_integer),
+        serde_json::Value::Object(map) => map.values().any(has_unsafe_integer),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -239,6 +274,41 @@ mod tests {
     fn status_request_rejects_unknown_fields() {
         let raw = r#"{"meta":{"clientId":"cli","requestId":"r"},"params":{},"extra":true}"#;
         assert!(serde_json::from_str::<Envelope<StatusParams>>(raw).is_err());
+    }
+
+    #[test]
+    fn unsafe_integers_are_detected_at_any_depth() {
+        let body: serde_json::Value = serde_json::from_str(
+            r#"{"meta":{"timeoutMs":9007199254740993},"list":[1,2,{"deep":-9007199254740994}]}"#,
+        )
+        .expect("parses");
+        assert!(has_unsafe_integer(&body));
+
+        let safe: serde_json::Value =
+            serde_json::from_str(r#"{"timeoutMs":9007199254740991,"ratio":1.5}"#).expect("parses");
+        assert!(!has_unsafe_integer(&safe));
+    }
+
+    #[test]
+    fn duplicate_object_keys_are_rejected() {
+        let raw = r#"{"meta":{"clientId":"cli","clientId":"cli","requestId":"r"}}"#;
+        let error = serde_json::from_str::<Envelope<StatusParams>>(raw).expect_err("duplicate key");
+        assert!(
+            error.to_string().contains("duplicate field"),
+            "unexpected: {error}"
+        );
+    }
+
+    #[test]
+    fn nested_values_beyond_the_parser_limit_are_rejected() {
+        let deep = format!("{}1{}", "[".repeat(300), "]".repeat(300));
+        assert!(serde_json::from_str::<serde_json::Value>(&deep).is_err());
+    }
+
+    #[test]
+    fn nan_and_infinity_are_not_valid_json() {
+        assert!(serde_json::from_str::<serde_json::Value>("NaN").is_err());
+        assert!(serde_json::from_str::<serde_json::Value>("Infinity").is_err());
     }
 
     #[test]

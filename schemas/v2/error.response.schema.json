@@ -18,7 +18,14 @@
       "required": ["code", "reason", "retryable", "message"],
       "properties": {
         "code": {
-          "enum": ["INVALID_ARGUMENT", "UNIMPLEMENTED", "FAILED_PRECONDITION", "RESOURCE_EXHAUSTED"]
+          "enum": [
+            "INVALID_ARGUMENT",
+            "UNIMPLEMENTED",
+            "FAILED_PRECONDITION",
+            "RESOURCE_EXHAUSTED",
+            "DEADLINE_EXCEEDED",
+            "INTERNAL"
+          ]
         },
         "reason": { "type": "string", "minLength": 1, "maxLength": 64 },
         "retryable": { "type": "boolean" },

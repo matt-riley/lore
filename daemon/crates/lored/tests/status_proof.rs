@@ -14,6 +14,10 @@ struct Daemon {
 
 impl Daemon {
     fn start() -> Self {
+        Self::start_with(&[])
+    }
+
+    fn start_with(extra: &[&str]) -> Self {
         let dir = tempfile::tempdir().expect("tempdir");
         let socket = dir.path().join("lored.sock");
         let child = Command::new(env!("CARGO_BIN_EXE_lored"))
@@ -21,6 +25,7 @@ impl Daemon {
             .arg(&socket)
             .arg("--store-id")
             .arg("store-test")
+            .args(extra)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -204,6 +209,18 @@ async fn invalid_json_content_type_and_method_are_rejected() {
         "POST",
         "/v2/status",
         "lore.local",
+        "application/json",
+        "NaN",
+    )
+    .await;
+    assert_eq!(status, 400);
+    assert_eq!(reason(&body), "INVALID_JSON");
+
+    let (status, body) = raw(
+        daemon.socket(),
+        "POST",
+        "/v2/status",
+        "lore.local",
         "text/plain",
         "{}",
     )
@@ -262,4 +279,164 @@ async fn zero_deadline_is_rejected() {
         .expect("status");
     assert_eq!(outcome.status_code, 400);
     assert_eq!(reason(&outcome.body), "INVALID_DEADLINE");
+}
+
+#[tokio::test]
+async fn duplicate_keys_and_unsafe_integers_are_rejected() {
+    let daemon = Daemon::start();
+    wait_for_socket(daemon.socket()).await;
+
+    let (status, body) = raw(
+        daemon.socket(),
+        "POST",
+        "/v2/status",
+        "lore.local",
+        "application/json",
+        r#"{"meta":{"clientId":"t","clientId":"t","requestId":"r"}}"#,
+    )
+    .await;
+    assert_eq!(status, 400);
+    assert_eq!(reason(&body), "INVALID_JSON");
+
+    let mut unsafe_meta = meta();
+    unsafe_meta.timeout_ms = Some(9_007_199_254_740_993);
+    let outcome = lore::request_status(daemon.socket(), unsafe_meta, StatusParams::default())
+        .await
+        .expect("status");
+    assert_eq!(outcome.status_code, 400);
+    assert_eq!(reason(&outcome.body), "UNSAFE_INTEGER");
+}
+
+#[tokio::test]
+async fn oversized_bodies_are_rejected_while_reading() {
+    let daemon = Daemon::start();
+    wait_for_socket(daemon.socket()).await;
+
+    let filler = "x".repeat(1024 * 1024 + 64);
+    let body =
+        format!(r#"{{"meta":{{"clientId":"t","requestId":"r"}},"params":{{}},"pad":"{filler}"}}"#);
+    let (status, response) = raw(
+        daemon.socket(),
+        "POST",
+        "/v2/status",
+        "lore.local",
+        "application/json",
+        &body,
+    )
+    .await;
+    assert_eq!(status, 413);
+    assert_eq!(reason(&response), "REQUEST_BYTES");
+}
+
+#[tokio::test]
+async fn slow_bodies_hit_the_receive_deadline() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let daemon = Daemon::start();
+    wait_for_socket(daemon.socket()).await;
+
+    let mut stream = tokio::net::UnixStream::connect(daemon.socket())
+        .await
+        .expect("connect");
+    stream
+        .write_all(
+            b"POST /v2/status HTTP/1.1\r\nHost: lore.local\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"meta\":{",
+        )
+        .await
+        .expect("write");
+    let mut buffer = Vec::new();
+    let read = tokio::time::timeout(Duration::from_secs(3), stream.read_to_end(&mut buffer)).await;
+    assert!(read.is_ok(), "server should close the partial request");
+    let response = String::from_utf8_lossy(&buffer);
+    assert!(
+        response.contains(" 408 ") && response.contains("REQUEST_TIMEOUT"),
+        "unexpected response: {response}"
+    );
+}
+
+#[tokio::test]
+async fn bounded_overload_rejects_and_recovers() {
+    use tokio::io::AsyncWriteExt;
+
+    let daemon = Daemon::start_with(&["--max-inflight", "1"]);
+    wait_for_socket(daemon.socket()).await;
+
+    let mut stalled = tokio::net::UnixStream::connect(daemon.socket())
+        .await
+        .expect("connect");
+    stalled
+        .write_all(
+            b"POST /v2/status HTTP/1.1\r\nHost: lore.local\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"meta\":{",
+        )
+        .await
+        .expect("write");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let (status, body) = raw(
+        daemon.socket(),
+        "POST",
+        "/v2/status",
+        "lore.local",
+        "application/json",
+        r#"{"meta":{"clientId":"t","requestId":"r"}}"#,
+    )
+    .await;
+    assert_eq!(status, 429);
+    assert_eq!(reason(&body), "REQUEST_CAPACITY");
+
+    drop(stalled);
+    tokio::time::sleep(Duration::from_millis(1_300)).await;
+    let outcome = lore::request_status(daemon.socket(), meta(), StatusParams::default())
+        .await
+        .expect("status");
+    assert_eq!(outcome.status_code, 200);
+}
+
+#[tokio::test]
+async fn client_disconnect_does_not_break_later_requests() {
+    use tokio::io::AsyncWriteExt;
+
+    let daemon = Daemon::start();
+    wait_for_socket(daemon.socket()).await;
+
+    {
+        let mut stream = tokio::net::UnixStream::connect(daemon.socket())
+            .await
+            .expect("connect");
+        stream
+            .write_all(b"POST /v2/status HTTP/1.1\r\nHost: lore.local\r\n")
+            .await
+            .expect("write");
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    for _ in 0..2 {
+        let outcome = lore::request_status(daemon.socket(), meta(), StatusParams::default())
+            .await
+            .expect("status");
+        assert_eq!(outcome.status_code, 200);
+    }
+}
+
+#[tokio::test]
+async fn a_second_daemon_refuses_a_live_socket() {
+    let daemon = Daemon::start();
+    wait_for_socket(daemon.socket()).await;
+
+    let status = Command::new(env!("CARGO_BIN_EXE_lored"))
+        .arg("--socket")
+        .arg(daemon.socket())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("spawn second lored");
+    assert!(
+        !status.success(),
+        "second daemon must refuse the live socket"
+    );
+
+    let outcome = lore::request_status(daemon.socket(), meta(), StatusParams::default())
+        .await
+        .expect("status");
+    assert_eq!(outcome.status_code, 200);
 }

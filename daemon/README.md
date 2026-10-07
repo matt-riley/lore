@@ -39,6 +39,9 @@ LORED_BIN=$PWD/daemon/target/debug/lored bun  daemon/clients/js/status-probe.mjs
 
 ## G1 status
 
+Passed 2026-10-07 at `ebef6d6` — full record in
+[`docs/v2/evidence/g1.md`](../docs/v2/evidence/g1.md).
+
 Proven locally and in CI:
 
 - socket round trip with a contract-shaped Status result;
@@ -55,7 +58,5 @@ Proven locally and in CI:
   caching;
 - preliminary cold CLI cost in a debug build: median 4.4 ms over 5 runs.
 
-Not yet done (see [`docs/v2/evidence/`](../docs/v2/evidence/)):
-
-- release-build cold-process measurement with recorded toolchain and hashes;
-- the G1 evidence record and explicit go/no-go.
+Next: stage 2 — durable Status, Retain, Forget and lexical Recall per
+[`docs/v2/02-daemon-core.md`](../docs/v2/02-daemon-core.md).

@@ -312,6 +312,15 @@ mod tests {
     }
 
     #[test]
+    fn additive_response_fields_are_ignored() {
+        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":1,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"extra":true}}"#;
+        let parsed: OkEnvelope<StatusResult> =
+            serde_json::from_str(raw).expect("additive response fields are ignored");
+        assert_eq!(parsed.result.api_major, 2);
+        assert_eq!(parsed.store_id, "s");
+    }
+
+    #[test]
     fn envelope_uses_camel_case() {
         let meta = RequestMeta {
             client_id: "cli".to_string(),

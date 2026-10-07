@@ -149,6 +149,18 @@ jobs:
       - name: Test
         run: cargo test
 
+      - name: Build binaries
+        run: cargo build
+
+      - name: Rust CLI proof (no Node)
+        run: |
+          SOCKET="$RUNNER_TEMP/lore-v2-cli.sock"
+          ./target/debug/lored --socket "$SOCKET" --store-id store-cli-proof &
+          LORED_PID=$!
+          for _ in $(seq 1 100); do [ -S "$SOCKET" ] && break; sleep 0.05; done
+          ./target/debug/lore status --socket "$SOCKET" --quiet | grep -q '"apiMajor":2'
+          kill "$LORED_PID"
+
       - name: Node client proof
         run: LORED_BIN="$PWD/target/debug/lored" node clients/js/status-probe.mjs
 

@@ -1,6 +1,6 @@
 # Slice 6B: administration, optional capabilities and dashboard
 
-Status: planned. Depends on G4, stage 5B backup/recovery and stage 6A dispatch contracts. Exit contributes to G5.
+Status: stage-6B view routes and loopback gateway implemented 2026-10-07 — evidence in [evidence/g6-clients-admin.md](evidence/g6-clients-admin.md); most canonical operations and full dashboard parity remain open. Depends on G4, stage 5B backup/recovery and stage 6A dispatch contracts. Exit contributes to G5.
 Inventory: [capability parity](capability-parity.md).
 
 ## One dispatch and run model

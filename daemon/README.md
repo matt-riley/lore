@@ -25,8 +25,12 @@ hooks, installers, database imports or support-claim changes.
 
 `POST /v2/status`, `/v2/retain`, `/v2/forget`, `/v2/recall`, `/v2/jobs/status`,
 `/v2/jobs/retry`, `/v2/config/reload`, `/v2/sources/register`,
-`/v2/sources/hint`, `/v2/sources/status` and `/v2/extraction/retry` over a
-Unix socket. Memory lives in
+`/v2/sources/hint`, `/v2/sources/status`, `/v2/extraction/retry` and
+`/v2/views/{overview,health,memories,memories/filters,maintenance,episodes,drilldown}`
+over a Unix socket. The `lore` CLI adds capability-registry dispatch
+(`lore tool`, `lore recall`), native hooks (`lore hook codex|claude|antigravity`),
+the uncertain-write journal (`lore retries`) and the loopback dashboard
+gateway (`lore browser`). Memory lives in
 SQLite (WAL, `synchronous=FULL`, FTS5) with idempotency receipts, ID tombstones,
 content-fingerprint suppression, scope policy and maintained counters.
 
@@ -120,6 +124,16 @@ LORED_BIN=$PWD/daemon/target/release/lored node daemon/tests/benchmark-semantic.
 LORED_BIN=$PWD/daemon/target/debug/lored node daemon/tests/ingestion-load.mjs
 ```
 
+Client surfaces:
+
+```sh
+cargo run -p lore -- capabilities --output json
+cargo run -p lore -- --socket <sock> hook claude UserPromptSubmit < event.json
+cargo run -p lore -- --socket <sock> tool lore_save --output json < retain.json
+cargo run -p lore -- retries list
+cargo run -p lore -- --socket <sock> browser
+```
+
 Offline administration (no daemon required):
 
 ```sh
@@ -152,8 +166,10 @@ node daemon/tests/semantic-quality.mjs --mode v1-semantic --split held-out --thr
   recorded there.
 
 - G5 stage-5B migration/recovery passed 2026-10-07 —
-  [evidence](../docs/v2/evidence/g5-migration.md); host adapter evidence and
-  full parity still required.
+  [evidence](../docs/v2/evidence/g5-migration.md).
+- G6 stage-6A/6B cores implemented 2026-10-07 —
+  [evidence](../docs/v2/evidence/g6-clients-admin.md); host adapter evidence,
+  the remaining canonical operations and full dashboard parity still required.
 
 Not yet implemented: adapters and administration (stage 6), packaging and
 cutover (stage 7).

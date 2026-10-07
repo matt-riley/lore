@@ -103,9 +103,13 @@ jobs:
         run: npm run test:reliability
 
   daemon:
-    name: Daemon (Rust 1.99)
-    runs-on: ubuntu-latest
+    name: Daemon (Rust 1.99, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
 
     defaults:
       run:
@@ -126,6 +130,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
       - name: Format
         run: cargo fmt --all --check
 
@@ -136,4 +150,7 @@ jobs:
         run: cargo test
 
       - name: Node client proof
-        run: LORED_BIN="$PWD/target/debug/lored" node --test clients/node/status-client.test.mjs
+        run: LORED_BIN="$PWD/target/debug/lored" node clients/js/status-probe.mjs
+
+      - name: Bun client proof (Pi runtime)
+        run: LORED_BIN="$PWD/target/debug/lored" bun clients/js/status-probe.mjs

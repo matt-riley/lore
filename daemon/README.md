@@ -8,10 +8,10 @@ hooks, installers, database imports or support-claim changes.
 ## Crates
 
 - `crates/protocol` — wire types plus JSON Schema parity and fixture tests.
-- `crates/lore-core` — configuration, SQLite store (schema 4 with embedding
-  intents, jobs, vectors, source capture, memory evidence and extraction
-  leases), policy, retrieval, extraction, ingestion and store/endpoint
-  lifecycle.
+- `crates/lore-core` — configuration, SQLite store (schema 5 with embedding
+  intents, jobs, vectors, source capture, memory evidence, extraction leases,
+  migration manifests and repository mappings), policy, retrieval, extraction,
+  ingestion, migration/backup and store/endpoint lifecycle.
 - `crates/lore-provider` — OpenAI-compatible embedding client with contract-grade
   response validation.
 - `crates/lored` — daemon: config-driven startup, ownership locks, routes,
@@ -120,6 +120,17 @@ LORED_BIN=$PWD/daemon/target/release/lored node daemon/tests/benchmark-semantic.
 LORED_BIN=$PWD/daemon/target/debug/lored node daemon/tests/ingestion-load.mjs
 ```
 
+Offline administration (no daemon required):
+
+```sh
+cargo run -p lore -- migrate v1 --source <v1-db> --destination <dir> --dry-run
+cargo run -p lore -- migrate v1 --source <v1-db> --destination <dir> --apply --plan <fp> --clients-stopped
+cargo run -p lore -- migrate status --destination <dir> --run <id>
+cargo run -p lore -- migrate resume --destination <dir> --run <id> --apply
+cargo run -p lore -- backup --destination <file>
+cargo run -p lore -- restore --from <file> [--dry-run | --apply --plan <fp> --clients-stopped]
+```
+
 Semantic quality (requires a configured local embedding provider; the default
 is Docker Model Runner):
 
@@ -140,5 +151,9 @@ node daemon/tests/semantic-quality.mjs --mode v1-semantic --split held-out --thr
   [evidence](../docs/v2/evidence/g4-extraction.md); section-parity gaps are
   recorded there.
 
-Not yet implemented: migration and recovery (stage 5B), adapters and
-administration (stage 6), packaging and cutover (stage 7).
+- G5 stage-5B migration/recovery passed 2026-10-07 —
+  [evidence](../docs/v2/evidence/g5-migration.md); host adapter evidence and
+  full parity still required.
+
+Not yet implemented: adapters and administration (stage 6), packaging and
+cutover (stage 7).

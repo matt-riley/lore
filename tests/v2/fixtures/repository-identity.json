@@ -1,0 +1,179 @@
+{
+  "note": "Shared cross-language fixtures. The v1 implementation in lib/utils/repository-identity.mjs and the Rust crate in daemon/crates/repository-identity must both pass these cases.",
+  "canonicalRemote": [
+    {
+      "input": "git@github.com:matt-riley/lore.git",
+      "expected": "github.com/matt-riley/lore"
+    },
+    {
+      "input": "https://github.com/matt-riley/lore.git",
+      "expected": "github.com/matt-riley/lore"
+    },
+    {
+      "input": "https://github.com/Matt-Riley/Lore",
+      "expected": "github.com/Matt-Riley/Lore"
+    },
+    {
+      "input": "HTTPS://GitHub.com/Team/Repo.GIT",
+      "expected": "github.com/Team/Repo.GIT"
+    },
+    {
+      "input": "ssh://git@github.com/matt-riley/lore.git",
+      "expected": "github.com/matt-riley/lore"
+    },
+    {
+      "input": "ssh://git@host.example:2222/team/project.git",
+      "expected": "host.example:2222/team/project"
+    },
+    {
+      "input": "git://gitlab.com/group/sub/repo.git",
+      "expected": "gitlab.com/group/sub/repo"
+    },
+    {
+      "input": "http://example.com/team/repo",
+      "expected": "example.com/team/repo"
+    },
+    {
+      "input": "github.com:repo",
+      "expected": "github.com/repo"
+    },
+    {
+      "input": "git@github.com:/repo.git",
+      "expected": "github.com/repo"
+    },
+    {
+      "input": "[2001:db8::1]:repo",
+      "expected": "[2001:db8::1]/repo"
+    },
+    {
+      "input": "https://github.com/team/repo?x=1",
+      "expected": "github.com/team/repo"
+    },
+    {
+      "input": "git@github.com:x",
+      "expected": "github.com/x"
+    },
+    {
+      "input": "git@github.com:a/../b",
+      "expected": null
+    },
+    {
+      "input": "git@github.com:a//b",
+      "expected": null
+    },
+    {
+      "input": "git@github.com:a repo",
+      "expected": null
+    },
+    {
+      "input": "git@github.com:",
+      "expected": null
+    },
+    {
+      "input": "team/project",
+      "expected": null
+    },
+    {
+      "input": "../local.git",
+      "expected": null
+    },
+    {
+      "input": "/tmp/project",
+      "expected": null
+    },
+    {
+      "input": "file:///tmp/project",
+      "expected": null
+    },
+    {
+      "input": "",
+      "expected": null
+    },
+    {
+      "input": "  ",
+      "expected": null
+    }
+  ],
+  "resolve": [
+    {
+      "input": {
+        "explicit": " custom/key ",
+        "legacy": "team/project"
+      },
+      "expected": "custom/key"
+    },
+    {
+      "input": {
+        "explicit": "",
+        "legacy": "team/project"
+      },
+      "expected": null
+    },
+    {
+      "input": {
+        "explicit": "   ",
+        "legacy": "team/project"
+      },
+      "expected": null
+    },
+    {
+      "input": {
+        "explicit": "github.com/x/y"
+      },
+      "expected": "github.com/x/y"
+    },
+    {
+      "input": {
+        "legacy": "team/project"
+      },
+      "expected": null
+    },
+    {
+      "input": {
+        "legacy": " team/project ",
+        "mappings": [
+          {
+            "legacy": "team/project",
+            "canonical": "github.com/team/project"
+          }
+        ]
+      },
+      "expected": "github.com/team/project"
+    },
+    {
+      "input": {
+        "legacy": "team/project",
+        "mappings": [
+          {
+            "legacy": "team/project",
+            "canonical": "github.com/team/project"
+          },
+          {
+            "legacy": "team/project",
+            "canonical": "gitlab.com/team/project"
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "input": {
+        "legacy": "team/project",
+        "mappings": [
+          {
+            "legacy": "other/project",
+            "canonical": "github.com/team/project"
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "input": {
+        "legacy": "team/project",
+        "mappings": []
+      },
+      "expected": null
+    }
+  ]
+}

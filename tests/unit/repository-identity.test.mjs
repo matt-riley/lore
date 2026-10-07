@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { canonicalRemoteIdentity, resolveRepositoryIdentity } from "../../lib/utils/repository-identity.mjs";
+
+const v2Fixtures = JSON.parse(readFileSync(new URL("../v2/fixtures/repository-identity.json", import.meta.url), "utf8"));
 
 test("remote identities retain host and full path while normalizing transports", () => {
   assert.equal(canonicalRemoteIdentity("git@github.com:Team/project.git"), "github.com/Team/project");
@@ -42,4 +44,13 @@ test("same-basename local repos are isolated and Git worktrees share identity", 
     assert.equal(resolveRepositoryIdentity({ cwd: linked }), "github.com/team/project");
     assert.equal(resolveRepositoryIdentity({ cwd: root }), null);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("v1 identity resolution satisfies the shared v2 fixtures", () => {
+  for (const { input, expected } of v2Fixtures.canonicalRemote) {
+    assert.equal(canonicalRemoteIdentity(input), expected, `canonicalRemote(${JSON.stringify(input)})`);
+  }
+  for (const { input, expected } of v2Fixtures.resolve) {
+    assert.equal(resolveRepositoryIdentity(input), expected, `resolve(${JSON.stringify(input)})`);
+  }
 });

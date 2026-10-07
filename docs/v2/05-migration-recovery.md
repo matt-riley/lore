@@ -1,6 +1,6 @@
 # Slice 5B: migration, backup and recovery
 
-Status: planned. Depends on G4 policy/extraction evidence. Exit contributes to G5.
+Status: stage-5B core implemented 2026-10-07 — evidence in [evidence/g5-migration.md](evidence/g5-migration.md); supported set, explicit exclusions and gaps are recorded there. Depends on G4 policy/extraction evidence. Exit contributes to G5.
 References: `lib/db/schema.mjs`, `lib/db/db-snapshot-lifecycle.mjs`, `lib/maintenance/recovery.mjs`, `tests/fixtures/released-upgrades/`, `tests/unit/snapshot-manual-suppression.test.mjs`.
 
 ## Safety model and command surface

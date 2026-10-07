@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn planned_operations_fail_explicitly() {
-        let error = route_for("lore_correct").expect_err("planned");
+        let error = route_for("lore_repair").expect_err("planned");
         assert!(error.contains("unimplemented"), "{error}");
         let (row, route) = route_for("memory_forget").expect("alias");
         assert_eq!(row.name, "lore_forget");

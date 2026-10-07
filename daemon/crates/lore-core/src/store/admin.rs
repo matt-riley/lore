@@ -307,7 +307,16 @@ fn now_ms() -> i64 {
 pub fn known_admin(name: &str) -> bool {
     matches!(
         name,
-        "search" | "explain" | "validate" | "doctor" | "audit/extractions"
+        "search"
+            | "explain"
+            | "validate"
+            | "doctor"
+            | "audit/extractions"
+            | "correct"
+            | "purge"
+            | "scope-override"
+            | "scope-audit"
+            | "run-status"
     )
 }
 

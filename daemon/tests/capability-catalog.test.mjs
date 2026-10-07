@@ -54,15 +54,19 @@ test("every row declares support, mutability and an implemented route", () => {
     implemented.map((row) => row.name).sort(),
     [
       "lore_audit_extractions",
+      "lore_correct",
       "lore_doctor",
       "lore_explain",
       "lore_forget",
+      "lore_purge",
       "lore_recall",
       "lore_retain",
       "lore_search",
       "lore_status",
       "lore_validate",
       "memory_capability_inventory",
+      "memory_scope_audit",
+      "memory_scope_override",
     ],
   );
 });

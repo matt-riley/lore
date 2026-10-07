@@ -697,6 +697,11 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             capabilities.push("validate.read".to_string());
             capabilities.push("doctor.read".to_string());
             capabilities.push("audit.read".to_string());
+            capabilities.push("memory.correct".to_string());
+            capabilities.push("memory.purge".to_string());
+            capabilities.push("memory.scope.override".to_string());
+            capabilities.push("memory.scope.audit".to_string());
+            capabilities.push("operations.runs".to_string());
             if !state.enabled || unavailable_reason(state).is_some() {
                 capabilities = vec!["status.basic".to_string()];
             }
@@ -710,7 +715,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                         api_major: API_MAJOR,
                         api_minor: API_MINOR,
                         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
-                        schema_version: 5,
+                        schema_version: 6,
                         store_id: state.store_id.clone(),
                         process_instance_id: state.process_instance_id.clone(),
                         uptime_ms: state.started.elapsed().as_millis() as u64,
@@ -1119,6 +1124,121 @@ async fn handle_admin(
                 )
             }
             "validate" => store.admin_validate(params.deep),
+            "correct" => {
+                let memory_id = params.id.clone().ok_or_else(|| {
+                    CoreError::invalid("ADMIN_ARGUMENT_INVALID", "correct requires id")
+                })?;
+                let provider_action = params.action.as_deref().unwrap_or("preview");
+                if provider_action == "apply" || params.plan_fingerprint.is_some() {
+                    let plan = params.plan_fingerprint.clone().ok_or_else(|| {
+                        CoreError::invalid(
+                            "ADMIN_ARGUMENT_INVALID",
+                            "applying a correction requires planFingerprint",
+                        )
+                    })?;
+                    let outcome = store.correct_apply(
+                        &memory_id,
+                        params.content.as_deref(),
+                        params.kind.as_deref(),
+                        params.scope.as_deref(),
+                        params.repository.as_deref(),
+                        params.expires_at_ms,
+                        &plan,
+                        params.actor.as_deref(),
+                        params.reason.as_deref(),
+                        now,
+                    )?;
+                    serde_json::to_value(outcome)
+                        .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                } else {
+                    store.correct_preview(
+                        &memory_id,
+                        params.content.as_deref(),
+                        params.kind.as_deref(),
+                        params.scope.as_deref(),
+                        params.repository.as_deref(),
+                        params.expires_at_ms,
+                    )
+                }
+            }
+            "purge" => {
+                let provider_action = params.action.as_deref().unwrap_or("preview");
+                if provider_action == "apply" || params.plan_fingerprint.is_some() {
+                    let plan = params.plan_fingerprint.clone().ok_or_else(|| {
+                        CoreError::invalid(
+                            "ADMIN_ARGUMENT_INVALID",
+                            "applying a purge requires planFingerprint",
+                        )
+                    })?;
+                    let outcome = store.purge_apply(
+                        &params.memory_ids,
+                        params.repository.as_deref(),
+                        params.global,
+                        &plan,
+                        params.actor.as_deref(),
+                        params.reason.as_deref(),
+                        now,
+                    )?;
+                    serde_json::to_value(outcome)
+                        .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                } else {
+                    store.purge_preview(
+                        &params.memory_ids,
+                        params.repository.as_deref(),
+                        params.global,
+                    )
+                }
+            }
+            "scope-override" => {
+                let provider_action = params.action.as_deref().unwrap_or("preview");
+                let clear = params.clear || provider_action == "clear";
+                if provider_action == "apply" || params.plan_fingerprint.is_some() {
+                    let plan = params.plan_fingerprint.clone().ok_or_else(|| {
+                        CoreError::invalid(
+                            "ADMIN_ARGUMENT_INVALID",
+                            "applying a scope override requires planFingerprint",
+                        )
+                    })?;
+                    let actor = params.actor.clone().ok_or_else(|| {
+                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "scope override needs actor")
+                    })?;
+                    let reason = params.reason.clone().ok_or_else(|| {
+                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "scope override needs reason")
+                    })?;
+                    let outcome = store.scope_override_apply(
+                        &params.memory_ids,
+                        params.scope.as_deref(),
+                        params.repository.as_deref(),
+                        clear,
+                        &plan,
+                        &actor,
+                        &reason,
+                        now,
+                    )?;
+                    serde_json::to_value(outcome)
+                        .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                } else {
+                    store.scope_override_preview(
+                        &params.memory_ids,
+                        params.scope.as_deref(),
+                        params.repository.as_deref(),
+                        clear,
+                    )
+                }
+            }
+            "scope-audit" => store.scope_audit(
+                params
+                    .cursor
+                    .as_deref()
+                    .and_then(|value| value.parse().ok()),
+                params.limit.unwrap_or(50),
+            ),
+            "run-status" => {
+                let run_id = params.run_id.clone().ok_or_else(|| {
+                    CoreError::invalid("ADMIN_ARGUMENT_INVALID", "run-status requires runId")
+                })?;
+                store.run_status(&run_id, None, params.limit.unwrap_or(50))
+            }
             "doctor" => store.admin_doctor(),
             "audit/extractions" => store.admin_audit_extractions(),
             _ => Err(CoreError::invalid(

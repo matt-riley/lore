@@ -25,6 +25,11 @@ const IMPLEMENTED = {
   lore_purge: { route: "/v2/admin/purge", mutability: "write" },
   memory_scope_override: { route: "/v2/admin/scope-override", mutability: "write" },
   memory_scope_audit: { route: "/v2/admin/scope-audit", mutability: "read" },
+  lore_onboard: { route: "/v2/admin/onboard", mutability: "write" },
+  lore_maintenance: { route: "/v2/admin/maintenance", mutability: "write" },
+  lore_reflect: { route: "/v2/admin/reflect", mutability: "write" },
+  memory_deferred_process: { route: "/v2/admin/deferred-process", mutability: "write" },
+  lore_backfill: { route: "/v2/admin/backfill", mutability: "write" },
 };
 
 /** Daemon capabilities with no v1 canonical row. */

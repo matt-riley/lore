@@ -50,9 +50,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/maintenance"
     },
     {
       "name": "lore_audit_extractions",
@@ -122,9 +122,9 @@
         "cli": true,
         "slash": true
       },
-      "support": "planned",
-      "mutability": "read",
-      "route": null
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/onboard"
     },
     {
       "name": "lore_retain",
@@ -149,9 +149,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/reflect"
     },
     {
       "name": "lore_search",
@@ -295,9 +295,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/deferred-process"
     },
     {
       "name": "lore_backfill",
@@ -309,9 +309,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/backfill"
     },
     {
       "name": "lore_doctor",

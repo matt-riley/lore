@@ -317,6 +317,11 @@ pub fn known_admin(name: &str) -> bool {
             | "scope-override"
             | "scope-audit"
             | "run-status"
+            | "onboard"
+            | "deferred-process"
+            | "backfill"
+            | "maintenance"
+            | "reflect"
     )
 }
 

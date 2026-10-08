@@ -31,7 +31,7 @@ use lore_core::config::{ResolvedConfig, ResolvedEmbedding};
 use lore_core::error::CoreError;
 use lore_core::lifecycle;
 use lore_core::policy;
-use lore_core::store::{EmbeddingCounts, SemanticInput, Store};
+use lore_core::store::{EmbeddingCounts, OnboardInput, SemanticInput, Store};
 use lore_provider::{EmbeddingProvider, ProviderIdentity};
 use tokio::sync::Notify;
 
@@ -702,6 +702,11 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             capabilities.push("memory.scope.override".to_string());
             capabilities.push("memory.scope.audit".to_string());
             capabilities.push("operations.runs".to_string());
+            capabilities.push("memory.onboard".to_string());
+            capabilities.push("memory.maintenance".to_string());
+            capabilities.push("memory.reflect".to_string());
+            capabilities.push("memory.deferred.process".to_string());
+            capabilities.push("memory.backfill".to_string());
             if !state.enabled || unavailable_reason(state).is_some() {
                 capabilities = vec!["status.basic".to_string()];
             }
@@ -1098,6 +1103,7 @@ async fn handle_admin(
     }
     let params = envelope.params.clone();
     let store = Arc::clone(&state.store);
+    let shared = Arc::clone(state);
     let now = now_ms();
     let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, CoreError> {
         match operation.as_str() {
@@ -1238,6 +1244,48 @@ async fn handle_admin(
                     CoreError::invalid("ADMIN_ARGUMENT_INVALID", "run-status requires runId")
                 })?;
                 store.run_status(&run_id, None, params.limit.unwrap_or(50))
+            }
+            "onboard" => {
+                let input = OnboardInput {
+                    user_name: params.user_name.clone(),
+                    assistant_name: params.assistant_name.clone(),
+                    voice: params.voice.clone(),
+                    warmth: params.warmth.clone(),
+                    humor: params.humor.clone(),
+                    humor_frequency: params.humor_frequency.clone(),
+                    collaborative: params.collaborative,
+                    use_name_naturally: params.use_name_naturally,
+                };
+                let outcome = store.onboard_apply(&input, now)?;
+                serde_json::to_value(outcome)
+                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+            }
+            "maintenance" => {
+                let outcome = store.maintenance_run(&params.tasks, params.dry_run, now)?;
+                serde_json::to_value(outcome)
+                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+            }
+            "reflect" => {
+                let outcome = store.reflect(
+                    params.query.as_deref(),
+                    params.repository.as_deref(),
+                    params.limit.unwrap_or(20),
+                    params.persist,
+                    now,
+                )?;
+                serde_json::to_value(outcome)
+                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+            }
+            "deferred-process" => {
+                let limit = params.limit.unwrap_or(16).min(64) as usize;
+                let report = crate::sources::extract_pending(&store, limit, now);
+                serde_json::to_value(report)
+                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+            }
+            "backfill" => {
+                let report = crate::sources::run_sweep(&store, &shared.config, now);
+                serde_json::to_value(report)
+                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
             }
             "doctor" => store.admin_doctor(),
             "audit/extractions" => store.admin_audit_extractions(),

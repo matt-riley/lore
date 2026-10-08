@@ -41,7 +41,8 @@ pub struct CaptureReport {
 }
 
 /// Outcome of one discovery sweep.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SweepReport {
     pub roots: usize,
     pub discovered: usize,

@@ -5,6 +5,7 @@ mod browser;
 mod hooks;
 mod journal;
 mod registry;
+mod service;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -24,6 +25,9 @@ struct Cli {
     /// Managed data directory (for offline backup, restore and migration).
     #[arg(long, env = "LORE_V2_DATA_DIR", global = true)]
     data_dir: Option<PathBuf>,
+    /// Home directory override for service and mode commands.
+    #[arg(long, env = "LORE_HOME", global = true)]
+    home: Option<PathBuf>,
     /// Unix socket path (overrides config).
     #[arg(long, env = "LORE_V2_SOCKET", global = true)]
     socket: Option<PathBuf>,
@@ -108,6 +112,85 @@ enum Command {
     Migrate {
         #[command(subcommand)]
         action: MigrateCommand,
+    },
+    /// Manage the per-user lored service.
+    Service {
+        #[command(subcommand)]
+        action: ServiceCommand,
+    },
+    /// Inspect or select the installation mode.
+    Mode {
+        #[command(subcommand)]
+        action: ModeCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ServiceCommand {
+    /// Write the platform service unit and ownership manifest.
+    Install {
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Load and start the service.
+    Start {
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Stop the service and let the daemon drain.
+    Stop {
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Stop then start the service.
+    Restart {
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Reload the service after a config or binary change.
+    Reload {
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Report installed/enabled/running/ready state.
+    Status {
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Remove only owned, unmodified service files.
+    Uninstall {
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ModeCommand {
+    /// Report the selected installation mode (v1 when unconfigured).
+    Status {
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Select v1 or v2 for this installation.
+    Select {
+        #[arg(long)]
+        mode: String,
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
     },
 }
 
@@ -364,6 +447,83 @@ async fn run(cli: Cli) -> Result<(), String> {
             }
             return Ok(());
         }
+        Command::Service { action } => {
+            let home = resolve_home(cli.home.as_deref())?;
+            let value = match action {
+                ServiceCommand::Install { dry_run, apply } => {
+                    service::install(&home, *apply && !*dry_run, cli.socket.as_deref())?
+                }
+                ServiceCommand::Start { dry_run, apply } => {
+                    service::start(&home, *apply && !*dry_run)?
+                }
+                ServiceCommand::Stop { dry_run, apply } => {
+                    service::stop(&home, *apply && !*dry_run)?
+                }
+                ServiceCommand::Restart { dry_run, apply } => {
+                    service::reload(&home, *apply && !*dry_run)?
+                }
+                ServiceCommand::Reload { dry_run, apply } => {
+                    service::reload(&home, *apply && !*dry_run)?
+                }
+                ServiceCommand::Status { output } => {
+                    let socket = resolve_socket(
+                        cli.config.as_deref(),
+                        cli.socket.clone(),
+                        cli.data_dir.as_deref(),
+                    );
+                    let ready = match socket {
+                        Some(socket) if socket.exists() => probe_readiness(&socket).await,
+                        _ => false,
+                    };
+                    let value = service::status(&home, ready)?;
+                    if output == "text" {
+                        print_service_status(&value);
+                        return Ok(());
+                    }
+                    value
+                }
+                ServiceCommand::Uninstall { dry_run, apply } => {
+                    service::uninstall(&home, *apply && !*dry_run)?
+                }
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+            );
+            return Ok(());
+        }
+        Command::Mode { action } => {
+            let home = resolve_home(cli.home.as_deref())?;
+            match action {
+                ModeCommand::Status { output } => {
+                    let value = service::mode_status(&home);
+                    if output == "text" {
+                        println!(
+                            "mode: {} (configured: {})",
+                            value["mode"].as_str().unwrap_or("v1"),
+                            value["configured"].as_bool().unwrap_or(false)
+                        );
+                        return Ok(());
+                    }
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+                    );
+                }
+                ModeCommand::Select {
+                    mode,
+                    dry_run,
+                    apply,
+                } => {
+                    let value = service::mode_select(&home, mode, *apply && !*dry_run)?;
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+                    );
+                }
+            }
+            return Ok(());
+        }
         _ => {}
     }
 
@@ -371,6 +531,9 @@ async fn run(cli: Cli) -> Result<(), String> {
         lore_core::config::resolve_socket_path(cli.config.as_deref(), cli.socket.as_deref())
             .map_err(core_message)?;
     match &cli.command {
+        Command::Service { .. } | Command::Mode { .. } => {
+            unreachable!("service and mode are handled before socket resolution")
+        }
         Command::Status { json: _ } => {
             let outcome = request(&socket, "/v2/status", &serde_json::json!({}), None).await?;
             print_outcome(&outcome)
@@ -688,4 +851,52 @@ fn nanos() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0)
+}
+
+fn resolve_home(home: Option<&Path>) -> Result<PathBuf, String> {
+    if let Some(home) = home {
+        return Ok(home.to_path_buf());
+    }
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| "cannot resolve home directory (pass --home)".to_string())
+}
+
+fn resolve_socket(
+    config: Option<&Path>,
+    socket: Option<PathBuf>,
+    data_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(socket) = socket {
+        return Some(socket);
+    }
+    lore_core::config::resolve_socket_path(config, data_dir).ok()
+}
+
+async fn probe_readiness(socket: &Path) -> bool {
+    let meta = RequestMeta {
+        client_id: "lore.service".to_string(),
+        request_id: format!("service-{}", std::process::id()),
+        session_id: None,
+        expected_store_id: None,
+        timeout_ms: Some(2_000),
+        required_capabilities: Vec::new(),
+    };
+    match lore::request(socket, "/v2/status", meta, serde_json::json!({})).await {
+        Ok(outcome) => serde_json::from_str::<Value>(&outcome.body)
+            .map(|body| body["result"]["readiness"] == "ready")
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+fn print_service_status(value: &Value) {
+    println!(
+        "lore service: state={} installed={} enabled={} running={} ready={}",
+        value["state"].as_str().unwrap_or("unknown"),
+        value["installed"].as_bool().unwrap_or(false),
+        value["enabled"].as_bool().unwrap_or(false),
+        value["running"].as_bool().unwrap_or(false),
+        value["ready"].as_bool().unwrap_or(false),
+    );
 }

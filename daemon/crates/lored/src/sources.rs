@@ -38,6 +38,10 @@ impl Scheduler {
     }
 }
 
+/// Serializes sweeps across the scheduler thread and admin backfill, so two
+/// concurrent sweeps cannot discover and register the same file twice.
+static SWEEP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Spawn the capture scheduler. Sweeps run on a dedicated thread so capture
 /// never contends with the async request runtime.
 pub fn spawn(store: Arc<Store>, config: ResolvedConfig) -> Scheduler {
@@ -167,6 +171,13 @@ pub fn extract_pending(store: &Store, limit: usize, now: i64) -> ExtractionSweep
 
 /// Discover and capture for all approved roots, bounded per sweep.
 pub fn run_sweep(store: &Store, config: &ResolvedConfig, now: i64) -> SweepReport {
+    let _guard = SWEEP_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    run_sweep_locked(store, config, now)
+}
+
+fn run_sweep_locked(store: &Store, config: &ResolvedConfig, now: i64) -> SweepReport {
     let sources = &config.sources;
     let mut report = SweepReport::default();
     let keep: Vec<String> = sources

@@ -89,9 +89,9 @@ impl Store {
                  FROM source_generations g JOIN sources s ON s.source_id = g.source_id \
                  WHERE g.retired_ms IS NULL \
                  AND EXISTS (SELECT 1 FROM source_records r WHERE r.source_id = g.source_id AND r.generation = g.generation) \
-                 AND NOT EXISTS (SELECT 1 FROM memories m WHERE m.kind = 'episode_digest' \
-                    AND m.topic_key = 'episode::' || g.source_id || '::' || g.generation \
-                    AND m.forgotten = 0 AND m.superseded_by IS NULL) \
+                 AND NOT EXISTS (SELECT 1 FROM extraction_intents i \
+                    WHERE i.source_id = g.source_id AND i.generation = g.generation \
+                    AND i.state IN ('pending', 'running', 'retry_wait')) \
                  ORDER BY g.started_ms ASC LIMIT ?1",
             )?;
             let rows = statement.query_map(params![limit.clamp(1, 32) as i64], |row| {
@@ -189,8 +189,6 @@ impl Store {
             let content = truncate_content(content);
             let content_hash = crate::policy::sha256_hex(content.as_bytes());
             let topic_key = format!("episode::{}::{}", candidate.source_id, candidate.generation);
-            revision += 1;
-            let memory_id = uuid::Uuid::new_v4().to_string();
             let (scope, repository) = match candidate.repository.as_deref() {
                 Some(repository) => ("repo", Some(repository.to_string())),
                 None => ("global", None),
@@ -203,6 +201,56 @@ impl Store {
                 format!("sig:{significance}"),
                 format!("extracted:{extracted_total}")
             ]);
+            let existing: Option<(String, String)> = transaction
+                .query_row(
+                    "SELECT id, content FROM memories WHERE kind = 'episode_digest' \
+                     AND topic_key = ?1 AND forgotten = 0 AND superseded_by IS NULL LIMIT 1",
+                    params![topic_key],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .ok();
+            if let Some((existing_id, existing_content)) = &existing {
+                if existing_content == &content {
+                    // Unchanged: nothing to refresh, not even the day summary.
+                    continue;
+                }
+                revision += 1;
+                transaction.execute(
+                    "UPDATE memories SET content = ?2, content_hash = ?3, scope = ?4, repository = ?5, \
+                     tags_json = ?6, revision = ?7, updated_ms = ?8 WHERE id = ?1",
+                    params![
+                        existing_id,
+                        content,
+                        content_hash,
+                        scope,
+                        repository,
+                        tags.to_string(),
+                        revision,
+                        now_ms
+                    ],
+                )?;
+                transaction.execute(
+                    "UPDATE memory_fts SET content = ?1 WHERE memory_id = ?2",
+                    params![content, existing_id],
+                )?;
+                super::ops::queue_embedding(
+                    &transaction,
+                    existing_id,
+                    revision,
+                    &content_hash,
+                    self.embedding_enabled,
+                    self.embedding_identity.as_deref(),
+                    now_ms,
+                )?;
+                report.episodes += 1;
+                let key = (candidate.repository.clone(), day);
+                if !touched_days.contains(&key) {
+                    touched_days.push(key);
+                }
+                continue;
+            }
+            revision += 1;
+            let memory_id = uuid::Uuid::new_v4().to_string();
             transaction.execute(
                 "INSERT INTO memories (id, kind, content, content_hash, scope, repository, authority, \
                  confidence, tags_json, source_session_id, created_ms, updated_ms, expires_at_ms, \

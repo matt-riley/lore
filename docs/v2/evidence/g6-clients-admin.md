@@ -148,11 +148,39 @@ fingerprint, actor, counts) and pages its items through `/v2/admin/run-status`.
   hooks are exercised against a fake daemon and the adapter against a real
   daemon, but no host application has been driven. G5's per-host integration
   evidence therefore remains open, and support claims stay experimental.
+### Host adapters (Pi and Copilot)
+
+- `daemon/clients/js/model-tools.mjs` holds the nine canonical model tools
+  (`lore_recall`, `lore_retain`, `lore_onboard`, `lore_search`, `lore_forget`,
+  `lore_status`, `lore_explain`, `lore_validate`, `lore_correct`) with plain
+  JSON Schema parameters, daemon routes, capability names and presenters.
+- `daemon/clients/js/host-session.mjs` owns capability negotiation,
+  per-session `AbortController` cancellation, one bounded retry for transport
+  failures with the identical idempotency key, and journal wiring. Capability
+  refusals and transport failures are returned as text; a host call never
+  throws.
+- `daemon/clients/js/uncertain-journal.mjs` persists the exact payload, route,
+  store and key with an atomic write and 0600 permissions before dispatch,
+  rejects new writes when full, drops payloads only after a committed
+  acknowledgement, and reports corrupt journals instead of replaying them.
+- `daemon/clients/pi/register.mjs` + `extension.ts` register the nine tools,
+  the `/lore` command (verbs and `retries`) and session start/shutdown
+  cancellation on the Pi API; `daemon/clients/copilot/extension.mjs` exposes
+  the same nine tools plus session hooks and slash-prompt interception.
+- `daemon/tests/host-adapters.test.mjs` proves registration exactness, live
+  tool dispatch against a real daemon, capability refusal, retry with a reused
+  key, payload retention on non-transport failure, journal capacity rejection
+  before dispatch, shutdown cancellation and slash parsing. Nine tests run in
+  the daemon CI job with `LORED_BIN`.
+- No real Pi or Copilot host has loaded these adapters yet; that certification
+  is scheduled with stage 7, and no real client settings were modified.
+
 - **Remaining honest gaps**: OKF import is limited to `<dataDir>/bundles`
   staging; JSON import is refused by design; replay covers the extraction
   corpus only (not retrieval); the backlog/ledger/journal APIs have no
   dashboard panel yet; dashboard field parity and real-host adapter evidence
-  are the next milestones. Human/slash
+  are the next milestones. Adapters are proven against synthetic hosts and a
+  real daemon, not against a real Pi or Copilot session. Human/slash
   surfaces for those verbs fail explicitly rather than pretending support.
   The durable run model exists and records every apply; long-running
   multi-batch operations are not ported yet.

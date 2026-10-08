@@ -18,13 +18,16 @@ Node adapter proofs.
 | Journal | `uncertain-writes.json` in the owned data dir, 0600, atomic temp+fsync+rename, capacity 100 before dispatch, payload dropped on resolve; `lore retries list|resolve`. |
 | Thin adapter | `daemon/clients/js/lore-adapter.mjs`: capability negotiation, cached store identity, Recall/Retain/Forget with `AbortSignal` cancellation that destroys the in-flight request. No SQLite import. |
 
-Implemented canonical operations (19 of 27): `lore_status`, `lore_retain`,
+All 27 canonical operations are implemented: `lore_status`, `lore_retain`,
 `lore_forget`, `lore_recall`, `lore_search`, `lore_explain`, `lore_validate`,
 `lore_doctor`, `lore_audit_extractions`, `memory_capability_inventory`,
 `lore_correct`, `lore_purge`, `memory_scope_override`, `memory_scope_audit`,
 `lore_onboard`, `lore_maintenance`, `lore_reflect`,
-`memory_deferred_process` and `lore_backfill`. The remaining 8 are marked
-`planned` in the catalog and refuse dispatch.
+`memory_deferred_process`, `lore_backfill`, `memory_improvement_backlog`,
+`memory_evolution_ledger`, `memory_intent_journal`, `memory_review_gate`,
+`memory_portable_bundle`, `memory_skill_validate`, `lore_repair` and
+`memory_replay`. No catalog row is `planned`; the registry test asserts this
+for every row, and unknown names are refused before dispatch.
 
 ### Read-only administration (first matrix slice)
 
@@ -88,6 +91,37 @@ fingerprint, actor, counts) and pages its items through `/v2/admin/run-status`.
   and reports discovered/captured/pending counts; with no roots it is a
   zero-count no-op.
 
+### Governance, portability, repair and replay (schema 7)
+
+- **Improvement backlog** (`/v2/admin/backlog`) and the **review gate**
+  (`/v2/admin/review-gate`) keep proposed/accepted/rejected/done items with
+  keyset paging, attributed state changes and a gate verdict that stays
+  `open` while anything is still proposed.
+- **Evolution ledger** (`/v2/admin/ledger`) records corrections, purges,
+  scope changes, imports, repairs and replays; corrections, purges and scope
+  overrides append entries in their own transactions, and manual entries are
+  appended explicitly.
+- **Intent journal** (`/v2/admin/journal`) tracks open/doing/blocked/done/
+  cancelled intents with notes.
+- **Portable bundles** (`/v2/admin/bundle`) export approved backlog
+  artifacts as a checksummed JSON file or an OKF v0.1 directory (index,
+  one concept per artifact, manifest), and import OKF directories only.
+  Imports are bounded (200 files, 256 KiB each), stage under
+  `<dataDir>/bundles`, reject traversal and symlinks, are idempotent by
+  checksum, create `okf_concept` memories at confidence 0.7, and follow
+  first-import-content-wins by `repository::conceptId`. JSON import stays
+  unsupported. Exports publish atomically with restrictive permissions.
+- **Skill validation** (`/v2/admin/skill-validate`) reads configured roots
+  (or explicit paths), checks `SKILL.md` front matter, name/directory
+  agreement and body presence, and never executes skill text.
+- **Repair** (`/v2/admin/repair`) previews FTS gaps, missing/stale embedding
+  intents and stale vectors, then applies with a fingerprint check, a
+  pre-apply snapshot, a run record and a ledger entry.
+- **Replay** (`/v2/admin/replay`) runs the frozen 160-case extraction corpus
+  in-process, treats propositions retired by later corrections as inactive,
+  and reports pass/fail with bounded failure detail; it never writes
+  memories and uses no provider.
+
 ## 6B — administration and dashboard
 
 | Piece | Detail |
@@ -114,9 +148,11 @@ fingerprint, actor, counts) and pages its items through `/v2/admin/run-status`.
   hooks are exercised against a fake daemon and the adapter against a real
   daemon, but no host application has been driven. G5's per-host integration
   evidence therefore remains open, and support claims stay experimental.
-- **8 of 27 canonical operations are planned**, including repair, portable
-  bundles, replay, backlog, evolution ledger, intent journal, review gate and
-  skill validation. Human/slash
+- **Remaining honest gaps**: OKF import is limited to `<dataDir>/bundles`
+  staging; JSON import is refused by design; replay covers the extraction
+  corpus only (not retrieval); the backlog/ledger/journal APIs have no
+  dashboard panel yet; dashboard field parity and real-host adapter evidence
+  are the next milestones. Human/slash
   surfaces for those verbs fail explicitly rather than pretending support.
   The durable run model exists and records every apply; long-running
   multi-batch operations are not ported yet.

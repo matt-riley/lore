@@ -25,6 +25,7 @@ use crate::retrieval;
 
 mod admin;
 mod bundle;
+mod digest;
 mod embedding;
 mod extraction;
 mod governance;

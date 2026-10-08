@@ -260,11 +260,82 @@ impl Store {
         }))
     }
 
-    /// Episodes view: extraction is the only episode producer today, so the
-    /// placeholder is explicit rather than invented chronology.
+    /// Episodes view: deterministic episode digests and the day summaries
+    /// they feed, plus the extraction runs that produced the evidence.
     pub fn view_episodes(&self) -> CoreResult<Value> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
+        let episodes: Vec<Value> = {
+            let mut statement = connection.prepare(
+                "SELECT id, content, scope, repository, tags_json, updated_ms FROM memories                  WHERE kind = 'episode_digest' AND forgotten = 0 AND superseded_by IS NULL                  ORDER BY updated_ms DESC, id ASC LIMIT 100",
+            )?;
+            let rows = statement.query_map([], |row| {
+                let tags_json: String = row.get(4)?;
+                let tags: Value = serde_json::from_str(&tags_json).unwrap_or(json!([]));
+                let tag = |prefix: &str| {
+                    tags.as_array()
+                        .and_then(|values| {
+                            values.iter().find_map(|value| {
+                                value
+                                    .as_str()
+                                    .and_then(|text| text.strip_prefix(prefix))
+                                    .map(str::to_string)
+                            })
+                        })
+                        .unwrap_or_default()
+                };
+                Ok(json!({
+                    "id": row.get::<_, String>(0)?,
+                    "summary": row.get::<_, String>(1)?,
+                    "scope": row.get::<_, String>(2)?,
+                    "scopeSource": "inferred",
+                    "repository": row.get::<_, Option<String>>(3)?,
+                    "branch": null,
+                    "sessionId": tag("session:"),
+                    "dateKey": tag("date:"),
+                    "significance": tag("sig:"),
+                    "source": "lore_digest",
+                    "actions": [],
+                    "decisions": [],
+                    "learnings": [],
+                    "filesChanged": [],
+                    "refs": [],
+                    "themes": [],
+                    "openItems": [],
+                    "updatedAt": row.get::<_, i64>(5)?,
+                }))
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let day_summaries: Vec<Value> = {
+            let mut statement = connection.prepare(
+                "SELECT content, repository, tags_json, updated_ms FROM memories                  WHERE kind = 'day_summary' AND forgotten = 0 AND superseded_by IS NULL                  ORDER BY updated_ms DESC, id ASC LIMIT 60",
+            )?;
+            let rows = statement.query_map([], |row| {
+                let tags_json: String = row.get(2)?;
+                let tags: Value = serde_json::from_str(&tags_json).unwrap_or(json!([]));
+                let date_key = tags
+                    .as_array()
+                    .and_then(|values| {
+                        values.iter().find_map(|value| {
+                            value
+                                .as_str()
+                                .and_then(|text| text.strip_prefix("date:"))
+                                .map(str::to_string)
+                        })
+                    })
+                    .unwrap_or_default();
+                Ok(json!({
+                    "dateKey": date_key,
+                    "repository": row.get::<_, Option<String>>(1)?,
+                    "summary": row.get::<_, String>(0)?,
+                    "episodeIds": [],
+                    "computedAt": row.get::<_, i64>(3)?,
+                    "updatedAt": row.get::<_, i64>(3)?,
+                }))
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
         let runs: Vec<Value> = {
             let mut statement = connection.prepare(
                 "SELECT source_id, generation, state, updated_ms FROM extraction_intents \
@@ -281,10 +352,10 @@ impl Store {
             rows.collect::<Result<_, _>>()?
         };
         Ok(json!({
-            "episodes": [],
-            "daySummaries": [],
+            "episodes": episodes,
+            "daySummaries": day_summaries,
             "extractionRuns": runs,
-            "note": "episode digests are not extracted in this release",
+            "note": "episode digests are deterministic summaries of captured sources",
         }))
     }
 

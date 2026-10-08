@@ -1198,7 +1198,7 @@ pub const MAINTENANCE_TASKS: [&str; 3] = [
     "reap_embedding_jobs",
 ];
 
-fn queue_embedding(
+pub(super) fn queue_embedding(
     transaction: &rusqlite::Transaction<'_>,
     memory_id: &str,
     revision: i64,

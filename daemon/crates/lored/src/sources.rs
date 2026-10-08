@@ -65,7 +65,8 @@ pub fn spawn(store: Arc<Store>, config: ResolvedConfig) -> Scheduler {
 }
 
 /// One extraction sweep outcome.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExtractionSweepReport {
     pub claimed: usize,
     pub applied: usize,

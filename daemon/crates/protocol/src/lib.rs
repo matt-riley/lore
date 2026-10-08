@@ -393,6 +393,28 @@ pub struct AdminParams {
     pub clear: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warmth: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub humor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub humor_frequency: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collaborative: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_name_naturally: Option<bool>,
+    #[serde(default)]
+    pub persist: bool,
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<String>,
 }
 
 /// `/v2/views/<name>` parameters. Permissive: the browser gateway forwards

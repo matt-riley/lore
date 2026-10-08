@@ -1087,3 +1087,614 @@ mod tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------
+// Onboarding, maintenance and reflection
+// ---------------------------------------------------------------------
+
+/// Input for the onboarding identity slots.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnboardInput {
+    pub user_name: Option<String>,
+    pub assistant_name: Option<String>,
+    pub voice: Option<String>,
+    pub warmth: Option<String>,
+    pub humor: Option<String>,
+    pub humor_frequency: Option<String>,
+    pub collaborative: Option<bool>,
+    pub use_name_naturally: Option<bool>,
+}
+
+impl OnboardInput {
+    fn is_empty(&self) -> bool {
+        self.user_name.is_none()
+            && self.assistant_name.is_none()
+            && self.voice.is_none()
+            && self.warmth.is_none()
+            && self.humor.is_none()
+            && self.humor_frequency.is_none()
+            && self.collaborative.is_none()
+            && self.use_name_naturally.is_none()
+    }
+}
+
+/// One onboarded identity slot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnboardSlot {
+    pub memory_id: String,
+    pub created: bool,
+}
+
+/// Outcome of an onboarding apply.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnboardOutcome {
+    pub assistant: Option<OnboardSlot>,
+    pub user: Option<OnboardSlot>,
+    pub committed_revision: i64,
+}
+
+/// One maintenance task result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaintenanceTask {
+    pub name: String,
+    pub affected: u64,
+}
+
+/// Outcome of a maintenance run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaintenanceOutcome {
+    pub dry_run: bool,
+    pub tasks: Vec<MaintenanceTask>,
+    pub run_id: Option<String>,
+    pub committed_revision: i64,
+}
+
+/// Outcome of a reflection build.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReflectOutcome {
+    pub text: String,
+    pub memory_ids: Vec<String>,
+    pub persisted: Option<String>,
+    pub committed_revision: i64,
+}
+
+/// Registered maintenance task names.
+pub const MAINTENANCE_TASKS: [&str; 3] = [
+    "expire_memories",
+    "retry_stale_extraction",
+    "reap_embedding_jobs",
+];
+
+fn queue_embedding(
+    transaction: &rusqlite::Transaction<'_>,
+    memory_id: &str,
+    revision: i64,
+    content_hash: &str,
+    embedding_enabled: bool,
+    embedding_identity: Option<&str>,
+    now_ms: i64,
+) -> CoreResult<()> {
+    let state = if embedding_enabled {
+        "pending"
+    } else {
+        "disabled"
+    };
+    transaction.execute(
+        "INSERT INTO embedding_intents \
+         (memory_id, desired_revision, state, attempts, next_attempt_ms, terminal_reason, \
+          content_hash, model_identity, updated_ms) \
+         VALUES (?1, ?2, ?3, 0, NULL, NULL, ?4, ?5, ?6) \
+         ON CONFLICT (memory_id) DO UPDATE SET \
+          desired_revision = excluded.desired_revision, state = excluded.state, attempts = 0, \
+          next_attempt_ms = NULL, terminal_reason = NULL, content_hash = excluded.content_hash, \
+          model_identity = excluded.model_identity, updated_ms = excluded.updated_ms",
+        params![
+            memory_id,
+            revision,
+            state,
+            content_hash,
+            embedding_identity.unwrap_or(""),
+            now_ms
+        ],
+    )?;
+    Ok(())
+}
+
+/// Insert or update a global identity memory keyed by `topic_key`.
+///
+/// Returns `(memory_id, created, changed)`; a repeat onboard with identical
+/// content is a no-op that keeps the same memory id.
+#[allow(clippy::too_many_arguments)]
+fn upsert_identity(
+    transaction: &rusqlite::Transaction<'_>,
+    kind: &str,
+    topic_key: &str,
+    content: &str,
+    embedding_enabled: bool,
+    embedding_identity: Option<&str>,
+    revision: &mut i64,
+    now_ms: i64,
+) -> CoreResult<(String, bool, bool)> {
+    let content_hash = crate::policy::sha256_hex(content.as_bytes());
+    let existing: Option<(String, String)> = transaction
+        .query_row(
+            "SELECT id, content_hash FROM memories WHERE kind = ?1 AND scope = 'global' \
+             AND topic_key = ?2 AND forgotten = 0 AND superseded_by IS NULL \
+             ORDER BY revision DESC LIMIT 1",
+            params![kind, topic_key],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((memory_id, stored_hash)) = existing {
+        if stored_hash == content_hash {
+            return Ok((memory_id, false, false));
+        }
+        *revision += 1;
+        transaction.execute(
+            "UPDATE memories SET content = ?2, content_hash = ?3, revision = ?4, updated_ms = ?5 \
+             WHERE id = ?1",
+            params![memory_id, content, content_hash, *revision, now_ms],
+        )?;
+        let updated = transaction.execute(
+            "UPDATE memory_fts SET content = ?1, kind = ?2 WHERE memory_id = ?3",
+            params![content, kind, memory_id],
+        )?;
+        if updated == 0 {
+            transaction.execute(
+                "INSERT INTO memory_fts (content, kind, tags, memory_id) VALUES (?1, ?2, '', ?3)",
+                params![content, kind, memory_id],
+            )?;
+        }
+        queue_embedding(
+            transaction,
+            &memory_id,
+            *revision,
+            &content_hash,
+            embedding_enabled,
+            embedding_identity,
+            now_ms,
+        )?;
+        return Ok((memory_id, false, true));
+    }
+
+    *revision += 1;
+    let memory_id = uuid::Uuid::new_v4().to_string();
+    transaction.execute(
+        "INSERT INTO memories (id, kind, content, content_hash, scope, repository, authority, \
+         confidence, tags_json, source_session_id, created_ms, updated_ms, expires_at_ms, \
+         revision, forgotten, topic_key) \
+         VALUES (?1, ?2, ?3, ?4, 'global', NULL, 'manual', 1.0, '[]', NULL, ?5, ?5, NULL, ?6, 0, ?7)",
+        params![memory_id, kind, content, content_hash, now_ms, *revision, topic_key],
+    )?;
+    transaction.execute(
+        "INSERT INTO memory_fts (content, kind, tags, memory_id) VALUES (?1, ?2, '', ?3)",
+        params![content, kind, memory_id],
+    )?;
+    queue_embedding(
+        transaction,
+        &memory_id,
+        *revision,
+        &content_hash,
+        embedding_enabled,
+        embedding_identity,
+        now_ms,
+    )?;
+    Ok((memory_id, true, true))
+}
+
+impl Store {
+    /// Apply onboarding: the assistant identity and style profile, and the
+    /// user's preferred name, as global memories in stable slots.
+    pub fn onboard_apply(&self, input: &OnboardInput, now_ms: i64) -> CoreResult<OnboardOutcome> {
+        if input.is_empty() {
+            return Err(CoreError::invalid(
+                "ADMIN_ARGUMENT_INVALID",
+                "onboarding needs at least one identity field",
+            ));
+        }
+        let mut connection = self.writer.lock().expect("writer lock");
+        let transaction =
+            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut revision: i64 = transaction.query_row(
+            "SELECT memory_revision FROM store_metadata WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        let assistant = if input.assistant_name.is_some()
+            || input.voice.is_some()
+            || input.warmth.is_some()
+            || input.humor.is_some()
+            || input.humor_frequency.is_some()
+            || input.collaborative.is_some()
+            || input.use_name_naturally.is_some()
+        {
+            let mut lines: Vec<String> = Vec::new();
+            if let Some(name) = &input.assistant_name {
+                lines.push(format!("The assistant's name is {name}."));
+            }
+            if let Some(voice) = &input.voice {
+                lines.push(format!("Speak with a {voice} voice."));
+            }
+            if let Some(warmth) = &input.warmth {
+                lines.push(format!("Warmth: {warmth}."));
+            }
+            match (&input.humor, &input.humor_frequency) {
+                (Some(humor), Some(frequency)) => {
+                    lines.push(format!("Humor: {humor}, {frequency}."));
+                }
+                (Some(humor), None) => lines.push(format!("Humor: {humor}.")),
+                (None, Some(frequency)) => lines.push(format!("Humor frequency: {frequency}.")),
+                (None, None) => {}
+            }
+            if input.collaborative == Some(true) {
+                lines.push("Default to a collaborative teammate posture.".to_string());
+            }
+            if let Some(true) = input.use_name_naturally {
+                lines.push("Use the user's preferred name naturally when helpful.".to_string());
+            }
+            let content = lines.join(" ");
+            let (memory_id, created, changed) = upsert_identity(
+                &transaction,
+                "assistant_identity",
+                "identity.assistant",
+                &content,
+                self.embedding_enabled,
+                self.embedding_identity.as_deref(),
+                &mut revision,
+                now_ms,
+            )?;
+            Some(OnboardSlot {
+                memory_id,
+                created: created || changed,
+            })
+        } else {
+            None
+        };
+
+        let user = if let Some(name) = &input.user_name {
+            let content = format!("The user's preferred name is {name}.");
+            let (memory_id, created, changed) = upsert_identity(
+                &transaction,
+                "user_identity",
+                "identity.user",
+                &content,
+                self.embedding_enabled,
+                self.embedding_identity.as_deref(),
+                &mut revision,
+                now_ms,
+            )?;
+            Some(OnboardSlot {
+                memory_id,
+                created: created || changed,
+            })
+        } else {
+            None
+        };
+
+        if assistant.is_some() || user.is_some() {
+            transaction.execute(
+                "UPDATE store_metadata SET memory_revision = ?1, active_memories = \
+                 (SELECT COUNT(*) FROM memories WHERE forgotten = 0 AND superseded_by IS NULL) \
+                 WHERE id = 1",
+                params![revision],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(OnboardOutcome {
+            assistant,
+            user,
+            committed_revision: revision,
+        })
+    }
+
+    /// Run registered maintenance tasks. Dry runs roll the transaction back.
+    pub fn maintenance_run(
+        &self,
+        tasks: &[String],
+        dry_run: bool,
+        now_ms: i64,
+    ) -> CoreResult<MaintenanceOutcome> {
+        let requested: Vec<String> = if tasks.is_empty() {
+            MAINTENANCE_TASKS
+                .iter()
+                .map(|name| name.to_string())
+                .collect()
+        } else {
+            tasks.to_vec()
+        };
+        for task in &requested {
+            if !MAINTENANCE_TASKS.contains(&task.as_str()) {
+                return Err(CoreError::invalid(
+                    "ADMIN_ARGUMENT_INVALID",
+                    format!("unknown maintenance task: {task}"),
+                ));
+            }
+        }
+
+        let mut connection = self.writer.lock().expect("writer lock");
+        let transaction =
+            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut revision: i64 = transaction.query_row(
+            "SELECT memory_revision FROM store_metadata WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        let mut results = Vec::new();
+
+        if requested.iter().any(|task| task == "expire_memories") {
+            let rows: Vec<(String, String, Option<String>, String)> = {
+                let mut statement = transaction.prepare(
+                    "SELECT id, scope, repository, content_hash FROM memories \
+                     WHERE forgotten = 0 AND superseded_by IS NULL AND expires_at_ms IS NOT NULL \
+                     AND expires_at_ms <= ?1 LIMIT 500",
+                )?;
+                let mapped = statement.query_map(params![now_ms], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })?;
+                mapped.collect::<Result<Vec<_>, _>>()?
+            };
+            let mut affected = 0u64;
+            if !dry_run {
+                for (memory_id, scope, repository, content_hash) in &rows {
+                    revision += 1;
+                    transaction.execute(
+                        "UPDATE memories SET forgotten = 1, content = '', revision = ?2, updated_ms = ?3 \
+                         WHERE id = ?1",
+                        params![memory_id, revision, now_ms],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM memory_fts WHERE memory_id = ?1",
+                        params![memory_id],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM memory_vectors WHERE memory_id = ?1",
+                        params![memory_id],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM embedding_intents WHERE memory_id = ?1",
+                        params![memory_id],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO suppressions (memory_id, scope, repository, fingerprint, reason, revision, created_ms, state) \
+                         VALUES (?1, ?2, ?3, ?4, 'expired', ?5, ?6, 'active') \
+                         ON CONFLICT (memory_id, scope, COALESCE(repository, ''), fingerprint) DO NOTHING",
+                        params![memory_id, scope, repository, content_hash, revision, now_ms],
+                    )?;
+                    affected += 1;
+                }
+            } else {
+                affected = rows.len() as u64;
+            }
+            results.push(MaintenanceTask {
+                name: "expire_memories".to_string(),
+                affected,
+            });
+        }
+
+        if requested
+            .iter()
+            .any(|task| task == "retry_stale_extraction")
+        {
+            let due = "state = 'retry_wait' AND (next_attempt_ms IS NULL OR next_attempt_ms <= ?1)";
+            let affected = if dry_run {
+                transaction.query_row(
+                    &format!("SELECT COUNT(*) FROM extraction_intents WHERE {due}"),
+                    params![now_ms],
+                    |row| row.get::<_, i64>(0),
+                )? as u64
+            } else {
+                transaction.execute(
+                    &format!(
+                        "UPDATE extraction_intents SET state = 'pending', next_attempt_ms = NULL, \
+                         lease_token = NULL, lease_owner = NULL, lease_expires_ms = NULL, updated_ms = ?1 \
+                         WHERE {due}"
+                    ),
+                    params![now_ms],
+                )? as u64
+            };
+            results.push(MaintenanceTask {
+                name: "retry_stale_extraction".to_string(),
+                affected,
+            });
+        }
+
+        if requested.iter().any(|task| task == "reap_embedding_jobs") {
+            let affected = if dry_run {
+                transaction.query_row(
+                    "SELECT COUNT(*) FROM embedding_jobs WHERE state = 'running' \
+                     AND lease_expires_ms IS NOT NULL AND lease_expires_ms <= ?1",
+                    params![now_ms],
+                    |row| row.get::<_, i64>(0),
+                )? as u64
+            } else {
+                transaction.execute(
+                    "UPDATE embedding_jobs SET state = 'queued', lease_token = NULL, \
+                     lease_owner = NULL, lease_expires_ms = NULL, updated_ms = ?1 \
+                     WHERE state = 'running' AND lease_expires_ms IS NOT NULL AND lease_expires_ms <= ?1",
+                    params![now_ms],
+                )? as u64
+            };
+            results.push(MaintenanceTask {
+                name: "reap_embedding_jobs".to_string(),
+                affected,
+            });
+        }
+
+        let mut run_id = None;
+        if !dry_run {
+            let run = uuid::Uuid::new_v4().to_string();
+            let mut sorted = requested.clone();
+            sorted.sort();
+            let plan = fingerprint("lore_maintenance", "", &sorted);
+            Self::insert_run(&transaction, &run, "lore_maintenance", &plan, None, now_ms)?;
+            let mut counts = BTreeMap::new();
+            for task in &results {
+                counts.insert(task.name.clone(), task.affected as i64);
+            }
+            Self::finish_run_in(&transaction, &run, "complete", &counts, None, now_ms)?;
+            run_id = Some(run);
+            transaction.execute(
+                "UPDATE store_metadata SET memory_revision = ?1, active_memories = \
+                 (SELECT COUNT(*) FROM memories WHERE forgotten = 0 AND superseded_by IS NULL), \
+                 forgotten_memories = (SELECT COUNT(*) FROM memories WHERE forgotten = 1) WHERE id = 1",
+                params![revision],
+            )?;
+            transaction.commit()?;
+        } else {
+            transaction.rollback()?;
+        }
+        Ok(MaintenanceOutcome {
+            dry_run,
+            tasks: results,
+            run_id,
+            committed_revision: revision,
+        })
+    }
+
+    /// Build a deterministic reflection digest over recent in-scope memories.
+    /// With `persist`, the digest is stored as an inferred `reflection` memory
+    /// whose tags list the represented memory ids. The query text itself is
+    /// never persisted.
+    pub fn reflect(
+        &self,
+        query: Option<&str>,
+        repository: Option<&str>,
+        limit: u32,
+        persist: bool,
+        now_ms: i64,
+    ) -> CoreResult<ReflectOutcome> {
+        let limit = limit.clamp(1, 50) as i64;
+        let mut connection = self.writer.lock().expect("writer lock");
+        let transaction =
+            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+        let mut clauses = vec!["m.forgotten = 0", "m.superseded_by IS NULL"];
+        let mut binds: Vec<rusqlite::types::Value> = Vec::new();
+        let mut from = "memories m".to_string();
+        if let Some(query) = query.map(str::trim).filter(|value| !value.is_empty()) {
+            let terms = crate::retrieval::extract_terms(query);
+            if terms.is_empty() {
+                return Ok(ReflectOutcome {
+                    text: String::new(),
+                    memory_ids: Vec::new(),
+                    persisted: None,
+                    committed_revision: transaction.query_row(
+                        "SELECT memory_revision FROM store_metadata WHERE id = 1",
+                        [],
+                        |row| row.get(0),
+                    )?,
+                });
+            }
+            from = "memory_fts JOIN memories m ON m.id = memory_fts.memory_id".to_string();
+            clauses.push("memory_fts MATCH ?");
+            binds.push(rusqlite::types::Value::Text(crate::retrieval::fts_query(
+                &terms,
+            )));
+        }
+        if let Some(repository) = repository {
+            clauses.push("(m.scope IN ('global', 'transferable') OR m.repository = ?)");
+            binds.push(rusqlite::types::Value::Text(repository.to_string()));
+        } else {
+            clauses.push("m.scope IN ('global', 'transferable')");
+        }
+        binds.push(rusqlite::types::Value::Integer(limit));
+        let sql = format!(
+            "SELECT m.id, m.kind, m.content FROM {from} WHERE {} \
+             ORDER BY m.updated_ms DESC, m.id ASC LIMIT ?",
+            clauses.join(" AND ")
+        );
+        let rows: Vec<(String, String, String)> = {
+            let mut statement = transaction.prepare(&sql)?;
+            let mapped = statement.query_map(rusqlite::params_from_iter(binds), |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+            mapped.collect::<Result<Vec<_>, _>>()?
+        };
+        if rows.is_empty() {
+            let revision: i64 = transaction.query_row(
+                "SELECT memory_revision FROM store_metadata WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )?;
+            return Ok(ReflectOutcome {
+                text: String::new(),
+                memory_ids: Vec::new(),
+                persisted: None,
+                committed_revision: revision,
+            });
+        }
+
+        let mut text = String::from("# Reflection\n\n");
+        for (_, kind, content) in &rows {
+            let collapsed = content.split_whitespace().collect::<Vec<_>>().join(" ");
+            let excerpt = if collapsed.chars().count() > 240 {
+                let head: String = collapsed.chars().take(240).collect();
+                format!("{head}...")
+            } else {
+                collapsed
+            };
+            text.push_str(&format!("- [{kind}] {excerpt}\n"));
+        }
+
+        let mut revision: i64 = transaction.query_row(
+            "SELECT memory_revision FROM store_metadata WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        let mut persisted = None;
+        if persist {
+            revision += 1;
+            let memory_id = uuid::Uuid::new_v4().to_string();
+            let content_hash = crate::policy::sha256_hex(text.as_bytes());
+            let mut tags: Vec<String> = vec!["reflection".to_string()];
+            for (id, _, _) in rows.iter().take(20) {
+                tags.push(format!("from:{id}"));
+            }
+            let tags_json = serde_json::to_string(&tags)?;
+            let (scope, repository) = match repository {
+                Some(repository) => ("repo", Some(repository)),
+                None => ("global", None),
+            };
+            transaction.execute(
+                "INSERT INTO memories (id, kind, content, content_hash, scope, repository, authority, \
+                 confidence, tags_json, source_session_id, created_ms, updated_ms, expires_at_ms, \
+                 revision, forgotten) \
+                 VALUES (?1, 'reflection', ?2, ?3, ?4, ?5, 'inferred', 0.6, ?6, NULL, ?7, ?7, NULL, ?8, 0)",
+                params![memory_id, text, content_hash, scope, repository, tags_json, now_ms, revision],
+            )?;
+            transaction.execute(
+                "INSERT INTO memory_fts (content, kind, tags, memory_id) VALUES (?1, 'reflection', ?2, ?3)",
+                params![text, tags.join(" "), memory_id],
+            )?;
+            queue_embedding(
+                &transaction,
+                &memory_id,
+                revision,
+                &content_hash,
+                self.embedding_enabled,
+                self.embedding_identity.as_deref(),
+                now_ms,
+            )?;
+            transaction.execute(
+                "UPDATE store_metadata SET memory_revision = ?1, active_memories = \
+                 (SELECT COUNT(*) FROM memories WHERE forgotten = 0 AND superseded_by IS NULL) WHERE id = 1",
+                params![revision],
+            )?;
+            persisted = Some(memory_id);
+        }
+        transaction.commit()?;
+        Ok(ReflectOutcome {
+            text,
+            memory_ids: rows.iter().map(|(id, _, _)| id.clone()).collect(),
+            persisted,
+            committed_revision: revision,
+        })
+    }
+}

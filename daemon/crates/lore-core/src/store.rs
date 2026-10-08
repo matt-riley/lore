@@ -35,7 +35,10 @@ pub use embedding::{
     ClaimedJob, CompleteOutcome, EmbeddingCounts, FailOutcome, JobView, ReconcilePage,
     StoredVector, blob_to_vector, jittered_backoff_ms, vector_norm,
 };
-pub use ops::{CorrectOutcome, OperationRun, PurgeOutcome, ScopeOutcome};
+pub use ops::{
+    CorrectOutcome, MaintenanceOutcome, OnboardInput, OnboardOutcome, OperationRun, PurgeOutcome,
+    ReflectOutcome, ScopeOutcome,
+};
 pub use source::{
     CaptureCommit, CaptureOutcome, SourceFilter, SourceRecord, SourceRootRow, SourceRow,
     content_hash, open_readonly, source_id_for,

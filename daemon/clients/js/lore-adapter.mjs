@@ -110,6 +110,19 @@ export function createLoreClient({ socketPath, clientId = "adapter" }) {
         ),
       );
     },
+    async call(route, params = {}, { signal } = {}) {
+      const state = await negotiated({ signal });
+      return unwrap(
+        await withSignal(
+          request(socketPath, route, params, {
+            clientId,
+            expectedStoreId: state.storeId,
+            signal,
+          }),
+          signal,
+        ),
+      );
+    },
     async forget({ idempotencyKey, memoryId, reason, signal } = {}) {
       const state = await negotiated({ signal });
       return unwrap(

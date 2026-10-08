@@ -99,7 +99,9 @@ could exclude the exact row. The harness now uses `i0009`-style tokens;
 runs 3 and 4 (and CI) show zero misses. This is a harness defect, not a
 retrieval defect, and the FTS prefix behavior itself is unchanged v1
 behavior. CI runs a 15-second bounded soak on both the Ubuntu and macOS
-daemon jobs.
+daemon jobs. A transient `REQUEST_DEADLINE` under CI load is recorded as
+`recallDeadlines` rather than treated as a durability failure; the run fails
+only when deadline misses exceed one percent of recalls (normally zero).
 
 ## Registry, CI and release plumbing
 

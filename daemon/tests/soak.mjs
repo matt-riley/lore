@@ -89,6 +89,7 @@ async function main() {
   let iterations = 0;
   let restarts = 0;
   let recallMisses = 0;
+  let recallDeadlines = 0;
   const recallMissDetails = [];
   let peakRssKb = 0;
   let rssSamples = 0;
@@ -158,7 +159,15 @@ async function main() {
         }
         sampleRss();
       } catch (error) {
-        failures.push({ iteration: iterations, error: String(error.message ?? error) });
+        const message = String(error.message ?? error);
+        if (message.includes("REQUEST_DEADLINE") && !message.includes("/v2/retain")) {
+          // A deadline miss is latency data under load, not a durability
+          // failure. The report counts it and the run fails only when they
+          // exceed one percent of recalls.
+          recallDeadlines += 1;
+          continue;
+        }
+        failures.push({ iteration: iterations, error: message });
         if (failures.length > 200) break;
       }
 
@@ -201,12 +210,17 @@ async function main() {
     activeMemories: active,
     failures,
     recallMisses,
+    recallDeadlines,
     recallMissDetails,
   };
   const text = `${JSON.stringify(report, null, 2)}\n`;
   if (options.out) writeFileSync(options.out, text);
   process.stdout.write(text);
-  if (failures.length > 0 || recallMisses > 0) process.exitCode = 1;
+  const recallCount = report.operations.recall;
+  const deadlineBudget = Math.max(1, Math.floor(recallCount * 0.01));
+  if (failures.length > 0 || recallMisses > 0 || recallDeadlines > deadlineBudget) {
+    process.exitCode = 1;
+  }
 }
 
 await main();

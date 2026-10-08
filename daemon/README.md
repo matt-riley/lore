@@ -28,7 +28,7 @@ hooks, installers, database imports or support-claim changes.
 `/v2/sources/hint`, `/v2/sources/status`, `/v2/extraction/retry` and
 `/v2/views/{overview,health,memories,memories/filters,maintenance,episodes,drilldown}`
 and administration at
-`/v2/admin/{search,explain,validate,doctor,audit/extractions,correct,purge,scope-override,scope-audit,run-status,onboard,maintenance,reflect,deferred-process,backfill}`
+`/v2/admin/{search,explain,validate,doctor,audit/extractions,correct,purge,scope-override,scope-audit,run-status,onboard,maintenance,reflect,deferred-process,backfill,backlog,ledger,journal,review-gate,bundle,skill-validate,repair,replay}`
 over a Unix socket. The `lore` CLI adds capability-registry dispatch
 (`lore tool`, `lore recall`), native hooks (`lore hook codex|claude|antigravity`),
 the uncertain-write journal (`lore retries`) and the loopback dashboard

@@ -405,7 +405,7 @@ fn schema_reports_current_version_after_migration() {
     let dir = tempfile::tempdir().expect("tempdir");
     let store = Store::open(&config(dir.path())).expect("open");
     let status = store.status().expect("status");
-    assert_eq!(status.schema_version, 6);
+    assert_eq!(status.schema_version, 7);
     let connection = rusqlite::Connection::open(dir.path().join("lore-v2.db")).expect("open");
     let jobs: i64 = connection
         .query_row(

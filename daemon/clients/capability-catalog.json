@@ -24,9 +24,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/journal"
     },
     {
       "name": "memory_portable_bundle",
@@ -36,9 +36,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/bundle"
     },
     {
       "name": "lore_maintenance",
@@ -74,9 +74,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/backlog"
     },
     {
       "name": "memory_evolution_ledger",
@@ -86,9 +86,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
-      "mutability": "write",
-      "route": null
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/admin/ledger"
     },
     {
       "name": "memory_capability_inventory",
@@ -203,9 +203,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/replay"
     },
     {
       "name": "memory_scope_override",
@@ -269,9 +269,9 @@
         "cli": true,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "write",
-      "route": null
+      "route": "/v2/admin/repair"
     },
     {
       "name": "lore_purge",
@@ -335,9 +335,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
-      "mutability": "read",
-      "route": null
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/review-gate"
     },
     {
       "name": "memory_skill_validate",
@@ -347,9 +347,9 @@
         "cli": false,
         "slash": true
       },
-      "support": "planned",
+      "support": "implemented",
       "mutability": "read",
-      "route": null
+      "route": "/v2/admin/skill-validate"
     }
   ],
   "daemonCapabilities": [

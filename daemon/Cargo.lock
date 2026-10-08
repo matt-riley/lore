@@ -643,6 +643,7 @@ dependencies = [
  "lore-core",
  "lore-provider",
  "protocol",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

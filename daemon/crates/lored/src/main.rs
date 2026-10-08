@@ -707,6 +707,14 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             capabilities.push("memory.reflect".to_string());
             capabilities.push("memory.deferred.process".to_string());
             capabilities.push("memory.backfill".to_string());
+            capabilities.push("memory.backlog".to_string());
+            capabilities.push("memory.ledger".to_string());
+            capabilities.push("memory.journal".to_string());
+            capabilities.push("memory.review.gate".to_string());
+            capabilities.push("memory.bundle".to_string());
+            capabilities.push("memory.skill.validate".to_string());
+            capabilities.push("memory.repair".to_string());
+            capabilities.push("memory.replay".to_string());
             if !state.enabled || unavailable_reason(state).is_some() {
                 capabilities = vec!["status.basic".to_string()];
             }
@@ -720,7 +728,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                         api_major: API_MAJOR,
                         api_minor: API_MINOR,
                         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
-                        schema_version: 6,
+                        schema_version: 7,
                         store_id: state.store_id.clone(),
                         process_instance_id: state.process_instance_id.clone(),
                         uptime_ms: state.started.elapsed().as_millis() as u64,
@@ -1287,6 +1295,135 @@ async fn handle_admin(
                 serde_json::to_value(report)
                     .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
             }
+            "backlog" => match params.action.as_deref().unwrap_or("list") {
+                "add" => {
+                    let title = params.title.clone().ok_or_else(|| {
+                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "backlog add needs a title")
+                    })?;
+                    store.backlog_add(
+                        params.id.as_deref(),
+                        params.kind.as_deref().unwrap_or("improvement"),
+                        &title,
+                        params.detail.as_deref(),
+                        params.source.as_deref().unwrap_or("manual"),
+                        params.run_id.as_deref(),
+                        now,
+                    )
+                }
+                "update" => {
+                    let id = params.id.clone().ok_or_else(|| {
+                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "backlog update needs an id")
+                    })?;
+                    let state = params.state.clone().ok_or_else(|| {
+                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "backlog update needs a state")
+                    })?;
+                    store.backlog_update(&id, &state, params.actor.as_deref(), now)
+                }
+                _ => store.backlog_list(
+                    params.cursor.as_deref(),
+                    params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                    params.state.as_deref(),
+                ),
+            },
+            "ledger" => {
+                if params.action.as_deref() == Some("append") {
+                    let detail = params.detail.clone().ok_or_else(|| {
+                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "ledger append needs detail")
+                    })?;
+                    store.ledger_append(
+                        params.entry_type.as_deref().unwrap_or("note"),
+                        params.subject.as_deref(),
+                        &detail,
+                        params.actor.as_deref(),
+                        now,
+                    )
+                } else {
+                    store.ledger_page(
+                        params
+                            .cursor
+                            .as_deref()
+                            .and_then(|value| value.parse().ok()),
+                        params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                        params.entry_type.as_deref(),
+                    )
+                }
+            }
+            "journal" => match params.action.as_deref().unwrap_or("list") {
+                "add" | "update" => store.journal_write(
+                    params.id.as_deref(),
+                    params.intent.as_deref(),
+                    params.state.as_deref().unwrap_or("open"),
+                    params.note.as_deref(),
+                    now,
+                ),
+                _ => store.journal_list(
+                    params.cursor.as_deref(),
+                    params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                    params.state.as_deref(),
+                ),
+            },
+            "review-gate" => {
+                if params.action.as_deref() == Some("decide") {
+                    let id = params.id.clone().ok_or_else(|| {
+                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "decide needs an id")
+                    })?;
+                    let state = params
+                        .state
+                        .clone()
+                        .unwrap_or_else(|| "accepted".to_string());
+                    store.backlog_update(&id, &state, params.actor.as_deref(), now)
+                } else {
+                    store.review_gate(now)
+                }
+            }
+            "bundle" => match params.action.as_deref().unwrap_or("export") {
+                "import" => {
+                    if params.format.as_deref() == Some("json") {
+                        return Err(CoreError::invalid(
+                            "ADMIN_ARGUMENT_INVALID",
+                            "JSON bundle import is not supported",
+                        ));
+                    }
+                    let path = params.path.clone().ok_or_else(|| {
+                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "bundle import needs a path")
+                    })?;
+                    store.bundle_import_okf(&path, now)
+                }
+                "export" => store.bundle_export(
+                    params.format.as_deref().unwrap_or("json"),
+                    params.path.as_deref(),
+                    now,
+                ),
+                other => Err(CoreError::invalid(
+                    "ADMIN_ARGUMENT_INVALID",
+                    format!("unknown bundle action: {other}"),
+                )),
+            },
+            "skill-validate" => {
+                let paths = if params.paths.is_empty() {
+                    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+                    lore_core::skills::default_roots(home.as_deref(), Some(&shared.config.data_dir))
+                } else {
+                    params.paths.clone()
+                };
+                let validation = lore_core::skills::validate(&paths);
+                Ok(lore_core::skills::to_value(&validation))
+            }
+            "repair" => {
+                let provider_action = params.action.as_deref().unwrap_or("preview");
+                if provider_action == "apply" || params.plan_fingerprint.is_some() {
+                    let plan = params.plan_fingerprint.clone().ok_or_else(|| {
+                        CoreError::invalid(
+                            "ADMIN_ARGUMENT_INVALID",
+                            "applying a repair requires planFingerprint",
+                        )
+                    })?;
+                    store.repair_apply(&plan, params.actor.as_deref(), now)
+                } else {
+                    store.repair_preview()
+                }
+            }
+            "replay" => store.replay_run(params.limit.unwrap_or(50), params.family.as_deref()),
             "doctor" => store.admin_doctor(),
             "audit/extractions" => store.admin_audit_extractions(),
             _ => Err(CoreError::invalid(

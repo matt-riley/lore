@@ -175,6 +175,12 @@ jobs:
       - name: Host adapter proofs
         run: LORED_BIN="$PWD/target/debug/lored" node --test tests/host-adapters.test.mjs
 
+      - name: Packaging proofs
+        run: node --test tests/packaging.test.mjs
+
+      - name: Bounded soak proof
+        run: LORED_BIN="$PWD/target/debug/lored" SOAK_SECONDS=15 node tests/soak.mjs
+
       - name: Ingestion load proof (capture under foreground load)
         run: LORED_BIN="$PWD/target/debug/lored" node tests/ingestion-load.mjs
 

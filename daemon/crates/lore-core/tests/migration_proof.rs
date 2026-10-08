@@ -392,3 +392,157 @@ fn v13_sources_import_from_the_older_marker_table() {
         migration::apply(&source, &destination, &preview.fingerprint, true, 1_000).expect("apply");
     assert_eq!(status.counts.imported.get("semantic_memory"), Some(&5));
 }
+
+/// Cutover drill: the migrated store serves a full read/write round trip and
+/// keeps v1 suppression in force. The source bytes stay untouched.
+#[test]
+fn cutover_drill_serves_round_trips_on_the_migrated_store() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let source = build_v1(dir.path(), V20);
+    let source_before = std::fs::read(&source).expect("read source");
+    let destination = dir.path().join("v2");
+    let preview = migration::preview(&source, &destination).expect("preview");
+    let status =
+        migration::apply(&source, &destination, &preview.fingerprint, true, 1_000).expect("apply");
+    assert_eq!(status.state, "validated");
+
+    // Activate the published store the way cutover does, then use it as the
+    // daemon would: retain, recall, forget. The staging directory keeps the
+    // immutable source snapshot for recovery.
+    let staged = destination.join("lore-v2.db");
+    assert!(staged.is_file(), "apply publishes the v2 store");
+    assert!(
+        destination
+            .join(".lore-import/source-snapshot.db")
+            .is_file()
+    );
+    let store = Store::open_migration_store(&staged).expect("open staged store");
+    let now = 2_000_000i64;
+    let retained = store
+        .retain(
+            "client-cutover",
+            &RetainParams {
+                idempotency_key: "cutover-1".to_string(),
+                kind: "note".to_string(),
+                content: "Cutover round-trip marker.".to_string(),
+                scope: Scope::Global,
+                repository: None,
+                confidence: None,
+                expires_at_ms: None,
+                tags: Vec::new(),
+                source_session_id: None,
+            },
+            now,
+        )
+        .expect("retain after cutover");
+
+    let recalled = store
+        .recall(
+            &protocol::RecallParams {
+                query: "Cutover round-trip marker".to_string(),
+                repository: None,
+                include_other_repositories: false,
+                limit: Some(5),
+                context_bytes: None,
+            },
+            now,
+            5,
+            4_096,
+            None,
+        )
+        .expect("recall new content");
+    assert!(
+        recalled.context.contains("Cutover round-trip marker"),
+        "{}",
+        recalled.context
+    );
+
+    // v1-authored memories are searchable under their canonical repository.
+    let canonical_repository: String = {
+        let connection = rusqlite::Connection::open(&staged).expect("open staged for identity");
+        connection
+            .query_row(
+                "SELECT repository FROM memories WHERE repository IS NOT NULL AND repository != '' LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("migrated repository identity")
+    };
+    let legacy = store
+        .recall(
+            &protocol::RecallParams {
+                query: "UTC timestamps persisted records".to_string(),
+                repository: Some(canonical_repository.clone()),
+                include_other_repositories: false,
+                limit: Some(5),
+                context_bytes: None,
+            },
+            now,
+            5,
+            4_096,
+            None,
+        )
+        .expect("recall migrated content");
+    assert!(legacy.context.contains("UTC"), "{}", legacy.context);
+
+    // A v1 suppression still denies the suppressed proposition.
+    let suppressed = store
+        .recall(
+            &protocol::RecallParams {
+                query: "compact release notes".to_string(),
+                repository: Some(canonical_repository.clone()),
+                include_other_repositories: false,
+                limit: Some(5),
+                context_bytes: None,
+            },
+            now,
+            5,
+            4_096,
+            None,
+        )
+        .expect("recall suppressed content");
+    assert!(
+        !suppressed.context.contains("compact release notes"),
+        "{}",
+        suppressed.context
+    );
+
+    // Forget round trip on the new store.
+    store
+        .forget(
+            "client-cutover",
+            &ForgetParams {
+                idempotency_key: "cutover-2".to_string(),
+                memory_id: retained.memory_id.clone(),
+                reason: Some("drill".to_string()),
+            },
+            now,
+        )
+        .expect("forget");
+    let after = store
+        .recall(
+            &protocol::RecallParams {
+                query: "Cutover round-trip marker".to_string(),
+                repository: None,
+                include_other_repositories: false,
+                limit: Some(5),
+                context_bytes: None,
+            },
+            now,
+            5,
+            4_096,
+            None,
+        )
+        .expect("recall after forget");
+    assert!(
+        !after.context.contains("Cutover round-trip marker"),
+        "{}",
+        after.context
+    );
+
+    let source_after = std::fs::read(&source).expect("re-read source");
+    assert_eq!(
+        source_before, source_after,
+        "the v1 source is never mutated"
+    );
+}

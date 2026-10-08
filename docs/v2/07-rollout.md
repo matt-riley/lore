@@ -2,9 +2,10 @@
 
 Status: core implemented 2026-10-08 — evidence in
 [g7-rollout.md](evidence/g7-rollout.md): packaging with checksums/manifest/SBOM,
-`lore service`/`lore mode` commands, the cutover drill and a bounded soak
-harness in CI. Signing/notarization, real service loads and the 14-day cohort
-remain open. Depends on G5 for full replacement. Exit: G6.
+`lore service`/`lore mode`/`lore setup`/`lore upgrade` commands, the cutover
+drill and a bounded soak harness in CI. Signing/notarization, host-settings
+wiring, real service loads and the 14-day cohort remain open. Depends on G5
+for full replacement. Exit: G6.
 Operational prerequisites: [migration/recovery](05-migration-recovery.md), [client adapters](06-client-adapters.md), [validation](validation.md).
 
 ## Distribution and release artifacts

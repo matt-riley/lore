@@ -3,6 +3,7 @@
 
 mod browser;
 mod hooks;
+mod installer;
 mod journal;
 mod registry;
 mod service;
@@ -117,6 +118,35 @@ enum Command {
     Service {
         #[command(subcommand)]
         action: ServiceCommand,
+    },
+    /// Install or remove client integration files under the lore home.
+    Setup {
+        /// Comma-separated clients, or `all`.
+        #[arg(long, value_delimiter = ',', default_value = "")]
+        clients: Vec<String>,
+        #[arg(long)]
+        remove: bool,
+        /// Replace files that lore does not own.
+        #[arg(long = "replace-unowned")]
+        replace_unowned: bool,
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Install a versioned package and switch the stable launcher.
+    Upgrade {
+        /// Unpacked package directory (contains bin/, clients/, VERSION.json).
+        #[arg(long)]
+        from: PathBuf,
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long, default_value = "text")]
+        output: String,
     },
     /// Inspect or select the installation mode.
     Mode {
@@ -447,6 +477,74 @@ async fn run(cli: Cli) -> Result<(), String> {
             }
             return Ok(());
         }
+        Command::Setup {
+            clients,
+            remove,
+            replace_unowned,
+            dry_run,
+            apply,
+            output,
+        } => {
+            let home = resolve_home(cli.home.as_deref())?;
+            let socket = resolve_socket(
+                cli.config.as_deref(),
+                cli.socket.clone(),
+                cli.data_dir.as_deref(),
+            );
+            let version = env!("CARGO_PKG_VERSION");
+            let value = if *apply && !*dry_run {
+                installer::setup_apply(
+                    &home,
+                    clients,
+                    *remove,
+                    *replace_unowned,
+                    version,
+                    socket.as_deref(),
+                )
+            } else {
+                installer::setup_preview(&home, clients, *remove, version, socket.as_deref())
+            };
+            let value = value?;
+            if output == "text" {
+                println!(
+                    "lore setup: {} clients handled (applied: {})",
+                    value["clients"].as_array().map(Vec::len).unwrap_or(0),
+                    value["applied"].as_bool().unwrap_or(false)
+                );
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+                );
+            }
+            return Ok(());
+        }
+        Command::Upgrade {
+            from,
+            dry_run,
+            apply,
+            output,
+        } => {
+            let home = resolve_home(cli.home.as_deref())?;
+            let value = if *apply && !*dry_run {
+                installer::upgrade_apply(&home, from)
+            } else {
+                installer::upgrade_preview(&home, from)
+            }?;
+            if output == "text" {
+                println!(
+                    "lore upgrade: version {} (applied: {})",
+                    value["version"].as_str().unwrap_or("unknown"),
+                    value["applied"].as_bool().unwrap_or(false)
+                );
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+                );
+            }
+            return Ok(());
+        }
         Command::Service { action } => {
             let home = resolve_home(cli.home.as_deref())?;
             let value = match action {
@@ -531,8 +629,11 @@ async fn run(cli: Cli) -> Result<(), String> {
         lore_core::config::resolve_socket_path(cli.config.as_deref(), cli.socket.as_deref())
             .map_err(core_message)?;
     match &cli.command {
-        Command::Service { .. } | Command::Mode { .. } => {
-            unreachable!("service and mode are handled before socket resolution")
+        Command::Service { .. }
+        | Command::Mode { .. }
+        | Command::Setup { .. }
+        | Command::Upgrade { .. } => {
+            unreachable!("local-only commands are handled before socket resolution")
         }
         Command::Status { json: _ } => {
             let outcome = request(&socket, "/v2/status", &serde_json::json!({}), None).await?;

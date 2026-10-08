@@ -29,8 +29,21 @@ impl FakeDaemon {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         let mut buffer = [0u8; 8192];
-                        let _ = stream.read(&mut buffer);
-                        let body = r#"{"ok":true,"requestId":"r","storeId":"s","result":{"activeMemories":1}}"#;
+                        let read = stream.read(&mut buffer).unwrap_or(0);
+                        let request_line = String::from_utf8_lossy(&buffer[..read]);
+                        let body = if request_line.contains("/v2/views/memories/filters") {
+                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"kinds":[{"kind":"note","count":2}],"scopes":[{"scope":"global","count":2}],"repositories":[{"repository":"acme/app","count":1}]}}"#
+                        } else if request_line.contains("/v2/views/memories") {
+                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"items":[{"id":"mem-1","kind":"note","content":"Parity row.","scope":"global","repository":null,"authority":"manual","confidence":1.0,"createdMs":10,"updatedMs":20,"expiresAtMs":null,"sourceSessionId":null,"tags":[]}],"nextCursor":null,"pageSize":25}}"#
+                        } else if request_line.contains("/v2/views/maintenance") {
+                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"embeddingJobs":[{"state":"queued","count":3}],"extraction":[],"sources":[]}}"#
+                        } else if request_line.contains("/v2/views/drilldown") {
+                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"found":true,"memory":{"id":"mem-1","kind":"note","content":"Parity row.","scope":"global","repository":null,"authority":"manual","confidence":1.0,"createdMs":10,"updatedMs":20,"forgotten":false,"supersededBy":null},"evidence":[{"sourceId":"src-1","generation":"g1","evidenceKey":"e1","role":"user","createdMs":30,"retiredMs":null}],"suppressed":false}}"#
+                        } else if request_line.contains("/v2/views/health") {
+                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"schemaVersion":7,"ftsHealthy":true,"ftsRows":2,"migrationState":null,"ready":true}}"#
+                        } else {
+                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"storeId":"s","schemaVersion":7,"memoryRevision":"4","derivedGeneration":"0","activeMemories":1,"forgottenMemories":0,"repositories":[],"kinds":[{"kind":"note","count":1}],"sources":{"total":0,"caughtUp":0},"pendingExtraction":0}}"#
+                        };
                         let response = format!(
                             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
                             body.len(),
@@ -163,7 +176,49 @@ fn gateway_serves_assets_and_translates_views() {
     assert_eq!(status, 200, "{body}");
     assert!(headers.to_lowercase().contains("cache-control: no-store"));
     assert!(body.contains("\"data\""), "{body}");
-    assert!(body.contains("activeMemories"), "{body}");
+    // Translated into the v1 dashboard field names.
+    assert!(body.contains("semanticCount"), "{body}");
+    assert!(body.contains("latencyTrend"), "{body}");
+    assert!(body.contains("indexing"), "{body}");
+
+    let (status, _, body) = gateway.request(&format!(
+        "GET /api/memories?page=1&pageSize=25&state=active HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"rows\""), "{body}");
+    assert!(body.contains("\"type\":\"note\""), "{body}");
+    assert!(body.contains("\"updatedAt\":"), "{body}");
+    assert!(body.contains("\"canonicalKey\":null"), "{body}");
+
+    let (status, _, body) = gateway.request(&format!(
+        "GET /api/memories/filters HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"types\""), "{body}");
+    assert!(body.contains("\"canonicalKeys\":[]"), "{body}");
+
+    let (status, _, body) = gateway.request(&format!(
+        "GET /api/maintenance HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("maintenancePlan"), "{body}");
+    assert!(body.contains("embedding_jobs:queued"), "{body}");
+
+    let (status, _, body) = gateway.request(&format!(
+        "GET /api/drilldown?entity=memory&id=mem-1 HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"entityType\":\"memory\""), "{body}");
+    assert!(body.contains("\"focus\""), "{body}");
+    assert!(body.contains("\"provenance\""), "{body}");
+    assert!(body.contains("\"graph\""), "{body}");
+
+    let (status, _, body) = gateway.request(&format!(
+        "GET /api/health HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"ok\":true"), "{body}");
+    assert!(body.contains("\"loreCliPath\":null"), "{body}");
 }
 
 #[test]

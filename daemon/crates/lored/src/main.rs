@@ -121,6 +121,14 @@ async fn main() -> Result<()> {
     let store = Arc::new(Store::open(&config).map_err(to_anyhow)?);
     let initial = store.status().map_err(to_anyhow)?;
 
+    // Install signal handlers before the socket exists: a caller that sees
+    // the endpoint must never observe default SIGTERM handling, or a clean
+    // stop during startup would kill the process with signal 15.
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .context("install SIGTERM handler")?;
+    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .context("install SIGINT handler")?;
+
     let listener = UnixListener::bind(&config.socket_path)
         .with_context(|| format!("bind {}", config.socket_path.display()))?;
     std::fs::set_permissions(&config.socket_path, std::fs::Permissions::from_mode(0o600))
@@ -193,7 +201,6 @@ async fn main() -> Result<()> {
         state.store_id
     );
 
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
         tokio::select! {
             accepted = listener.accept() => {
@@ -201,7 +208,7 @@ async fn main() -> Result<()> {
                 let state = Arc::clone(&state);
                 tokio::spawn(async move { serve(stream, state).await });
             }
-            _ = tokio::signal::ctrl_c() => break,
+            _ = interrupt.recv() => break,
             _ = terminate.recv() => break,
         }
     }

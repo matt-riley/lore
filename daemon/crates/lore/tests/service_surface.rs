@@ -60,7 +60,11 @@ fn install_applies_writes_the_unit_and_reruns_idempotently() {
     let unit = unit_path(home.path());
     assert!(unit.exists(), "unit written");
     let contents = std::fs::read_to_string(&unit).expect("read unit");
-    assert!(contents.contains("dev.lore.lored"), "{contents}");
+    if cfg!(target_os = "macos") {
+        assert!(contents.contains("dev.lore.lored"), "{contents}");
+    } else {
+        assert!(contents.contains("ExecStart="), "{contents}");
+    }
     assert!(contents.contains("--config"), "{contents}");
 
     let (code, stdout, stderr) = run(home.path(), &["service", "install", "--apply"]);

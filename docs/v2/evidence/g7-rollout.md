@@ -42,6 +42,31 @@ This stage is *not* a v1 retirement and does not change any v1 default.
 - Proofs: `daemon/crates/lore/tests/service_surface.rs` (6 tests, temporary
   homes, no real launchd/systemd interaction).
 
+### Client setup and versioned upgrades
+
+- `lore setup --clients <pi,copilot,codex,claude,antigravity|all> [--remove]
+  [--replace-unowned] [--dry-run|--apply]` manages only files lore creates
+  under `<home>/.lore/integrations`: a small JSON document per client naming
+  the client id, socket path, adapter path and version. It never edits a
+  host's own settings, so real-host wiring stays an explicit operator step.
+- The preview enumerates every managed file with its content hash, the
+  install root, launcher, service label, mode and version. Apply records
+  ownership hashes in `<home>/.lore/integrations.json`, copies an edited
+  owned file into `.backup/` before replacing it, is idempotent on rerun,
+  refuses unowned targets unless `--replace-unowned`, and removes only
+  owned, unmodified files.
+- `lore upgrade --from <unpacked package> [--dry-run|--apply]` stages the
+  package under `<home>/.lore/versions/<version>`, runs the staged
+  `lore --version` as a validation gate, atomically switches the stable
+  launcher symlinks, records `activeVersion` (leaving `mode` untouched) and
+  keeps previous versions on disk. A package that fails validation is
+  removed and the launcher stays on the previous version.
+- Proofs: `daemon/crates/lore/tests/installer_surface.rs` (6 tests with
+  temporary homes and fake packages): preview purity, idempotency, modified
+  file retention, ownership refusal, unknown-client and empty-selection
+  rejection, successful upgrade with previous-version retention, and a
+  broken package that must not touch the launcher.
+
 ### Cutover drill
 
 `migration_proof.rs::cutover_drill_serves_round_trips_on_the_migrated_store`:
@@ -88,6 +113,9 @@ daemon jobs.
 
 ## Honest gaps
 
+- `lore setup` does not edit real host settings; the operator (or the v1 npm
+  installer) still wires the adapters into Pi/Copilot, and no real client was
+  modified.
 - No signed or notarized macOS artifacts: the archive self-reports
   `unsigned-development-build` until release credentials exist.
 - Packaging is proven on macOS arm64 here; Linux x86_64 coverage comes from

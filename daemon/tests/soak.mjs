@@ -108,7 +108,10 @@ async function main() {
   try {
     while (Date.now() < deadline) {
       iterations += 1;
-      const marker = `soak marker ${iterations}`;
+      // The marker's discriminator must be a real FTS token: single-character
+      // terms are below the retrieval prefix length and are dropped, which
+      // makes every marker match every other one.
+      const marker = `soak marker i${String(iterations).padStart(4, "0")}`;
       const key = `soak-${iterations}`;
       try {
         const retainStarted = performance.now();

@@ -63,10 +63,18 @@ sampling. Local runs on the debug binary (macOS arm64):
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 20 s | 3 072 | 2 | 1 | 0 | 0.87 ms | 3.07 ms | 1.43 ms | 16.2 MB |
 | 2 | 30 s | 4 270 | 2 | 0 | 0 | 0.86 ms | 3.95 ms | 1.62 ms | 16.8 MB |
+| 3 | 15 s | 2 413 | 1 | 0 | 0 | — | 2.59 ms | — | 15.5 MB |
+| 4 | 15 s | 2 417 | 1 | 0 | 0 | — | 2.57 ms | — | 15.4 MB |
 
-Run 1's single recall miss was not reproduced in run 2 or in a later 8-second
-run (1 400 iterations, 0 misses); it is recorded here rather than hidden. CI
-runs a 15-second bounded soak on both the Ubuntu and macOS daemon jobs.
+Run 1's single recall miss (and one on Ubuntu CI) was diagnosed rather than
+waved away: the harness marked memories with a single-digit discriminator
+("soak marker 9"), and single-character terms are dropped by the retrieval
+term rules, so every marker matched every other one and the top-5 context
+could exclude the exact row. The harness now uses `i0009`-style tokens;
+runs 3 and 4 (and CI) show zero misses. This is a harness defect, not a
+retrieval defect, and the FTS prefix behavior itself is unchanged v1
+behavior. CI runs a 15-second bounded soak on both the Ubuntu and macOS
+daemon jobs.
 
 ## Registry, CI and release plumbing
 

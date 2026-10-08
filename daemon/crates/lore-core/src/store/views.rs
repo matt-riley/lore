@@ -65,6 +65,27 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
+        let capture_health: Vec<Value> = {
+            let mut statement = connection.prepare(
+                "SELECT client, native_session_id, repository, state, offset, observed_size, \
+                 pending_bytes, last_progress_ms, last_error FROM sources \
+                 ORDER BY updated_ms DESC LIMIT 50",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok(json!({
+                    "client": row.get::<_, String>(0)?,
+                    "sessionId": row.get::<_, Option<String>>(1)?,
+                    "repository": row.get::<_, Option<String>>(2)?,
+                    "state": row.get::<_, String>(3)?,
+                    "offset": row.get::<_, i64>(4)?,
+                    "observedSize": row.get::<_, i64>(5)?,
+                    "pendingBytes": row.get::<_, i64>(6)?,
+                    "lastProgressMs": row.get::<_, Option<i64>>(7)?,
+                    "lastError": row.get::<_, Option<String>>(8)?,
+                }))
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
         let _ = repository;
         Ok(json!({
             "storeId": store_id,
@@ -76,6 +97,7 @@ impl Store {
             "repositories": repositories,
             "kinds": kinds.into_iter().map(|(kind, count)| json!({"kind": kind, "count": count})).collect::<Vec<_>>(),
             "sources": { "total": sources, "caughtUp": caught_up },
+            "captureHealth": capture_health,
             "pendingExtraction": pending_extraction,
         }))
     }

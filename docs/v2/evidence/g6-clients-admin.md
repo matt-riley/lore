@@ -175,11 +175,40 @@ fingerprint, actor, counts) and pages its items through `/v2/admin/run-status`.
 - No real Pi or Copilot host has loaded these adapters yet; that certification
   is scheduled with stage 7, and no real client settings were modified.
 
+### Dashboard field parity
+
+`lore browser` serves the v1 dashboard assets and now translates every
+read-only view into the field names those assets consume:
+
+- `overview` → `stats` (`semanticCount`, `episodeCount`, `daySummaryCount`,
+  `retrievalTraceSampleCount`, `forgottenCount`), `latencyTrend`, `activity`,
+  `activeWorkstreams`, `maintenance`, `captureHealth`, `indexing`, plus the v2
+  summary fields for callers that want them.
+- `memories` → `page`/`pageSize`/`total`/`rows` with v1 row names
+  (`type`, `updatedAt`, `canonicalKey`, `supersededBy`, `expiresAt`, `tags`).
+  The v1 offset request is translated to a bounded fetch (page size capped at
+  200, page at 40) and `total` is conservative while more rows remain.
+- `memories/filters` → `types`, `scopes`, `repositories` and an explicit
+  empty `canonicalKeys`.
+- `maintenance` → v1 keys with task states derived from embedding job,
+  extraction and source state counts; runs, deferred queue, doctor reports
+  and trajectory artifacts stay empty because this release stores none.
+- `episodes` → the view's explicit empty `episodes`/`daySummaries`.
+- `drilldown` → `entityType`, `focus`, `provenance`, `lineage`,
+  `canonicalCluster`, `linkedImprovements`, `lifecycle` and an empty `graph`.
+- `health` → `ok` plus `loreCliPath: null` and the v2 health fields.
+
+Translation is covered by five unit tests and an end-to-end gateway test
+against a fake daemon, and the security tests (loopback, Host allowlist,
+Origin rejection, CSP, no-store, read-only) still pass.
+
 - **Remaining honest gaps**: OKF import is limited to `<dataDir>/bundles`
   staging; JSON import is refused by design; replay covers the extraction
   corpus only (not retrieval); the backlog/ledger/journal APIs have no
-  dashboard panel yet; dashboard field parity and real-host adapter evidence
-  are the next milestones. Adapters are proven against synthetic hosts and a
+  dashboard panel yet; the dashboard receives field-compatible payloads, but
+  episodes/digests, activity rows, trace samples and capture-health rows
+  stay empty because no producer exists yet; real-host adapter evidence is
+  the next milestone. Adapters are proven against synthetic hosts and a
   real daemon, not against a real Pi or Copilot session. Human/slash
   surfaces for those verbs fail explicitly rather than pretending support.
   The durable run model exists and records every apply; long-running

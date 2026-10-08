@@ -55,6 +55,12 @@ Analysis occupies the single optional chat lane, defaults to a 5-second deadline
 
 The OKF visualizer remains an explicit CLI export of a standalone inspectable artifact; it consumes approved bundles, never starts model inference, and shares escaping/content tests with the current implementation.
 
+Status (2026-10-07): the read-only gateway serves the v1 dashboard assets and
+translates every view into the field names those assets consume; five
+translation unit tests and the gateway security/translation integration tests
+pass. Episode digests, activity rows and capture-health rows remain empty
+because no producer exists yet.
+
 ## Dashboard architecture and boundaries
 
 `lore browser` starts a separate foreground Rust loopback HTTP gateway serving the current browser HTML/CSS/JS. Default bind is 127.0.0.1 and a free local port, reported to the operator; explicit localhost/::1 remain allowed. No 0.0.0.0, remote binding, automatic service launch, or arbitrary operation proxy. Closing the gateway does not stop lored.

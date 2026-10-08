@@ -29,7 +29,7 @@ At this baseline, `lib/memory/semantic-search.mjs` uses a 10,000 ms default sema
 | 5A | Rust extraction and complete context assembly | [Extraction](05-extraction.md) | [G4 extraction evidence](evidence/g4-extraction.md): reliability, mandatory-context and provenance gates |
 | 5B | Explicit v1 migration, backup and suppression-safe recovery | [Migration/recovery](05-migration-recovery.md) | [G5 migration evidence](evidence/g5-migration.md): released-schema accounting and recovery rehearsal |
 | 6A | Thin adapters and compatible human/script interfaces | [Client adapters](06-client-adapters.md) | [G6 evidence](evidence/g6-clients-admin.md): catalog, hooks, journal and adapter core; host evidence open |
-| 6B | Administration, optional operations and dashboard parity | [Administration/dashboard](06-administration-dashboard.md) | [G6 evidence](evidence/g6-clients-admin.md): view routes, gateway, read-only, write and maintenance operations; 8 operation rows open |
+| 6B | Administration, optional operations and dashboard parity | [Administration/dashboard](06-administration-dashboard.md) | [G6 evidence](evidence/g6-clients-admin.md): view routes, gateway, all 27 canonical operations; dashboard parity open |
 | 7 | Packaging, service management, cutover, soak and retirement | [Rollout](07-rollout.md) | Install/upgrade/recovery drills and client soak |
 
 The [former later-slices document](04-later-slices.md) remains a navigation bridge for existing links. Stage numbers are stable identifiers; 5A/5B and 6A/6B split the old broad slices without dropping scope.

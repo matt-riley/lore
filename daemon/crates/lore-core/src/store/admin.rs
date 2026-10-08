@@ -322,6 +322,14 @@ pub fn known_admin(name: &str) -> bool {
             | "backfill"
             | "maintenance"
             | "reflect"
+            | "backlog"
+            | "ledger"
+            | "journal"
+            | "review-gate"
+            | "bundle"
+            | "skill-validate"
+            | "repair"
+            | "replay"
     )
 }
 

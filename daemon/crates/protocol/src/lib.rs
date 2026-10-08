@@ -415,6 +415,30 @@ pub struct AdminParams {
     pub dry_run: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tasks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
 }
 
 /// `/v2/views/<name>` parameters. Permissive: the browser gateway forwards
@@ -850,7 +874,7 @@ mod tests {
 
     #[test]
     fn additive_response_fields_are_ignored() {
-        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":6,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"sources":{"discovered":0,"caughtUp":0,"growing":0,"unavailable":0,"ambiguous":0,"failed":0,"skipped":0},"extra":true}}"#;
+        let raw = r#"{"ok":true,"requestId":"r","storeId":"s","futureField":{"a":1},"result":{"apiMajor":2,"apiMinor":0,"daemonVersion":"0.1.0","schemaVersion":7,"storeId":"s","processInstanceId":"p","uptimeMs":0,"readiness":"ready","capabilities":["status.basic"],"memoryRevision":"0","derivedGeneration":"0","counts":{"activeMemories":"0","forgottenMemories":"0","receipts":"0"},"queue":{"queued":"0","running":"0"},"embedding":{"state":"disabled","dimensions":0,"coverageCurrent":"0","coverageEligible":"0","pending":"0","failed":"0"},"sources":{"discovered":0,"caughtUp":0,"growing":0,"unavailable":0,"ambiguous":0,"failed":0,"skipped":0},"extra":true}}"#;
         let parsed: OkEnvelope<StatusResult> =
             serde_json::from_str(raw).expect("additive response fields are ignored");
         assert_eq!(parsed.result.api_major, 2);

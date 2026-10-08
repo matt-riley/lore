@@ -30,6 +30,14 @@ const IMPLEMENTED = {
   lore_reflect: { route: "/v2/admin/reflect", mutability: "write" },
   memory_deferred_process: { route: "/v2/admin/deferred-process", mutability: "write" },
   lore_backfill: { route: "/v2/admin/backfill", mutability: "write" },
+  memory_improvement_backlog: { route: "/v2/admin/backlog", mutability: "write" },
+  memory_evolution_ledger: { route: "/v2/admin/ledger", mutability: "read" },
+  memory_intent_journal: { route: "/v2/admin/journal", mutability: "write" },
+  memory_review_gate: { route: "/v2/admin/review-gate", mutability: "write" },
+  memory_portable_bundle: { route: "/v2/admin/bundle", mutability: "write" },
+  memory_skill_validate: { route: "/v2/admin/skill-validate", mutability: "read" },
+  lore_repair: { route: "/v2/admin/repair", mutability: "write" },
+  memory_replay: { route: "/v2/admin/replay", mutability: "write" },
 };
 
 /** Daemon capabilities with no v1 canonical row. */

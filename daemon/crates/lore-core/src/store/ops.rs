@@ -63,7 +63,7 @@ pub struct ScopeOutcome {
     pub committed_revision: i64,
 }
 
-fn fingerprint(operation: &str, store_id: &str, parts: &[String]) -> String {
+pub(crate) fn fingerprint(operation: &str, store_id: &str, parts: &[String]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(operation.as_bytes());
     hasher.update([0]);
@@ -75,7 +75,7 @@ fn fingerprint(operation: &str, store_id: &str, parts: &[String]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as i64)
@@ -510,6 +510,15 @@ impl Store {
         )?;
         let mut counts = BTreeMap::new();
         counts.insert("replaced".to_string(), 1);
+        super::governance::ledger_insert(
+            &transaction,
+            "correction",
+            Some(&replacement_id),
+            Some(&format!("replaced {memory_id}")),
+            actor,
+            Some(revision),
+            now_ms,
+        )?;
         Self::finish_run_in(&transaction, &run_id, "complete", &counts, reason, now_ms)?;
         transaction.commit()?;
         Ok(CorrectOutcome {
@@ -743,6 +752,15 @@ impl Store {
         let mut counts = BTreeMap::new();
         counts.insert("purged".to_string(), purged as i64);
         counts.insert("selected".to_string(), ids.len() as i64);
+        super::governance::ledger_insert(
+            &transaction,
+            "purge",
+            None,
+            Some(&format!("purged {purged} memories")),
+            actor,
+            Some(revision),
+            now_ms,
+        )?;
         Self::finish_run_in(&transaction, &run_id, "complete", &counts, reason, now_ms)?;
         transaction.commit()?;
         Ok(PurgeOutcome {
@@ -957,6 +975,15 @@ impl Store {
         )?;
         let mut counts = BTreeMap::new();
         counts.insert("updated".to_string(), updated as i64);
+        super::governance::ledger_insert(
+            &transaction,
+            "scope_change",
+            None,
+            Some(&format!("override applied to {updated} memories")),
+            Some(actor),
+            Some(revision),
+            now_ms,
+        )?;
         Self::finish_run_in(
             &transaction,
             &run_id,
@@ -1010,7 +1037,7 @@ impl Store {
     // Run helpers used inside transactions
     // ---------------------------------------------------------------------
 
-    fn insert_run(
+    pub(crate) fn insert_run(
         connection: &rusqlite::Connection,
         run_id: &str,
         operation: &str,
@@ -1039,7 +1066,7 @@ impl Store {
         Ok(())
     }
 
-    fn finish_run_in(
+    pub(crate) fn finish_run_in(
         connection: &rusqlite::Connection,
         run_id: &str,
         state: &str,

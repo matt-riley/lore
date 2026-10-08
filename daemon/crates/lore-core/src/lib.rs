@@ -9,4 +9,5 @@ pub mod lifecycle;
 pub mod migration;
 pub mod policy;
 pub mod retrieval;
+pub mod skills;
 pub mod store;

@@ -80,9 +80,14 @@ mod tests {
     }
 
     #[test]
-    fn planned_operations_fail_explicitly() {
-        let error = route_for("lore_repair").expect_err("planned");
-        assert!(error.contains("unimplemented"), "{error}");
+    fn every_catalog_row_is_implemented_and_unknown_operations_are_refused() {
+        // Feature complete: no row is allowed to stay "planned" silently.
+        for row in rows() {
+            assert_eq!(row.support, "implemented", "{} is still planned", row.name);
+            assert!(row.route.is_some(), "{} has no route", row.name);
+        }
+        let error = route_for("lore_not_a_real_operation").expect_err("unknown");
+        assert!(error.contains("unknown operation"), "{error}");
         let (row, route) = route_for("memory_forget").expect("alias");
         assert_eq!(row.name, "lore_forget");
         assert_eq!(route, "/v2/forget");

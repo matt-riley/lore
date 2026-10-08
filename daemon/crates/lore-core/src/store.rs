@@ -24,8 +24,10 @@ use crate::policy;
 use crate::retrieval;
 
 mod admin;
+mod bundle;
 mod embedding;
 mod extraction;
+mod governance;
 mod migration;
 mod ops;
 mod source;
@@ -278,6 +280,49 @@ CREATE TABLE IF NOT EXISTS scope_override_audit (
     created_ms INTEGER NOT NULL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_scope_override_audit_memory ON scope_override_audit (memory_id, created_ms);
+"#;
+
+/// Forward migration 6 -> 7: governance records (improvement backlog, the
+/// evolution ledger, the intent journal) and portable-bundle import receipts.
+const MIGRATION_7_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS improvement_backlog (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    detail TEXT,
+    state TEXT NOT NULL,
+    source TEXT NOT NULL,
+    evidence_json TEXT,
+    run_id TEXT,
+    created_ms INTEGER NOT NULL,
+    updated_ms INTEGER NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_backlog_state ON improvement_backlog (state, updated_ms);
+CREATE TABLE IF NOT EXISTS evolution_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_type TEXT NOT NULL,
+    subject TEXT,
+    detail TEXT,
+    actor TEXT,
+    memory_revision INTEGER,
+    created_ms INTEGER NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_ledger_type ON evolution_ledger (entry_type, id);
+CREATE TABLE IF NOT EXISTS intent_journal (
+    id TEXT PRIMARY KEY,
+    intent TEXT NOT NULL,
+    state TEXT NOT NULL,
+    note TEXT,
+    created_ms INTEGER NOT NULL,
+    updated_ms INTEGER NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_journal_state ON intent_journal (state, updated_ms);
+CREATE TABLE IF NOT EXISTS bundle_imports (
+    checksum TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    concepts INTEGER NOT NULL,
+    created_ms INTEGER NOT NULL
+) STRICT;
 "#;
 
 /// Forward migration 4 -> 5: migration manifests, id maps, repository
@@ -1670,6 +1715,7 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
             3 => connection.execute_batch(MIGRATION_4_SQL)?,
             4 => connection.execute_batch(MIGRATION_5_SQL)?,
             5 => connection.execute_batch(MIGRATION_6_SQL)?,
+            6 => connection.execute_batch(MIGRATION_7_SQL)?,
             other => {
                 return Err(CoreError::internal(
                     "SCHEMA_UNSUPPORTED",

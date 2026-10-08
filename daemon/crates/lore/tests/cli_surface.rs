@@ -143,18 +143,18 @@ fn search_verb_dispatches_to_the_admin_route() {
 }
 
 #[test]
-fn planned_operations_fail_before_dispatch() {
+fn unknown_operations_fail_before_dispatch() {
     let (code, _, stderr) = run_cli(
         &[
             "--socket",
             "/tmp/does-not-exist.sock",
             "tool",
-            "lore_repair",
+            "lore_not_a_real_operation",
         ],
         Some("{}"),
     );
     assert_ne!(code, 0);
-    assert!(stderr.contains("unimplemented"), "{stderr}");
+    assert!(stderr.contains("unknown operation"), "{stderr}");
 }
 
 #[test]

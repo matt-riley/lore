@@ -74,6 +74,8 @@ pub struct ExtractionSweepReport {
     pub suppressed: usize,
     pub unresolved: usize,
     pub failed: usize,
+    pub episodes: usize,
+    pub day_summaries: usize,
 }
 
 /// Run extraction for pending intents: claim with a lease, compute outside
@@ -154,6 +156,11 @@ pub fn extract_pending(store: &Store, limit: usize, now: i64) -> ExtractionSweep
                 report.failed += 1;
             }
         }
+    }
+    // Episode digests and day summaries follow the extraction they summarize.
+    if let Ok(digests) = store.build_digests(8, now) {
+        report.episodes = digests.episodes;
+        report.day_summaries = digests.day_summaries;
     }
     report
 }

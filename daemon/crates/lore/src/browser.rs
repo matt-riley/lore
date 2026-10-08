@@ -405,11 +405,21 @@ fn translate_maintenance(result: &Value) -> Value {
 }
 
 fn translate_overview(result: &Value) -> Value {
+    let kind_count = |kind: &str| -> i64 {
+        result["kinds"]
+            .as_array()
+            .and_then(|rows| {
+                rows.iter()
+                    .find(|row| row["kind"] == kind)
+                    .and_then(|row| row["count"].as_i64())
+            })
+            .unwrap_or(0)
+    };
     json!({
         "stats": {
             "semanticCount": result["activeMemories"],
-            "episodeCount": 0,
-            "daySummaryCount": 0,
+            "episodeCount": kind_count("episode_digest"),
+            "daySummaryCount": kind_count("day_summary"),
             "retrievalTraceSampleCount": 0,
             "forgottenCount": result["forgottenMemories"],
         },
@@ -583,13 +593,16 @@ mod tests {
             "activeMemories": 4,
             "forgottenMemories": 1,
             "repositories": [],
-            "kinds": [],
+            "kinds": [
+                { "kind": "episode_digest", "count": 2 },
+                { "kind": "day_summary", "count": 1 },
+            ],
             "sources": { "total": 0, "caughtUp": 0 },
             "pendingExtraction": 0,
         }));
         assert_eq!(overview["stats"]["semanticCount"], 4);
-        assert_eq!(overview["stats"]["episodeCount"], 0);
-        assert_eq!(overview["stats"]["daySummaryCount"], 0);
+        assert_eq!(overview["stats"]["episodeCount"], 2);
+        assert_eq!(overview["stats"]["daySummaryCount"], 1);
         assert_eq!(overview["indexing"]["totalActive"], 4);
         assert_eq!(overview["latencyTrend"]["trend"], "no_samples");
         assert_eq!(

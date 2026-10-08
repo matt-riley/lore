@@ -202,11 +202,36 @@ Translation is covered by five unit tests and an end-to-end gateway test
 against a fake daemon, and the security tests (loopback, Host allowlist,
 Origin rejection, CSP, no-store, read-only) still pass.
 
+### Episode digests and day summaries
+
+Capture now feeds a deterministic digest pass (`store/digest.rs`) at the end
+of every extraction sweep:
+
+- An `episode_digest` memory per captured generation (topic key
+  `episode::<source>::<generation>`) records the client, session, repository,
+  UTC date, turn counts, extracted-proposition counts by kind and a
+  significance bucket (`routine`/`notable`/`significant`). It never quotes
+  proposition text, so a later forget cannot be resurrected through digest
+  content.
+- A `day_summary` memory per repository and UTC date (topic key
+  `day_summary::<repository>::<date>`) aggregates the episode lines and is
+  updated in place when new episodes arrive.
+- Both are inferred memories (confidence 0.6) with FTS rows and embedding
+  intents, so they are searchable like any other memory and vectorized when a
+  provider is configured.
+- `/v2/views/episodes` returns the real digests in the v1 field names the
+  dashboard reads (`sessionId`, `dateKey`, `summary`, `significance`,
+  `updatedAt`; day summaries with `dateKey`, `repository`, `summary`,
+  `computedAt`), and the overview translation now reports episode and day
+  summary counts.
+- Proofs: `lored/tests/digest_flow.rs` (capture → digest → idempotent second
+  pass → recall), the extraction suppression test that originally caught the
+  verbatim-quoting bug, and a browser translation unit test for the counts.
+
 - **Remaining honest gaps**: OKF import is limited to `<dataDir>/bundles`
   staging; JSON import is refused by design; replay covers the extraction
   corpus only (not retrieval); the backlog/ledger/journal APIs have no
-  dashboard panel yet; the dashboard receives field-compatible payloads, but
-  episodes/digests, activity rows, trace samples and capture-health rows
+  dashboard panel yet; activity rows, trace samples and capture-health rows
   stay empty because no producer exists yet; real-host adapter evidence is
   the next milestone. Adapters are proven against synthetic hosts and a
   real daemon, not against a real Pi or Copilot session. Human/slash

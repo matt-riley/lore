@@ -432,7 +432,7 @@ fn translate_overview(result: &Value) -> Value {
             "recentRuns": [],
             "skippedDueToCap": [],
         },
-        "captureHealth": [],
+        "captureHealth": translate_capture_health(result),
         "indexing": {
             "enabled": true,
             "coveragePercent": null,
@@ -445,6 +445,39 @@ fn translate_overview(result: &Value) -> Value {
         "sources": result["sources"],
         "pendingExtraction": result["pendingExtraction"],
     })
+}
+
+fn translate_capture_health(result: &Value) -> Value {
+    let rows: Vec<Value> = result["captureHealth"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            let state = row["state"].as_str().unwrap_or("unknown");
+            let pending_bytes = row["pendingBytes"].as_i64().unwrap_or(0);
+            let status = match state {
+                "caught_up" => "healthy",
+                "growing" => "pending",
+                "unavailable" => "unavailable",
+                "failed" => "failed",
+                _ => "pending",
+            };
+            json!({
+                "client": row["client"],
+                "sessionId": row["sessionId"],
+                "repository": row["repository"],
+                "originLabel": row["repository"],
+                "lastSuccessAt": row["lastProgressMs"],
+                "pendingBytes": pending_bytes,
+                "status": status,
+                "failureCode": row["lastError"],
+                "offset": row["offset"],
+                "pendingWork": null,
+            })
+        })
+        .collect();
+    json!(rows)
 }
 
 fn translate_drilldown(result: &Value) -> Value {
@@ -598,6 +631,30 @@ mod tests {
                 { "kind": "day_summary", "count": 1 },
             ],
             "sources": { "total": 0, "caughtUp": 0 },
+            "captureHealth": [
+                {
+                    "client": "pi",
+                    "sessionId": "s-1",
+                    "repository": "acme/app",
+                    "state": "growing",
+                    "offset": 10,
+                    "observedSize": 52,
+                    "pendingBytes": 42,
+                    "lastProgressMs": 5,
+                    "lastError": null,
+                },
+                {
+                    "client": "codex",
+                    "sessionId": "s-2",
+                    "repository": null,
+                    "state": "failed",
+                    "offset": 0,
+                    "observedSize": 0,
+                    "pendingBytes": 0,
+                    "lastProgressMs": null,
+                    "lastError": "PARSER_STATE_INVALID",
+                }
+            ],
             "pendingExtraction": 0,
         }));
         assert_eq!(overview["stats"]["semanticCount"], 4);
@@ -605,10 +662,13 @@ mod tests {
         assert_eq!(overview["stats"]["daySummaryCount"], 1);
         assert_eq!(overview["indexing"]["totalActive"], 4);
         assert_eq!(overview["latencyTrend"]["trend"], "no_samples");
-        assert_eq!(
-            overview["captureHealth"].as_array().expect("health").len(),
-            0
-        );
+        let health = overview["captureHealth"].as_array().expect("health");
+        assert_eq!(health.len(), 2);
+        assert_eq!(health[0]["status"], "pending");
+        assert_eq!(health[0]["pendingBytes"], 42);
+        assert_eq!(health[0]["lastSuccessAt"], 5);
+        assert_eq!(health[1]["status"], "failed");
+        assert_eq!(health[1]["failureCode"], "PARSER_STATE_INVALID");
     }
 
     #[test]

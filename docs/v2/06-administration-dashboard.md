@@ -58,9 +58,9 @@ The OKF visualizer remains an explicit CLI export of a standalone inspectable ar
 Status (2026-10-07): the read-only gateway serves the v1 dashboard assets and
 translates every view into the field names those assets consume; five
 translation unit tests and the gateway security/translation integration tests
-pass. Episode digests and day summaries are produced deterministically from
-captured sources; activity rows and capture-health rows remain empty because
-no producer exists yet.
+pass. Episode digests, day summaries and capture-health rows are produced
+from live data; activity rows and trace samples stay empty because v2 does
+not persist retrieval queries.
 
 ## Dashboard architecture and boundaries
 

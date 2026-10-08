@@ -183,7 +183,10 @@ read-only view into the field names those assets consume:
 - `overview` → `stats` (`semanticCount`, `episodeCount`, `daySummaryCount`,
   `retrievalTraceSampleCount`, `forgottenCount`), `latencyTrend`, `activity`,
   `activeWorkstreams`, `maintenance`, `captureHealth`, `indexing`, plus the v2
-  summary fields for callers that want them.
+  summary fields for callers that want them. Capture health rows come from
+  live source state (client, session, repository, offset, pending bytes,
+  categorical status, failure code); `activity` stays empty because v2 does
+  not persist retrieval query traces.
 - `memories` → `page`/`pageSize`/`total`/`rows` with v1 row names
   (`type`, `updatedAt`, `canonicalKey`, `supersededBy`, `expiresAt`, `tags`).
   The v1 offset request is translated to a bounded fetch (page size capped at
@@ -231,9 +234,9 @@ of every extraction sweep:
 - **Remaining honest gaps**: OKF import is limited to `<dataDir>/bundles`
   staging; JSON import is refused by design; replay covers the extraction
   corpus only (not retrieval); the backlog/ledger/journal APIs have no
-  dashboard panel yet; activity rows, trace samples and capture-health rows
-  stay empty because no producer exists yet; real-host adapter evidence is
-  the next milestone. Adapters are proven against synthetic hosts and a
+  dashboard panel yet; activity rows and trace samples stay empty by design
+  because v2 does not persist retrieval queries; real-host adapter evidence
+  is the next milestone. Adapters are proven against synthetic hosts and a
   real daemon, not against a real Pi or Copilot session. Human/slash
   surfaces for those verbs fail explicitly rather than pretending support.
   The durable run model exists and records every apply; long-running

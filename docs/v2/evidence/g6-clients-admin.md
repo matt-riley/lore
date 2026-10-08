@@ -18,12 +18,13 @@ Node adapter proofs.
 | Journal | `uncertain-writes.json` in the owned data dir, 0600, atomic temp+fsync+rename, capacity 100 before dispatch, payload dropped on resolve; `lore retries list|resolve`. |
 | Thin adapter | `daemon/clients/js/lore-adapter.mjs`: capability negotiation, cached store identity, Recall/Retain/Forget with `AbortSignal` cancellation that destroys the in-flight request. No SQLite import. |
 
-Implemented canonical operations (14 of 27): `lore_status`, `lore_retain`,
+Implemented canonical operations (19 of 27): `lore_status`, `lore_retain`,
 `lore_forget`, `lore_recall`, `lore_search`, `lore_explain`, `lore_validate`,
 `lore_doctor`, `lore_audit_extractions`, `memory_capability_inventory`,
-`lore_correct`, `lore_purge`, `memory_scope_override` and
-`memory_scope_audit`. The remaining 13 are marked `planned` in the catalog
-and refuse dispatch.
+`lore_correct`, `lore_purge`, `memory_scope_override`, `memory_scope_audit`,
+`lore_onboard`, `lore_maintenance`, `lore_reflect`,
+`memory_deferred_process` and `lore_backfill`. The remaining 8 are marked
+`planned` in the catalog and refuse dispatch.
 
 ### Read-only administration (first matrix slice)
 
@@ -68,6 +69,25 @@ fingerprint, actor, counts) and pages its items through `/v2/admin/run-status`.
   and repository-scoped overrides require a repository.
 - **Scope audit** pages the override ledger, newest first.
 
+### Onboarding, maintenance, reflection and catch-up
+
+- **Onboard** writes the assistant identity and style profile, and the user's
+  preferred name, into stable global slots keyed by kind + `topic_key`.
+  Repeating identical input is a no-op that keeps both memory ids; changed
+  fields update in place, retire nothing and re-queue embedding work.
+- **Maintenance** runs registered bounded tasks — `expire_memories`,
+  `retry_stale_extraction`, `reap_embedding_jobs` — with `dryRun` defaulting
+  to a rolled-back transaction. Applying expiry forgets the row and records
+  durable `expired` suppression under the task's own run record.
+- **Reflect** builds a deterministic digest of recent in-scope memories.
+  `persist` stores the digest as an inferred `reflection` memory whose tags
+  list the represented ids; the query text is never persisted.
+- **Deferred processing** drains pending extraction intents through the same
+  lease/apply path as the scheduler, capped per call.
+- **Backfill** runs one bounded discovery sweep through the configured roots
+  and reports discovered/captured/pending counts; with no roots it is a
+  zero-count no-op.
+
 ## 6B — administration and dashboard
 
 | Piece | Detail |
@@ -94,9 +114,9 @@ fingerprint, actor, counts) and pages its items through `/v2/admin/run-status`.
   hooks are exercised against a fake daemon and the adapter against a real
   daemon, but no host application has been driven. G5's per-host integration
   evidence therefore remains open, and support claims stay experimental.
-- **13 of 27 canonical operations are planned**, including repair,
-  maintenance, reflection, backfill, portable bundles, deferred processing,
-  onboard, replay, backlog/ledger/journal and skill validation. Human/slash
+- **8 of 27 canonical operations are planned**, including repair, portable
+  bundles, replay, backlog, evolution ledger, intent journal, review gate and
+  skill validation. Human/slash
   surfaces for those verbs fail explicitly rather than pretending support.
   The durable run model exists and records every apply; long-running
   multi-batch operations are not ported yet.

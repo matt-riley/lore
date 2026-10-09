@@ -622,6 +622,41 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
 /// Walk the next page of one approved root and register capturable sources.
 /// Returns the number of sources registered plus the new cursor, or `None`
 /// when the walk is complete.
+/// How deep discovery walks below a root, and how many files it collects.
+const MAX_DISCOVERY_DEPTH: usize = 4;
+const MAX_DISCOVERY_ENTRIES: usize = 20_000;
+
+/// Collect candidate files under a root, breadth-first and bounded.
+fn collect_candidate_files(
+    directory: &Path,
+    max_depth: usize,
+    cap: usize,
+    out: &mut Vec<PathBuf>,
+) -> std::io::Result<()> {
+    let mut queue: Vec<(PathBuf, usize)> = vec![(directory.to_path_buf(), 0)];
+    while let Some((dir, depth)) = queue.pop() {
+        let mut children: Vec<PathBuf> = std::fs::read_dir(&dir)?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| !path.is_symlink())
+            .collect();
+        children.sort();
+        for path in children {
+            if path.is_dir() {
+                if depth < max_depth {
+                    queue.push((path, depth + 1));
+                }
+                continue;
+            }
+            out.push(path);
+            if out.len() >= cap {
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn discover_page(
     store: &Store,
     root: &ResolvedSourceRoot,
@@ -630,11 +665,17 @@ pub fn discover_page(
     now_ms: i64,
 ) -> CoreResult<(Vec<SourceRow>, Option<String>, bool)> {
     let directory = Path::new(&root.path);
-    let mut entries: Vec<PathBuf> = std::fs::read_dir(directory)
-        .map_err(|error| CoreError::precondition("SOURCE_ROOT_UNAVAILABLE", format!("{error}")))?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .collect();
+    // Hosts nest sessions (Pi: <root>/<project>/<session>.jsonl, Claude:
+    // <root>/<project>/<session>.jsonl), so discovery walks bounded depth
+    // instead of only the root's immediate entries.
+    let mut entries: Vec<PathBuf> = Vec::new();
+    collect_candidate_files(
+        directory,
+        MAX_DISCOVERY_DEPTH,
+        MAX_DISCOVERY_ENTRIES,
+        &mut entries,
+    )
+    .map_err(|error| CoreError::precondition("SOURCE_ROOT_UNAVAILABLE", format!("{error}")))?;
     entries.sort();
     let start = match cursor {
         Some(cursor) => entries.partition_point(|path| path.to_string_lossy().as_ref() <= cursor),

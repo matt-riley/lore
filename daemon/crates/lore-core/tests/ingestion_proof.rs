@@ -4,7 +4,9 @@
 use std::path::{Path, PathBuf};
 
 use lore_core::config::{Limits, ResolvedConfig, ResolvedSourceRoot, ResolvedSources};
-use lore_core::ingestion::{capture_source, parsers::ParserState, register_hinted_source};
+use lore_core::ingestion::{
+    capture_source, discover_page, parsers::ParserState, register_hinted_source,
+};
 use lore_core::store::Store;
 
 const PI: &str = include_str!("../../../../tests/v2/fixtures/sources/pi.jsonl");
@@ -489,4 +491,44 @@ fn source_identity_mismatch_is_rejected() {
     )
     .expect_err("mismatched native identity");
     assert_eq!(error.reason, "SOURCE_IDENTITY_MISMATCH");
+}
+
+#[test]
+fn discovery_walks_nested_session_directories() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root_dir = sources_dir(dir.path());
+    // Pi and Claude nest sessions one level below the configured root.
+    let nested = root_dir.join("--Users-someone-project--");
+    std::fs::create_dir_all(&nested).expect("nested dir");
+    std::fs::write(nested.join("session-a.jsonl"), PI).expect("nested session");
+    std::fs::write(root_dir.join("top-level.jsonl"), PI).expect("top-level session");
+    std::fs::write(nested.join("notes.txt"), "not a session").expect("noise");
+    let config = config(dir.path(), "pi", None);
+    let store = Store::open(&config).expect("open");
+    let root = config.sources.roots.first().expect("root").clone();
+
+    let (registered, _cursor, complete) =
+        discover_page(&store, &root, None, 50, 1_000).expect("discover");
+    assert!(complete);
+    let paths: Vec<String> = registered
+        .iter()
+        .map(|row| row.canonical_path.clone())
+        .collect();
+    assert_eq!(paths.len(), 2, "both sessions discovered: {paths:?}");
+    assert!(
+        paths.iter().any(|path| path.ends_with("session-a.jsonl")),
+        "nested session discovered: {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|path| path.ends_with("notes.txt")),
+        "non-session files ignored: {paths:?}"
+    );
+    // A second page with the cursor does not re-register the same files.
+    let (_, cursor, _) = discover_page(&store, &root, None, 1, 1_000).expect("first page");
+    let (again, _, _) =
+        discover_page(&store, &root, cursor.as_deref(), 50, 1_000).expect("second page");
+    assert!(
+        !again.is_empty() || registered.len() == 1,
+        "paging stays consistent"
+    );
 }

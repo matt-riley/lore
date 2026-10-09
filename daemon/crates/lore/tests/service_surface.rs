@@ -11,9 +11,16 @@ fn bin() -> &'static str {
 }
 
 fn run(home: &Path, args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(bin())
-        .arg("--home")
-        .arg(home)
+    run_with_config(home, None, args)
+}
+
+fn run_with_config(home: &Path, config: Option<&Path>, args: &[&str]) -> (i32, String, String) {
+    let mut command = Command::new(bin());
+    command.arg("--home").arg(home);
+    if let Some(config) = config {
+        command.arg("--config").arg(config);
+    }
+    let output = command
         .args(args)
         .stdin(Stdio::null())
         .output()
@@ -169,6 +176,43 @@ fn mode_defaults_to_v1_and_requires_apply_to_change() {
     assert_ne!(code, 0);
     assert!(stderr.contains("v1 or v2"), "{stderr}");
 }
+#[test]
+fn service_install_honors_an_explicit_config_path() {
+    let home = tempfile::tempdir().expect("home");
+    let elsewhere = tempfile::tempdir().expect("config dir");
+    let config = elsewhere.path().join("custom-lore.json");
+    std::fs::write(
+        &config,
+        r#"{"configVersion":2,"enabled":true,"dataDir":"/tmp/x","socketPath":"/tmp/x/lored.sock"}"#,
+    )
+    .expect("config");
+
+    let (code, stdout, stderr) = run_with_config(
+        home.path(),
+        Some(&config),
+        &["service", "install", "--dry-run"],
+    );
+    assert_eq!(code, 0, "{stderr}");
+    let plan = json(&stdout);
+    assert_eq!(
+        plan["configPath"].as_str().expect("config path"),
+        config.to_str().expect("utf8"),
+        "the unit must point at the config the caller passed"
+    );
+
+    // Without --config the conventional home path is used.
+    let (code, stdout, stderr) = run(home.path(), &["service", "install", "--dry-run"]);
+    assert_eq!(code, 0, "{stderr}");
+    let plan = json(&stdout);
+    assert!(
+        plan["configPath"]
+            .as_str()
+            .expect("config path")
+            .ends_with(".lore/lore.json"),
+        "{plan}"
+    );
+}
+
 #[test]
 fn audit_verb_reports_and_refuses_unknown_actions() {
     // Without a reachable daemon the audit command fails on transport, not on

@@ -465,6 +465,8 @@ pub struct AdminParams {
     pub subject: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selected_candidate_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

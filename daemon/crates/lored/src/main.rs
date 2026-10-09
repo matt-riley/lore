@@ -747,6 +747,9 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             if state.analysis.is_some() {
                 capabilities.push("analysis.chat".to_string());
             }
+            if matches!(&*state.analysis, Some(analysis) if analysis.rerank) {
+                capabilities.push("recall.rerank".to_string());
+            }
             if !state.enabled || unavailable_reason(state).is_some() {
                 capabilities = vec!["status.basic".to_string()];
             }
@@ -1114,15 +1117,28 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             Some(&store_id),
         ),
         Ok(Ok(Err(error))) => core_response(error, &request_id, &store_id),
-        Ok(Ok(Ok(result))) => json(
-            StatusCode::OK,
-            &OkEnvelope {
-                ok: true,
-                request_id,
-                store_id,
-                result,
-            },
-        ),
+        Ok(Ok(Ok(result))) => {
+            let value = match serde_json::to_value(&result) {
+                Ok(value) => value,
+                Err(error) => {
+                    return core_response(
+                        CoreError::internal("INTERNAL", error.to_string()),
+                        &request_id,
+                        &store_id,
+                    );
+                }
+            };
+            let value = apply_rerank(state, &params.query, value).await;
+            json(
+                StatusCode::OK,
+                &OkEnvelope {
+                    ok: true,
+                    request_id,
+                    store_id,
+                    result: value,
+                },
+            )
+        }
     }
 }
 
@@ -1144,6 +1160,7 @@ async fn handle_admin(
     let params = envelope.params.clone();
     let store = Arc::clone(&state.store);
     let shared = Arc::clone(state);
+    let runtime = tokio::runtime::Handle::current();
     let now = now_ms();
     let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, CoreError> {
         match operation.as_str() {
@@ -1383,15 +1400,51 @@ async fn handle_admin(
                 }
             }
             "reflect" => {
-                let outcome = store.reflect(
-                    params.query.as_deref(),
-                    params.repository.as_deref(),
-                    params.limit.unwrap_or(20),
-                    params.persist,
-                    now,
-                )?;
-                serde_json::to_value(outcome)
-                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                let query = params.query.as_deref();
+                let repository = params.repository.as_deref();
+                let limit = params.limit.unwrap_or(20);
+                let deterministic = store.reflect(query, repository, limit, false, now)?;
+                let mut value = serde_json::to_value(&deterministic)
+                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))?;
+                let mut synthesis = "deterministic";
+                let mut fallback_reason: Option<String> = None;
+                let mut chosen_text = deterministic.text.clone();
+                if params.mode.as_deref() == Some("chat") && !deterministic.memory_ids.is_empty() {
+                    // The provider call is async; this closure is a blocking
+                    // task, so drive it with the captured runtime handle.
+                    match runtime.block_on(analysis_synthesis(
+                        &shared,
+                        query.unwrap_or(""),
+                        &deterministic.text,
+                        &deterministic.memory_ids,
+                    )) {
+                        Ok(text) => {
+                            synthesis = "chat";
+                            chosen_text = text;
+                        }
+                        Err(reason) => {
+                            fallback_reason = Some(reason);
+                        }
+                    }
+                }
+                if params.persist {
+                    let persisted = store.reflect_with_text(
+                        query,
+                        repository,
+                        limit,
+                        true,
+                        Some(&chosen_text),
+                        now,
+                    )?;
+                    value["persisted"] =
+                        serde_json::to_value(persisted.persisted).unwrap_or(Value::Null);
+                    value["committedRevision"] =
+                        serde_json::to_value(persisted.committed_revision).unwrap_or(Value::Null);
+                }
+                value["text"] = Value::String(chosen_text);
+                value["synthesis"] = Value::String(synthesis.to_string());
+                value["fallbackReason"] = fallback_reason.map(Value::String).unwrap_or(Value::Null);
+                Ok(value)
             }
             "deferred-process" => {
                 let limit = params.limit.unwrap_or(16).min(64) as usize;
@@ -2328,6 +2381,270 @@ fn parse_analysis_completion(kind: &str, text: &str, records: &[Value]) -> Resul
         }
         Ok(serde_json::json!({ "sections": bounded }))
     }
+}
+
+/// One bounded chat synthesis for reflection. Evidence checks reject output
+/// that names ids outside the represented set; every other failure maps to a
+/// fallback reason rather than an error, so the deterministic digest is
+/// always available.
+async fn analysis_synthesis(
+    state: &Arc<State>,
+    query: &str,
+    digest: &str,
+    represented: &[String],
+) -> Result<String, String> {
+    let Some(config) = state.analysis.as_ref() else {
+        return Err("ANALYSIS_UNAVAILABLE".to_string());
+    };
+    let provider = lore_provider::ChatProvider::new(
+        &config.endpoint,
+        &config.model,
+        config.api_key.clone(),
+        std::time::Duration::from_millis(config.default_deadline_ms),
+    )
+    .map_err(|_| "ANALYSIS_CONFIG".to_string())?;
+    let _lane = Arc::clone(&state.chat_lane)
+        .try_acquire_owned()
+        .map_err(|_| "ANALYSIS_BUSY".to_string())?;
+    let mut prompt = String::from(
+        "Rewrite the following digest as a short synthesis (at most 800 characters). \
+         Reference only these memory ids when you need one: ",
+    );
+    prompt.push_str(&represented.join(", "));
+    prompt.push_str(". Never invent an id. Reply with plain text only.\n\nDigest:\n");
+    prompt.push_str(&digest.chars().take(8_000).collect::<String>());
+    if !query.is_empty() {
+        prompt.push_str("\nQuery: ");
+        prompt.push_str(query);
+    }
+    let deadline = config.default_deadline_ms;
+    let completion = tokio::time::timeout(
+        std::time::Duration::from_millis(deadline + 250),
+        provider.complete(&prompt),
+    )
+    .await;
+    let text = match completion {
+        Ok(Ok(text)) => text,
+        Ok(Err(lore_provider::ProviderError::Transient(message)))
+            if message.contains("timed out") =>
+        {
+            return Err("ANALYSIS_TIMEOUT".to_string());
+        }
+        Ok(Err(_)) => return Err("ANALYSIS_UNAVAILABLE".to_string()),
+        Err(_) => return Err("ANALYSIS_TIMEOUT".to_string()),
+    };
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("EVIDENCE_CHECK_FAILED".to_string());
+    }
+    if text.chars().count() > 4_096 {
+        return Err("EVIDENCE_CHECK_FAILED".to_string());
+    }
+    let known: std::collections::HashSet<&str> = represented.iter().map(String::as_str).collect();
+    let mut token = String::new();
+    for character in text.chars() {
+        if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
+            token.push(character);
+            continue;
+        }
+        if !token.is_empty() {
+            if (token.starts_with("mem_") || token.matches('-').count() == 4)
+                && !known.contains(token.as_str())
+            {
+                return Err("EVIDENCE_CHECK_FAILED".to_string());
+            }
+            token.clear();
+        }
+    }
+    Ok(text)
+}
+
+/// Optional fail-open rerank of the topical recall section. Any provider
+/// failure, invalid output or structural surprise leaves the fused order
+/// untouched and records why.
+async fn apply_rerank(state: &Arc<State>, query: &str, mut value: Value) -> Value {
+    let Some(config) = (*state.analysis)
+        .as_ref()
+        .filter(|analysis| analysis.rerank)
+    else {
+        return value;
+    };
+    let topical_index = value["sections"].as_array().and_then(|sections| {
+        sections
+            .iter()
+            .position(|section| section["id"] == "topical")
+    });
+    let Some(topical_index) = topical_index else {
+        value["diagnostics"]["rerank"] =
+            serde_json::json!({ "applied": false, "reason": "NO_TOPICAL_SECTION" });
+        return value;
+    };
+    let topical_ids: Vec<String> = value["sections"][topical_index]["memoryIds"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|id| id.as_str().map(str::to_string))
+        .collect();
+    if topical_ids.len() < 2 {
+        value["diagnostics"]["rerank"] =
+            serde_json::json!({ "applied": false, "reason": "TOO_FEW_CANDIDATES" });
+        return value;
+    }
+    let original_text = value["sections"][topical_index]["text"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let context = value["context"].as_str().unwrap_or_default().to_string();
+    if !context.ends_with(&original_text) {
+        value["diagnostics"]["rerank"] =
+            serde_json::json!({ "applied": false, "reason": "CONTEXT_SHAPE" });
+        return value;
+    }
+
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    for id in topical_ids.iter().take(20) {
+        let content = value["records"]
+            .as_array()
+            .and_then(|records| records.iter().find(|record| record["id"] == id.as_str()))
+            .and_then(|record| record["content"].as_str())
+            .map(|content| content.chars().take(400).collect::<String>());
+        if let Some(content) = content {
+            candidates.push((id.clone(), content));
+        }
+    }
+    if candidates.len() < 2 {
+        value["diagnostics"]["rerank"] =
+            serde_json::json!({ "applied": false, "reason": "TOO_FEW_CANDIDATES" });
+        return value;
+    }
+
+    let provider = match lore_provider::ChatProvider::new(
+        &config.endpoint,
+        &config.model,
+        config.api_key.clone(),
+        std::time::Duration::from_millis(config.default_deadline_ms),
+    ) {
+        Ok(provider) => provider,
+        Err(_) => {
+            value["diagnostics"]["rerank"] =
+                serde_json::json!({ "applied": false, "reason": "ANALYSIS_CONFIG" });
+            return value;
+        }
+    };
+    let _lane = match Arc::clone(&state.chat_lane).try_acquire_owned() {
+        Ok(lane) => lane,
+        Err(_) => {
+            value["diagnostics"]["rerank"] =
+                serde_json::json!({ "applied": false, "reason": "ANALYSIS_BUSY" });
+            return value;
+        }
+    };
+    let mut prompt = String::from(
+        "Order these memory candidates by relevance to the query, most relevant first. \
+         Reply with JSON: {\"order\": [\"<id>\", ...]} using only the supplied ids.\n",
+    );
+    for (id, content) in &candidates {
+        prompt.push_str(&format!("\n[{id}] {content}"));
+    }
+    prompt.push_str("\n\nQuery: ");
+    prompt.push_str(query);
+    let completion = tokio::time::timeout(
+        std::time::Duration::from_millis(config.default_deadline_ms + 250),
+        provider.complete(&prompt),
+    )
+    .await;
+    let text = match completion {
+        Ok(Ok(text)) => text,
+        _ => {
+            value["diagnostics"]["rerank"] =
+                serde_json::json!({ "applied": false, "reason": "ANALYSIS_UNAVAILABLE" });
+            return value;
+        }
+    };
+    let trimmed = text.trim();
+    let json_text = trimmed
+        .strip_prefix("```json")
+        .and_then(|rest| rest.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    let parsed: Value = match serde_json::from_str(json_text) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            value["diagnostics"]["rerank"] =
+                serde_json::json!({ "applied": false, "reason": "ANALYSIS_INVALID_RESPONSE" });
+            return value;
+        }
+    };
+    let known: std::collections::HashSet<&str> =
+        candidates.iter().map(|(id, _)| id.as_str()).collect();
+    let mut order: Vec<String> = Vec::new();
+    for id in parsed["order"].as_array().cloned().unwrap_or_default() {
+        let Some(id) = id.as_str() else {
+            continue;
+        };
+        if !known.contains(id) {
+            value["diagnostics"]["rerank"] =
+                serde_json::json!({ "applied": false, "reason": "EVIDENCE_CHECK_FAILED" });
+            return value;
+        }
+        if !order.iter().any(|existing| existing == id) {
+            order.push(id.to_string());
+        }
+    }
+    for (id, _) in &candidates {
+        if !order.iter().any(|existing| existing == id) {
+            order.push(id.clone());
+        }
+    }
+    let contents: Vec<String> = order
+        .iter()
+        .filter_map(|id| {
+            candidates
+                .iter()
+                .find(|(candidate, _)| candidate == id)
+                .map(|(_, content)| content.clone())
+        })
+        .collect();
+    let budget = original_text.len().max(1);
+    let (text, included, omitted) = lore_core::retrieval::render_topical(&contents, budget);
+    let prefix = &context[..context.len() - original_text.len()];
+    value["context"] = Value::String(format!("{prefix}{text}"));
+    if let Some(section) = value["sections"]
+        .as_array_mut()
+        .and_then(|sections| sections.get_mut(topical_index))
+    {
+        section["text"] = Value::String(text);
+        section["memoryIds"] = serde_json::json!(order[..included.min(order.len())]);
+        section["omitted"] = serde_json::json!(omitted);
+    }
+    if let Some(records) = value["records"].as_array_mut() {
+        let mandatory: Vec<Value> = records
+            .iter()
+            .filter(|record| {
+                record["id"]
+                    .as_str()
+                    .is_some_and(|id| !topical_ids.iter().any(|topical| topical == id))
+            })
+            .cloned()
+            .collect();
+        let mut reordered = mandatory;
+        for id in &order {
+            if let Some(record) = records
+                .iter()
+                .find(|record| record["id"].as_str() == Some(id.as_str()))
+            {
+                reordered.push(record.clone());
+            }
+        }
+        *records = reordered;
+    }
+    value["diagnostics"]["rerank"] = serde_json::json!({
+        "applied": true,
+        "provider": if provider.is_loopback() { "loopback" } else { "remote" },
+        "candidates": candidates.len(),
+    });
+    value
 }
 
 #[cfg(test)]

@@ -114,6 +114,11 @@ enum Command {
         #[command(subcommand)]
         action: MigrateCommand,
     },
+    /// Audit extraction runs; apply or roll back one revalidation marker.
+    Audit {
+        #[command(subcommand)]
+        action: AuditCommand,
+    },
     /// Manage the per-user lored service.
     Service {
         #[command(subcommand)]
@@ -203,6 +208,29 @@ enum ServiceCommand {
         dry_run: bool,
         #[arg(long)]
         apply: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AuditCommand {
+    /// Report-only extraction audit (the default).
+    Report {
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Apply one revalidation marker for a run.
+    Apply {
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Roll back one active revalidation marker.
+    Rollback {
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = "text")]
+        output: String,
     },
 }
 
@@ -545,6 +573,72 @@ async fn run(cli: Cli) -> Result<(), String> {
             }
             return Ok(());
         }
+        Command::Audit { action } => {
+            let (params, output, verb) = match action {
+                AuditCommand::Report { output } => (json!({}), output.clone(), "report"),
+                AuditCommand::Apply { run, output } => (
+                    json!({ "action": "apply", "runId": run }),
+                    output.clone(),
+                    "apply",
+                ),
+                AuditCommand::Rollback { run, output } => (
+                    json!({ "action": "rollback", "runId": run }),
+                    output.clone(),
+                    "rollback",
+                ),
+            };
+            let socket = resolve_socket(
+                cli.config.as_deref(),
+                cli.socket.clone(),
+                cli.data_dir.as_deref(),
+            )
+            .ok_or_else(|| "provide --config or --socket".to_string())?;
+            let outcome =
+                lore::request(&socket, "/v2/admin/audit/extractions", audit_meta(), params)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            if !outcome.is_success() {
+                return Err(outcome.body);
+            }
+            let body: Value = serde_json::from_str(&outcome.body).unwrap_or_default();
+            if output == "json" {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&body["result"]).unwrap_or_default()
+                );
+                return Ok(());
+            }
+            match verb {
+                "report" => {
+                    let sources = body["result"]["sources"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    let revalidations = body["result"]["revalidations"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    println!("lore audit: {} source(s) audited", sources.len());
+                    for entry in revalidations.iter().take(10) {
+                        println!(
+                            "  {} {} ({})",
+                            entry["marker"].as_str().unwrap_or(""),
+                            entry["state"].as_str().unwrap_or(""),
+                            entry["runId"].as_str().unwrap_or("")
+                        );
+                    }
+                }
+                marker => {
+                    println!(
+                        "lore audit: {} {} for run {}",
+                        marker,
+                        body["result"]["state"].as_str().unwrap_or(""),
+                        body["result"]["runId"].as_str().unwrap_or("")
+                    );
+                }
+            }
+            return Ok(());
+        }
         Command::Service { action } => {
             let home = resolve_home(cli.home.as_deref())?;
             let value = match action {
@@ -632,7 +726,8 @@ async fn run(cli: Cli) -> Result<(), String> {
         Command::Service { .. }
         | Command::Mode { .. }
         | Command::Setup { .. }
-        | Command::Upgrade { .. } => {
+        | Command::Upgrade { .. }
+        | Command::Audit { .. } => {
             unreachable!("local-only commands are handled before socket resolution")
         }
         Command::Status { json: _ } => {
@@ -952,6 +1047,17 @@ fn nanos() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0)
+}
+
+fn audit_meta() -> RequestMeta {
+    RequestMeta {
+        client_id: "lore.audit".to_string(),
+        request_id: format!("audit-{}", std::process::id()),
+        session_id: None,
+        expected_store_id: None,
+        timeout_ms: Some(10_000),
+        required_capabilities: Vec::new(),
+    }
 }
 
 fn resolve_home(home: Option<&Path>) -> Result<PathBuf, String> {

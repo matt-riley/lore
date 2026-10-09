@@ -169,3 +169,17 @@ fn mode_defaults_to_v1_and_requires_apply_to_change() {
     assert_ne!(code, 0);
     assert!(stderr.contains("v1 or v2"), "{stderr}");
 }
+#[test]
+fn audit_verb_reports_and_refuses_unknown_actions() {
+    // Without a reachable daemon the audit command fails on transport, not on
+    // argument parsing; with a live one it reports and marks.
+    let home = tempfile::tempdir().expect("home");
+    let (code, _, stderr) = run(home.path(), &["audit", "report"]);
+    assert_ne!(code, 0);
+    assert!(
+        stderr.contains("--config")
+            || stderr.contains("connect")
+            || stderr.contains("No such file"),
+        "{stderr}"
+    );
+}

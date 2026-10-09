@@ -192,7 +192,7 @@ impl Store {
         Ok(())
     }
 
-    fn add_run_item(
+    pub(crate) fn add_run_item(
         connection: &rusqlite::Connection,
         run_id: &str,
         index: i64,
@@ -536,35 +536,58 @@ impl Store {
 
     /// Resolve a purge selection into concrete memory IDs. Explicit selection
     /// is required: memory IDs, a repository, or the explicit global flag.
+    /// Bounded selection resolution: every selection path is capped so a
+    /// broad request can never become an unbounded scan, and truncation is
+    /// reported rather than silently applied.
     fn resolve_selection(
         connection: &rusqlite::Connection,
         memory_ids: &[String],
         repository: Option<&str>,
         global: bool,
-    ) -> CoreResult<Vec<String>> {
+        limit: Option<u32>,
+    ) -> CoreResult<(Vec<String>, bool, i64)> {
+        let cap = limit
+            .unwrap_or(PURGE_SELECTION_MAX)
+            .clamp(1, PURGE_SELECTION_MAX) as usize;
         if !memory_ids.is_empty() {
-            return Ok(memory_ids.to_vec());
+            let total = memory_ids.len() as i64;
+            let ids: Vec<String> = memory_ids.iter().take(cap).cloned().collect();
+            let truncated = total > cap as i64;
+            return Ok((ids, truncated, total));
         }
-        if global {
-            let mut statement = connection.prepare(
+        let (sql, params): (&str, Vec<rusqlite::types::Value>) = if global {
+            (
                 "SELECT id FROM memories WHERE scope = 'global' AND forgotten = 0 \
                  AND superseded_by IS NULL ORDER BY id ASC",
-            )?;
-            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-            return Ok(rows.collect::<Result<_, _>>()?);
-        }
-        if let Some(repository) = repository {
-            let mut statement = connection.prepare(
+                Vec::new(),
+            )
+        } else if let Some(repository) = repository {
+            (
                 "SELECT id FROM memories WHERE repository = ?1 AND forgotten = 0 \
                  AND superseded_by IS NULL ORDER BY id ASC",
-            )?;
-            let rows = statement.query_map(params![repository], |row| row.get::<_, String>(0))?;
-            return Ok(rows.collect::<Result<_, _>>()?);
-        }
-        Err(CoreError::invalid(
-            "ADMIN_ARGUMENT_INVALID",
-            "purge requires explicit memoryIds, a repository, or global selection",
-        ))
+                vec![repository.to_string().into()],
+            )
+        } else {
+            return Err(CoreError::invalid(
+                "ADMIN_ARGUMENT_INVALID",
+                "purge requires explicit memoryIds, a repository, or global selection",
+            ));
+        };
+        let (count_sql, rows_sql) = (sql.replace("SELECT id", "SELECT COUNT(*)"), sql);
+        let total: i64 = connection.query_row(
+            &count_sql,
+            rusqlite::params_from_iter(params.iter()),
+            |row| row.get(0),
+        )?;
+        let mut statement = connection.prepare(&format!("{rows_sql} LIMIT ?"))?;
+        let mut values = params;
+        values.push((cap as i64).into());
+        let ids: Vec<String> = statement
+            .query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok((ids, total > cap as i64, total))
     }
 
     /// Preview a purge with its dependency closure. Explicit selection and the
@@ -574,6 +597,8 @@ impl Store {
         memory_ids: &[String],
         repository: Option<&str>,
         global: bool,
+        limit: Option<u32>,
+        include_dependent_aggregates: bool,
     ) -> CoreResult<Value> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
@@ -582,35 +607,39 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        let ids = Self::resolve_selection(&connection, memory_ids, repository, global)?;
-        let mut evidence_links = 0i64;
-        let mut vectors = 0i64;
+        let (ids, truncated, total_matched) =
+            Self::resolve_selection(&connection, memory_ids, repository, global, limit)?;
         let mut revisions = Vec::new();
-        for id in &ids {
-            let link_count: i64 = connection.query_row(
-                "SELECT COUNT(*) FROM memory_evidence WHERE memory_id = ?1",
-                params![id],
-                |row| row.get(0),
-            )?;
-            evidence_links += link_count;
-            let vector_count: i64 = connection.query_row(
-                "SELECT COUNT(*) FROM memory_vectors WHERE memory_id = ?1",
-                params![id],
-                |row| row.get(0),
-            )?;
-            vectors += vector_count;
-            let revision: Option<i64> = connection
-                .query_row(
-                    "SELECT revision FROM memories WHERE id = ?1",
+        let (mut evidence_links, mut vectors) = (0i64, 0i64);
+        // Aggregate collection is the expensive half of the preview; callers
+        // that only need the selection can omit it.
+        if include_dependent_aggregates {
+            for id in &ids {
+                let link_count: i64 = connection.query_row(
+                    "SELECT COUNT(*) FROM memory_evidence WHERE memory_id = ?1",
                     params![id],
                     |row| row.get(0),
-                )
-                .optional()?;
-            if let Some(revision) = revision {
-                revisions.push(format!("{id}:{revision}"));
+                )?;
+                evidence_links += link_count;
+                let vector_count: i64 = connection.query_row(
+                    "SELECT COUNT(*) FROM memory_vectors WHERE memory_id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )?;
+                vectors += vector_count;
+                let revision: Option<i64> = connection
+                    .query_row(
+                        "SELECT revision FROM memories WHERE id = ?1",
+                        params![id],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if let Some(revision) = revision {
+                    revisions.push(format!("{id}:{revision}"));
+                }
             }
+            revisions.sort();
         }
-        revisions.sort();
         let fingerprint = fingerprint(
             "memory.purge",
             &store_id,
@@ -619,11 +648,17 @@ impl Store {
                 revisions.join(","),
                 evidence_links.to_string(),
                 vectors.to_string(),
+                include_dependent_aggregates.to_string(),
+                truncated.to_string(),
             ],
         );
         Ok(json!({
             "fingerprint": fingerprint,
             "memoryIds": ids,
+            "totalMatched": total_matched,
+            "selectionTruncated": truncated,
+            "selectionLimit": limit.unwrap_or(PURGE_SELECTION_MAX),
+            "dependentAggregates": if include_dependent_aggregates { "complete" } else { "omitted" },
             "counts": { "memories": ids.len(), "evidenceLinks": evidence_links, "vectors": vectors },
             "preserves": ["scoped suppression", "raw sources", "backups"],
         }))
@@ -638,12 +673,20 @@ impl Store {
         memory_ids: &[String],
         repository: Option<&str>,
         global: bool,
+        limit: Option<u32>,
+        include_dependent_aggregates: bool,
         plan_fingerprint: &str,
         actor: Option<&str>,
         reason: Option<&str>,
         now_ms: i64,
     ) -> CoreResult<PurgeOutcome> {
-        let preview = self.purge_preview(memory_ids, repository, global)?;
+        let preview = self.purge_preview(
+            memory_ids,
+            repository,
+            global,
+            limit,
+            include_dependent_aggregates,
+        )?;
         if preview["fingerprint"].as_str() != Some(plan_fingerprint) {
             return Err(CoreError::precondition(
                 "PREVIEW_STALE",
@@ -1190,6 +1233,9 @@ pub struct ReflectOutcome {
     pub persisted: Option<String>,
     pub committed_revision: i64,
 }
+
+/// Maximum rows one selection-based purge may touch.
+pub const PURGE_SELECTION_MAX: u32 = 5_000;
 
 /// Registered maintenance task names.
 pub const MAINTENANCE_TASKS: [&str; 3] = [

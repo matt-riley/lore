@@ -231,6 +231,8 @@ pub struct ResolvedAnalysis {
     pub api_key: Option<String>,
     pub default_deadline_ms: u64,
     pub max_deadline_ms: u64,
+    /// Optional fail-open rerank of recall candidates.
+    pub rerank: bool,
 }
 
 impl Default for ResolvedAnalysis {
@@ -242,6 +244,7 @@ impl Default for ResolvedAnalysis {
             api_key: None,
             default_deadline_ms: 5_000,
             max_deadline_ms: 30_000,
+            rerank: false,
         }
     }
 }
@@ -274,6 +277,7 @@ impl ResolvedAnalysis {
                 .ok()
                 .filter(|key| !key.is_empty()),
             max_deadline_ms: 30_000,
+            rerank: block["rerank"].as_bool().unwrap_or(false),
         };
         if resolved.enabled && (resolved.endpoint.is_empty() || resolved.model.is_empty()) {
             return Err(CoreError::invalid(

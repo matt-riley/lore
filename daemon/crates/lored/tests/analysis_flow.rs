@@ -86,6 +86,74 @@ impl FakeChat {
         Self { port, prompts }
     }
 
+    /// Raw assistant text, not JSON-encoded.
+    fn start_text(text: &str, delay_ms: u64) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind chat");
+        let port = listener.local_addr().expect("addr").port();
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let prompts_for_thread = Arc::clone(&prompts);
+        let text = text.to_string();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut buffer = Vec::new();
+                let mut chunk = [0u8; 4096];
+                let mut content_length = 0usize;
+                loop {
+                    match stream.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(read) => {
+                            buffer.extend_from_slice(&chunk[..read]);
+                            if let Some(position) = find_double_crlf(&buffer) {
+                                let headers = String::from_utf8_lossy(&buffer[..position]);
+                                content_length = headers
+                                    .lines()
+                                    .find_map(|line| {
+                                        let (name, value) = line.split_once(':')?;
+                                        if name.eq_ignore_ascii_case("content-length") {
+                                            value.trim().parse::<usize>().ok()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
+                                if buffer.len() >= position + 4 + content_length {
+                                    break;
+                                }
+                            } else if buffer.len() > 2 * 1024 * 1024 {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                let body_start = find_double_crlf(&buffer)
+                    .map(|position| position + 4)
+                    .unwrap_or(0);
+                let body_end = (body_start + content_length).min(buffer.len());
+                prompts_for_thread
+                    .lock()
+                    .expect("prompts")
+                    .push(String::from_utf8_lossy(&buffer[body_start..body_end]).to_string());
+                if delay_ms > 0 {
+                    std::thread::sleep(Duration::from_millis(delay_ms));
+                }
+                let envelope = json!({
+                    "choices": [{ "message": { "content": text } }]
+                });
+                let payload = serde_json::to_vec(&envelope).expect("payload");
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+                    payload.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.write_all(&payload);
+                let _ = stream.flush();
+            }
+        });
+        Self { port, prompts }
+    }
+
     /// Reply selected per prompt by a closure.
     fn start_dynamic(reply: impl Fn(&str) -> Value + Send + 'static) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind chat");
@@ -501,4 +569,237 @@ async fn analysis_rejects_bad_input_and_keeps_one_chat_lane() {
     let mut codes = [first.0, second.0];
     codes.sort_unstable();
     assert_eq!(codes, [200, 409], "one lane, one refusal");
+}
+
+#[tokio::test]
+async fn reflection_chat_synthesis_validates_evidence_and_falls_back() {
+    // A healthy synthesis is used and persisted.
+    let chat = FakeChat::start_text("The team prefers small pure functions.", 0);
+    let daemon = Daemon::start(Some(json!({
+        "enabled": true,
+        "endpoint": chat.endpoint(),
+        "model": "fake-chat"
+    })));
+    let first_store = store_id(&daemon.socket).await;
+    retain(
+        &daemon.socket,
+        &first_store,
+        "reflect-chat-1",
+        "Prefer small pure functions in this repository.",
+    )
+    .await;
+
+    let (code, body) = call(
+        &daemon.socket,
+        "/v2/admin/reflect",
+        json!({ "mode": "chat", "persist": true, "limit": 10 }),
+        Some(&first_store),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["result"]["synthesis"], "chat");
+    assert_eq!(
+        body["result"]["text"],
+        "The team prefers small pure functions."
+    );
+    let persisted = body["result"]["persisted"]
+        .as_str()
+        .expect("persisted")
+        .to_string();
+    let stored: String = {
+        let connection = rusqlite::Connection::open(&daemon.database_path).expect("db");
+        connection
+            .query_row(
+                "SELECT content FROM memories WHERE id = ?1",
+                rusqlite::params![persisted],
+                |row| row.get(0),
+            )
+            .expect("content")
+    };
+    assert_eq!(stored, "The team prefers small pure functions.");
+
+    // A synthesis naming an unrepresented id is rejected and the
+    // deterministic digest is used instead.
+    let inventive = FakeChat::start_text(
+        "We decided this in mem_11111111-2222-3333-4444-555555555555 earlier.",
+        0,
+    );
+    let strict = Daemon::start(Some(json!({
+        "enabled": true,
+        "endpoint": inventive.endpoint(),
+        "model": "fake-chat"
+    })));
+    let strict_store = store_id(&strict.socket).await;
+    retain(
+        &strict.socket,
+        &strict_store,
+        "reflect-chat-2",
+        "Keep release notes compact.",
+    )
+    .await;
+    let (code, body) = call(
+        &strict.socket,
+        "/v2/admin/reflect",
+        json!({ "mode": "chat", "persist": true, "limit": 10 }),
+        Some(&strict_store),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["result"]["synthesis"], "deterministic");
+    assert_eq!(body["result"]["fallbackReason"], "EVIDENCE_CHECK_FAILED");
+    assert!(
+        body["result"]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("# Reflection"),
+        "{body}"
+    );
+    assert!(
+        !body["result"]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("mem_11111111"),
+        "invented content must not survive"
+    );
+
+    // An unreachable provider falls back deterministically, not an error.
+    let dead = Daemon::start(Some(json!({
+        "enabled": true,
+        "endpoint": "http://127.0.0.1:9",
+        "model": "fake-chat",
+        "deadlineMs": 1000
+    })));
+    let dead_store = store_id(&dead.socket).await;
+    retain(
+        &dead.socket,
+        &dead_store,
+        "reflect-chat-3",
+        "Note for the fallback check.",
+    )
+    .await;
+    let (code, body) = call(
+        &dead.socket,
+        "/v2/admin/reflect",
+        json!({ "mode": "chat", "limit": 10 }),
+        Some(&dead_store),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["result"]["synthesis"], "deterministic");
+    assert!(body["result"]["fallbackReason"].is_string(), "{body}");
+}
+
+#[tokio::test]
+async fn optional_rerank_reorders_the_topical_section_and_fails_open() {
+    // The fake chat returns an order that prefers the second memory.
+    let reply = Arc::new(Mutex::new(json!({ "order": [] })));
+    let reply_for_server = Arc::clone(&reply);
+    let chat =
+        FakeChat::start_dynamic(move |_prompt| reply_for_server.lock().expect("reply").clone());
+    let daemon = Daemon::start(Some(json!({
+        "enabled": true,
+        "endpoint": chat.endpoint(),
+        "model": "fake-chat",
+        "rerank": true
+    })));
+    let store_id_value = store_id(&daemon.socket).await;
+    let alpha = retain(
+        &daemon.socket,
+        &store_id_value,
+        "rerank-alpha",
+        "Alpha note about retrieval order.",
+    )
+    .await;
+    let beta = retain(
+        &daemon.socket,
+        &store_id_value,
+        "rerank-beta",
+        "Beta note about retrieval order.",
+    )
+    .await;
+
+    *reply.lock().expect("reply") = json!({ "order": [beta, alpha] });
+    let (code, body) = call(
+        &daemon.socket,
+        "/v2/recall",
+        json!({ "query": "retrieval order note", "limit": 5 }),
+        Some(&store_id_value),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(
+        body["result"]["diagnostics"]["rerank"]["applied"], true,
+        "{body}"
+    );
+    let context = body["result"]["context"].as_str().expect("context");
+    let beta_position = context.find("Beta note").expect("beta present");
+    let alpha_position = context.find("Alpha note").expect("alpha present");
+    assert!(
+        beta_position < alpha_position,
+        "rerank order applied: {context}"
+    );
+    let record_ids: Vec<&str> = body["result"]["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .filter_map(|record| record["id"].as_str())
+        .collect();
+    assert_eq!(record_ids.first(), Some(&beta.as_str()));
+
+    // An invented id fails open: the fused order and context stay untouched.
+    *reply.lock().expect("reply") = json!({ "order": ["mem_invented"] });
+    let (code, body) = call(
+        &daemon.socket,
+        "/v2/recall",
+        json!({ "query": "retrieval order note", "limit": 5 }),
+        Some(&store_id_value),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["result"]["diagnostics"]["rerank"]["applied"], false);
+    assert_eq!(
+        body["result"]["diagnostics"]["rerank"]["reason"],
+        "EVIDENCE_CHECK_FAILED"
+    );
+    assert!(
+        body["result"]["context"]
+            .as_str()
+            .expect("context")
+            .starts_with("- "),
+        "context remains the fused rendering"
+    );
+
+    // An unreachable provider also fails open rather than failing recall.
+    let dead = Daemon::start(Some(json!({
+        "enabled": true,
+        "endpoint": "http://127.0.0.1:9",
+        "model": "fake-chat",
+        "rerank": true,
+        "deadlineMs": 1000
+    })));
+    let dead_store = store_id(&dead.socket).await;
+    retain(
+        &dead.socket,
+        &dead_store,
+        "rerank-dead-1",
+        "Note one for rerank.",
+    )
+    .await;
+    retain(
+        &dead.socket,
+        &dead_store,
+        "rerank-dead-2",
+        "Note two for rerank.",
+    )
+    .await;
+    let (code, body) = call(
+        &dead.socket,
+        "/v2/recall",
+        json!({ "query": "note rerank", "limit": 5 }),
+        Some(&dead_store),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["result"]["diagnostics"]["rerank"]["applied"], false);
+    assert!(body["result"]["diagnostics"]["rerank"]["reason"].is_string());
 }

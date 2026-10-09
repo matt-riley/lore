@@ -51,6 +51,30 @@ synchronous reads with capability IDs `search.browse`, `explain.context`,
 - **Capability inventory** merges the checked-in catalog with live daemon
   capabilities; it works without a daemon and reports `storeId: null`.
 
+### Provider-backed reflection and optional rerank
+
+- `lore_reflect` gains `mode: "chat"`: the deterministic digest is always
+  computed first, and when the analysis lane is configured the chat provider
+  rewrites it. Evidence checks reject empty, oversized or id-inventing output
+  (`EVIDENCE_CHECK_FAILED`), and every provider failure — unavailable, busy,
+  timeout, malformed — falls back to the deterministic digest with a
+  `fallbackReason` instead of failing the operation. Persistence stores the
+  chosen text through `reflect_with_text`, with the represented ids tagged as
+  before.
+- Recall gains optional fail-open rerank (`analysis.rerank`, default off,
+  capability `recall.rerank`): up to 20 topical candidates are sent with the
+  query, the returned order is validated against the supplied ids, and the
+  topical section is re-rendered with the same `render_topical` renderer
+  under the original byte budget. Required sections are preserved byte-for-
+  byte by only rewriting the context when the topical text is its suffix.
+  Unknown ids, provider failures, a busy lane or an unexpected context shape
+  leave the fused order untouched and record the reason in
+  `diagnostics.rerank`.
+- Proofs: `analysis_flow.rs` covers chat synthesis persistence, evidence
+  rejection with deterministic fallback, unreachable-provider fallback,
+  successful rerank ordering (context and records), invented-id fail-open and
+  dead-provider fail-open.
+
 ### OKF visualizer export
 
 `lore bundle visualize --bundle <dir> [--out <file>] [--name <label>]` ports

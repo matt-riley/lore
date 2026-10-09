@@ -1472,6 +1472,21 @@ impl Store {
         persist: bool,
         now_ms: i64,
     ) -> CoreResult<ReflectOutcome> {
+        self.reflect_with_text(query, repository, limit, persist, None, now_ms)
+    }
+
+    /// Deterministic reflection with an optional synthesized-text override.
+    /// The represented ids are always computed from the store; the override
+    /// only changes the text that is returned and persisted.
+    pub fn reflect_with_text(
+        &self,
+        query: Option<&str>,
+        repository: Option<&str>,
+        limit: u32,
+        persist: bool,
+        text_override: Option<&str>,
+        now_ms: i64,
+    ) -> CoreResult<ReflectOutcome> {
         let limit = limit.clamp(1, 50) as i64;
         let mut connection = self.writer.lock().expect("writer lock");
         let transaction =
@@ -1550,6 +1565,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
+        let text = text_override.map(str::to_string).unwrap_or(text);
         let mut persisted = None;
         if persist {
             revision += 1;

@@ -159,7 +159,7 @@ async fn views_report_store_state_filters_and_drilldown() {
     assert_eq!(status, 200, "{overview}");
     assert_eq!(overview["result"]["activeMemories"], 1);
     assert_eq!(overview["result"]["forgottenMemories"], 1);
-    assert_eq!(overview["result"]["schemaVersion"], 7);
+    assert_eq!(overview["result"]["schemaVersion"], 8);
 
     let (status, health) = call(
         &daemon.socket,

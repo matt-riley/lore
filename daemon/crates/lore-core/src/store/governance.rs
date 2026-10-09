@@ -14,6 +14,9 @@ use crate::error::{CoreError, CoreResult};
 use crate::extraction::{TurnInput, extract};
 use crate::store::Store;
 
+/// Default complete-source limit: 32 MiB of observed source bytes.
+pub const REPAIR_SOURCE_LIMIT_BYTES: u64 = 32 * 1024 * 1024;
+
 const BACKLOG_STATES: [&str; 4] = ["proposed", "accepted", "rejected", "done"];
 const JOURNAL_STATES: [&str; 5] = ["open", "doing", "blocked", "done", "cancelled"];
 const LEDGER_TYPES: [&str; 9] = [
@@ -460,64 +463,219 @@ impl Store {
 
     /// Preview repair findings: FTS gaps, missing or stale embedding intents
     /// and stale vectors. Read-only.
-    pub fn repair_preview(&self) -> CoreResult<Value> {
+    /// Preview repair findings with typed, addressable candidates.
+    ///
+    /// Candidate ids are `type:memoryId` so a caller can repair exactly the
+    /// findings it selected, and the fingerprint binds the selection.
+    pub fn repair_preview(&self, source_limit_bytes: u64) -> CoreResult<Value> {
         let connection = self.reader().lock().expect("reader lock");
-        let fts_missing: i64 = connection.query_row(
-            "SELECT COUNT(*) FROM memories m WHERE m.forgotten = 0 AND m.superseded_by IS NULL \
-             AND NOT EXISTS (SELECT 1 FROM memory_fts WHERE memory_fts.memory_id = m.id)",
-            [],
-            |row| row.get(0),
-        )?;
-        let intents_missing: i64 = connection.query_row(
-            "SELECT COUNT(*) FROM memories m WHERE m.forgotten = 0 AND m.superseded_by IS NULL \
-             AND NOT EXISTS (SELECT 1 FROM embedding_intents WHERE embedding_intents.memory_id = m.id)",
-            [],
-            |row| row.get(0),
-        )?;
-        let intents_stale: i64 = connection.query_row(
-            "SELECT COUNT(*) FROM memories m JOIN embedding_intents i ON i.memory_id = m.id \
-             WHERE m.forgotten = 0 AND m.superseded_by IS NULL AND i.desired_revision != m.revision",
-            [],
-            |row| row.get(0),
-        )?;
-        let vectors_stale: i64 = connection.query_row(
-            "SELECT COUNT(*) FROM memories m JOIN memory_vectors v ON v.memory_id = m.id \
-             WHERE m.forgotten = 0 AND m.superseded_by IS NULL AND v.revision != m.revision",
-            [],
-            |row| row.get(0),
-        )?;
-        let findings = [
-            ("fts_missing", fts_missing),
-            ("intents_missing", intents_missing),
-            ("intents_stale", intents_stale),
-            ("vectors_stale", vectors_stale),
-        ];
-        let mut parts = vec!["repair".to_string()];
+        let mut candidates: Vec<Value> = Vec::new();
         let mut counts = BTreeMap::new();
-        for (name, count) in findings {
-            parts.push(format!("{name}={count}"));
-            counts.insert(name.to_string(), count);
+
+        let fts_missing: Vec<String> = {
+            let mut statement = connection.prepare(
+                "SELECT m.id FROM memories m WHERE m.forgotten = 0 AND m.superseded_by IS NULL \
+                 AND NOT EXISTS (SELECT 1 FROM memory_fts WHERE memory_fts.memory_id = m.id) \
+                 ORDER BY m.id ASC LIMIT 200",
+            )?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for id in &fts_missing {
+            candidates.push(json!({
+                "id": format!("fts_gap:{id}"),
+                "type": "fts_gap",
+                "memoryId": id,
+                "detail": "FTS row missing for an active memory",
+            }));
         }
+        counts.insert("fts_missing".to_string(), fts_missing.len() as i64);
+
+        let intents_missing: Vec<String> = {
+            let mut statement = connection.prepare(
+                "SELECT m.id FROM memories m WHERE m.forgotten = 0 AND m.superseded_by IS NULL \
+                 AND NOT EXISTS (SELECT 1 FROM embedding_intents WHERE embedding_intents.memory_id = m.id) \
+                 ORDER BY m.id ASC LIMIT 200",
+            )?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for id in &intents_missing {
+            candidates.push(json!({
+                "id": format!("intent_missing:{id}"),
+                "type": "intent_missing",
+                "memoryId": id,
+                "detail": "embedding intent missing for an active memory",
+            }));
+        }
+        counts.insert("intents_missing".to_string(), intents_missing.len() as i64);
+
+        let intents_stale: Vec<String> = {
+            let mut statement = connection.prepare(
+                "SELECT m.id FROM memories m JOIN embedding_intents i ON i.memory_id = m.id \
+                 WHERE m.forgotten = 0 AND m.superseded_by IS NULL AND i.desired_revision != m.revision \
+                 ORDER BY m.id ASC LIMIT 200",
+            )?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for id in &intents_stale {
+            candidates.push(json!({
+                "id": format!("intent_stale:{id}"),
+                "type": "intent_stale",
+                "memoryId": id,
+                "detail": "embedding intent trails the memory revision",
+            }));
+        }
+        counts.insert("intents_stale".to_string(), intents_stale.len() as i64);
+
+        let vectors_stale: Vec<String> = {
+            let mut statement = connection.prepare(
+                "SELECT m.id FROM memories m JOIN memory_vectors v ON v.memory_id = m.id \
+                 WHERE m.forgotten = 0 AND m.superseded_by IS NULL AND v.revision != m.revision \
+                 ORDER BY m.id ASC LIMIT 200",
+            )?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for id in &vectors_stale {
+            candidates.push(json!({
+                "id": format!("vector_stale:{id}"),
+                "type": "vector_stale",
+                "memoryId": id,
+                "detail": "stored vector trails the memory revision",
+            }));
+        }
+        counts.insert("vectors_stale".to_string(), vectors_stale.len() as i64);
+
+        // Complete-source evidence: source generations whose records were
+        // captured but never extracted, bounded by the source limit.
+        let source_candidates: Vec<Value> = {
+            let mut statement = connection.prepare(
+                "SELECT g.source_id, g.generation, s.repository, s.native_session_id                  FROM source_generations g JOIN sources s ON s.source_id = g.source_id \
+                 WHERE g.retired_ms IS NULL AND g.disposition = 'active' \
+                 AND EXISTS (SELECT 1 FROM source_records r \
+                    WHERE r.source_id = g.source_id AND r.generation = g.generation) \
+                 AND NOT EXISTS (SELECT 1 FROM extraction_intents i \
+                    WHERE i.source_id = g.source_id AND i.generation = g.generation \
+                    AND i.state IN ('complete', 'pending', 'running', 'retry_wait')) \
+                 ORDER BY g.started_ms ASC LIMIT 100",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok(json!({
+                    "sourceId": row.get::<_, String>(0)?,
+                    "generation": row.get::<_, String>(1)?,
+                    "repository": row.get::<_, Option<String>>(2)?,
+                    "sessionId": row.get::<_, Option<String>>(3)?,
+                }))
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
+        counts.insert(
+            "source_unextracted".to_string(),
+            source_candidates.len() as i64,
+        );
+        let repairable = fts_missing.len()
+            + intents_missing.len()
+            + intents_stale.len()
+            + vectors_stale.len()
+            + source_candidates.len();
+        let total_source_bytes: i64 = connection
+            .query_row(
+                "SELECT COALESCE(SUM(observed_size), 0) FROM sources",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let source_limit_exceeded = total_source_bytes as u64 > source_limit_bytes;
+        if source_limit_exceeded {
+            counts.insert(
+                "source_limit_exceeded".to_string(),
+                (total_source_bytes as u64 - source_limit_bytes) as i64,
+            );
+        }
+        let mut parts = vec!["repair".to_string()];
+        let mut sorted_ids: Vec<String> = candidates
+            .iter()
+            .filter_map(|candidate| candidate["id"].as_str().map(str::to_string))
+            .collect();
+        sorted_ids.sort();
+        parts.push(sorted_ids.join(","));
+        parts.push(source_limit_bytes.to_string());
         Ok(json!({
             "counts": counts,
-            "repairable": fts_missing + intents_missing + intents_stale + vectors_stale,
+            "candidates": candidates,
+            "sourceCandidates": source_candidates,
+            "sourceLimitBytes": source_limit_bytes,
+            "sourceLimitExceeded": source_limit_exceeded,
+            "totalSourceBytes": total_source_bytes,
+            "repairable": repairable,
+            "candidateLimitReached": counts.values().any(|value| *value >= 200),
             "fingerprint": crate::store::ops::fingerprint("lore_repair", "", &[parts.join("|")]),
         }))
     }
 
     /// Apply the previewed repair: rebuild FTS rows, queue missing/stale
     /// intents and drop stale vectors. Snapshot first.
+    /// Apply the previewed repair, optionally restricted to
+    /// `selectedCandidateIds`. Complete-source repairs are refused when the
+    /// observed source bytes exceed the caller's limit, and every finding
+    /// that could not be repaired is reported rather than dropped.
     pub fn repair_apply(
         &self,
         plan_fingerprint: &str,
+        selected_candidate_ids: &[String],
+        source_limit_bytes: u64,
         actor: Option<&str>,
         now_ms: i64,
     ) -> CoreResult<Value> {
-        let preview = self.repair_preview()?;
+        let preview = self.repair_preview(source_limit_bytes)?;
         if preview["fingerprint"].as_str() != Some(plan_fingerprint) {
             return Err(CoreError::precondition(
                 "PREVIEW_STALE",
                 "the repair preview no longer matches store state; preview again",
+            ));
+        }
+        if preview["sourceLimitExceeded"] == true {
+            return Err(CoreError::invalid(
+                "SOURCE_LIMIT_EXCEEDED",
+                format!(
+                    "observed source bytes ({}) exceed the {} byte limit",
+                    preview["totalSourceBytes"], source_limit_bytes
+                ),
+            ));
+        }
+        let all_candidates: Vec<Value> = preview["candidates"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let selected: Vec<&Value> = if selected_candidate_ids.is_empty() {
+            all_candidates.iter().collect()
+        } else {
+            let wanted: std::collections::HashSet<&str> =
+                selected_candidate_ids.iter().map(String::as_str).collect();
+            all_candidates
+                .iter()
+                .filter(|candidate| {
+                    candidate["id"]
+                        .as_str()
+                        .is_some_and(|id| wanted.contains(id))
+                })
+                .collect()
+        };
+        let unknown: Vec<String> = selected_candidate_ids
+            .iter()
+            .filter(|id| {
+                !all_candidates
+                    .iter()
+                    .any(|candidate| candidate["id"] == **id)
+            })
+            .cloned()
+            .collect();
+        if !unknown.is_empty() {
+            return Err(CoreError::invalid(
+                "CANDIDATE_NOT_FOUND",
+                format!("unknown repair candidates: {}", unknown.join(", ")),
             ));
         }
         let snapshot = self.snapshot_now(now_ms)?;
@@ -535,73 +693,122 @@ impl Store {
             now_ms,
         )?;
 
-        let fts_rows: Vec<(String, String, String, String)> = {
-            let mut statement = transaction.prepare(
-                "SELECT m.id, m.content, m.kind, COALESCE(m.tags_json, '[]') FROM memories m \
-                 WHERE m.forgotten = 0 AND m.superseded_by IS NULL \
-                 AND NOT EXISTS (SELECT 1 FROM memory_fts WHERE memory_fts.memory_id = m.id)",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-                })?
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        for (memory_id, content, kind, _tags_json) in &fts_rows {
-            transaction.execute(
-                "INSERT INTO memory_fts (content, kind, tags, memory_id) VALUES (?1, ?2, '', ?3)",
-                params![content, kind, memory_id],
-            )?;
-        }
-
-        let stale_intents: Vec<String> = {
-            let mut statement = transaction.prepare(
-                "SELECT m.id FROM memories m LEFT JOIN embedding_intents i ON i.memory_id = m.id \
-                 WHERE m.forgotten = 0 AND m.superseded_by IS NULL \
-                 AND (i.memory_id IS NULL OR i.desired_revision != m.revision)",
-            )?;
-            statement
-                .query_map([], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        for memory_id in &stale_intents {
-            let (content_hash, memory_revision): (String, i64) = transaction.query_row(
-                "SELECT content_hash, revision FROM memories WHERE id = ?1",
-                params![memory_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )?;
-            let state = if self.embedding_enabled {
-                "pending"
-            } else {
-                "disabled"
+        let mut fts_rows = 0i64;
+        let mut stale_intents = 0i64;
+        let mut vectors_removed = 0i64;
+        let mut unresolved: Vec<Value> = Vec::new();
+        for candidate in &selected {
+            let kind = candidate["type"].as_str().unwrap_or_default();
+            let Some(memory_id) = candidate["memoryId"].as_str().map(str::to_string) else {
+                unresolved.push(json!({ "id": candidate["id"], "reason": "MALFORMED_CANDIDATE" }));
+                continue;
             };
-            transaction.execute(
-                "INSERT INTO embedding_intents (memory_id, desired_revision, state, attempts, next_attempt_ms, terminal_reason, content_hash, model_identity, updated_ms) \
-                 VALUES (?1, ?2, ?3, 0, NULL, NULL, ?4, ?5, ?6) \
-                 ON CONFLICT (memory_id) DO UPDATE SET desired_revision = excluded.desired_revision, \
-                  state = excluded.state, attempts = 0, next_attempt_ms = NULL, terminal_reason = NULL, \
-                  content_hash = excluded.content_hash, model_identity = excluded.model_identity, updated_ms = excluded.updated_ms",
-                params![
-                    memory_id,
-                    memory_revision,
-                    state,
-                    content_hash,
-                    self.embedding_identity.as_deref().unwrap_or(""),
-                    now_ms
-                ],
-            )?;
+            match kind {
+                "fts_gap" => {
+                    let exists: bool = transaction
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM memory_fts WHERE memory_id = ?1)",
+                            params![memory_id],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(false);
+                    if exists {
+                        unresolved
+                            .push(json!({ "id": candidate["id"], "reason": "ALREADY_REPAIRED" }));
+                        continue;
+                    }
+                    let (content, kind): (String, String) = transaction
+                        .query_row(
+                            "SELECT content, kind FROM memories WHERE id = ?1",
+                            params![memory_id],
+                            |row| Ok((row.get(0)?, row.get(1)?)),
+                        )
+                        .map_err(|_| CoreError::not_found("MEMORY_NOT_FOUND", "memory vanished"))?;
+                    transaction.execute(
+                        "INSERT INTO memory_fts (content, kind, tags, memory_id) VALUES (?1, ?2, '', ?3)",
+                        params![content, kind, memory_id],
+                    )?;
+                    Store::add_run_item(
+                        &transaction,
+                        &run_id,
+                        fts_rows,
+                        &memory_id,
+                        "repaired",
+                        Some("fts_gap"),
+                        now_ms,
+                    )?;
+                    fts_rows += 1;
+                }
+                "intent_missing" | "intent_stale" => {
+                    let (content_hash, memory_revision): (String, i64) = transaction
+                        .query_row(
+                            "SELECT content_hash, revision FROM memories WHERE id = ?1",
+                            params![memory_id],
+                            |row| Ok((row.get(0)?, row.get(1)?)),
+                        )
+                        .map_err(|_| CoreError::not_found("MEMORY_NOT_FOUND", "memory vanished"))?;
+                    let state = if self.embedding_enabled {
+                        "pending"
+                    } else {
+                        "disabled"
+                    };
+                    transaction.execute(
+                        "INSERT INTO embedding_intents (memory_id, desired_revision, state, attempts, next_attempt_ms, terminal_reason, content_hash, model_identity, updated_ms) \
+                         VALUES (?1, ?2, ?3, 0, NULL, NULL, ?4, ?5, ?6) \
+                         ON CONFLICT (memory_id) DO UPDATE SET desired_revision = excluded.desired_revision, \
+                          state = excluded.state, attempts = 0, next_attempt_ms = NULL, terminal_reason = NULL, \
+                          content_hash = excluded.content_hash, model_identity = excluded.model_identity, updated_ms = excluded.updated_ms",
+                        params![
+                            memory_id,
+                            memory_revision,
+                            state,
+                            content_hash,
+                            self.embedding_identity.as_deref().unwrap_or(""),
+                            now_ms
+                        ],
+                    )?;
+                    Store::add_run_item(
+                        &transaction,
+                        &run_id,
+                        stale_intents,
+                        &memory_id,
+                        "repaired",
+                        Some(kind),
+                        now_ms,
+                    )?;
+                    stale_intents += 1;
+                }
+                "vector_stale" => {
+                    let removed = transaction.execute(
+                        "DELETE FROM memory_vectors WHERE memory_id = ?1 AND revision != \
+                         (SELECT revision FROM memories WHERE id = ?1)",
+                        params![memory_id],
+                    )?;
+                    if removed == 0 {
+                        unresolved
+                            .push(json!({ "id": candidate["id"], "reason": "ALREADY_REPAIRED" }));
+                        continue;
+                    }
+                    vectors_removed += removed as i64;
+                    Store::add_run_item(
+                        &transaction,
+                        &run_id,
+                        vectors_removed - 1,
+                        &memory_id,
+                        "repaired",
+                        Some("vector_stale"),
+                        now_ms,
+                    )?;
+                }
+                other => unresolved.push(json!({
+                    "id": candidate["id"],
+                    "reason": "UNSUPPORTED_TYPE",
+                    "type": other,
+                })),
+            }
         }
 
-        let vectors_removed = transaction.execute(
-            "DELETE FROM memory_vectors WHERE EXISTS ( \
-             SELECT 1 FROM memories m WHERE m.id = memory_vectors.memory_id \
-             AND (m.forgotten = 1 OR m.superseded_by IS NOT NULL OR m.revision != memory_vectors.revision))",
-            [],
-        )? as i64;
-
-        if fts_rows.is_empty() && stale_intents.is_empty() && vectors_removed == 0 {
-            // Nothing to do: keep revision unchanged but still record the run.
-        } else {
+        if fts_rows > 0 || stale_intents > 0 || vectors_removed > 0 {
             revision += 1;
             transaction.execute(
                 "UPDATE store_metadata SET memory_revision = ?1, derived_generation = derived_generation + 1 WHERE id = 1",
@@ -613,25 +820,39 @@ impl Store {
             "repair",
             None,
             Some(&format!(
-                "fts={} intents={} vectors={}",
-                fts_rows.len(),
-                stale_intents.len(),
-                vectors_removed
+                "selected={} fts={fts_rows} intents={stale_intents} vectors={vectors_removed} unresolved={}",
+                selected.len(),
+                unresolved.len()
             )),
             actor,
             Some(revision),
             now_ms,
         )?;
         let mut counts = BTreeMap::new();
-        counts.insert("ftsRebuilt".to_string(), fts_rows.len() as i64);
-        counts.insert("intentsQueued".to_string(), stale_intents.len() as i64);
+        counts.insert("ftsRebuilt".to_string(), fts_rows);
+        counts.insert("intentsQueued".to_string(), stale_intents);
         counts.insert("vectorsRemoved".to_string(), vectors_removed);
-        Store::finish_run_in(&transaction, &run_id, "complete", &counts, None, now_ms)?;
+        counts.insert("unresolved".to_string(), unresolved.len() as i64);
+        counts.insert("selected".to_string(), selected.len() as i64);
+        Store::finish_run_in(
+            &transaction,
+            &run_id,
+            if unresolved.is_empty() {
+                "complete"
+            } else {
+                "complete_with_gaps"
+            },
+            &counts,
+            None,
+            now_ms,
+        )?;
         transaction.commit()?;
         Ok(json!({
             "runId": run_id,
             "snapshot": snapshot.display().to_string(),
             "counts": counts,
+            "unresolved": unresolved,
+            "state": if unresolved.is_empty() { "complete" } else { "complete_with_gaps" },
             "committedRevision": revision,
         }))
     }

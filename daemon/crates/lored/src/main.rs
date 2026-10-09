@@ -735,7 +735,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                         api_major: API_MAJOR,
                         api_minor: API_MINOR,
                         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
-                        schema_version: 7,
+                        schema_version: 8,
                         store_id: state.store_id.clone(),
                         process_instance_id: state.process_instance_id.clone(),
                         uptime_ms: state.started.elapsed().as_millis() as u64,
@@ -1195,6 +1195,8 @@ async fn handle_admin(
                         &params.memory_ids,
                         params.repository.as_deref(),
                         params.global,
+                        params.limit,
+                        params.include_dependent_aggregates,
                         &plan,
                         params.actor.as_deref(),
                         params.reason.as_deref(),
@@ -1207,6 +1209,8 @@ async fn handle_admin(
                         &params.memory_ids,
                         params.repository.as_deref(),
                         params.global,
+                        params.limit,
+                        params.include_dependent_aggregates,
                     )
                 }
             }
@@ -1417,6 +1421,9 @@ async fn handle_admin(
                 Ok(lore_core::skills::to_value(&validation))
             }
             "repair" => {
+                let source_limit = params
+                    .source_limit_bytes
+                    .unwrap_or(lore_core::store::REPAIR_SOURCE_LIMIT_BYTES);
                 let provider_action = params.action.as_deref().unwrap_or("preview");
                 if provider_action == "apply" || params.plan_fingerprint.is_some() {
                     let plan = params.plan_fingerprint.clone().ok_or_else(|| {
@@ -1425,14 +1432,39 @@ async fn handle_admin(
                             "applying a repair requires planFingerprint",
                         )
                     })?;
-                    store.repair_apply(&plan, params.actor.as_deref(), now)
+                    store.repair_apply(
+                        &plan,
+                        &params.selected_candidate_ids,
+                        source_limit,
+                        params.actor.as_deref(),
+                        now,
+                    )
                 } else {
-                    store.repair_preview()
+                    store.repair_preview(source_limit)
                 }
             }
             "replay" => store.replay_run(params.limit.unwrap_or(50), params.family.as_deref()),
-            "doctor" => store.admin_doctor(),
-            "audit/extractions" => store.admin_audit_extractions(),
+            "doctor" => store.admin_doctor(
+                params.dry_run,
+                params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+            ),
+            "audit/extractions" => match (params.action.as_deref(), params.run_id.as_deref()) {
+                (Some("apply"), Some(run_id)) => {
+                    store.admin_revalidate_extraction(run_id, true, now)
+                }
+                (Some("rollback"), Some(run_id)) => {
+                    store.admin_revalidate_extraction(run_id, false, now)
+                }
+                (None, _) | (Some("report"), _) => store.admin_audit_extractions(),
+                (Some("apply"), None) | (Some("rollback"), None) => Err(CoreError::invalid(
+                    "ADMIN_ARGUMENT_INVALID",
+                    "apply and rollback need a runId",
+                )),
+                (Some(other), _) => Err(CoreError::invalid(
+                    "ADMIN_ARGUMENT_INVALID",
+                    format!("unknown audit action: {other} (report, apply, rollback)"),
+                )),
+            },
             _ => Err(CoreError::invalid(
                 "ADMIN_UNKNOWN",
                 "unknown admin operation",

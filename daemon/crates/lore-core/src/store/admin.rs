@@ -4,8 +4,10 @@
 //! These are bounded synchronous reads. They never persist query text and
 //! never mutate store state.
 
-use rusqlite::params_from_iter;
+use rusqlite::params;
+use rusqlite::{OptionalExtension, params_from_iter};
 use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
 
 use crate::error::{CoreError, CoreResult};
 use crate::store::{Store, parse_scope};
@@ -199,7 +201,11 @@ impl Store {
     }
 
     /// Observe-only doctor report: health, coverage and categorical hints.
-    pub fn admin_doctor(&self) -> CoreResult<Value> {
+    /// Doctor report: bounded, observe-only diagnostics with an install-health
+    /// section, a bounded trajectory listing and planned-but-unexecuted
+    /// actions. `dry_run` is accepted for interface parity and is always the
+    /// effective behavior: doctor never mutates.
+    pub fn admin_doctor(&self, dry_run: bool, trajectory_limit: u32) -> CoreResult<Value> {
         let overview = self.view_overview(None)?;
         let health = self.view_health()?;
         let connection = self.reader();
@@ -234,7 +240,147 @@ impl Store {
         if health["ready"] != true {
             hints.push("store schema is not current".to_string());
         }
+
+        // Install health: what the operator's machine looks like, observed
+        // only. The v2 daemon needs no Node; hosts and v1 integrations do.
+        let data_dir = self
+            .store_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        let node = std::process::Command::new("node")
+            .arg("--version")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
+        let legacy_cli = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .and_then(|directory| directory.parent().map(Path::to_path_buf))
+            .map(|root| root.join("lore-cli.mjs"))
+            .filter(|path| path.is_file());
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let legacy_cli_home = home
+            .as_ref()
+            .map(|home| home.join(".lore/lore-cli.mjs"))
+            .filter(|path| path.is_file());
+        let unit_installed = home
+            .as_ref()
+            .map(|home| home.join(".lore/service.json"))
+            .is_some_and(|path| path.is_file());
+
+        let mut duplicates: Vec<String> = Vec::new();
+        for binary in ["lore", "lored"] {
+            let mut found: Vec<PathBuf> = Vec::new();
+            for directory in std::env::var_os("PATH")
+                .into_iter()
+                .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+            {
+                let candidate = directory.join(binary);
+                if candidate.is_file() && !found.contains(&candidate) {
+                    found.push(candidate);
+                }
+            }
+            if found.len() > 1 {
+                duplicates.extend(found.into_iter().map(|path| path.display().to_string()));
+            }
+        }
+        let legacy_paths: Vec<String> = [
+            legacy_cli.as_ref().map(|path| path.display().to_string()),
+            legacy_cli_home
+                .as_ref()
+                .map(|path| path.display().to_string()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let install_health = json!({
+            "node": {
+                "found": node.is_some(),
+                "version": node,
+                "required": false,
+                "note": "the v2 daemon and CLI need no Node; host adapters and v1 integrations do",
+            },
+            "legacyCli": {
+                "found": legacy_cli.is_some() || legacy_cli_home.is_some(),
+                "paths": legacy_paths,
+                "note": "lore-cli.mjs is a v1 artifact; its absence is expected for a v2-only install",
+            },
+            "serviceInstalled": unit_installed,
+            "duplicateInstalls": duplicates,
+        });
+        if !duplicates.is_empty() {
+            hints.push("duplicate lore binaries found on PATH".to_string());
+        }
+
+        // Trajectory artifacts: a bounded, read-only listing when present.
+        let trajectory_dir = data_dir.join("trajectory");
+        let mut trajectory_artifacts: Vec<Value> = Vec::new();
+        if trajectory_dir.is_dir()
+            && let Ok(entries) = std::fs::read_dir(&trajectory_dir)
+        {
+            for entry in entries
+                .flatten()
+                .take(trajectory_limit.clamp(1, 200) as usize)
+            {
+                let path = entry.path();
+                if let Ok(metadata) = entry.metadata() {
+                    trajectory_artifacts.push(json!({
+                        "name": entry.file_name().to_string_lossy().to_string(),
+                        "path": path.display().to_string(),
+                        "bytes": metadata.len(),
+                        "kind": "trajectory-artifact",
+                    }));
+                }
+            }
+        }
+
+        let source_cases: Vec<String> = {
+            let mut statement = connection.prepare(
+                "SELECT source_id FROM sources WHERE skipped_records > 0 \
+                 OR state IN ('unavailable', 'ambiguous', 'failed') ORDER BY updated_ms DESC LIMIT 50",
+            )?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let mut planned_actions = Vec::new();
+        if pending_extraction > 0 {
+            planned_actions.push(json!({
+                "action": "deferred-process",
+                "would": "claim pending extraction intents and apply their proposals",
+                "executed": false,
+            }));
+        }
+        if sources_unavailable > 0 {
+            planned_actions.push(json!({
+                "action": "repair",
+                "would": "rebuild missing FTS rows and requeue stale embedding intents",
+                "executed": false,
+            }));
+        }
+        if skipped_records > 0 {
+            planned_actions.push(json!({
+                "action": "sources-status",
+                "would": "inspect sources with record gaps before any re-capture",
+                "executed": false,
+            }));
+        }
+        let mut health_reasons = Vec::new();
+        for hint in &hints {
+            health_reasons.push(json!({ "category": "store", "reason": hint }));
+        }
+        if health["ready"] != true {
+            health_reasons.push(
+                json!({ "category": "schema", "reason": "store schema is behind the binary" }),
+            );
+        }
+
         Ok(json!({
+            "dryRun": true,
+            "dryRunRequested": dry_run,
             "overview": overview,
             "health": health,
             "sources": {
@@ -244,11 +390,119 @@ impl Store {
             },
             "pendingExtraction": pending_extraction,
             "hints": hints,
+            "installHealth": install_health,
+            "trajectoryArtifacts": trajectory_artifacts,
+            "plannedActions": planned_actions,
+            "sourceCases": source_cases,
+            "healthReasons": health_reasons,
         }))
     }
 
     /// Extraction coverage audit: per-source capture and extraction state with
     /// gaps accounted separately from completion.
+    /// Revalidation marker name for one extraction run.
+    pub fn revalidation_marker(run_id: &str) -> String {
+        format!("extractor-revalidation:{run_id}")
+    }
+
+    /// Apply or roll back one revalidation marker. Report-only by default:
+    /// markers record that a run's extraction was revalidated by a human and
+    /// never create suppression rows.
+    pub fn admin_revalidate_extraction(
+        &self,
+        run_id: &str,
+        apply: bool,
+        now_ms: i64,
+    ) -> CoreResult<Value> {
+        let run_id = run_id.trim();
+        if run_id.is_empty() {
+            return Err(CoreError::invalid(
+                "ADMIN_ARGUMENT_INVALID",
+                "revalidation needs a runId",
+            ));
+        }
+        let marker = Self::revalidation_marker(run_id);
+        let mut connection = self.writer.lock().expect("writer lock");
+        let transaction =
+            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing: Option<(String, String, String)> = transaction
+            .query_row(
+                "SELECT source_id, generation, rule_version FROM extraction_revalidation \
+                 WHERE run_id = ?1 AND rolled_back_ms IS NULL",
+                params![run_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let value = if apply {
+            if let Some((source_id, generation, rule_version)) = existing {
+                json!({
+                    "runId": run_id,
+                    "marker": marker,
+                    "state": "already-applied",
+                    "sourceId": source_id,
+                    "generation": generation,
+                    "ruleVersion": rule_version,
+                })
+            } else {
+                // The marker must name a real, completed extraction run.
+                let run: Option<(String, String, String)> = transaction
+                    .query_row(
+                        "SELECT s.source_id, s.generation, COALESCE(i.rule_version, '') \
+                         FROM sources s JOIN extraction_intents i \
+                         ON i.source_id = s.source_id AND i.generation = s.generation \
+                         WHERE s.source_id = ?1",
+                        params![run_id],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .optional()?;
+                let Some((source_id, generation, rule_version)) = run else {
+                    return Err(CoreError::not_found(
+                        "REVALIDATION_TARGET_NOT_FOUND",
+                        "no completed extraction run matches that run id",
+                    ));
+                };
+                transaction.execute(
+                    "INSERT INTO extraction_revalidation (run_id, marker, source_id, generation, rule_version, applied_ms) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+                     ON CONFLICT (run_id) DO UPDATE SET marker = excluded.marker, \
+                      source_id = excluded.source_id, generation = excluded.generation, \
+                      rule_version = excluded.rule_version, applied_ms = excluded.applied_ms, \
+                      rolled_back_ms = NULL",
+                    params![run_id, marker, source_id, generation, rule_version, now_ms],
+                )?;
+                json!({
+                    "runId": run_id,
+                    "marker": marker,
+                    "state": "applied",
+                    "sourceId": source_id,
+                    "generation": generation,
+                    "ruleVersion": rule_version,
+                })
+            }
+        } else {
+            let Some((source_id, generation, rule_version)) = existing else {
+                return Err(CoreError::not_found(
+                    "REVALIDATION_MARKER_NOT_FOUND",
+                    "no active marker for that run id",
+                ));
+            };
+            transaction.execute(
+                "UPDATE extraction_revalidation SET rolled_back_ms = ?1 WHERE run_id = ?2",
+                params![now_ms, run_id],
+            )?;
+            json!({
+                "runId": run_id,
+                "marker": marker,
+                "state": "rolled-back",
+                "sourceId": source_id,
+                "generation": generation,
+                "ruleVersion": rule_version,
+            })
+        };
+        transaction.commit()?;
+        Ok(value)
+    }
+
     pub fn admin_audit_extractions(&self) -> CoreResult<Value> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
@@ -283,13 +537,42 @@ impl Store {
                 "terminalReason": row.get::<_, Option<String>>(15)?,
             }))
         })?;
-        let sources: Vec<Value> = rows.collect::<Result<_, _>>()?;
+        let mut sources: Vec<Value> = rows.collect::<Result<_, _>>()?;
         let with_gaps = sources
             .iter()
             .filter(|source| source["skippedRecords"].as_i64().unwrap_or(0) > 0)
             .count();
+        let revalidations: Vec<Value> = {
+            let mut statement = connection.prepare(
+                "SELECT run_id, marker, source_id, generation, rule_version, applied_ms, rolled_back_ms \
+                 FROM extraction_revalidation ORDER BY applied_ms DESC LIMIT 50",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok(json!({
+                    "runId": row.get::<_, String>(0)?,
+                    "marker": row.get::<_, String>(1)?,
+                    "sourceId": row.get::<_, String>(2)?,
+                    "generation": row.get::<_, String>(3)?,
+                    "ruleVersion": row.get::<_, String>(4)?,
+                    "appliedMs": row.get::<_, i64>(5)?,
+                    "rolledBackMs": row.get::<_, Option<i64>>(6)?,
+                }))
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let revalidated: std::collections::HashSet<String> = revalidations
+            .iter()
+            .filter(|entry| entry["rolledBackMs"].is_null())
+            .filter_map(|entry| entry["runId"].as_str().map(str::to_string))
+            .collect();
+        for source in &mut sources {
+            if let Some(id) = source["sourceId"].as_str().map(str::to_string) {
+                source["revalidated"] = json!(revalidated.contains(&id));
+            }
+        }
         Ok(json!({
             "sources": sources,
+            "revalidations": revalidations,
             "observedAt": now_ms(),
             "gaps": { "sourcesWithSkippedRecords": with_gaps },
         }))

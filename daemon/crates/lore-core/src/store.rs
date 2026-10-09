@@ -38,6 +38,8 @@ pub use embedding::{
     ClaimedJob, CompleteOutcome, EmbeddingCounts, FailOutcome, JobView, ReconcilePage,
     StoredVector, blob_to_vector, jittered_backoff_ms, vector_norm,
 };
+pub use governance::REPAIR_SOURCE_LIMIT_BYTES;
+pub use ops::PURGE_SELECTION_MAX;
 pub use ops::{
     CorrectOutcome, MaintenanceOutcome, OnboardInput, OnboardOutcome, OperationRun, PurgeOutcome,
     ReflectOutcome, ScopeOutcome,
@@ -326,6 +328,21 @@ CREATE TABLE IF NOT EXISTS bundle_imports (
 ) STRICT;
 "#;
 
+/// Forward migration 7 -> 8: extraction-revalidation markers (apply/rollback,
+/// never suppressions).
+const MIGRATION_8_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS extraction_revalidation (
+    run_id TEXT PRIMARY KEY,
+    marker TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    generation TEXT NOT NULL,
+    rule_version TEXT NOT NULL,
+    applied_ms INTEGER NOT NULL,
+    rolled_back_ms INTEGER
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_revalidation_source ON extraction_revalidation (source_id, generation);
+"#;
+
 /// Forward migration 4 -> 5: migration manifests, id maps, repository
 /// mappings and suppression state.
 const MIGRATION_5_SQL: &str = r#"
@@ -478,6 +495,14 @@ impl Store {
     /// Provider identity for embedding work, when enabled.
     pub fn embedding_identity(&self) -> Option<&str> {
         self.embedding_identity.as_deref()
+    }
+
+    /// Managed data directory containing the store file.
+    pub fn data_dir(&self) -> PathBuf {
+        self.store_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default()
     }
 
     /// Round-robin read connection for parallel readers.
@@ -1717,6 +1742,7 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
             4 => connection.execute_batch(MIGRATION_5_SQL)?,
             5 => connection.execute_batch(MIGRATION_6_SQL)?,
             6 => connection.execute_batch(MIGRATION_7_SQL)?,
+            7 => connection.execute_batch(MIGRATION_8_SQL)?,
             other => {
                 return Err(CoreError::internal(
                     "SCHEMA_UNSUPPORTED",

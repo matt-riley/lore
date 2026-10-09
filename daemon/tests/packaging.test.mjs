@@ -12,12 +12,21 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SCRIPT = path.join(REPO_ROOT, "daemon/scripts/package.mjs");
 
-function run(args) {
+function run(args, env = {}) {
   return execFileSync(process.execPath, [SCRIPT, ...args], {
     cwd: REPO_ROOT,
     encoding: "utf8",
-    env: { ...process.env },
+    env: { ...process.env, ...env },
   });
+}
+
+function runExpectingFailure(args, env = {}) {
+  try {
+    run(args, env);
+  } catch (error) {
+    return `${error.stdout ?? ""}${error.stderr ?? ""}`;
+  }
+  throw new Error("expected the packaging run to fail");
 }
 
 function fakeBinaries(dir) {
@@ -108,4 +117,70 @@ test("packaged metadata names the capability catalog and clients", (t) => {
   const sbom = JSON.parse(readFileSync(path.join(packageRoot, "SBOM.json"), "utf8"));
   assert.equal(sbom.format, "lore-sbom-v1");
   assert.ok(Array.isArray(sbom.packages));
+});
+
+test("packaging refuses signing and notarization without credentials", (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-package-sign-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const binaries = fakeBinaries(path.join(dir, "bin"));
+  const base = [
+    "--skip-build",
+    "--binary-dir",
+    binaries,
+    "--dist",
+    path.join(dir, "dist"),
+    "--target",
+    "aarch64-apple-darwin",
+  ];
+  const clean = { LORE_CODESIGN_IDENTITY: "", LORE_NOTARY_KEY: "", LORE_NOTARY_APPLE_ID: "" };
+
+  // --sign without an identity fails loudly; an unsigned artifact is never
+  // labelled signed.
+  const missingIdentity = runExpectingFailure([...base, "--sign"], clean);
+  assert.match(missingIdentity, /LORE_CODESIGN_IDENTITY is required/);
+
+  // --notarize implies --sign.
+  const notarizeOnly = runExpectingFailure([...base, "--notarize"], clean);
+  assert.match(notarizeOnly, /notarization requires signing/);
+
+  // Signing a non-macOS target is refused rather than silently skipped.
+  const wrongTarget = runExpectingFailure(
+    [
+      "--skip-build",
+      "--binary-dir",
+      binaries,
+      "--dist",
+      path.join(dir, "dist"),
+      "--target",
+      "x86_64-unknown-linux-gnu",
+      "--sign",
+    ],
+    { ...clean, LORE_CODESIGN_IDENTITY: "Developer ID Application: Test (TEAMID)" },
+  );
+  assert.match(wrongTarget, /macOS targets only/);
+
+  // A requested signature is never silently skipped: an identity that is not
+  // in the keychain fails the run before anything is published. (The notary
+  // credential branch runs after a successful codesign, so it is exercised in
+  // the release workflow with real credentials, not here.)
+  const unusableIdentity = runExpectingFailure(
+    [
+      "--skip-build",
+      "--binary-dir",
+      binaries,
+      "--dist",
+      path.join(dir, "dist"),
+      "--target",
+      "aarch64-apple-darwin",
+      "--sign",
+    ],
+    { ...clean, LORE_CODESIGN_IDENTITY: "Developer ID Application: Test (TEAMID)" },
+  );
+  assert.match(unusableIdentity, /codesign/);
+  assert.match(unusableIdentity, /Developer ID Application: Test \(TEAMID\)|no identity found/);
+
+  // The unsigned path is still available and honest about it.
+  const unsigned = JSON.parse(run(base, clean));
+  assert.equal(unsigned.signature, "unsigned-development-build");
+  assert.equal(unsigned.notarization, null);
 });

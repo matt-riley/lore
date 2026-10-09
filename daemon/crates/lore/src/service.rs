@@ -205,14 +205,22 @@ fn stop_command(platform: Platform) -> Option<(String, Vec<String>)> {
     }
 }
 
-/// Plan or apply `lore service install`.
-pub fn install(home: &Path, apply: bool, socket: Option<&Path>) -> Result<Value, String> {
+/// Plan or apply `lore service install`. The unit points at `--config` when
+/// the caller supplies one, otherwise at the conventional `<home>/.lore/lore.json`.
+pub fn install(
+    home: &Path,
+    apply: bool,
+    socket: Option<&Path>,
+    config_override: Option<&Path>,
+) -> Result<Value, String> {
     let platform = platform();
     let unit = unit_path(home, platform)
         .ok_or_else(|| "the service contract supports macOS and Linux only".to_string())?;
     let executable =
         std::env::current_exe().map_err(|error| format!("resolve executable: {error}"))?;
-    let config = home.join(".lore/lore.json");
+    let config = config_override
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| home.join(".lore/lore.json"));
     let contents = unit_contents(platform, &executable, &config);
     let hash = sha256_hex(contents.as_bytes());
     let mut plan = json!({

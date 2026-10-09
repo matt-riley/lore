@@ -859,9 +859,12 @@ async fn run(cli: Cli) -> Result<(), String> {
         Command::Service { action } => {
             let home = resolve_home(cli.home.as_deref())?;
             let value = match action {
-                ServiceCommand::Install { dry_run, apply } => {
-                    service::install(&home, *apply && !*dry_run, cli.socket.as_deref())?
-                }
+                ServiceCommand::Install { dry_run, apply } => service::install(
+                    &home,
+                    *apply && !*dry_run,
+                    cli.socket.as_deref(),
+                    cli.config.as_deref(),
+                )?,
                 ServiceCommand::Start { dry_run, apply } => {
                     service::start(&home, *apply && !*dry_run)?
                 }

@@ -129,26 +129,59 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn probe_running(platform: Platform) -> bool {
+/// Whether *this home's* unit is loaded and running. The label is global per
+/// user, so a machine-wide "is it running" answer would claim another home's
+/// service; the loaded unit path must match the unit under `expected_unit`.
+fn probe_running(platform: Platform, expected_unit: Option<&Path>) -> bool {
+    let Some(expected_unit) = expected_unit else {
+        return false;
+    };
     let output = match platform {
         Platform::MacOs => Command::new("launchctl")
             .args(["print", &format!("gui/{}/{}", user_id(), LABEL)])
             .output(),
         Platform::Linux => Command::new("systemctl")
-            .args(["--user", "is-active", "lored"])
+            .args(["--user", "show", "-p", "FragmentPath", "lored"])
             .output(),
         Platform::Unsupported => return false,
     };
-    match output {
-        Ok(output) => {
-            let text = String::from_utf8_lossy(&output.stdout).to_lowercase();
-            if platform == Platform::MacOs {
-                text.contains("state = running") || text.contains("pid =")
-            } else {
-                text.trim() == "active"
-            }
-        }
-        Err(_) => false,
+    let Ok(output) = output else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let loaded_path = if platform == Platform::MacOs {
+        text.lines()
+            .find_map(|line| line.trim().strip_prefix("path = "))
+            .map(str::to_string)
+    } else {
+        text.lines()
+            .find_map(|line| line.trim().strip_prefix("FragmentPath="))
+            .map(str::to_string)
+    };
+    let Some(loaded_path) = loaded_path else {
+        return false;
+    };
+    let matches_home = loaded_path == expected_unit.to_string_lossy()
+        || std::fs::canonicalize(&loaded_path)
+            .ok()
+            .is_some_and(|loaded| {
+                std::fs::canonicalize(expected_unit)
+                    .ok()
+                    .is_some_and(|expected| loaded == expected)
+            });
+    if !matches_home {
+        return false;
+    }
+    if platform == Platform::MacOs {
+        let lowered = text.to_lowercase();
+        lowered.contains("state = running") || lowered.contains("pid =")
+    } else {
+        // `is-active` is the authority once the fragment path matches.
+        Command::new("systemctl")
+            .args(["--user", "is-active", "lored"])
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim() == "active")
+            .unwrap_or(false)
     }
 }
 
@@ -358,7 +391,7 @@ pub fn status(home: &Path, ready: bool) -> Result<Value, String> {
     let installed = unit.as_ref().is_some_and(|path| path.exists()) && manifest.is_some();
     let enabled = unit.as_ref().is_some_and(|path| path.exists());
     let running = if installed {
-        probe_running(platform)
+        probe_running(platform, unit.as_deref())
     } else {
         false
     };

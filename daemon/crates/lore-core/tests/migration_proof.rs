@@ -114,6 +114,37 @@ fn apply_imports_with_dispositions_and_never_mutates_the_source() {
     let status =
         migration::apply(&source, &destination, &preview.fingerprint, true, 1_000).expect("apply");
     assert_eq!(status.state, "validated");
+
+    // Imported suppression state must be reflected in the metadata counters
+    // that Status and the dashboard read.
+    {
+        // Activation publishes the staged store to the destination root.
+        let published = destination.join("lore-v2.db");
+        let store = Store::open_migration_store(&published).expect("open published store");
+        let status = store.status().expect("status");
+        let connection =
+            rusqlite::Connection::open(&published).expect("open published store for counts");
+        let actual_active: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM memories WHERE forgotten = 0 AND superseded_by IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("active count");
+        let actual_forgotten: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM memories WHERE forgotten = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("forgotten count");
+        assert!(
+            actual_forgotten > 0,
+            "the fixture's suppression marks a memory forgotten"
+        );
+        assert_eq!(status.active_memories, actual_active);
+        assert_eq!(status.forgotten_memories, actual_forgotten);
+    }
     assert_eq!(status.counts.imported.get("semantic_memory"), Some(&5));
     assert!(
         status
@@ -405,6 +436,44 @@ fn cutover_drill_serves_round_trips_on_the_migrated_store() {
     let status =
         migration::apply(&source, &destination, &preview.fingerprint, true, 1_000).expect("apply");
     assert_eq!(status.state, "validated");
+
+    // Imported suppression state must be reflected in the metadata counters
+    // that Status and the dashboard read.
+    {
+        let staged = destination.join(".lore-import/lore-v2.db");
+        let store = Store::open_migration_store(&staged).expect("open staged store");
+        let status = store.status().expect("status");
+        let connection = rusqlite::Connection::open(&staged).expect("open staged store for counts");
+        let actual_active: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM memories WHERE forgotten = 0 AND superseded_by IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("active count");
+        let actual_forgotten: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM memories WHERE forgotten = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("forgotten count");
+        let suppression_rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM suppressions", [], |row| row.get(0))
+            .unwrap_or(-1);
+        let active_suppressions: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM suppressions WHERE state = 'active'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(-1);
+        eprintln!(
+            "DIAG active={actual_active} forgotten={actual_forgotten} suppressions={suppression_rows} active_suppressions={active_suppressions}"
+        );
+        assert_eq!(status.active_memories, actual_active);
+        assert_eq!(status.forgotten_memories, actual_forgotten);
+    }
 
     // Activate the published store the way cutover does, then use it as the
     // daemon would: retain, recall, forget. The staging directory keeps the

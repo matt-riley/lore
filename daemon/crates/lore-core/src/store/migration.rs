@@ -580,11 +580,19 @@ fn rebuild_metadata(store: &Store, now_ms: i64) -> CoreResult<()> {
         [],
         |row| row.get(0),
     )?;
+    // Suppressions imported from v1 mark rows forgotten; the counter must
+    // reflect them or Status and the dashboard under-report deletions.
+    let forgotten: i64 = transaction.query_row(
+        "SELECT COUNT(*) FROM memories WHERE forgotten = 1",
+        [],
+        |row| row.get(0),
+    )?;
     let revision: i64 =
         transaction.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
     transaction.execute(
-        "UPDATE store_metadata SET active_memories = ?1, memory_revision = ?2 WHERE id = 1",
-        params![active, revision],
+        "UPDATE store_metadata SET active_memories = ?1, forgotten_memories = ?2, \
+         memory_revision = ?3 WHERE id = 1",
+        params![active, forgotten, revision],
     )?;
     let _ = now_ms;
     transaction.commit()?;

@@ -247,6 +247,27 @@ fn service_install_honors_an_explicit_config_path() {
 }
 
 #[test]
+fn status_reports_the_installed_config_without_flags() {
+    let home = tempfile::tempdir().expect("home");
+    run(home.path(), &["service", "install", "--apply"]);
+    let (code, stdout, stderr) = run(home.path(), &["service", "status", "--output", "json"]);
+    assert_eq!(code, 0, "{stderr}");
+    let value = json(&stdout);
+    assert_eq!(value["installed"], true);
+    assert_eq!(
+        value["configPath"],
+        home.path()
+            .join(".lore/lore.json")
+            .to_string_lossy()
+            .to_string()
+    );
+    // Without a running daemon the state is stopped; degraded is reserved for
+    // a running daemon that is not ready.
+    assert_eq!(value["state"], "stopped");
+    assert_eq!(value["ready"], false);
+}
+
+#[test]
 fn audit_verb_reports_and_refuses_unknown_actions() {
     // Without a reachable daemon the audit command fails on transport, not on
     // argument parsing; with a live one it reports and marks.

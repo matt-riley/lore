@@ -878,8 +878,14 @@ async fn run(cli: Cli) -> Result<(), String> {
                     service::reload(&home, *apply && !*dry_run)?
                 }
                 ServiceCommand::Status { output } => {
+                    // Prefer the config the installed unit runs; a bare
+                    // `service status` must still report readiness.
+                    let configured = cli
+                        .config
+                        .clone()
+                        .or_else(|| service::manifest_config_path(&home));
                     let socket = resolve_socket(
-                        cli.config.as_deref(),
+                        configured.as_deref(),
                         cli.socket.clone(),
                         cli.data_dir.as_deref(),
                     );

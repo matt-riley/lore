@@ -82,6 +82,11 @@ function codesignStage(stage, target) {
     throw new Error("signing applies to macOS targets only");
   }
   const identity = requireEnv("LORE_CODESIGN_IDENTITY");
+  if (process.platform !== "darwin") {
+    throw new Error(
+      `codesign is required to sign macOS artifacts; this host is ${process.platform}`,
+    );
+  }
   for (const binary of ["lore", "lored"]) {
     const file = path.join(stage, "bin", binary);
     run("codesign", [

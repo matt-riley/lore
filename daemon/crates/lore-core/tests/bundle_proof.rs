@@ -36,6 +36,7 @@ fn approved_item(store: &Store, title: &str, now: i64) -> String {
             Some("Detail line."),
             "manual",
             None,
+            None,
             now,
         )
         .expect("backlog add");

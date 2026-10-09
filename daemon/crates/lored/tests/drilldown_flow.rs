@@ -203,6 +203,76 @@ async fn drilldown_reports_lineage_canonical_grouping_and_a_consistent_graph() {
         "{graph}"
     );
 
+    // A backlog item linked to the memory appears in linkedImprovements.
+    let (code, added) = call(
+        &daemon.socket,
+        "/v2/admin/backlog",
+        json!({
+            "action": "add",
+            "kind": "improvement",
+            "title": "Tighten the retry path",
+            "linkedMemoryId": replacement,
+        }),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(code, 200, "{added}");
+    let backlog_id = added["result"]["id"]
+        .as_str()
+        .expect("backlog id")
+        .to_string();
+    assert_eq!(added["result"]["linkedMemoryId"], replacement);
+
+    let (_, linked) = call(
+        &daemon.socket,
+        "/v2/views/drilldown",
+        json!({ "id": replacement }),
+        Some(&store_id),
+    )
+    .await;
+    let improvements = linked["result"]["linkedImprovements"]
+        .as_array()
+        .expect("improvements");
+    assert_eq!(improvements.len(), 1, "{linked}");
+    assert_eq!(improvements[0]["id"], backlog_id);
+    assert_eq!(improvements[0]["title"], "Tighten the retry path");
+
+    // Linking to an unknown memory is refused before any write.
+    let (code, unknown) = call(
+        &daemon.socket,
+        "/v2/admin/backlog",
+        json!({ "action": "link", "id": backlog_id, "linkedMemoryId": "mem_nope" }),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(code, 404, "{unknown}");
+    assert_eq!(unknown["error"]["reason"], "MEMORY_NOT_FOUND");
+
+    // Clearing the link removes it from the drill-down.
+    let (code, cleared) = call(
+        &daemon.socket,
+        "/v2/admin/backlog",
+        json!({ "action": "link", "id": backlog_id }),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(code, 200, "{cleared}");
+    assert_eq!(cleared["result"]["state"], "unlinked");
+    let (_, unlinked) = call(
+        &daemon.socket,
+        "/v2/views/drilldown",
+        json!({ "id": replacement }),
+        Some(&store_id),
+    )
+    .await;
+    assert!(
+        unlinked["result"]["linkedImprovements"]
+            .as_array()
+            .expect("improvements")
+            .is_empty(),
+        "{unlinked}"
+    );
+
     // A session id resolves through its episode digest when one exists.
     let (code, missing) = call(
         &daemon.socket,

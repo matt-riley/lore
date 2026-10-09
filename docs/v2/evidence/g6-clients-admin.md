@@ -69,12 +69,17 @@ memory, or for a session id resolved through its episode digest:
 - The dashboard translation passes lineage, cluster and graph through in the
   v1 field names (`focus`, `provenance`, `lineage`, `canonicalCluster`,
   `graph`) instead of the previous empty stubs.
-- `linkedImprovements` stays empty: the backlog table has no memory-link
-  column, and the drill-down reports none rather than guessing by content
-  match. A future link column can populate it without an API change.
+- **Linked improvements**: schema 10 adds `improvement_backlog.linked_memory_id`
+  plus an index. Backlog adds and updates can carry `linkedMemoryId`, and a
+  new `action=link` sets or clears the link on an existing item. Links are
+  validated against real memories (`MEMORY_NOT_FOUND` for unknown ids) and
+  recorded in the ledger; the drill-down reports them with id, kind, title,
+  state and update time.
 - Proofs: `lored/tests/drilldown_flow.rs` (lineage in both directions,
-  canonical members, graph consistency, session-resolution miss) and a
-  browser translation unit test for the rich payload.
+  canonical members, graph consistency, linked-improvement lifecycle
+  including refusal and clearing, session-resolution miss) and a browser
+  translation unit test for the rich payload. The link flow was exercised by
+  hand through the CLI and the dashboard gateway.
 
 ### Provider-backed reflection and optional rerank
 

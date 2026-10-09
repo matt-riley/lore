@@ -542,9 +542,22 @@ impl Store {
             _ => Value::Null,
         };
 
-        // Backlog artifacts do not carry a memory link yet, so the drill-down
-        // reports none rather than guessing by content match.
-        let linked_improvements: Vec<Value> = Vec::new();
+        let linked_improvements: Vec<Value> = {
+            let mut statement = connection.prepare(
+                "SELECT id, kind, title, state, updated_ms FROM improvement_backlog \
+                 WHERE linked_memory_id = ?1 ORDER BY updated_ms DESC LIMIT 10",
+            )?;
+            let rows = statement.query_map(params![memory_id], |row| {
+                Ok(json!({
+                    "id": row.get::<_, String>(0)?,
+                    "kind": row.get::<_, String>(1)?,
+                    "title": row.get::<_, String>(2)?,
+                    "state": row.get::<_, String>(3)?,
+                    "updatedMs": row.get::<_, i64>(4)?,
+                }))
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
 
         // Relationship graph: the focus, its lineage, canonical siblings,
         // evidence sources and derived episodes, bounded to 60 nodes.

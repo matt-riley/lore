@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::error::{CoreError, CoreResult};
 
 /// Wire/store schema version this build owns.
-pub const STORE_SCHEMA_VERSION: i64 = 9;
+pub const STORE_SCHEMA_VERSION: i64 = 10;
 /// Configuration version accepted by this build.
 pub const CONFIG_VERSION: u32 = 2;
 

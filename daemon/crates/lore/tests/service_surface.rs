@@ -36,6 +36,28 @@ fn json(stdout: &str) -> serde_json::Value {
     serde_json::from_str(stdout).unwrap_or_else(|error| panic!("{error}: {stdout}"))
 }
 
+/// The binary a generated unit actually runs, on either platform.
+fn unit_executable(contents: &str) -> String {
+    if let Some(rest) = contents.split("ExecStart=").nth(1) {
+        return rest
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+    }
+    contents
+        .lines()
+        .skip_while(|line| !line.contains("ProgramArguments"))
+        .find_map(|line| {
+            let trimmed = line.trim();
+            trimmed
+                .strip_prefix("<string>")?
+                .strip_suffix("</string>")
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
 fn unit_path(home: &Path) -> PathBuf {
     if cfg!(target_os = "macos") {
         home.join("Library/LaunchAgents/dev.lore.lored.plist")

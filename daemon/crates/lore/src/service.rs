@@ -384,6 +384,13 @@ pub fn stop(home: &Path, apply: bool) -> Result<Value, String> {
 
 /// Report installed/enabled/running/ready without mutating anything.
 /// Readiness is supplied by the caller from a bounded socket status probe.
+/// The config path recorded when the service was installed, so status can
+/// probe the daemon the unit actually runs without the caller repeating
+/// `--config`.
+pub fn manifest_config_path(home: &Path) -> Option<std::path::PathBuf> {
+    read_manifest(home).and_then(|value| value["configPath"].as_str().map(std::path::PathBuf::from))
+}
+
 pub fn status(home: &Path, ready: bool) -> Result<Value, String> {
     let platform = platform();
     let unit = unit_path(home, platform);

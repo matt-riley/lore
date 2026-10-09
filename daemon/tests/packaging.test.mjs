@@ -159,10 +159,11 @@ test("packaging refuses signing and notarization without credentials", (t) => {
   );
   assert.match(wrongTarget, /macOS targets only/);
 
-  // A requested signature is never silently skipped: an identity that is not
-  // in the keychain fails the run before anything is published. (The notary
-  // credential branch runs after a successful codesign, so it is exercised in
-  // the release workflow with real credentials, not here.)
+  // A requested signature is never silently skipped: either codesign is
+  // missing (non-macOS runner), the identity is not in the keychain, or the
+  // run fails — in every case no archive is produced. (The notary credential
+  // branch runs after a successful codesign, so it is exercised in the
+  // release workflow with real credentials, not here.)
   const unusableIdentity = runExpectingFailure(
     [
       "--skip-build",
@@ -177,7 +178,14 @@ test("packaging refuses signing and notarization without credentials", (t) => {
     { ...clean, LORE_CODESIGN_IDENTITY: "Developer ID Application: Test (TEAMID)" },
   );
   assert.match(unusableIdentity, /codesign/);
-  assert.match(unusableIdentity, /Developer ID Application: Test \(TEAMID\)|no identity found/);
+  assert.match(
+    unusableIdentity,
+    /codesign is required|no identity found|Developer ID Application: Test \(TEAMID\)|codesign ENOENT/,
+  );
+  assert.ok(
+    !readdirSync(path.join(dir, "dist")).some((entry) => entry.endsWith(".tar.gz")),
+    "a refused signature must not leave a publishable archive",
+  );
 
   // The unsigned path is still available and honest about it.
   const unsigned = JSON.parse(run(base, clean));

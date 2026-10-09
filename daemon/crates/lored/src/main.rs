@@ -23,11 +23,12 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-use lore_core::config::{ResolvedConfig, ResolvedEmbedding, ResolvedMaintenance};
+use lore_core::config::{ResolvedAnalysis, ResolvedConfig, ResolvedEmbedding, ResolvedMaintenance};
 use lore_core::error::CoreError;
 use lore_core::lifecycle;
 use lore_core::policy;
@@ -98,6 +99,8 @@ struct State {
     generation: AtomicU32,
     config_path: Option<PathBuf>,
     maintenance: Arc<ResolvedMaintenance>,
+    analysis: Arc<Option<ResolvedAnalysis>>,
+    chat_lane: Arc<Semaphore>,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -177,6 +180,8 @@ async fn main() -> Result<()> {
     scheduler.wake();
     let maintenance_config =
         ResolvedMaintenance::load(config.config_path.as_deref()).map_err(to_anyhow)?;
+    let analysis_config =
+        ResolvedAnalysis::load(config.config_path.as_deref()).map_err(to_anyhow)?;
     if config.enabled {
         // Disabled stores serve Status only and never run background work.
         maintenance::spawn(
@@ -207,6 +212,8 @@ async fn main() -> Result<()> {
         generation: AtomicU32::new(generation),
         config_path: config.config_path.clone(),
         maintenance: Arc::new(maintenance_config),
+        analysis: Arc::new(analysis_config.enabled.then_some(analysis_config)),
+        chat_lane: Arc::new(Semaphore::new(1)),
     });
     eprintln!(
         "[lored] listening on {} (store {})",
@@ -351,6 +358,7 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
                 | "/v2/sources/hint"
                 | "/v2/sources/status"
                 | "/v2/extraction/retry"
+                | "/v2/analysis"
         )
     {
         return fail_response(
@@ -502,6 +510,7 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
         "/v2/sources/hint" => sources::handle_hint(&raw, &state, request_id).await,
         "/v2/sources/status" => sources::handle_status(&raw, &state, request_id).await,
         "/v2/extraction/retry" => sources::handle_extraction_retry(&raw, &state, request_id).await,
+        "/v2/analysis" => handle_analysis(&raw, &state, request_id).await,
         _ => handle_recall(&raw, &state, request_id).await,
     }
 }
@@ -735,6 +744,9 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             capabilities.push("memory.skill.validate".to_string());
             capabilities.push("memory.repair".to_string());
             capabilities.push("memory.replay".to_string());
+            if state.analysis.is_some() {
+                capabilities.push("analysis.chat".to_string());
+            }
             if !state.enabled || unavailable_reason(state).is_some() {
                 capabilities = vec!["status.basic".to_string()];
             }
@@ -2008,6 +2020,314 @@ fn fail_response(
             },
         },
     )
+}
+
+/// Optional augmentation lane. Bounded, in-memory only, and never mutating:
+/// the daemon refetches every client-selected record and trusts only ids and
+/// revisions it can revalidate.
+async fn handle_analysis(raw: &[u8], state: &Arc<State>, fallback_id: Option<String>) -> Resp {
+    use protocol::AnalysisParams;
+
+    let envelope = match parse_route::<AnalysisParams>(raw, fallback_id.as_deref(), &state.store_id)
+    {
+        Ok(envelope) => envelope,
+        Err(response) => return response,
+    };
+    let request_id = envelope.meta.request_id.clone();
+    if let Some(response) = require_store(&envelope.meta, &state.store_id, true) {
+        return response;
+    }
+    let Some(config) = state.analysis.as_ref() else {
+        return fail_response(
+            StatusCode::NOT_IMPLEMENTED,
+            code::UNIMPLEMENTED,
+            "ANALYSIS_UNAVAILABLE",
+            false,
+            Some(&request_id),
+            Some(&state.store_id),
+        );
+    };
+    let params = envelope.params;
+    let kind = params.kind.as_str();
+    if kind != "query-expansion" && kind != "context-compression" {
+        return fail_response(
+            StatusCode::BAD_REQUEST,
+            code::INVALID_ARGUMENT,
+            "ANALYSIS_KIND_INVALID",
+            false,
+            Some(&request_id),
+            Some(&state.store_id),
+        );
+    }
+    const MAX_QUERY: usize = 16 * 1024;
+    let query = params.query.clone().unwrap_or_default();
+    if query.is_empty() || query.len() > MAX_QUERY {
+        return fail_response(
+            StatusCode::BAD_REQUEST,
+            code::INVALID_ARGUMENT,
+            "ANALYSIS_QUERY_INVALID",
+            false,
+            Some(&request_id),
+            Some(&state.store_id),
+        );
+    }
+    if kind == "context-compression" && params.records.is_empty() {
+        return fail_response(
+            StatusCode::BAD_REQUEST,
+            code::INVALID_ARGUMENT,
+            "ANALYSIS_RECORDS_REQUIRED",
+            false,
+            Some(&request_id),
+            Some(&state.store_id),
+        );
+    }
+
+    // Refetch and revalidate the client's selection before any model work.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0);
+    let selection: Vec<(String, i64)> = params
+        .records
+        .iter()
+        .map(|record| (record.id.clone(), record.revision))
+        .collect();
+    let records = if kind == "context-compression" {
+        let store = Arc::clone(&state.store);
+        let repository = params.repository.clone();
+        match tokio::task::spawn_blocking(move || {
+            store.analysis_records(repository.as_deref(), &selection, now)
+        })
+        .await
+        {
+            Ok(Ok(records)) => records,
+            _ => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+
+    // Nothing survived revalidation: no model work and no empty prompt.
+    if kind == "context-compression" && records.is_empty() {
+        return json(
+            StatusCode::OK,
+            &OkEnvelope {
+                ok: true,
+                request_id,
+                store_id: state.store_id.clone(),
+                result: serde_json::json!({
+                    "kind": kind,
+                    "terms": Value::Null,
+                    "sections": [],
+                    "diagnostics": {
+                        "deadlineMs": config.default_deadline_ms,
+                        "model": config.model,
+                        "recordsRequested": params.records.len(),
+                        "recordsUsed": 0,
+                        "recordsDropped": params.records.len(),
+                        "provider": "skipped",
+                    },
+                }),
+            },
+        );
+    }
+    let prompt = build_analysis_prompt(kind, &query, params.repository.as_deref(), &records);
+    let provider = match lore_provider::ChatProvider::new(
+        &config.endpoint,
+        &config.model,
+        config.api_key.clone(),
+        std::time::Duration::from_millis(config.max_deadline_ms),
+    ) {
+        Ok(provider) => provider,
+        Err(_) => {
+            return fail_response(
+                StatusCode::BAD_GATEWAY,
+                code::INTERNAL,
+                "ANALYSIS_CONFIG",
+                false,
+                Some(&request_id),
+                Some(&state.store_id),
+            );
+        }
+    };
+    // One optional chat lane: a second concurrent request is refused instead
+    // of queueing behind model work.
+    let _lane = match Arc::clone(&state.chat_lane).try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return fail_response(
+                StatusCode::CONFLICT,
+                code::FAILED_PRECONDITION,
+                "ANALYSIS_BUSY",
+                true,
+                Some(&request_id),
+                Some(&state.store_id),
+            );
+        }
+    };
+    let deadline_ms = params
+        .deadline_ms
+        .unwrap_or(config.default_deadline_ms)
+        .clamp(1_000, config.max_deadline_ms);
+    let completion = tokio::time::timeout(
+        std::time::Duration::from_millis(deadline_ms + 250),
+        provider.complete(&prompt),
+    )
+    .await;
+    let text = match completion {
+        Ok(Ok(text)) => text,
+        Ok(Err(error)) => {
+            let (reason, retryable) = match error {
+                lore_provider::ProviderError::Transient(message)
+                    if message.contains("timed out") =>
+                {
+                    ("ANALYSIS_TIMEOUT", true)
+                }
+                lore_provider::ProviderError::Transient(_) => ("ANALYSIS_UNAVAILABLE", true),
+                lore_provider::ProviderError::Auth(_) => ("ANALYSIS_UNAUTHORIZED", false),
+                lore_provider::ProviderError::ModelInvalid(_)
+                | lore_provider::ProviderError::Config(_) => ("ANALYSIS_CONFIG", false),
+                _ => ("ANALYSIS_INVALID_RESPONSE", false),
+            };
+            return fail_response(
+                StatusCode::BAD_GATEWAY,
+                code::INTERNAL,
+                reason,
+                retryable,
+                Some(&request_id),
+                Some(&state.store_id),
+            );
+        }
+        Err(_) => {
+            return fail_response(
+                StatusCode::GATEWAY_TIMEOUT,
+                code::INTERNAL,
+                "ANALYSIS_TIMEOUT",
+                true,
+                Some(&request_id),
+                Some(&state.store_id),
+            );
+        }
+    };
+
+    let parsed: Value = match parse_analysis_completion(kind, &text, &records) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            return fail_response(
+                StatusCode::BAD_GATEWAY,
+                code::INTERNAL,
+                "ANALYSIS_INVALID_RESPONSE",
+                false,
+                Some(&request_id),
+                Some(&state.store_id),
+            );
+        }
+    };
+    let result = serde_json::json!({
+        "kind": kind,
+        "terms": parsed.get("terms").cloned().unwrap_or(Value::Null),
+        "sections": parsed.get("sections").cloned().unwrap_or(Value::Null),
+        "diagnostics": {
+            "deadlineMs": deadline_ms,
+            "model": config.model,
+            "recordsRequested": params.records.len(),
+            "recordsUsed": records.len(),
+            "recordsDropped": params.records.len().saturating_sub(records.len()),
+            "provider": if provider.is_loopback() { "loopback" } else { "remote" },
+        },
+    });
+    json(
+        StatusCode::OK,
+        &OkEnvelope {
+            ok: true,
+            request_id,
+            store_id: state.store_id.clone(),
+            result,
+        },
+    )
+}
+
+fn build_analysis_prompt(
+    kind: &str,
+    query: &str,
+    repository: Option<&str>,
+    records: &[Value],
+) -> String {
+    let mut prompt = String::new();
+    if kind == "query-expansion" {
+        prompt.push_str(
+            "Expand the following search query into at most 24 short alternative terms. ",
+        );
+        prompt.push_str("Reply with JSON: {\"terms\": [\"...\"]}. Do not add commentary.\n");
+    } else {
+        prompt.push_str("Compress the following records into at most 12 short sections. ");
+        prompt.push_str(
+            "Reply with JSON: {\"sections\": [{\"id\": \"<record id>\", \"text\": \"...\"}]}. ",
+        );
+        prompt.push_str("Use only the supplied ids and never invent one. Do not add commentary.\n");
+        for record in records {
+            let content = record["content"].as_str().unwrap_or_default();
+            let bounded: String = content.chars().take(2_000).collect();
+            prompt.push_str(&format!(
+                "\n[{}] {bounded}\n",
+                record["id"].as_str().unwrap_or_default()
+            ));
+        }
+    }
+    prompt.push_str("\nRepository: ");
+    prompt.push_str(repository.unwrap_or("global"));
+    prompt.push_str("\nQuery: ");
+    prompt.push_str(query);
+    prompt.truncate(64 * 1024);
+    prompt
+}
+
+/// Validate the model's JSON against the bounded contract. Unknown ids are
+/// rejected rather than trusted.
+fn parse_analysis_completion(kind: &str, text: &str, records: &[Value]) -> Result<Value, String> {
+    let trimmed = text.trim();
+    let json_text = trimmed
+        .strip_prefix("```json")
+        .and_then(|rest| rest.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    let parsed: Value = serde_json::from_str(json_text).map_err(|error| error.to_string())?;
+    if kind == "query-expansion" {
+        let terms = parsed["terms"].as_array().ok_or("terms missing")?;
+        if terms.len() > 32 {
+            return Err("too many terms".to_string());
+        }
+        let bounded: Vec<Value> = terms
+            .iter()
+            .filter_map(|term| term.as_str())
+            .filter(|term| !term.is_empty() && term.chars().count() <= 64)
+            .take(32)
+            .map(|term| Value::String(term.to_string()))
+            .collect();
+        Ok(serde_json::json!({ "terms": bounded }))
+    } else {
+        let sections = parsed["sections"].as_array().ok_or("sections missing")?;
+        if sections.len() > 50 {
+            return Err("too many sections".to_string());
+        }
+        let known: std::collections::HashSet<&str> = records
+            .iter()
+            .filter_map(|record| record["id"].as_str())
+            .collect();
+        let mut bounded = Vec::new();
+        for section in sections {
+            let Some(id) = section["id"].as_str() else {
+                continue;
+            };
+            if !known.contains(id) {
+                return Err(format!("unknown record id in sections: {id}"));
+            }
+            let text = section["text"].as_str().unwrap_or_default();
+            let bounded_text: String = text.chars().take(2_048).collect();
+            bounded.push(serde_json::json!({ "id": id, "text": bounded_text }));
+        }
+        Ok(serde_json::json!({ "sections": bounded }))
+    }
 }
 
 #[cfg(test)]

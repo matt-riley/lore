@@ -503,6 +503,64 @@ impl Store {
         Ok(value)
     }
 
+    /// Refetch client-selected records for analysis. Only the id and
+    /// revision are trusted; content comes from the store and must be active,
+    /// unexpired and visible to the requested repository.
+    pub fn analysis_records(
+        &self,
+        repository: Option<&str>,
+        selection: &[(String, i64)],
+        now_ms: i64,
+    ) -> CoreResult<Vec<Value>> {
+        let connection = self.reader();
+        let connection = connection.lock().expect("reader lock");
+        let mut out = Vec::new();
+        for (id, revision) in selection.iter().take(50) {
+            let row: Option<(String, i64, String, String, Option<String>)> = connection
+                .query_row(
+                    "SELECT id, revision, content, scope, repository FROM memories \
+                     WHERE id = ?1 AND forgotten = 0 AND superseded_by IS NULL \
+                     AND (expires_at_ms IS NULL OR expires_at_ms > ?2)",
+                    params![id, now_ms],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            let Some((id, actual_revision, content, scope, row_repository)) = row else {
+                continue;
+            };
+            if actual_revision != *revision {
+                continue;
+            }
+            let visible = match scope.as_str() {
+                "global" => true,
+                _ => match (repository, row_repository.as_deref()) {
+                    (Some(wanted), Some(actual)) => wanted == actual,
+                    (None, _) => false,
+                    _ => false,
+                },
+            };
+            if !visible {
+                continue;
+            }
+            out.push(json!({
+                "id": id,
+                "revision": actual_revision,
+                "content": content,
+                "scope": scope,
+                "repository": row_repository,
+            }));
+        }
+        Ok(out)
+    }
+
     pub fn admin_audit_extractions(&self) -> CoreResult<Value> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");

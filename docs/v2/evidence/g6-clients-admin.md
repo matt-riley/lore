@@ -51,6 +51,36 @@ synchronous reads with capability IDs `search.browse`, `explain.context`,
 - **Capability inventory** merges the checked-in catalog with live daemon
   capabilities; it works without a daemon and reports `storeId: null`.
 
+### Optional analysis lane
+
+`POST /v2/analysis` and `lore analyze --kind query-expansion|context-compression`
+(stdin JSON, per the spec) implement explicit optional augmentation:
+
+- Disabled unless the `analysis` config block enables it; the API key comes
+  only from `LORE_ANALYSIS_API_KEY`. The `analysis.chat` capability is
+  advertised exactly when the lane is configured.
+- Input is bounded: kind-validated, query ≤ 16 KiB, compression takes at most
+  50 id/revision pairs. Every selected record is **refetched and revalidated
+  by the daemon** — id, revision, active state, expiry and repository
+  visibility — and the model prompt contains only store content, never
+  client-provided text. A selection with no revalidatable records skips the
+  model entirely and returns an explicit empty result.
+- Output is validated against the bounded contract: at most 32 terms (≤ 64
+  chars) or 50 sections (≤ 2 048 chars each), and a section id outside the
+  revalidated set fails with `ANALYSIS_INVALID_RESPONSE` instead of being
+  trusted.
+- One optional chat lane: a concurrent request fails fast with `ANALYSIS_BUSY`
+  rather than queueing behind model work. Deadlines default to 5 s and cap at
+  30 s. There is no durable run, no store mutation and no prompt or result
+  persistence; the provider client is loopback-aware and only constructed
+  from explicit configuration.
+- Proofs: four daemon tests against a scripted chat endpoint — disabled
+  refusal, bounded expansion with no store mutation or run rows, record
+  revalidation (stale revision dropped, unknown id rejected, content
+  submitted), and input/lane limits. The `lore analyze` verb was exercised
+  manually against a live daemon and a fake OpenAI-compatible endpoint in both
+  JSON and text modes.
+
 ### Maintenance task inventory and cadences
 
 Nine tasks are ported into one durable inventory: `memoryHygiene`,

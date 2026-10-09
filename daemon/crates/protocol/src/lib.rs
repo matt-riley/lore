@@ -345,6 +345,30 @@ pub struct SourceHintResult {
     pub coalesced: bool,
 }
 
+/// One client-selected record for context compression. The daemon refetches
+/// and revalidates it; the revision is the only provenance it trusts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisRecordParams {
+    pub id: String,
+    pub revision: i64,
+}
+
+/// Optional augmentation request for `/v2/analysis`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisParams {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub records: Vec<AnalysisRecordParams>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_ms: Option<u64>,
+}
+
 /// `/v2/admin/<op>` parameters. Permissive: each operation reads the fields
 /// it needs and ignores the rest.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

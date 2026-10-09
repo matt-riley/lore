@@ -114,6 +114,13 @@ enum Command {
         #[command(subcommand)]
         action: MigrateCommand,
     },
+    /// Optional augmentation: query expansion or context compression.
+    Analyze {
+        #[arg(long)]
+        kind: String,
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
     /// Inspect or run maintenance tasks.
     Maintenance {
         /// Report task states and recent runs (the default).
@@ -593,6 +600,62 @@ async fn run(cli: Cli) -> Result<(), String> {
             }
             return Ok(());
         }
+        Command::Analyze { kind, output } => {
+            // The spec's input shape is a JSON object on stdin; the flag only
+            // selects the kind.
+            let mut input = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
+                .map_err(|error| error.to_string())?;
+            let mut params: Value = if input.trim().is_empty() {
+                serde_json::json!({})
+            } else {
+                serde_json::from_str(&input)
+                    .map_err(|error| format!("stdin must be a JSON object: {error}"))?
+            };
+            params["kind"] = Value::String(kind.clone());
+            let socket = cli
+                .socket
+                .clone()
+                .or_else(|| resolve_socket(cli.config.as_deref(), None, cli.data_dir.as_deref()))
+                .ok_or_else(|| "provide --config or --socket".to_string())?;
+            let expected = resolve_store_id(&socket).await?;
+            let mut meta = audit_meta();
+            meta.expected_store_id = Some(expected);
+            meta.timeout_ms = Some(31_000);
+            let outcome = lore::request(&socket, "/v2/analysis", meta, params)
+                .await
+                .map_err(|error| error.to_string())?;
+            if !outcome.is_success() {
+                return Err(outcome.body);
+            }
+            let body: Value = serde_json::from_str(&outcome.body).unwrap_or_default();
+            if output == "json" {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&body["result"]).unwrap_or_default()
+                );
+                return Ok(());
+            }
+            let result = &body["result"];
+            if let Some(terms) = result["terms"].as_array() {
+                println!("lore analyze: {} expanded term(s)", terms.len());
+                for term in terms.iter().take(24) {
+                    println!("  {}", term.as_str().unwrap_or(""));
+                }
+            } else if let Some(sections) = result["sections"].as_array() {
+                println!("lore analyze: {} compressed section(s)", sections.len());
+                for section in sections.iter().take(12) {
+                    println!(
+                        "  {}: {}",
+                        section["id"].as_str().unwrap_or(""),
+                        section["text"].as_str().unwrap_or("")
+                    );
+                }
+            } else {
+                println!("lore analyze: no output");
+            }
+            return Ok(());
+        }
         Command::Maintenance {
             status,
             task,
@@ -832,7 +895,8 @@ async fn run(cli: Cli) -> Result<(), String> {
         | Command::Setup { .. }
         | Command::Upgrade { .. }
         | Command::Audit { .. }
-        | Command::Maintenance { .. } => {
+        | Command::Maintenance { .. }
+        | Command::Analyze { .. } => {
             unreachable!("local-only commands are handled before socket resolution")
         }
         Command::Status { json: _ } => {

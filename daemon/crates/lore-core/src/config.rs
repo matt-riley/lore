@@ -221,6 +221,70 @@ impl ResolvedMaintenance {
     }
 }
 
+/// Optional analysis lane settings. Disabled unless the `analysis` block
+/// explicitly enables it; the API key comes from the environment only.
+#[derive(Debug, Clone)]
+pub struct ResolvedAnalysis {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub model: String,
+    pub api_key: Option<String>,
+    pub default_deadline_ms: u64,
+    pub max_deadline_ms: u64,
+}
+
+impl Default for ResolvedAnalysis {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: String::new(),
+            model: String::new(),
+            api_key: None,
+            default_deadline_ms: 5_000,
+            max_deadline_ms: 30_000,
+        }
+    }
+}
+
+impl ResolvedAnalysis {
+    /// Read the `analysis` block. Absent or disabled yields the disabled
+    /// default; enabling without an endpoint/model fails at startup.
+    pub fn load(config_path: Option<&Path>) -> CoreResult<Self> {
+        let Some(path) = config_path else {
+            return Ok(Self::default());
+        };
+        let raw = match std::fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(_) => return Ok(Self::default()),
+        };
+        let file: serde_json::Value = serde_json::from_str(&raw)?;
+        let block = file.get("analysis").cloned().unwrap_or_default();
+        if block.is_null() {
+            return Ok(Self::default());
+        }
+        let resolved = Self {
+            enabled: block["enabled"].as_bool().unwrap_or(false),
+            endpoint: block["endpoint"].as_str().unwrap_or_default().to_string(),
+            model: block["model"].as_str().unwrap_or_default().to_string(),
+            default_deadline_ms: block["deadlineMs"]
+                .as_u64()
+                .map(|deadline| deadline.clamp(1_000, 30_000))
+                .unwrap_or(5_000),
+            api_key: std::env::var("LORE_ANALYSIS_API_KEY")
+                .ok()
+                .filter(|key| !key.is_empty()),
+            max_deadline_ms: 30_000,
+        };
+        if resolved.enabled && (resolved.endpoint.is_empty() || resolved.model.is_empty()) {
+            return Err(CoreError::invalid(
+                "CONFIG_INVALID",
+                "enabled analysis needs an endpoint and model",
+            ));
+        }
+        Ok(resolved)
+    }
+}
+
 /// Validated embedding settings exposed to the daemon.
 #[derive(Debug, Clone)]
 pub struct ResolvedEmbedding {
@@ -344,6 +408,9 @@ pub struct ConfigFile {
     /// so a bad task name or cadence fails at startup rather than silently.
     #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     pub maintenance: serde_json::Value,
+    /// Optional analysis block; validated by `ResolvedAnalysis::load`.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub analysis: serde_json::Value,
 }
 
 /// Config with every path resolved and validated.

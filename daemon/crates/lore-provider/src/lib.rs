@@ -348,6 +348,122 @@ fn validate_batch(
     Ok(vectors)
 }
 
+/// Hard cap for a chat response text.
+pub const MAX_CHAT_BYTES: usize = 256 * 1024;
+
+/// OpenAI-compatible chat client for the optional analysis lane. It is only
+/// constructed when analysis is explicitly enabled in configuration.
+pub struct ChatProvider {
+    endpoint: url::Url,
+    model: String,
+    api_key: Option<String>,
+    timeout: Duration,
+}
+
+impl ChatProvider {
+    pub fn new(
+        endpoint: &str,
+        model: &str,
+        api_key: Option<String>,
+        timeout: Duration,
+    ) -> Result<Self, ProviderError> {
+        let endpoint = url::Url::parse(endpoint)
+            .map_err(|_| ProviderError::Config("invalid analysis endpoint URL".to_string()))?;
+        Ok(Self {
+            endpoint,
+            model: model.to_string(),
+            api_key,
+            timeout,
+        })
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Whether the endpoint is loopback. Remote endpoints require the
+    /// explicit configuration that constructed this provider.
+    pub fn is_loopback(&self) -> bool {
+        matches!(
+            self.endpoint.host_str().unwrap_or_default(),
+            "127.0.0.1" | "::1" | "localhost" | "[::1]"
+        )
+    }
+
+    /// Complete one bounded prompt and return the assistant text.
+    pub async fn complete(&self, prompt: &str) -> Result<String, ProviderError> {
+        if prompt.len() > MAX_CHAT_BYTES {
+            return Err(ProviderError::Malformed(
+                "analysis prompt exceeds the bounded size".to_string(),
+            ));
+        }
+        let path = format!(
+            "{}/chat/completions",
+            self.endpoint.path().trim_end_matches('/')
+        );
+        let host = self.endpoint.host_str().unwrap_or("127.0.0.1");
+        let uri = match self.endpoint.port() {
+            Some(port) => format!("http://{host}:{port}{path}"),
+            None => format!("http://{host}{path}"),
+        };
+        let body = serde_json::to_vec(&serde_json::json!({
+            "model": self.model,
+            "temperature": 0,
+            "messages": [
+                { "role": "system", "content": "You answer only with the requested JSON object." },
+                { "role": "user", "content": prompt },
+            ],
+        }))
+        .map_err(|error| ProviderError::Malformed(error.to_string()))?;
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(hyper::header::HOST, host)
+            .header(hyper::header::CONTENT_TYPE, "application/json");
+        if let Some(api_key) = &self.api_key {
+            builder = builder.header(hyper::header::AUTHORIZATION, format!("Bearer {api_key}"));
+        }
+        let request = builder
+            .body(Full::new(Bytes::from(body)))
+            .map_err(|error| ProviderError::Malformed(error.to_string()))?;
+        let work = async {
+            let port = self.endpoint.port_or_known_default().unwrap_or(80);
+            let stream = TcpStream::connect((host, port))
+                .await
+                .map_err(|error| ProviderError::Transient(error.to_string()))?;
+            let (mut sender, connection) =
+                hyper::client::conn::http1::handshake(TokioIo::new(stream))
+                    .await
+                    .map_err(|error| ProviderError::Transient(error.to_string()))?;
+            tokio::spawn(async move {
+                let _ = connection.await;
+            });
+            let response = sender
+                .send_request(request)
+                .await
+                .map_err(|error| ProviderError::Transient(error.to_string()))?;
+            let status = response.status();
+            let collected = Limited::new(response.into_body(), MAX_RESPONSE_BYTES)
+                .collect()
+                .await
+                .map_err(|_| ProviderError::TooLarge)?;
+            let bytes = collected.to_bytes();
+            classify_status(status.as_u16(), &bytes)?;
+            let parsed: serde_json::Value = serde_json::from_slice(&bytes)
+                .map_err(|error| ProviderError::Malformed(format!("response JSON: {error}")))?;
+            let text = parsed["choices"][0]["message"]["content"]
+                .as_str()
+                .ok_or_else(|| {
+                    ProviderError::Malformed("chat response has no assistant content".to_string())
+                })?;
+            Ok(text.to_string())
+        };
+        tokio::time::timeout(self.timeout, work)
+            .await
+            .map_err(|_| ProviderError::Transient("analysis request timed out".to_string()))?
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -46,6 +46,12 @@ const VIEWS: &[&str] = &[
     "health",
 ];
 
+/// Shared gateway state: the daemon socket and the negotiated store id.
+struct GatewayState {
+    socket: PathBuf,
+    store_id: tokio::sync::Mutex<Option<String>>,
+}
+
 /// Serve the dashboard until the process is stopped.
 pub async fn run(socket: &Path, port: u16, open: bool) -> Result<(), String> {
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
@@ -57,7 +63,10 @@ pub async fn run(socket: &Path, port: u16, open: bool) -> Result<(), String> {
     if open {
         let _ = std::process::Command::new("open").arg(&url).spawn();
     }
-    let socket: Arc<PathBuf> = Arc::new(socket.to_path_buf());
+    let state: Arc<GatewayState> = Arc::new(GatewayState {
+        socket: socket.to_path_buf(),
+        store_id: tokio::sync::Mutex::new(None),
+    });
     loop {
         let (stream, remote) = match listener.accept().await {
             Ok(value) => value,
@@ -66,11 +75,11 @@ pub async fn run(socket: &Path, port: u16, open: bool) -> Result<(), String> {
         if !remote.ip().is_loopback() {
             continue;
         }
-        let socket = Arc::clone(&socket);
+        let state = Arc::clone(&state);
         tokio::spawn(async move {
             let service = service_fn(move |request| {
-                let socket = Arc::clone(&socket);
-                async move { Ok::<_, Infallible>(handle(request, socket).await) }
+                let state = Arc::clone(&state);
+                async move { Ok::<_, Infallible>(handle(request, state).await) }
             });
             let _ = http1::Builder::new()
                 .serve_connection(TokioIo::new(stream), service)
@@ -115,7 +124,7 @@ fn message(status: StatusCode, text: &str) -> Response<Full<Bytes>> {
     )
 }
 
-async fn handle(request: Request<Incoming>, socket: Arc<PathBuf>) -> Response<Full<Bytes>> {
+async fn handle(request: Request<Incoming>, state: Arc<GatewayState>) -> Response<Full<Bytes>> {
     let method = request.method().clone();
     if method != Method::GET && method != Method::HEAD {
         return message(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
@@ -150,7 +159,7 @@ async fn handle(request: Request<Incoming>, socket: Arc<PathBuf>) -> Response<Fu
             Bytes::from_static(STYLES.as_bytes()),
         ),
         _ if path.starts_with("/api/") => {
-            api(&path["/api/".len()..], query.as_deref(), &socket).await
+            api(&path["/api/".len()..], query.as_deref(), &state).await
         }
         _ => message(StatusCode::NOT_FOUND, "not found"),
     };
@@ -183,33 +192,36 @@ fn params_from_query(query: Option<&str>) -> ViewParams {
     params
 }
 
-async fn api(name: &str, query: Option<&str>, socket: &Path) -> Response<Full<Bytes>> {
+async fn api(name: &str, query: Option<&str>, state: &GatewayState) -> Response<Full<Bytes>> {
     if name.contains("..") || !VIEWS.contains(&name) {
         return message(StatusCode::NOT_FOUND, "unknown view");
     }
     let mut params = params_from_query(query);
     adjust_params(name, query, &mut params);
-    let meta = RequestMeta {
-        client_id: "browser".to_string(),
-        request_id: format!("browser-{}-{}", std::process::id(), nanos()),
-        session_id: None,
-        expected_store_id: None,
-        timeout_ms: Some(GATEWAY_BUDGET_MS),
-        required_capabilities: Vec::new(),
-    };
     let route = format!("/v2/views/{name}");
-    match lore::request(
-        socket,
-        &route,
-        meta,
-        serde_json::to_value(params).unwrap_or_default(),
-    )
-    .await
-    {
-        Ok(outcome) => {
+    let params_json = serde_json::to_value(&params).unwrap_or_default();
+    let store_id = match gateway_store_id(state).await {
+        Ok(store_id) => store_id,
+        Err(response) => return response,
+    };
+    let mut outcome = view_request(state, &route, &params_json, &store_id).await;
+    // The daemon may have been replaced by one serving a different store;
+    // refresh the identity once and retry rather than serving a mismatch.
+    if let Ok((_, body)) = &outcome {
+        let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        if parsed["error"]["reason"] == "STORE_ID_MISMATCH" {
+            let refreshed = match gateway_store_id_refresh(state).await {
+                Ok(store_id) => store_id,
+                Err(response) => return response,
+            };
+            outcome = view_request(state, &route, &params_json, &refreshed).await;
+        }
+    }
+    match outcome {
+        Ok((success, raw_body)) => {
             let parsed: Value =
-                serde_json::from_str(&outcome.body).unwrap_or_else(|_| json!({ "ok": false }));
-            if outcome.is_success() && parsed["ok"] == true {
+                serde_json::from_str(&raw_body).unwrap_or_else(|_| json!({ "ok": false }));
+            if success && parsed["ok"] == true {
                 // The gateway serves the v1 dashboard assets, so the read-only
                 // view payloads are translated into the field names those
                 // assets consume. Unknown shapes pass through unchanged.
@@ -221,26 +233,89 @@ async fn api(name: &str, query: Option<&str>, socket: &Path) -> Response<Full<By
                     Bytes::from(serde_json::to_vec(&value).unwrap_or_default()),
                 )
             } else {
-                let error = parsed
-                    .get("error")
-                    .cloned()
-                    .unwrap_or_else(|| json!({ "reason": "GATEWAY_ERROR" }));
-                body(
-                    StatusCode::BAD_GATEWAY,
-                    "application/json; charset=utf-8",
-                    Bytes::from(serde_json::to_vec(&json!({ "error": error })).unwrap_or_default()),
-                )
+                downstream_error(&parsed)
             }
         }
-        Err(_) => body(
-            StatusCode::BAD_GATEWAY,
-            "application/json; charset=utf-8",
-            Bytes::from(
-                serde_json::to_vec(&json!({ "error": { "reason": "DAEMON_UNAVAILABLE" } }))
-                    .unwrap_or_default(),
-            ),
-        ),
+        Err(_) => daemon_unavailable(),
     }
+}
+
+#[allow(clippy::result_large_err)]
+async fn gateway_store_id(state: &GatewayState) -> Result<String, Response<Full<Bytes>>> {
+    if let Some(store_id) = state.store_id.lock().await.clone() {
+        return Ok(store_id);
+    }
+    gateway_store_id_refresh(state).await
+}
+
+#[allow(clippy::result_large_err)]
+async fn gateway_store_id_refresh(state: &GatewayState) -> Result<String, Response<Full<Bytes>>> {
+    let meta = browser_meta();
+    match lore::request(&state.socket, "/v2/status", meta, json!({})).await {
+        Ok(outcome) => {
+            let parsed: Value =
+                serde_json::from_str(&outcome.body).unwrap_or_else(|_| json!({ "ok": false }));
+            match (outcome.is_success() && parsed["ok"] == true)
+                .then(|| parsed["storeId"].as_str().map(str::to_string))
+                .flatten()
+            {
+                Some(store_id) => {
+                    *state.store_id.lock().await = Some(store_id.clone());
+                    Ok(store_id)
+                }
+                None => Err(downstream_error(&parsed)),
+            }
+        }
+        Err(_) => Err(daemon_unavailable()),
+    }
+}
+
+async fn view_request(
+    state: &GatewayState,
+    route: &str,
+    params: &Value,
+    store_id: &str,
+) -> Result<(bool, String), ()> {
+    let mut meta = browser_meta();
+    meta.expected_store_id = Some(store_id.to_string());
+    match lore::request(&state.socket, route, meta, params.clone()).await {
+        Ok(outcome) => Ok((outcome.is_success(), outcome.body)),
+        Err(_) => Err(()),
+    }
+}
+
+fn browser_meta() -> RequestMeta {
+    RequestMeta {
+        client_id: "browser".to_string(),
+        request_id: format!("browser-{}-{}", std::process::id(), nanos()),
+        session_id: None,
+        expected_store_id: None,
+        timeout_ms: Some(GATEWAY_BUDGET_MS),
+        required_capabilities: Vec::new(),
+    }
+}
+
+fn downstream_error(parsed: &Value) -> Response<Full<Bytes>> {
+    let error = parsed
+        .get("error")
+        .cloned()
+        .unwrap_or_else(|| json!({ "reason": "GATEWAY_ERROR" }));
+    body(
+        StatusCode::BAD_GATEWAY,
+        "application/json; charset=utf-8",
+        Bytes::from(serde_json::to_vec(&json!({ "error": error })).unwrap_or_default()),
+    )
+}
+
+fn daemon_unavailable() -> Response<Full<Bytes>> {
+    body(
+        StatusCode::BAD_GATEWAY,
+        "application/json; charset=utf-8",
+        Bytes::from(
+            serde_json::to_vec(&json!({ "error": { "reason": "DAEMON_UNAVAILABLE" } }))
+                .unwrap_or_default(),
+        ),
+    )
 }
 
 fn query_pairs(query: Option<&str>) -> Vec<(String, String)> {

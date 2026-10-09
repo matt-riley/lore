@@ -5,15 +5,30 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 struct FakeDaemon {
     _dir: tempfile::TempDir,
     socket: PathBuf,
     stop: Arc<AtomicBool>,
+    /// Every request body the daemon received, newest last.
+    requests: Arc<Mutex<Vec<String>>>,
     handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl FakeDaemon {
+    /// Everything the fake daemon received for one path, newest first.
+    fn requests_for(&self, path: &str) -> Vec<String> {
+        let requests = self.requests.lock().expect("requests");
+        requests
+            .iter()
+            .filter(|request| request.contains(path))
+            .rev()
+            .cloned()
+            .collect()
+    }
 }
 
 impl FakeDaemon {
@@ -24,6 +39,8 @@ impl FakeDaemon {
         listener.set_nonblocking(true).expect("nonblocking");
         let stop = Arc::new(AtomicBool::new(false));
         let stop_for = Arc::clone(&stop);
+        let requests: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let requests_for_thread = Arc::clone(&requests);
         let handle = std::thread::spawn(move || {
             while !stop_for.load(Ordering::Relaxed) {
                 match listener.accept() {
@@ -31,21 +48,63 @@ impl FakeDaemon {
                         let mut buffer = [0u8; 8192];
                         let read = stream.read(&mut buffer).unwrap_or(0);
                         let request_line = String::from_utf8_lossy(&buffer[..read]);
-                        let body = if request_line.contains("/v2/views/memories/filters") {
-                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"kinds":[{"kind":"note","count":2}],"scopes":[{"scope":"global","count":2}],"repositories":[{"repository":"acme/app","count":1}]}}"#
+                        requests_for_thread
+                            .lock()
+                            .expect("requests")
+                            .push(request_line.to_string());
+                        let status_body = r#"{"ok":true,"requestId":"r","storeId":"store-1","result":{"readiness":"ready","capabilities":["views.read"]}}"#;
+                        let bodies = requests_for_thread.lock().expect("requests");
+                        let memories_seen = bodies
+                            .iter()
+                            .filter(|request| {
+                                request.contains("/v2/views/memories")
+                                    && !request.contains("/v2/views/memories/filters")
+                            })
+                            .count();
+                        let (status, body) = if request_line.contains("/v2/status") {
+                            ("200 OK", status_body)
+                        } else if request_line.contains("/v2/views/memories")
+                            && !request_line.contains("/v2/views/memories/filters")
+                            && memories_seen == 1
+                        {
+                            // First view request answers a store mismatch.
+                            (
+                                "409 CONFLICT",
+                                r#"{"ok":false,"requestId":"r","storeId":"s","error":{"code":"PRECONDITION_FAILED","message":"request rejected","reason":"STORE_ID_MISMATCH","retryable":false}}"#,
+                            )
+                        } else if request_line.contains("/v2/views/memories/filters") {
+                            (
+                                "200 OK",
+                                r#"{"ok":true,"requestId":"r","storeId":"s","result":{"kinds":[{"kind":"note","count":2}],"scopes":[{"scope":"global","count":2}],"repositories":[{"repository":"acme/app","count":1}]}}"#,
+                            )
                         } else if request_line.contains("/v2/views/memories") {
-                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"items":[{"id":"mem-1","kind":"note","content":"Parity row.","scope":"global","repository":null,"authority":"manual","confidence":1.0,"createdMs":10,"updatedMs":20,"expiresAtMs":null,"sourceSessionId":null,"tags":[]}],"nextCursor":null,"pageSize":25}}"#
+                            (
+                                "200 OK",
+                                r#"{"ok":true,"requestId":"r","storeId":"s","result":{"items":[{"id":"mem-1","kind":"note","content":"Parity row.","scope":"global","repository":null,"authority":"manual","confidence":1.0,"createdMs":10,"updatedMs":20,"expiresAtMs":null,"sourceSessionId":null,"tags":[]}],"nextCursor":null,"pageSize":25}}"#,
+                            )
                         } else if request_line.contains("/v2/views/maintenance") {
-                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"embeddingJobs":[{"state":"queued","count":3}],"extraction":[],"sources":[]}}"#
+                            (
+                                "200 OK",
+                                r#"{"ok":true,"requestId":"r","storeId":"s","result":{"embeddingJobs":[{"state":"queued","count":3}],"extraction":[],"sources":[]}}"#,
+                            )
                         } else if request_line.contains("/v2/views/drilldown") {
-                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"found":true,"memory":{"id":"mem-1","kind":"note","content":"Parity row.","scope":"global","repository":null,"authority":"manual","confidence":1.0,"createdMs":10,"updatedMs":20,"forgotten":false,"supersededBy":null},"evidence":[{"sourceId":"src-1","generation":"g1","evidenceKey":"e1","role":"user","createdMs":30,"retiredMs":null}],"suppressed":false}}"#
+                            (
+                                "200 OK",
+                                r#"{"ok":true,"requestId":"r","storeId":"s","result":{"found":true,"memory":{"id":"mem-1","kind":"note","content":"Parity row.","scope":"global","repository":null,"authority":"manual","confidence":1.0,"createdMs":10,"updatedMs":20,"forgotten":false,"supersededBy":null},"evidence":[{"sourceId":"src-1","generation":"g1","evidenceKey":"e1","role":"user","createdMs":30,"retiredMs":null}],"suppressed":false}}"#,
+                            )
                         } else if request_line.contains("/v2/views/health") {
-                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"schemaVersion":7,"ftsHealthy":true,"ftsRows":2,"migrationState":null,"ready":true}}"#
+                            (
+                                "200 OK",
+                                r#"{"ok":true,"requestId":"r","storeId":"s","result":{"schemaVersion":7,"ftsHealthy":true,"ftsRows":2,"migrationState":null,"ready":true}}"#,
+                            )
                         } else {
-                            r#"{"ok":true,"requestId":"r","storeId":"s","result":{"storeId":"s","schemaVersion":7,"memoryRevision":"4","derivedGeneration":"0","activeMemories":1,"forgottenMemories":0,"repositories":[],"kinds":[{"kind":"note","count":1}],"sources":{"total":0,"caughtUp":0},"pendingExtraction":0}}"#
+                            (
+                                "200 OK",
+                                r#"{"ok":true,"requestId":"r","storeId":"s","result":{"storeId":"s","schemaVersion":7,"memoryRevision":"4","derivedGeneration":"0","activeMemories":1,"forgottenMemories":0,"repositories":[],"kinds":[{"kind":"note","count":1}],"sources":{"total":0,"caughtUp":0},"pendingExtraction":0}}"#,
+                            )
                         };
                         let response = format!(
-                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+                            "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
                             body.len(),
                             body
                         );
@@ -59,6 +118,7 @@ impl FakeDaemon {
             _dir: dir,
             socket,
             stop,
+            requests,
             handle: Some(handle),
         }
     }
@@ -219,6 +279,69 @@ fn gateway_serves_assets_and_translates_views() {
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"ok\":true"), "{body}");
     assert!(body.contains("\"loreCliPath\":null"), "{body}");
+}
+
+#[test]
+fn gateway_negotiates_the_store_identity_before_reading_views() {
+    let daemon = FakeDaemon::start();
+    let gateway = wait_for_gateway(&daemon.socket);
+    let host = format!("127.0.0.1:{}", gateway.port);
+
+    // The gateway cannot know the store id without asking; it must fetch
+    // Status first and then present that identity on the view request.
+    let (status, _, body) = gateway.request(&format!(
+        "GET /api/overview HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 200, "{body}");
+    let status_requests = daemon.requests_for("/v2/status");
+    assert!(
+        !status_requests.is_empty(),
+        "the gateway probes Status first"
+    );
+    let view_requests = daemon.requests_for("/v2/views/overview");
+    assert_eq!(view_requests.len(), 1, "one view request per page load");
+    assert!(
+        view_requests[0].contains("\"expectedStoreId\":\"store-1\""),
+        "{}",
+        view_requests[0]
+    );
+}
+
+#[test]
+fn gateway_refreshes_the_identity_once_when_the_daemon_changed() {
+    // The first view request answers STORE_ID_MISMATCH; the gateway must
+    // re-probe Status and retry exactly once, then reuse the identity.
+    let daemon = FakeDaemon::start();
+    let gateway = wait_for_gateway(&daemon.socket);
+    let host = format!("127.0.0.1:{}", gateway.port);
+
+    let (status, _, body) = gateway.request(&format!(
+        "GET /api/memories HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 200, "{body}");
+    // One probe to negotiate, one to refresh after the mismatch.
+    assert_eq!(
+        daemon.requests_for("/v2/status").len(),
+        2,
+        "mismatch triggers exactly one refresh"
+    );
+    // The mismatch reply is not served to the browser; the retry is.
+    let view_requests = daemon.requests_for("/v2/views/memories");
+    assert_eq!(view_requests.len(), 2, "the rejected attempt is retried");
+    assert!(
+        view_requests
+            .iter()
+            .all(|request| { request.contains("\"expectedStoreId\":\"store-1\"") }),
+        "{}",
+        view_requests[0]
+    );
+
+    // After the refresh the identity is cached: no further probes.
+    let (status, _, _) = gateway.request(&format!(
+        "GET /api/memories HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 200);
+    assert_eq!(daemon.requests_for("/v2/status").len(), 2);
 }
 
 #[test]

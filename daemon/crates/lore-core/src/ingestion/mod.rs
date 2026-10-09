@@ -721,14 +721,14 @@ fn register_discovered(
     let (native, repository) = if root.client == "copilot" {
         (None, root.repository.clone())
     } else {
-        let Some(first) = first_line(&canonical)? else {
+        // Hosts write bookkeeping records before the first turn (Claude Code
+        // starts files with queue-operation lines), so scan a bounded window
+        // for the record that identifies the client and session.
+        let Some(header) = identity_line(&root.client, &canonical)? else {
             return Ok(None);
         };
-        if !matches_client(&root.client, &first) {
-            return Ok(None);
-        }
         (
-            header_identity(&root.client, &first),
+            header_identity(&root.client, &header),
             root.repository.clone(),
         )
     };
@@ -753,6 +753,26 @@ fn register_discovered(
     )?;
     Ok(Some(row))
 }
+
+/// The first line within a bounded window that identifies this client, or
+/// `None` when the file is not one of its sessions.
+fn identity_line(client: &str, path: &Path) -> CoreResult<Option<String>> {
+    let mut file = std::fs::File::open(path)?;
+    let mut buffer = vec![0u8; 64 * 1024];
+    let read = file.read(&mut buffer)?;
+    buffer.truncate(read);
+    let text = String::from_utf8_lossy(&buffer);
+    Ok(text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(MAX_IDENTITY_SCAN_LINES)
+        .find(|line| matches_client(client, line))
+        .map(str::to_string))
+}
+
+/// How many leading records may precede a session's identifying record.
+const MAX_IDENTITY_SCAN_LINES: usize = 64;
 
 fn first_line(path: &Path) -> CoreResult<Option<String>> {
     let mut file = std::fs::File::open(path)?;

@@ -532,3 +532,34 @@ fn discovery_walks_nested_session_directories() {
         "paging stays consistent"
     );
 }
+
+#[test]
+fn claude_sessions_with_leading_control_records_still_register() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root_dir = sources_dir(dir.path());
+    let project = root_dir.join("-Users-someone-project-");
+    std::fs::create_dir_all(&project).expect("project dir");
+    // Claude Code writes queue bookkeeping before the first turn.
+    let prefixed = format!(
+        "{}\n{}\n{}",
+        r#"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-10-04T11:51:55.796Z","sessionId":"cl-golden-1"}"#,
+        r#"{"type":"queue-operation","operation":"dequeue","timestamp":"2026-10-04T11:51:55.796Z","sessionId":"cl-golden-1"}"#,
+        CLAUDE.trim_end()
+    );
+    std::fs::write(project.join("session.jsonl"), prefixed).expect("session file");
+    let config = config(dir.path(), "claude", None);
+    let store = Store::open(&config).expect("open");
+    let root = config.sources.roots.first().expect("root").clone();
+
+    let (registered, _cursor, _) = discover_page(&store, &root, None, 50, 1_000).expect("discover");
+    assert_eq!(
+        registered.len(),
+        1,
+        "a Claude session behind control records must still register"
+    );
+    assert_eq!(
+        registered[0].native_session_id.as_deref(),
+        Some("cl-golden-1"),
+        "identity comes from the matched turn record, not the control lines"
+    );
+}

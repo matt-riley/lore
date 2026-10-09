@@ -95,6 +95,17 @@ fn install_applies_writes_the_unit_and_reruns_idempotently() {
         assert!(contents.contains("ExecStart="), "{contents}");
     }
     assert!(contents.contains("--config"), "{contents}");
+    // The service must run the daemon binary, never the CLI: `lore --config
+    // ...` with no subcommand is a usage error and launchd throttles it.
+    let executable = unit_executable(&contents);
+    let binary = std::path::Path::new(&executable)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    assert_eq!(
+        binary, "lored",
+        "the unit must exec the daemon, found: {executable}"
+    );
 
     let (code, stdout, stderr) = run(home.path(), &["service", "install", "--apply"]);
     assert_eq!(code, 0, "{stderr}");

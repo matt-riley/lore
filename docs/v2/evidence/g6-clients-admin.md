@@ -51,6 +51,31 @@ synchronous reads with capability IDs `search.browse`, `explain.context`,
 - **Capability inventory** merges the checked-in catalog with live daemon
   capabilities; it works without a daemon and reports `storeId: null`.
 
+### Drill-down depth (UI-05)
+
+`/v2/views/drilldown` now returns the full relationship picture for one
+memory, or for a session id resolved through its episode digest:
+
+- **Lineage**: the supersession successor chain (bounded 10) walked through
+  `superseded_by`, the immediate successor and the predecessors that this
+  memory superseded, with active state per node.
+- **Canonical grouping**: the `topic_key` cluster with every member's
+  excerpt, active state and update time (bounded 20), so superseded and
+  replacement rows are visible together.
+- **Graph**: a bounded (60-node) node/edge set covering the focus, lineage,
+  canonical siblings, evidence sources and derived episode digests. Edges
+  always name existing nodes, and the daemon test asserts that invariant
+  plus the `superseded_by` edge.
+- The dashboard translation passes lineage, cluster and graph through in the
+  v1 field names (`focus`, `provenance`, `lineage`, `canonicalCluster`,
+  `graph`) instead of the previous empty stubs.
+- `linkedImprovements` stays empty: the backlog table has no memory-link
+  column, and the drill-down reports none rather than guessing by content
+  match. A future link column can populate it without an API change.
+- Proofs: `lored/tests/drilldown_flow.rs` (lineage in both directions,
+  canonical members, graph consistency, session-resolution miss) and a
+  browser translation unit test for the rich payload.
+
 ### Provider-backed reflection and optional rerank
 
 - `lore_reflect` gains `mode: "chat"`: the deterministic digest is always

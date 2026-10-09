@@ -592,49 +592,62 @@ fn translate_capture_health(result: &Value) -> Value {
 
 fn translate_drilldown(result: &Value) -> Value {
     if result["found"] != true {
-        return json!({ "found": false, "entityType": "memory" });
+        return json!({
+            "found": false,
+            "entityType": "memory",
+            "focus": null,
+            "canonicalCluster": Value::Null,
+            "linkedImprovements": [],
+            "provenance": [],
+            "sections": [],
+            "graph": { "nodes": [], "edges": [] },
+        });
     }
     let memory = &result["memory"];
-    let provenance: Vec<Value> = result["evidence"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|row| {
-            json!({
-                "sourceId": row["sourceId"],
-                "evidenceKey": row["evidenceKey"],
-                "role": row["role"],
-                "createdAt": row["createdMs"],
-                "retiredAt": row["retiredMs"],
-            })
-        })
-        .collect();
+    let entity_type = result["entityType"].as_str().unwrap_or("memory");
+    let lineage = result["lineage"].clone();
+    let graph = if result["graph"].is_object() {
+        result["graph"].clone()
+    } else {
+        json!({ "nodes": [], "edges": [] })
+    };
+    let canonical = result["canonicalCluster"].clone();
+    let linked = result["linkedImprovements"].clone();
     json!({
         "found": true,
-        "entityType": "memory",
-        "memory": memory,
-        "evidence": result["evidence"],
-        "suppressed": result["suppressed"],
+        "entityType": entity_type,
         "focus": {
-            "entityType": "memory",
             "id": memory["id"],
             "type": memory["kind"],
             "content": memory["content"],
             "scope": memory["scope"],
+            "scopeSource": memory["authority"],
             "repository": memory["repository"],
-            "canonicalKey": null,
+            "confidence": memory["confidence"],
+            "authority": memory["authority"],
+            "tags": memory["tags"],
+            "createdAt": memory["createdMs"],
             "updatedAt": memory["updatedMs"],
+            "expiresAt": memory["expiresAtMs"],
+            "revision": memory["revision"],
+            "supersededBy": memory["supersededBy"],
+            "canonicalKey": memory["topicKey"],
         },
-        "provenance": provenance,
-        "lineage": { "supersededBy": memory["supersededBy"] },
-        "canonicalCluster": null,
-        "linkedImprovements": [],
         "lifecycle": {
             "forgotten": memory["forgotten"],
             "suppressed": result["suppressed"],
         },
-        "graph": { "nodes": [], "edges": [] },
+        "lineage": {
+            "supersedes": lineage["supersedes"],
+            "supersededBy": lineage["supersededBy"],
+            "successorCount": lineage["successorCount"],
+            "predecessors": lineage["predecessors"],
+        },
+        "canonicalCluster": canonical,
+        "linkedImprovements": linked,
+        "provenance": result["evidence"],
+        "sections": [],
+        "graph": graph,
     })
 }
 
@@ -856,6 +869,34 @@ mod tests {
             0
         );
         assert_eq!(translated["lifecycle"]["suppressed"], false);
+
+        // Real drill-down payloads pass lineage, cluster and graph through.
+        let rich = translate_drilldown(&json!({
+            "found": true,
+            "entityType": "memory",
+            "memory": {
+                "id": "mem-2", "kind": "note", "content": "Rich.", "scope": "global",
+                "repository": null, "authority": "manual", "confidence": 1.0,
+                "createdMs": 1, "updatedMs": 2, "forgotten": false, "supersededBy": null,
+                "revision": 3, "expiresAtMs": null, "topicKey": "topic-a",
+            },
+            "evidence": [],
+            "suppressed": false,
+            "lineage": { "supersedes": null, "supersededBy": null, "successorCount": 0, "predecessors": [] },
+            "canonicalCluster": { "key": "topic-a", "members": [{ "id": "mem-2", "active": true }] },
+            "linkedImprovements": [],
+            "graph": {
+                "nodes": [
+                    { "id": "mem-2", "type": "memory", "label": "note", "active": true },
+                    { "id": "mem-3", "type": "canonical_sibling", "label": "same topic", "active": true }
+                ],
+                "edges": [{ "source": "mem-2", "target": "mem-3", "kind": "canonical" }]
+            },
+        }));
+        assert_eq!(rich["canonicalCluster"]["key"], "topic-a");
+        assert_eq!(rich["graph"]["nodes"].as_array().expect("nodes").len(), 2);
+        assert_eq!(rich["graph"]["edges"][0]["kind"], "canonical");
+        assert_eq!(rich["lineage"]["successorCount"], 0);
 
         let missing = translate_drilldown(&json!({ "found": false }));
         assert_eq!(missing["found"], false);

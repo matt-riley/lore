@@ -394,40 +394,73 @@ impl Store {
     }
 
     /// Drill-down by memory id: record, evidence links and suppression state.
+    /// Drill-down for one memory id, or for a session id resolved through its
+    /// episode digest. Includes provenance, supersession lineage, the
+    /// canonical cluster and a bounded relationship graph.
     pub fn view_drilldown(&self, id: &str) -> CoreResult<Value> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
-        let memory: Option<Value> = connection
-            .query_row(
-                "SELECT id, kind, content, scope, repository, authority, confidence, created_ms, \
-                 updated_ms, forgotten, superseded_by FROM memories WHERE id = ?1",
-                params![id],
-                |row| {
-                    Ok(json!({
-                        "id": row.get::<_, String>(0)?,
-                        "kind": row.get::<_, String>(1)?,
-                        "content": row.get::<_, String>(2)?,
-                        "scope": row.get::<_, String>(3)?,
-                        "repository": row.get::<_, Option<String>>(4)?,
-                        "authority": row.get::<_, String>(5)?,
-                        "confidence": row.get::<_, f64>(6)?,
-                        "createdMs": row.get::<_, i64>(7)?,
-                        "updatedMs": row.get::<_, i64>(8)?,
-                        "forgotten": row.get::<_, i64>(9)? != 0,
-                        "supersededBy": row.get::<_, Option<String>>(10)?,
-                    }))
-                },
-            )
-            .optional()?;
+        let load_memory = |memory_id: &str| -> CoreResult<Option<Value>> {
+            Ok(connection
+                .query_row(
+                    "SELECT id, kind, content, scope, repository, authority, confidence, created_ms, \
+                     updated_ms, forgotten, superseded_by, revision, expires_at_ms, topic_key, \
+                     source_session_id \
+                     FROM memories WHERE id = ?1",
+                    params![memory_id],
+                    |row| {
+                        Ok(json!({
+                            "id": row.get::<_, String>(0)?,
+                            "kind": row.get::<_, String>(1)?,
+                            "content": row.get::<_, String>(2)?,
+                            "scope": row.get::<_, String>(3)?,
+                            "repository": row.get::<_, Option<String>>(4)?,
+                            "authority": row.get::<_, String>(5)?,
+                            "confidence": row.get::<_, f64>(6)?,
+                            "createdMs": row.get::<_, i64>(7)?,
+                            "updatedMs": row.get::<_, i64>(8)?,
+                            "forgotten": row.get::<_, i64>(9)? != 0,
+                            "supersededBy": row.get::<_, Option<String>>(10)?,
+                            "revision": row.get::<_, i64>(11)?,
+                            "expiresAtMs": row.get::<_, Option<i64>>(12)?,
+                            "topicKey": row.get::<_, Option<String>>(13)?,
+                            "sourceSessionId": row.get::<_, Option<String>>(14)?,
+                        }))
+                    },
+                )
+                .optional()?)
+        };
+
+        // Resolve a session id to its episode digest when no memory id matches.
+        let mut entity_type = "memory";
+        let mut memory = load_memory(id)?;
+        if memory.is_none() {
+            let session_pattern = format!("%\"session:{id}\"%");
+            let episode_id: Option<String> = connection
+                .query_row(
+                    "SELECT id FROM memories WHERE kind = 'episode_digest' \
+                     AND forgotten = 0 AND superseded_by IS NULL AND tags_json LIKE ?1 \
+                     ORDER BY updated_ms DESC LIMIT 1",
+                    params![session_pattern],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(episode_id) = episode_id {
+                entity_type = "session";
+                memory = load_memory(&episode_id)?;
+            }
+        }
         let Some(memory) = memory else {
             return Ok(json!({ "found": false }));
         };
+        let memory_id = memory["id"].as_str().unwrap_or(id).to_string();
+
         let evidence: Vec<Value> = {
             let mut statement = connection.prepare(
                 "SELECT source_id, generation, evidence_key, role, created_ms, retired_ms \
                  FROM memory_evidence WHERE memory_id = ?1 ORDER BY evidence_key ASC LIMIT 200",
             )?;
-            let rows = statement.query_map(params![id], |row| {
+            let rows = statement.query_map(params![memory_id], |row| {
                 Ok(json!({
                     "sourceId": row.get::<_, String>(0)?,
                     "generation": row.get::<_, String>(1)?,
@@ -441,14 +474,206 @@ impl Store {
         };
         let suppressed: i64 = connection.query_row(
             "SELECT COUNT(*) FROM suppressions WHERE memory_id = ?1 AND state = 'active'",
-            params![id],
+            params![memory_id],
             |row| row.get(0),
         )?;
+
+        // Supersession lineage: walk successors and predecessors, bounded.
+        let mut supersedes_chain: Vec<Value> = Vec::new();
+        let mut cursor = memory_id.clone();
+        for _ in 0..10 {
+            let Some(successor) = load_memory(&cursor)? else {
+                break;
+            };
+            let Some(next) = successor["supersededBy"].as_str().map(str::to_string) else {
+                break;
+            };
+            let Some(next_memory) = load_memory(&next)? else {
+                break;
+            };
+            supersedes_chain.push(json!({
+                "id": next_memory["id"],
+                "kind": next_memory["kind"],
+                "active": !next_memory["forgotten"].as_bool().unwrap_or(false)
+                    && next_memory["supersededBy"].is_null(),
+                "updatedMs": next_memory["updatedMs"],
+            }));
+            cursor = next;
+        }
+        let supersedes = supersedes_chain.last().cloned();
+        let predecessors: Vec<Value> = {
+            let mut statement = connection.prepare(
+                "SELECT id, kind, forgotten, updated_ms FROM memories WHERE superseded_by = ?1 \
+                 ORDER BY updated_ms DESC LIMIT 20",
+            )?;
+            let rows = statement.query_map(params![memory_id], |row| {
+                Ok(json!({
+                    "id": row.get::<_, String>(0)?,
+                    "kind": row.get::<_, String>(1)?,
+                    "active": row.get::<_, i64>(2)? == 0,
+                    "updatedMs": row.get::<_, i64>(3)?,
+                }))
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
+
+        // Canonical cluster: active and retired members sharing the topic key.
+        let canonical_cluster: Value = match memory["topicKey"].as_str() {
+            Some(topic_key) if !topic_key.is_empty() => {
+                let mut statement = connection.prepare(
+                    "SELECT id, content, forgotten, superseded_by, updated_ms FROM memories \
+                     WHERE topic_key = ?1 ORDER BY updated_ms DESC LIMIT 20",
+                )?;
+                let members = statement
+                    .query_map(params![topic_key], |row| {
+                        let content: String = row.get(1)?;
+                        let excerpt: String = content.chars().take(160).collect();
+                        Ok(json!({
+                            "id": row.get::<_, String>(0)?,
+                            "excerpt": excerpt,
+                            "active": row.get::<_, i64>(2)? == 0
+                                && row.get::<_, Option<String>>(3)?.is_none(),
+                            "updatedMs": row.get::<_, i64>(4)?,
+                        }))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                json!({ "key": topic_key, "members": members })
+            }
+            _ => Value::Null,
+        };
+
+        // Backlog artifacts do not carry a memory link yet, so the drill-down
+        // reports none rather than guessing by content match.
+        let linked_improvements: Vec<Value> = Vec::new();
+
+        // Relationship graph: the focus, its lineage, canonical siblings,
+        // evidence sources and derived episodes, bounded to 60 nodes.
+        let mut nodes: Vec<Value> = vec![json!({
+            "id": memory_id,
+            "type": "memory",
+            "label": memory["kind"],
+            "active": !memory["forgotten"].as_bool().unwrap_or(false)
+                && memory["supersededBy"].is_null(),
+        })];
+        let mut edges: Vec<Value> = Vec::new();
+        let push_node = |nodes: &mut Vec<Value>, node: Value| {
+            let id = node["id"].as_str().unwrap_or("").to_string();
+            if !nodes.iter().any(|existing| existing["id"] == id.as_str()) {
+                nodes.push(node);
+            }
+        };
+        for entry in &supersedes_chain {
+            push_node(
+                &mut nodes,
+                json!({
+                    "id": entry["id"],
+                    "type": "successor",
+                    "label": entry["kind"],
+                    "active": entry["active"],
+                }),
+            );
+            edges.push(
+                json!({ "source": memory_id, "target": entry["id"], "kind": "superseded_by" }),
+            );
+        }
+        for entry in &predecessors {
+            push_node(
+                &mut nodes,
+                json!({
+                    "id": entry["id"],
+                    "type": "predecessor",
+                    "label": entry["kind"],
+                    "active": entry["active"],
+                }),
+            );
+            edges.push(
+                json!({ "source": entry["id"], "target": memory_id, "kind": "superseded_by" }),
+            );
+        }
+        if let Some(members) = canonical_cluster["members"].as_array() {
+            for member in members.iter().take(20) {
+                let member_id = member["id"].as_str().unwrap_or("");
+                if member_id == memory_id {
+                    continue;
+                }
+                push_node(
+                    &mut nodes,
+                    json!({
+                        "id": member_id,
+                        "type": "canonical_sibling",
+                        "label": "same topic",
+                        "active": member["active"],
+                    }),
+                );
+                edges
+                    .push(json!({ "source": memory_id, "target": member_id, "kind": "canonical" }));
+            }
+        }
+        for link in evidence.iter().take(20) {
+            let node_id = format!("source:{}", link["sourceId"].as_str().unwrap_or(""));
+            push_node(
+                &mut nodes,
+                json!({
+                    "id": node_id,
+                    "type": "source",
+                    "label": link["role"].as_str().unwrap_or("evidence"),
+                    "active": link["retiredMs"].is_null(),
+                }),
+            );
+            edges.push(json!({ "source": node_id, "target": memory_id, "kind": "evidence" }));
+        }
+        // Episode digests that mention this memory's session.
+        if let Some(session_id) = memory["sourceSessionId"].as_str() {
+            let pattern = format!("%\"session:{session_id}\"%");
+            let mut statement = connection.prepare(
+                "SELECT id FROM memories WHERE kind = 'episode_digest' AND forgotten = 0 \
+                 AND superseded_by IS NULL AND tags_json LIKE ?1 AND id != ?2 LIMIT 5",
+            )?;
+            let rows =
+                statement.query_map(params![pattern, memory_id], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                let episode_id = row?;
+                push_node(
+                    &mut nodes,
+                    json!({
+                        "id": episode_id,
+                        "type": "episode",
+                        "label": "episode digest",
+                        "active": true,
+                    }),
+                );
+                edges.push(
+                    json!({ "source": episode_id, "target": memory_id, "kind": "derived_from" }),
+                );
+            }
+        }
+        if nodes.len() > 60 {
+            nodes.truncate(60);
+            let ids: std::collections::HashSet<&str> = nodes
+                .iter()
+                .filter_map(|node| node["id"].as_str())
+                .collect();
+            edges.retain(|edge| {
+                edge["source"].as_str().is_some_and(|id| ids.contains(id))
+                    && edge["target"].as_str().is_some_and(|id| ids.contains(id))
+            });
+        }
+
         Ok(json!({
             "found": true,
+            "entityType": entity_type,
             "memory": memory,
             "evidence": evidence,
             "suppressed": suppressed > 0,
+            "lineage": {
+                "supersedes": supersedes,
+                "supersededBy": memory["supersededBy"],
+                "successorCount": supersedes_chain.len(),
+                "predecessors": predecessors,
+            },
+            "canonicalCluster": canonical_cluster,
+            "linkedImprovements": linked_improvements,
+            "graph": { "nodes": nodes, "edges": edges },
         }))
     }
 }

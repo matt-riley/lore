@@ -51,6 +51,74 @@ synchronous reads with capability IDs `search.browse`, `explain.context`,
 - **Capability inventory** merges the checked-in catalog with live daemon
   capabilities; it works without a daemon and reports `storeId: null`.
 
+### Maintenance task inventory and cadences
+
+Nine tasks are ported into one durable inventory: `memoryHygiene`,
+`deferredExtraction`, `validationCorpus`, `replayCorpus`, `backlogReview`,
+`traceCompaction`, `indexUpkeep`, `doctorSnapshot` and
+`extractionRevalidation`.
+
+- State lives in `maintenance_task_state` (task, scope, enabled, cadence,
+  due time, last run/state/error, counters) and history in
+  `maintenance_runs` (trigger, state, dry-run, counts, detail) under schema 9.
+- Defaults: `deferredExtraction` and `indexUpkeep` enabled; hygiene, corpus
+  validation/replay, backlog review, trace compaction, doctor snapshots and
+  extraction revalidation off; `extractionRevalidation` carries the 24-hour
+  cadence from the parity inventory.
+- Cadences come from the `maintenance.tasks` config block; a zero cadence
+  while enabled is a bounded 60-second opportunity, never a busy loop.
+  Unknown task names and negative cadences fail at startup.
+- One active claim per task/scope: a second claim returns no run. Due time
+  advances from the finish time, so a sleeping or restarted daemon coalesces
+  missed intervals into one run instead of replaying every tick. A disabled
+  store never runs background maintenance.
+- `memoryHygiene` is shadow by default: it reports expired candidates and
+  never retires data. A manual apply records the exact
+  `hygiene-auto:<runId>` marker plus the marked ids/revisions, preserves
+  content and FTS rows, and `action=rollback` un-forgets exactly those rows
+  and removes only that run's suppression marker — proven at store and
+  daemon level.
+- `indexUpkeep` reaps expired embedding jobs and drops stale vectors;
+  `deferredExtraction` drains pending intents; `validationCorpus`,
+  `replayCorpus`, `backlogReview` and `extractionRevalidation` report
+  observe-only findings; `doctorSnapshot` writes a bounded JSON artifact
+  under `<dataDir>/trajectory`; `traceCompaction` reports that retrieval
+  traces are intentionally not persisted.
+- The scheduler ticks every 15 seconds; the daemon route
+  (`/v2/admin/maintenance`, actions `status`/`run`/`rollback`) and the
+  `lore maintenance --status|--task|--rollback` verb drive the same state.
+- The dashboard maintenance view now carries real `runs`, `taskStates` and
+  `dueTasks` rows (translated into the served assets' column names) instead
+  of empty placeholders.
+
+### Capability graduation fine print
+
+- **Purge** selections are bounded (`PURGE_SELECTION_MAX` 5 000) on every
+  path — explicit ids, repository or global — and `selectionTruncated`,
+  `totalMatched` and `selectionLimit` are reported. The preview's
+  `includeDependentAggregates` switch controls the expensive per-row
+  dependency collection, and both the truncation flag and the switch are
+  bound into the fingerprint so a stale plan is refused.
+- **Repair** previews typed candidates (`fts_gap`, `intent_missing`,
+  `intent_stale`, `vector_stale`, each addressable as `type:memoryId`) plus
+  complete-source candidates (captured generations with no extraction
+  intent). Apply accepts `selectedCandidateIds`, refuses unknown candidates
+  with `CANDIDATE_NOT_FOUND`, enforces a 32 MiB observed-source limit
+  (`SOURCE_LIMIT_EXCEEDED`), and reports `unresolved` items with the run in
+  `complete_with_gaps` rather than claiming full success.
+- **Doctor** gains `dryRun` (always the effective behavior), `trajectoryLimit`
+  (bounded read-only artifact listing), `plannedActions` (observe-only, never
+  executed), `sourceCases`, structured `healthReasons`, and `installHealth`:
+  Node presence/version with an explicit "not required for the v2 daemon"
+  note, v1 `lore-cli.mjs` location, service-unit presence, and
+  duplicate-install detection across `PATH`.
+- **Audit/extractions** keeps its report-only default and gains
+  `apply`/`rollback` for the exact `extractor-revalidation:<runId>` marker.
+  Markers name a real completed run, are recorded in `extraction_revalidation`
+  (schema 8), never create suppression rows, and are surfaced per source in
+  the report. `lore audit report|apply --run <id>|rollback --run <id>` is the
+  human/script verb; it is deliberately not a model tool.
+
 ### Write operations and the run model
 
 Schema 6 adds `operation_runs`, `operation_run_items` and

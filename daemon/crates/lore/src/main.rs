@@ -114,6 +114,26 @@ enum Command {
         #[command(subcommand)]
         action: MigrateCommand,
     },
+    /// Inspect or run maintenance tasks.
+    Maintenance {
+        /// Report task states and recent runs (the default).
+        #[arg(long)]
+        status: bool,
+        /// Run one task now.
+        #[arg(long)]
+        task: Option<String>,
+        /// Preview a task without mutating anything.
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Apply the task's mutations (hygiene marks candidates).
+        #[arg(long)]
+        apply: bool,
+        /// Roll back one hygiene run exactly.
+        #[arg(long)]
+        rollback: Option<String>,
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
     /// Audit extraction runs; apply or roll back one revalidation marker.
     Audit {
         #[command(subcommand)]
@@ -573,6 +593,90 @@ async fn run(cli: Cli) -> Result<(), String> {
             }
             return Ok(());
         }
+        Command::Maintenance {
+            status,
+            task,
+            dry_run,
+            apply,
+            rollback,
+            output,
+        } => {
+            let socket = cli
+                .socket
+                .clone()
+                .or_else(|| resolve_socket(cli.config.as_deref(), None, cli.data_dir.as_deref()))
+                .ok_or_else(|| "provide --config or --socket".to_string())?;
+            if let Some(run_id) = rollback {
+                // Rollback is a write: journal it like every other mutation.
+                let (row, route) = registry::route_for("lore_maintenance")?;
+                let params = serde_json::json!({
+                    "action": "rollback",
+                    "runId": run_id,
+                    "idempotencyKey": format!("maintenance-rollback-{run_id}"),
+                });
+                dispatch_tool(&cli, &socket, row, route, params, true, output).await?;
+                return Ok(());
+            }
+            if let Some(task) = task {
+                let (row, route) = registry::route_for("lore_maintenance")?;
+                let params = serde_json::json!({
+                    "action": "run",
+                    "task": task,
+                    "dryRun": !*apply || *dry_run,
+                    "idempotencyKey": format!("maintenance-run-{task}-{}", if *apply { "apply" } else { "dry" }),
+                });
+                dispatch_tool(&cli, &socket, row, route, params, true, output).await?;
+                return Ok(());
+            }
+            // Status is a read: no journal, but the store identity is still
+            // asserted by the admin route.
+            let _ = status;
+            let expected = resolve_store_id(&socket).await?;
+            let mut meta = audit_meta();
+            meta.expected_store_id = Some(expected);
+            let outcome = lore::request(
+                &socket,
+                "/v2/admin/maintenance",
+                meta,
+                serde_json::json!({ "action": "status" }),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+            if !outcome.is_success() {
+                return Err(outcome.body);
+            }
+            let body: Value = serde_json::from_str(&outcome.body).unwrap_or_default();
+            if output == "json" {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&body["result"]).unwrap_or_default()
+                );
+            } else {
+                let states = body["result"]["taskStates"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                let runs = body["result"]["runs"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                println!(
+                    "lore maintenance: {} task(s), {} recent run(s)",
+                    states.len(),
+                    runs.len()
+                );
+                for task in states {
+                    println!(
+                        "  {:<22} enabled={:<5} cadence={}s last={}",
+                        task["task"].as_str().unwrap_or(""),
+                        task["enabled"].as_bool().unwrap_or(false),
+                        task["cadenceSeconds"].as_i64().unwrap_or(0),
+                        task["lastState"].as_str().unwrap_or("never"),
+                    );
+                }
+            }
+            return Ok(());
+        }
         Command::Audit { action } => {
             let (params, output, verb) = match action {
                 AuditCommand::Report { output } => (json!({}), output.clone(), "report"),
@@ -727,7 +831,8 @@ async fn run(cli: Cli) -> Result<(), String> {
         | Command::Mode { .. }
         | Command::Setup { .. }
         | Command::Upgrade { .. }
-        | Command::Audit { .. } => {
+        | Command::Audit { .. }
+        | Command::Maintenance { .. } => {
             unreachable!("local-only commands are handled before socket resolution")
         }
         Command::Status { json: _ } => {

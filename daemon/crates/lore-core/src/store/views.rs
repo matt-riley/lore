@@ -275,10 +275,22 @@ impl Store {
             })?;
             rows.collect::<Result<_, _>>()?
         };
+        let report = crate::store::maintenance_report(
+            self,
+            &[crate::store::DEFAULT_MAINTENANCE_SCOPE.to_string()],
+            50,
+        )
+        .unwrap_or_else(
+            |_| json!({ "runs": [], "taskStates": [], "dueTasks": [], "deferred": [] }),
+        );
         Ok(json!({
             "embeddingJobs": jobs,
             "extraction": extraction,
             "sources": source_states,
+            "runs": report["runs"],
+            "taskStates": report["taskStates"],
+            "dueTasks": report["dueTasks"],
+            "deferred": report["deferred"],
         }))
     }
 

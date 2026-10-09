@@ -444,6 +444,41 @@ fn translate_filters(result: &Value) -> Value {
 }
 
 fn translate_maintenance(result: &Value) -> Value {
+    // Real persisted task state wins; the count-derived rows remain for
+    // older payload shapes.
+    if let Some(states) = result["taskStates"].as_array()
+        && !states.is_empty()
+    {
+        let task_states: Vec<Value> = states
+            .iter()
+            .map(|row| {
+                json!({
+                    "task_name": row["task"],
+                    "last_status": row["lastState"],
+                    "total_runs": row["runs"],
+                    "total_failures": row["failures"],
+                    "total_needs_attention": row["needsAttention"],
+                    "last_completed_at": row["lastRunMs"],
+                })
+            })
+            .collect();
+        return json!({
+            "runs": result["runs"],
+            "taskStates": task_states,
+            "deferred": [],
+            "doctorReports": [],
+            "trajectory": [],
+            "maintenancePlan": {
+                "dueTasks": result["dueTasks"],
+                "selectedTasks": [],
+                "skippedDueToCap": [],
+            },
+            "recentTraceSamples": [],
+            "embeddingJobs": result["embeddingJobs"],
+            "extraction": result["extraction"],
+            "sources": result["sources"],
+        });
+    }
     let mut task_states: Vec<Value> = Vec::new();
     for (key, name) in [
         ("embeddingJobs", "embedding_jobs"),

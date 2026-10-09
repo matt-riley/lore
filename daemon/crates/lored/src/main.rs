@@ -27,7 +27,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-use lore_core::config::{ResolvedConfig, ResolvedEmbedding};
+use lore_core::config::{ResolvedConfig, ResolvedEmbedding, ResolvedMaintenance};
 use lore_core::error::CoreError;
 use lore_core::lifecycle;
 use lore_core::policy;
@@ -38,6 +38,7 @@ use tokio::sync::Notify;
 use semantics::{QueryOutcome, Semantics};
 use worker::{WorkerState, spawn as spawn_worker};
 
+mod maintenance;
 mod semantics;
 mod sources;
 mod worker;
@@ -96,6 +97,7 @@ struct State {
     unavailable_reason: Option<String>,
     generation: AtomicU32,
     config_path: Option<PathBuf>,
+    maintenance: Arc<ResolvedMaintenance>,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -173,6 +175,16 @@ async fn main() -> Result<()> {
         .unwrap_or(0);
     let scheduler = sources::spawn(Arc::clone(&store), config.clone());
     scheduler.wake();
+    let maintenance_config =
+        ResolvedMaintenance::load(config.config_path.as_deref()).map_err(to_anyhow)?;
+    if config.enabled {
+        // Disabled stores serve Status only and never run background work.
+        maintenance::spawn(
+            Arc::clone(&store),
+            maintenance_config.clone(),
+            lore_core::store::DEFAULT_MAINTENANCE_SCOPE.to_string(),
+        );
+    }
     let unavailable_reason = match store.migration_state().map_err(to_anyhow)?.as_deref() {
         Some("validated") | Some("complete") | None => None,
         Some(_) => Some("MIGRATION_INCOMPLETE".to_string()),
@@ -194,6 +206,7 @@ async fn main() -> Result<()> {
         unavailable_reason,
         generation: AtomicU32::new(generation),
         config_path: config.config_path.clone(),
+        maintenance: Arc::new(maintenance_config),
     });
     eprintln!(
         "[lored] listening on {} (store {})",
@@ -735,7 +748,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                         api_major: API_MAJOR,
                         api_minor: API_MINOR,
                         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
-                        schema_version: 8,
+                        schema_version: 9,
                         store_id: state.store_id.clone(),
                         process_instance_id: state.process_instance_id.clone(),
                         uptime_ms: state.started.elapsed().as_millis() as u64,
@@ -1280,9 +1293,82 @@ async fn handle_admin(
                     .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
             }
             "maintenance" => {
-                let outcome = store.maintenance_run(&params.tasks, params.dry_run, now)?;
-                serde_json::to_value(outcome)
-                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                let scope = params
+                    .scope
+                    .clone()
+                    .unwrap_or_else(|| lore_core::store::DEFAULT_MAINTENANCE_SCOPE.to_string());
+                match params.action.as_deref() {
+                    Some("run") => {
+                        let task = params.task.clone().ok_or_else(|| {
+                            CoreError::invalid(
+                                "ADMIN_ARGUMENT_INVALID",
+                                "running a maintenance task needs a task name",
+                            )
+                        })?;
+                        if !lore_core::store::MAINTENANCE_TASK_NAMES.contains(&task.as_str()) {
+                            return Err(CoreError::invalid(
+                                "ADMIN_ARGUMENT_INVALID",
+                                format!("unknown maintenance task: {task}"),
+                            ));
+                        }
+                        store.maintenance_sync(&shared.maintenance, &scope, now)?;
+                        let dry_run = params.dry_run;
+                        let run_id = store
+                            .maintenance_claim(
+                                &task,
+                                &scope,
+                                if dry_run { "manual-dry-run" } else { "manual" },
+                                dry_run,
+                                now,
+                            )?
+                            .ok_or_else(|| {
+                                CoreError::conflict(
+                                    "MAINTENANCE_ALREADY_RUNNING",
+                                    "that task already has an active run",
+                                )
+                            })?;
+                        let outcome = maintenance::run_task(&store, &run_id, &task, dry_run, now);
+                        store.maintenance_finish(
+                            &run_id,
+                            outcome.state,
+                            outcome.completed,
+                            outcome.failed,
+                            outcome.needs_attention,
+                            Some(outcome.detail.clone()),
+                            now,
+                        )?;
+                        Ok(serde_json::json!({
+                            "runId": run_id,
+                            "task": task,
+                            "scope": scope,
+                            "dryRun": dry_run,
+                            "state": outcome.state,
+                            "counts": {
+                                "completed": outcome.completed,
+                                "failed": outcome.failed,
+                                "needsAttention": outcome.needs_attention,
+                            },
+                            "detail": outcome.detail,
+                        }))
+                    }
+                    Some("rollback") => {
+                        let run_id = params.run_id.clone().ok_or_else(|| {
+                            CoreError::invalid("ADMIN_ARGUMENT_INVALID", "rollback needs a runId")
+                        })?;
+                        let restored = maintenance::rollback_hygiene(&store, &run_id)
+                            .map_err(|reason| CoreError::invalid("MAINTENANCE_ROLLBACK", reason))?;
+                        Ok(serde_json::json!({ "runId": run_id, "restored": restored }))
+                    }
+                    _ => {
+                        store.maintenance_sync(&shared.maintenance, &scope, now)?;
+                        let report = lore_core::store::maintenance_report(
+                            &store,
+                            std::slice::from_ref(&scope),
+                            params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                        )?;
+                        Ok(report)
+                    }
+                }
             }
             "reflect" => {
                 let outcome = store.reflect(

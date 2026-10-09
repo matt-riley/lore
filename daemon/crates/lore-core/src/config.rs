@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::error::{CoreError, CoreResult};
 
 /// Wire/store schema version this build owns.
-pub const STORE_SCHEMA_VERSION: i64 = 8;
+pub const STORE_SCHEMA_VERSION: i64 = 9;
 /// Configuration version accepted by this build.
 pub const CONFIG_VERSION: u32 = 2;
 
@@ -144,6 +144,83 @@ pub struct ResolvedSources {
     pub max_record_bytes: usize,
 }
 
+/// One configured maintenance task.
+#[derive(Debug, Clone)]
+pub struct ResolvedMaintenanceTask {
+    pub enabled: bool,
+    pub cadence_seconds: i64,
+}
+
+/// Configured maintenance inventory. An absent or partial block keeps the
+/// built-in defaults; unknown task names are rejected at load.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedMaintenance {
+    pub tasks: std::collections::BTreeMap<String, ResolvedMaintenanceTask>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MaintenanceFileTask {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    cadence_seconds: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MaintenanceFile {
+    #[serde(default)]
+    tasks: std::collections::BTreeMap<String, MaintenanceFileTask>,
+}
+
+impl ResolvedMaintenance {
+    /// Read the `maintenance` block from a v2 config file. A missing file or
+    /// block yields defaults; unknown task names or negative cadences fail.
+    pub fn load(config_path: Option<&Path>) -> CoreResult<Self> {
+        let Some(path) = config_path else {
+            return Ok(Self::default());
+        };
+        let raw = match std::fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(_) => return Ok(Self::default()),
+        };
+        let file: serde_json::Value = serde_json::from_str(&raw)?;
+        let block = file.get("maintenance").cloned().unwrap_or_default();
+        if block.is_null() {
+            return Ok(Self::default());
+        }
+        let parsed: MaintenanceFile = serde_json::from_value(block)?;
+        let mut tasks = std::collections::BTreeMap::new();
+        for (name, task) in parsed.tasks {
+            if !crate::store::MAINTENANCE_TASK_NAMES.contains(&name.as_str()) {
+                return Err(CoreError::invalid(
+                    "CONFIG_INVALID",
+                    format!(
+                        "unknown maintenance task {name}; known: {}",
+                        crate::store::MAINTENANCE_TASK_NAMES.join(", ")
+                    ),
+                ));
+            }
+            let cadence = task.cadence_seconds.unwrap_or(0);
+            if cadence < 0 {
+                return Err(CoreError::invalid(
+                    "CONFIG_INVALID",
+                    format!("maintenance task {name} has a negative cadence"),
+                ));
+            }
+            tasks.insert(
+                name,
+                ResolvedMaintenanceTask {
+                    enabled: task.enabled.unwrap_or(true),
+                    cadence_seconds: cadence,
+                },
+            );
+        }
+        Ok(Self { tasks })
+    }
+}
+
 /// Validated embedding settings exposed to the daemon.
 #[derive(Debug, Clone)]
 pub struct ResolvedEmbedding {
@@ -263,6 +340,10 @@ pub struct ConfigFile {
     pub providers: ProvidersFile,
     #[serde(default)]
     pub sources: SourcesFile,
+    /// Maintenance inventory block; validated by `ResolvedMaintenance::load`
+    /// so a bad task name or cadence fails at startup rather than silently.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub maintenance: serde_json::Value,
 }
 
 /// Config with every path resolved and validated.

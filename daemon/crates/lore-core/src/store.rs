@@ -29,6 +29,7 @@ mod digest;
 mod embedding;
 mod extraction;
 mod governance;
+mod maintenance;
 mod migration;
 mod ops;
 mod source;
@@ -39,6 +40,10 @@ pub use embedding::{
     StoredVector, blob_to_vector, jittered_backoff_ms, vector_norm,
 };
 pub use governance::REPAIR_SOURCE_LIMIT_BYTES;
+pub use maintenance::{
+    DEFAULT_MAINTENANCE_SCOPE, MAINTENANCE_TASK_NAMES, MaintenanceRunRow, MaintenanceTaskRow,
+    maintenance_report,
+};
 pub use ops::PURGE_SELECTION_MAX;
 pub use ops::{
     CorrectOutcome, MaintenanceOutcome, OnboardInput, OnboardOutcome, OperationRun, PurgeOutcome,
@@ -341,6 +346,41 @@ CREATE TABLE IF NOT EXISTS extraction_revalidation (
     rolled_back_ms INTEGER
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_revalidation_source ON extraction_revalidation (source_id, generation);
+"#;
+
+/// Forward migration 8 -> 9: persisted maintenance task state and run history.
+const MIGRATION_9_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS maintenance_task_state (
+    task TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    cadence_seconds INTEGER NOT NULL DEFAULT 0,
+    due_ms INTEGER NOT NULL,
+    last_run_ms INTEGER,
+    last_state TEXT,
+    last_error TEXT,
+    runs INTEGER NOT NULL DEFAULT 0,
+    failures INTEGER NOT NULL DEFAULT 0,
+    needs_attention INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (task, scope)
+) STRICT;
+CREATE TABLE IF NOT EXISTS maintenance_runs (
+    run_id TEXT PRIMARY KEY,
+    task TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    state TEXT NOT NULL,
+    dry_run INTEGER NOT NULL DEFAULT 0,
+    started_ms INTEGER NOT NULL,
+    finished_ms INTEGER,
+    completed_count INTEGER NOT NULL DEFAULT 0,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    needs_attention_count INTEGER NOT NULL DEFAULT 0,
+    counts_json TEXT NOT NULL DEFAULT '{}',
+    detail_json TEXT NOT NULL DEFAULT '{}'
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_maintenance_runs_task ON maintenance_runs (task, started_ms);
+CREATE INDEX IF NOT EXISTS idx_maintenance_runs_state ON maintenance_runs (state, started_ms);
 "#;
 
 /// Forward migration 4 -> 5: migration manifests, id maps, repository
@@ -1743,6 +1783,7 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
             5 => connection.execute_batch(MIGRATION_6_SQL)?,
             6 => connection.execute_batch(MIGRATION_7_SQL)?,
             7 => connection.execute_batch(MIGRATION_8_SQL)?,
+            8 => connection.execute_batch(MIGRATION_9_SQL)?,
             other => {
                 return Err(CoreError::internal(
                     "SCHEMA_UNSUPPORTED",

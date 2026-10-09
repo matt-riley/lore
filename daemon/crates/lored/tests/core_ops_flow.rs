@@ -182,60 +182,57 @@ async fn onboard_is_idempotent_and_updates_in_place() {
 }
 
 #[tokio::test]
-async fn maintenance_expires_dry_runs_then_applies() {
+async fn maintenance_inventory_reports_and_refuses_unknown_tasks() {
     let daemon = Daemon::start();
     let store_id = store_id(&daemon).await;
-    let expired = retain(
+    let _retained = retain(
         &daemon.socket,
         &store_id,
-        "core-expire-1",
+        "core-maint-1",
         "note",
-        "This note expires immediately.",
+        "Retained for the maintenance inventory check.",
     )
     .await;
-    let _kept = retain(
-        &daemon.socket,
-        &store_id,
-        "core-expire-2",
-        "note",
-        "This note stays.",
-    )
-    .await;
-    assert!(!expired.is_empty());
 
-    // Nothing is due yet, so the real expiry path is proven at store level in
-    // lore-core/tests/maintenance_proof.rs; here the route shape and dry-run
-    // accounting are exercised through the daemon.
+    // Status lists the ported inventory and its run history.
+    let (code, status) = call(
+        &daemon.socket,
+        "/v2/admin/maintenance",
+        json!({ "action": "status" }),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(code, 200, "{status}");
+    assert_eq!(
+        status["result"]["taskStates"]
+            .as_array()
+            .expect("states")
+            .len(),
+        9
+    );
+
+    // A manual dry run of deferred extraction is bounded and recorded.
     let (code, dry) = call(
         &daemon.socket,
         "/v2/admin/maintenance",
-        json!({ "dryRun": true, "tasks": ["expire_memories"] }),
+        json!({ "action": "run", "task": "deferredExtraction", "dryRun": true }),
         Some(&store_id),
     )
     .await;
     assert_eq!(code, 200, "{dry}");
+    assert_eq!(dry["result"]["state"], "complete");
     assert_eq!(dry["result"]["dryRun"], true);
-    assert_eq!(dry["result"]["tasks"][0]["name"], "expire_memories");
-    assert_eq!(dry["result"]["tasks"][0]["affected"], 0);
+    assert!(dry["result"]["runId"].as_str().is_some());
 
-    let (code, applied) = call(
+    // Unknown tasks are refused with the known inventory named.
+    let (code, unknown) = call(
         &daemon.socket,
         "/v2/admin/maintenance",
-        json!({ "tasks": ["reap_embedding_jobs", "retry_stale_extraction"] }),
+        json!({ "action": "run", "task": "not_a_task" }),
         Some(&store_id),
     )
     .await;
-    assert_eq!(code, 200, "{applied}");
-    assert_eq!(applied["result"]["dryRun"], false);
-    assert!(applied["result"]["runId"].as_str().is_some());
-
-    let (_, unknown) = call(
-        &daemon.socket,
-        "/v2/admin/maintenance",
-        json!({ "tasks": ["not_a_task"] }),
-        Some(&store_id),
-    )
-    .await;
+    assert_eq!(code, 400, "{unknown}");
     assert_eq!(unknown["error"]["reason"], "ADMIN_ARGUMENT_INVALID");
 }
 

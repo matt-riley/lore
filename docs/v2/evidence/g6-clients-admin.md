@@ -51,6 +51,31 @@ synchronous reads with capability IDs `search.browse`, `explain.context`,
 - **Capability inventory** merges the checked-in catalog with live daemon
   capabilities; it works without a daemon and reports `storeId: null`.
 
+### OKF visualizer export
+
+`lore bundle visualize --bundle <dir> [--out <file>] [--name <label>]` ports
+the v1 visualizer as an explicit, read-only CLI export:
+
+- Input must be an OKF v0.1 bundle directory containing `index.md`; concepts
+  are markdown files with frontmatter, resolved into a graph of typed links
+  and backlinks.
+- Bounds: 200 concepts, 256 KiB per file, traversal depth 4, 8 MiB rendered
+  artifact; symlinked entries are skipped and `..` resolution that escapes
+  the bundle root is rejected.
+- Output is a single **fully offline** HTML file (no CDN, no JavaScript
+  dependencies) with every field HTML-escaped, plus an embedded
+  `<script type="application/json">` graph block whose `<`, `>` and `&` are
+  unicode-escaped so hostile content cannot close the element. Exports are
+  written `0600`.
+- Proofs: `lore-core/tests/okf_visualizer_proof.rs` covers graph content,
+  offline guarantees, hostile `<script>`/`</script>` escaping in both the
+  rendered text and the embedded JSON block, size bounds and non-bundle
+  refusal. The CLI verb was exercised by hand.
+- **Deviation from v1:** the v1 viewer loads cytoscape/marked/DOMPurify from
+  CDNs and renders an interactive force-directed graph. The port keeps the
+  same data and inspectability but is static and offline; interactive
+  rendering is deferred rather than reintroducing CDN dependencies.
+
 ### Optional analysis lane
 
 `POST /v2/analysis` and `lore analyze --kind query-expansion|context-compression`

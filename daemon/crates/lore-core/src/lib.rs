@@ -7,6 +7,7 @@ pub mod extraction;
 pub mod ingestion;
 pub mod lifecycle;
 pub mod migration;
+pub mod okf_visualizer;
 pub mod policy;
 pub mod retrieval;
 pub mod skills;

@@ -114,6 +114,11 @@ enum Command {
         #[command(subcommand)]
         action: MigrateCommand,
     },
+    /// Portable bundles.
+    Bundle {
+        #[command(subcommand)]
+        action: BundleCommand,
+    },
     /// Optional augmentation: query expansion or context compression.
     Analyze {
         #[arg(long)]
@@ -235,6 +240,22 @@ enum ServiceCommand {
         dry_run: bool,
         #[arg(long)]
         apply: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum BundleCommand {
+    /// Render a standalone, offline HTML view of an OKF bundle.
+    Visualize {
+        #[arg(long)]
+        bundle: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Display name in the artifact header.
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, default_value = "text")]
+        output: String,
     },
 }
 
@@ -600,6 +621,35 @@ async fn run(cli: Cli) -> Result<(), String> {
             }
             return Ok(());
         }
+        Command::Bundle { action } => {
+            match action {
+                BundleCommand::Visualize {
+                    bundle,
+                    out,
+                    name,
+                    output,
+                } => {
+                    let out = out.clone().unwrap_or_else(|| bundle.join("viz.html"));
+                    let value =
+                        lore_core::okf_visualizer::visualize_okf(bundle, &out, name.as_deref())
+                            .map_err(|error| error.reason)?;
+                    if output == "json" {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&value).unwrap_or_default()
+                        );
+                    } else {
+                        println!(
+                            "lore bundle visualize: {} concept(s), {} link(s) -> {}",
+                            value["concepts"].as_i64().unwrap_or(0),
+                            value["edges"].as_i64().unwrap_or(0),
+                            value["path"].as_str().unwrap_or("")
+                        );
+                    }
+                }
+            }
+            return Ok(());
+        }
         Command::Analyze { kind, output } => {
             // The spec's input shape is a JSON object on stdin; the flag only
             // selects the kind.
@@ -896,7 +946,8 @@ async fn run(cli: Cli) -> Result<(), String> {
         | Command::Upgrade { .. }
         | Command::Audit { .. }
         | Command::Maintenance { .. }
-        | Command::Analyze { .. } => {
+        | Command::Analyze { .. }
+        | Command::Bundle { .. } => {
             unreachable!("local-only commands are handled before socket resolution")
         }
         Command::Status { json: _ } => {

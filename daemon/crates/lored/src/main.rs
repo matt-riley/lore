@@ -763,7 +763,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                         api_major: API_MAJOR,
                         api_minor: API_MINOR,
                         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
-                        schema_version: 9,
+                        schema_version: 10,
                         store_id: state.store_id.clone(),
                         process_instance_id: state.process_instance_id.clone(),
                         uptime_ms: state.started.elapsed().as_millis() as u64,
@@ -1469,6 +1469,18 @@ async fn handle_admin(
                         params.detail.as_deref(),
                         params.source.as_deref().unwrap_or("manual"),
                         params.run_id.as_deref(),
+                        params.linked_memory_id.as_deref(),
+                        now,
+                    )
+                }
+                "link" => {
+                    let id = params.id.clone().ok_or_else(|| {
+                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "backlog link needs an id")
+                    })?;
+                    store.backlog_link(
+                        &id,
+                        params.linked_memory_id.as_deref(),
+                        params.actor.as_deref(),
                         now,
                     )
                 }

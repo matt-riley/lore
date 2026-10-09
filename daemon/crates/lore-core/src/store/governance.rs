@@ -130,6 +130,7 @@ impl Store {
         detail: Option<&str>,
         source: &str,
         run_id: Option<&str>,
+        linked_memory_id: Option<&str>,
         now_ms: i64,
     ) -> CoreResult<Value> {
         let title = title.trim();
@@ -145,12 +146,26 @@ impl Store {
         let mut connection = self.writer.lock().expect("writer lock");
         let transaction =
             connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(memory_id) = linked_memory_id {
+            let known: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM memories WHERE id = ?1)",
+                params![memory_id],
+                |row| row.get(0),
+            )?;
+            if !known {
+                return Err(CoreError::not_found(
+                    "MEMORY_NOT_FOUND",
+                    "no memory exists with that id",
+                ));
+            }
+        }
         transaction.execute(
-            "INSERT INTO improvement_backlog (id, kind, title, detail, state, source, evidence_json, run_id, created_ms, updated_ms) \
-             VALUES (?1, ?2, ?3, ?4, 'proposed', ?5, NULL, ?6, ?7, ?7) \
+            "INSERT INTO improvement_backlog (id, kind, title, detail, state, source, evidence_json, run_id, linked_memory_id, created_ms, updated_ms) \
+             VALUES (?1, ?2, ?3, ?4, 'proposed', ?5, NULL, ?6, ?7, ?8, ?8) \
              ON CONFLICT (id) DO UPDATE SET title = excluded.title, detail = excluded.detail, \
-              kind = excluded.kind, updated_ms = excluded.updated_ms",
-            params![id, kind, title, detail, source, run_id, now_ms],
+              kind = excluded.kind, updated_ms = excluded.updated_ms, \
+              linked_memory_id = COALESCE(excluded.linked_memory_id, improvement_backlog.linked_memory_id)",
+            params![id, kind, title, detail, source, run_id, linked_memory_id, now_ms],
         )?;
         ledger_insert(
             &transaction,
@@ -162,7 +177,62 @@ impl Store {
             now_ms,
         )?;
         transaction.commit()?;
-        Ok(json!({ "id": id, "state": "proposed" }))
+        Ok(json!({ "id": id, "state": "proposed", "linkedMemoryId": linked_memory_id }))
+    }
+
+    /// Link or unlink one backlog item to a memory. `None` clears the link.
+    pub fn backlog_link(
+        &self,
+        id: &str,
+        memory_id: Option<&str>,
+        actor: Option<&str>,
+        now_ms: i64,
+    ) -> CoreResult<Value> {
+        let mut connection = self.writer.lock().expect("writer lock");
+        let transaction =
+            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(memory_id) = memory_id {
+            let known: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM memories WHERE id = ?1)",
+                params![memory_id],
+                |row| row.get(0),
+            )?;
+            if !known {
+                return Err(CoreError::not_found(
+                    "MEMORY_NOT_FOUND",
+                    "no memory exists with that id",
+                ));
+            }
+        }
+        let changed = transaction.execute(
+            "UPDATE improvement_backlog SET linked_memory_id = ?2, updated_ms = ?3 WHERE id = ?1",
+            params![id, memory_id, now_ms],
+        )?;
+        if changed == 0 {
+            return Err(CoreError::not_found(
+                "BACKLOG_ITEM_NOT_FOUND",
+                "no backlog item exists with that id",
+            ));
+        }
+        let detail = match memory_id {
+            Some(memory_id) => format!("linked to memory {memory_id}"),
+            None => "link cleared".to_string(),
+        };
+        ledger_insert(
+            &transaction,
+            "note",
+            Some(id),
+            Some(&detail),
+            actor,
+            None,
+            now_ms,
+        )?;
+        transaction.commit()?;
+        Ok(json!({
+            "id": id,
+            "linkedMemoryId": memory_id,
+            "state": if memory_id.is_some() { "linked" } else { "unlinked" },
+        }))
     }
 
     /// Move a backlog item through the review gate.

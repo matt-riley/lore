@@ -348,6 +348,13 @@ CREATE TABLE IF NOT EXISTS extraction_revalidation (
 CREATE INDEX IF NOT EXISTS idx_revalidation_source ON extraction_revalidation (source_id, generation);
 "#;
 
+/// Forward migration 9 -> 10: link improvement artifacts to the memory they
+/// concern, so drill-down can report real linked improvements.
+const MIGRATION_10_SQL: &str = r#"
+ALTER TABLE improvement_backlog ADD COLUMN linked_memory_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_backlog_memory ON improvement_backlog (linked_memory_id);
+"#;
+
 /// Forward migration 8 -> 9: persisted maintenance task state and run history.
 const MIGRATION_9_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS maintenance_task_state (
@@ -1784,6 +1791,7 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
             6 => connection.execute_batch(MIGRATION_7_SQL)?,
             7 => connection.execute_batch(MIGRATION_8_SQL)?,
             8 => connection.execute_batch(MIGRATION_9_SQL)?,
+            9 => connection.execute_batch(MIGRATION_10_SQL)?,
             other => {
                 return Err(CoreError::internal(
                     "SCHEMA_UNSUPPORTED",

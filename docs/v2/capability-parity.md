@@ -117,7 +117,7 @@ Maintenance task inventory: memoryHygiene, deferredExtraction, validationCorpus,
 | UI-02 | Memories /api/memories and /api/memories/filters | 6B scope/category filters, pagination, escaping |
 | UI-03 | Maintenance /api/maintenance | 6B schedule/run history and failures |
 | UI-04 | Episodes /api/episodes | Real episode and day-summary rows in dashboard field names, with session/date/repository/significance and live capture health on the overview — [G6 evidence](evidence/g6-clients-admin.md) |
-| UI-05 | Drill-down /api/drilldown | Supersession lineage, canonical topic clusters, evidence/derived-episode graph and safe rendering — [G6 evidence](evidence/g6-clients-admin.md) |
+| UI-05 | Drill-down /api/drilldown | Supersession lineage, canonical topic clusters, evidence/derived-episode graph, linked improvements (schema 10) and safe rendering — [G6 evidence](evidence/g6-clients-admin.md) |
 
 ## Scripts, setup and developer tooling
 

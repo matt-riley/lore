@@ -6,7 +6,15 @@
 // Usage:
 //   node scripts/package.mjs [--dist DIR] [--skip-build] [--binary-dir DIR]
 //                            [--target TRIPLE] [--repo-root DIR]
+//                            [--sign] [--notarize]
 //   node scripts/package.mjs --verify dist/lore-<version>-<target>.tar.gz
+//
+// Signing and notarization are opt-in and fail loudly when requested without
+// credentials; an unsigned build is never reported as signed.
+//   --sign       codesign the macOS binaries (LORE_CODESIGN_IDENTITY)
+//   --notarize   notarize the macOS zip and wait for the verdict
+//                (LORE_NOTARY_KEY/LORE_NOTARY_KEY_ID/LORE_NOTARY_ISSUER or
+//                 LORE_NOTARY_APPLE_ID/LORE_NOTARY_PASSWORD/LORE_NOTARY_TEAM_ID)
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -29,7 +37,16 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function parseArgs(argv) {
-  const options = { dist: null, skipBuild: false, binaryDir: null, target: null, repoRoot: REPO_ROOT, verify: null };
+  const options = {
+    dist: null,
+    skipBuild: false,
+    binaryDir: null,
+    target: null,
+    repoRoot: REPO_ROOT,
+    verify: null,
+    sign: false,
+    notarize: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--dist") options.dist = argv[++index];
@@ -38,9 +55,92 @@ function parseArgs(argv) {
     else if (value === "--target") options.target = argv[++index];
     else if (value === "--repo-root") options.repoRoot = path.resolve(argv[++index]);
     else if (value === "--verify") options.verify = argv[++index];
+    else if (value === "--sign") options.sign = true;
+    else if (value === "--notarize") options.notarize = true;
     else throw new Error(`unknown argument: ${value}`);
   }
   return options;
+}
+
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
+function run(command, args, { capture = false } = {}) {
+  return execFileSync(command, args, {
+    encoding: "utf8",
+    stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",
+  });
+}
+
+/// Codesign the staged macOS binaries with the hardened runtime and a secure
+/// timestamp, then verify the signature that was just applied.
+function codesignStage(stage, target) {
+  if (!target.includes("darwin")) {
+    throw new Error("signing applies to macOS targets only");
+  }
+  const identity = requireEnv("LORE_CODESIGN_IDENTITY");
+  for (const binary of ["lore", "lored"]) {
+    const file = path.join(stage, "bin", binary);
+    run("codesign", [
+      "--force",
+      "--options",
+      "runtime",
+      "--timestamp",
+      "--sign",
+      identity,
+      file,
+    ]);
+    run("codesign", ["--verify", "--strict", "--verbose=2", file]);
+  }
+  return identity;
+}
+
+/// Zip the signed stage and submit it to Apple's notary service. The zip
+/// itself cannot be stapled, so the notarization ticket is reported for the
+/// release notes and Gatekeeper validates it online on first run.
+function notarizeStage(stage, dist, version, target) {
+  if (!target.includes("darwin")) {
+    throw new Error("notarization applies to macOS targets only");
+  }
+  const zip = path.join(dist, `lore-${version}-${target}.zip`);
+  rmSync(zip, { force: true });
+  run("ditto", ["-c", "-k", "--keepParent", stage, zip]);
+  const args = ["notarytool", "submit", zip, "--wait"];
+  if (process.env.LORE_NOTARY_KEY) {
+    args.push(
+      "--key",
+      process.env.LORE_NOTARY_KEY,
+      "--key-id",
+      requireEnv("LORE_NOTARY_KEY_ID"),
+      "--issuer",
+      requireEnv("LORE_NOTARY_ISSUER"),
+    );
+  } else if (process.env.LORE_NOTARY_APPLE_ID) {
+    args.push(
+      "--apple-id",
+      process.env.LORE_NOTARY_APPLE_ID,
+      "--password",
+      requireEnv("LORE_NOTARY_PASSWORD"),
+      "--team-id",
+      requireEnv("LORE_NOTARY_TEAM_ID"),
+    );
+  } else {
+    throw new Error(
+      "notarization requires LORE_NOTARY_KEY (with LORE_NOTARY_KEY_ID and LORE_NOTARY_ISSUER) " +
+        "or LORE_NOTARY_APPLE_ID (with LORE_NOTARY_PASSWORD and LORE_NOTARY_TEAM_ID)",
+    );
+  }
+  const output = run("xcrun", args, { capture: true });
+  process.stdout.write(output);
+  const submission = output.match(/id:\s*([0-9a-fA-F-]{36})/);
+  const accepted = /"status"\s*:\s*"Accepted"/.test(output) || /status:\s*Accepted/.test(output);
+  if (!accepted) {
+    throw new Error(`notarization was not accepted for ${path.basename(zip)}`);
+  }
+  return { zip, submissionId: submission ? submission[1] : null, status: "Accepted" };
 }
 
 function sha256(file) {
@@ -67,7 +167,9 @@ function sbom(repoRoot) {
     const output = execFileSync(
       "cargo",
       ["metadata", "--format-version", "1", "--offline", "--manifest-path", path.join(repoRoot, "daemon/Cargo.toml")],
-      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+      // A store without the full dependency cache cannot produce an SBOM;
+      // that must not spray cargo noise into a signing run.
+      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] },
     );
     const metadata = JSON.parse(output);
     const workspace = new Set(metadata.packages.filter((entry) => metadata.workspace_members.includes(entry.id)).map((entry) => entry.id));
@@ -134,6 +236,27 @@ function build(options) {
   );
   writeFileSync(path.join(stage, "SBOM.json"), `${JSON.stringify(sbom(repoRoot), null, 2)}\n`);
 
+  // Sign before hashing: the manifest and checksums must cover the bytes that
+  // are actually shipped.
+  const signRequested = options.sign || process.env.LORE_CODESIGN === "1";
+  const notarizeRequested = options.notarize || process.env.LORE_NOTARY === "1";
+  if (notarizeRequested && !signRequested) {
+    throw new Error("notarization requires signing: pass --sign (or LORE_CODESIGN=1)");
+  }
+  let signature = "unsigned-development-build";
+  let notarization = null;
+  if (signRequested && !target.includes("darwin")) {
+    throw new Error("signing and notarization apply to macOS targets only");
+  }
+  if (signRequested) {
+    const identity = codesignStage(stage, target);
+    signature = notarizeRequested ? "signed-pending-notarization" : "signed";
+    writeFileSync(
+      path.join(stage, "SIGNATURE.json"),
+      `${JSON.stringify({ identity, target, signedMs: Date.now() }, null, 2)}\n`,
+    );
+  }
+
   const files = listFiles(stage).map((relative) => {
     const full = path.join(stage, relative);
     return { path: relative, bytes: statSync(full).size, sha256: sha256(full) };
@@ -153,10 +276,21 @@ function build(options) {
   if (!existing.split("\n").includes(line)) {
     writeFileSync(checksums, `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}${line}\n`);
   }
+  if (notarizeRequested) {
+    notarization = notarizeStage(stage, dist, version, target);
+    signature = "signed-notarized";
+  }
   rmSync(stage, { recursive: true, force: true });
 
-  const signature = process.env.LORE_CODESIGN === "1" ? "configured" : "unsigned-development-build";
-  return { archive, version, target, files: files.length, sha256: archiveHash, signature };
+  return {
+    archive,
+    version,
+    target,
+    files: files.length,
+    sha256: archiveHash,
+    signature,
+    notarization,
+  };
 }
 
 function verify(archive) {

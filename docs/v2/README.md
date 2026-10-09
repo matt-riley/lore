@@ -34,6 +34,14 @@ At this baseline, `lib/memory/semantic-search.mjs` uses a 10,000 ms default sema
 
 The [former later-slices document](04-later-slices.md) remains a navigation bridge for existing links. Stage numbers are stable identifiers; 5A/5B and 6A/6B split the old broad slices without dropping scope.
 
+## Runbooks
+
+- [Local usage](local-usage.md) — build, configure, run and drive v2 side by side with v1.
+- [Migration guide](migration-guide.md) — preview, apply, verify, cut over and roll back.
+- [Signing and notarization](signing-notarization.md) — Apple credentials, CI secrets and artifact verification.
+- [v1 deprecation notice](deprecation-notice.md) — draft, published at cutover.
+- [G6 gate sign-off](evidence/g6-signoff.md) — criterion-by-criterion status; unsigned today.
+
 ## Architecture
 
 ```text

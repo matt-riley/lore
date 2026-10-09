@@ -8,3 +8,6 @@ pnpm-debug.log*
 .worktrees/
 .fallow/
 .pi/cache/
+
+# Build output from daemon/scripts/package.mjs
+daemon/dist/

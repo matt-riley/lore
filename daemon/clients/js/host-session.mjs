@@ -107,18 +107,22 @@ export function createHostSession({
         createdAt: now(),
       });
     }
+    let result;
     try {
-      const result = await client.call(tool.route, payload, { signal });
-      journal?.complete(key);
-      return result;
-    } catch (error) {
-      if (isRetryableTransportError(error)) {
-        const result = await client.call(tool.route, payload, { signal });
-        journal?.complete(key);
-        return result;
+      try {
+        result = await client.call(tool.route, payload, { signal });
+      } catch (error) {
+        if (!isRetryableTransportError(error)) throw error;
+        result = await client.call(tool.route, payload, { signal });
       }
+    } catch (error) {
+      // A definitive daemon rejection means nothing committed, so the entry is
+      // no longer needed. Anything else may have committed and stays for retry.
+      if (error?.retryable === false) journal?.discard(key);
       throw error;
     }
+    journal?.complete(key);
+    return result;
   }
 
   async function shutdownSession(sessionId) {
@@ -147,6 +151,9 @@ export function createHostSession({
     shutdownAll,
     retries() {
       return journal ? journal.list() : [];
+    },
+    discardRetry(key) {
+      return journal ? journal.discard(key) : false;
     },
   };
 }

@@ -1,0 +1,8 @@
+{
+  "meta": {
+    "clientId": "fixture",
+    "requestId": "fixture-status-1",
+    "expectedStoreId": "store-fixture"
+  },
+  "params": { "expectedApiMajor": 2 }
+}

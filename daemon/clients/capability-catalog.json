@@ -1,0 +1,370 @@
+{
+  "version": 2,
+  "generatedFrom": "lib/capabilities/capability-manifest.mjs",
+  "rows": [
+    {
+      "name": "lore_status",
+      "aliases": [
+        "memory_status"
+      ],
+      "surfaces": {
+        "model": true,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/status"
+    },
+    {
+      "name": "memory_intent_journal",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/journal"
+    },
+    {
+      "name": "memory_portable_bundle",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/bundle"
+    },
+    {
+      "name": "lore_maintenance",
+      "aliases": [
+        "maintenance_schedule_run"
+      ],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/maintenance"
+    },
+    {
+      "name": "lore_audit_extractions",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/admin/audit/extractions"
+    },
+    {
+      "name": "memory_improvement_backlog",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/backlog"
+    },
+    {
+      "name": "memory_evolution_ledger",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/admin/ledger"
+    },
+    {
+      "name": "memory_capability_inventory",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "local:capabilities"
+    },
+    {
+      "name": "lore_recall",
+      "aliases": [],
+      "surfaces": {
+        "model": true,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/recall"
+    },
+    {
+      "name": "lore_onboard",
+      "aliases": [],
+      "surfaces": {
+        "model": true,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/onboard"
+    },
+    {
+      "name": "lore_retain",
+      "aliases": [
+        "lore_save",
+        "memory_save"
+      ],
+      "surfaces": {
+        "model": true,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/retain"
+    },
+    {
+      "name": "lore_reflect",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/reflect"
+    },
+    {
+      "name": "lore_search",
+      "aliases": [
+        "memory_search"
+      ],
+      "surfaces": {
+        "model": true,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/admin/search"
+    },
+    {
+      "name": "lore_explain",
+      "aliases": [
+        "memory_explain"
+      ],
+      "surfaces": {
+        "model": true,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/admin/explain"
+    },
+    {
+      "name": "lore_validate",
+      "aliases": [
+        "memory_validate"
+      ],
+      "surfaces": {
+        "model": true,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/admin/validate"
+    },
+    {
+      "name": "memory_replay",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/replay"
+    },
+    {
+      "name": "memory_scope_override",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/scope-override"
+    },
+    {
+      "name": "memory_scope_audit",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/admin/scope-audit"
+    },
+    {
+      "name": "lore_forget",
+      "aliases": [
+        "memory_forget"
+      ],
+      "surfaces": {
+        "model": true,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/forget"
+    },
+    {
+      "name": "lore_correct",
+      "aliases": [
+        "memory_correct"
+      ],
+      "surfaces": {
+        "model": true,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/correct"
+    },
+    {
+      "name": "lore_repair",
+      "aliases": [
+        "memory_repair"
+      ],
+      "surfaces": {
+        "model": false,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/repair"
+    },
+    {
+      "name": "lore_purge",
+      "aliases": [
+        "memory_purge"
+      ],
+      "surfaces": {
+        "model": false,
+        "cli": true,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/purge"
+    },
+    {
+      "name": "memory_deferred_process",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/deferred-process"
+    },
+    {
+      "name": "lore_backfill",
+      "aliases": [
+        "memory_backfill"
+      ],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/backfill"
+    },
+    {
+      "name": "lore_doctor",
+      "aliases": [
+        "memory_doctor_report"
+      ],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/admin/doctor"
+    },
+    {
+      "name": "memory_review_gate",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "write",
+      "route": "/v2/admin/review-gate"
+    },
+    {
+      "name": "memory_skill_validate",
+      "aliases": [],
+      "surfaces": {
+        "model": false,
+        "cli": false,
+        "slash": true
+      },
+      "support": "implemented",
+      "mutability": "read",
+      "route": "/v2/admin/skill-validate"
+    }
+  ],
+  "daemonCapabilities": [
+    "status.basic",
+    "memory.retain.manual",
+    "memory.forget",
+    "recall.lexical",
+    "recall.semantic.bounded",
+    "embedding.status",
+    "embedding.retry",
+    "config.reload",
+    "sources.register",
+    "sources.hint",
+    "sources.status",
+    "extraction.retry",
+    "views.read"
+  ]
+}

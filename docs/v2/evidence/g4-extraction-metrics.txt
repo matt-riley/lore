@@ -1,0 +1,2 @@
+extraction quality: blueprints=160 extracted=151 precision=1.0000 expected=151 recall=1.0000 forbidden=0 false_global=0 suppress=2 critical_failures=0
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.64s

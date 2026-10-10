@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "clientId": "fixture",
+    "requestId": "fixture-recall-1",
+    "expectedStoreId": "store-fixture",
+    "timeoutMs": 160
+  },
+  "params": {
+    "query": "which package manager does the build use",
+    "repository": "github.com/matt-riley/lore",
+    "includeOtherRepositories": false,
+    "limit": 6,
+    "contextBytes": 8192
+  }
+}

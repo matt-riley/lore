@@ -1,6 +1,6 @@
 # Slice 6B: administration, optional capabilities and dashboard
 
-Status: planned. Depends on G4, stage 5B backup/recovery and stage 6A dispatch contracts. Exit contributes to G5.
+Status: stage-6B view routes and loopback gateway implemented 2026-10-07 — evidence in [evidence/g6-clients-admin.md](evidence/g6-clients-admin.md); most canonical operations and full dashboard parity remain open. Depends on G4, stage 5B backup/recovery and stage 6A dispatch contracts. Exit contributes to G5.
 Inventory: [capability parity](capability-parity.md).
 
 ## One dispatch and run model
@@ -54,6 +54,13 @@ Explicit optional augmentation uses `lore analyze --kind query-expansion|context
 Analysis occupies the single optional chat lane, defaults to a 5-second deadline (explicit maximum 30 seconds), and keeps request/result only in memory. It has no durable run/job, cannot mutate memories, and returns timeout/unavailable on disconnect/restart. Automatic hooks never call it or wait for its results. This preserves explicit access to augmentation while honoring the prompt latency and query-retention contracts.
 
 The OKF visualizer remains an explicit CLI export of a standalone inspectable artifact; it consumes approved bundles, never starts model inference, and shares escaping/content tests with the current implementation.
+
+Status (2026-10-07): the read-only gateway serves the v1 dashboard assets and
+translates every view into the field names those assets consume; five
+translation unit tests and the gateway security/translation integration tests
+pass. Episode digests, day summaries, capture-health and maintenance run
+rows are produced from live data; activity rows and trace samples stay empty
+because v2 does not persist retrieval queries.
 
 ## Dashboard architecture and boundaries
 

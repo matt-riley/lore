@@ -1,6 +1,13 @@
 # Capability parity ledger
 
-Status: rebaselined against `main` at release 0.20.3 (`3b6b622`), 2026-10-07. Every v2 row is currently planned, not implemented or certified. Rebaseline drift recorded since the frozen baseline: CAP-27, the `extractionRevalidation` maintenance task, the optional TypeSafe provider surface, the `rerank-preview` development script, and `lore_doctor` install-health reporting.
+Status: rebaselined against `main` at release 0.20.3 (`3b6b622`), 2026-10-07.
+All 27 canonical operations are implemented with stage evidence (see
+[G6](evidence/g6-clients-admin.md) and [G7](evidence/g7-rollout.md)); real-host
+adapter certification, signed artifacts and the release-candidate cohort
+remain open. Rebaseline drift recorded since the frozen baseline: CAP-27, the
+`extractionRevalidation` maintenance task, the optional TypeSafe provider
+surface, the `rerank-preview` development script, and `lore_doctor`
+install-health reporting.
 Sources: [capability manifest](../../lib/capabilities/capability-manifest.mjs), [support matrix](../support-matrix.md), [configuration defaults](../../lib/core/config.mjs).
 
 ## Completion rule
@@ -8,6 +15,8 @@ Sources: [capability manifest](../../lib/capabilities/capability-manifest.mjs), 
 All 27 canonical operations and their aliases below are in the replacement scope, including experimental operations. Existing experimental status does not excuse omission, and implementing a row does not promote its support level. A future inventory change must amend this ledger before the next gate.
 
 For every row preserve the baseline parameter schema (fields, required/optional meaning, enum values and alias behavior) through CLI/host compatibility translation. The new wire can use typed requests, but a rejected/changed v1 argument needs an explicit documented difference. Run a schema/golden comparison; do not hand-copy only the commonly used arguments.
+
+Stage 2 implements the Status, manual Retain, Forget and lexical Recall subsets of CAP-01, CAP-08, CAP-10 and CAP-18 against store schema 1; every other row remains planned and every implementation claim needs its stage evidence. See [G2 evidence](evidence/g2.md). Stage 3 adds bounded semantic recall and the `recall.semantic.bounded`, `embedding.status`, `embedding.retry` and `config.reload` capabilities under store schema 2, with its fusion deviation recorded in [G3 evidence](evidence/g3.md). Stage 4 adds approved-root source capture, the `sources.register`, `sources.hint` and `sources.status` capabilities under store schema 3, with per-client parsers, generations and extraction intent; see [G4 capture evidence](evidence/g4.md). Stage 5A adds deterministic extraction into scoped automatic memories with evidence links, suppression and corrections, plus mandatory context sections, under store schema 4; see [G4 extraction evidence](evidence/g4-extraction.md). Stage 5B adds explicit released-schema v1 import, consistent backup and suppression-safe restore under schema 5; see [G5 migration evidence](evidence/g5-migration.md). Stage 6A adds the checked-in capability catalog, registry dispatch, native hooks, the uncertain-write journal and a thin JS adapter; stage 6B adds read-only view routes, the loopback browser gateway and the first read-only administration operations — all 27 canonical operations are implemented in [G6 evidence](evidence/g6-clients-admin.md).
 
 Each row needs schema, handler, flag, policy, failure and relevant real-surface evidence. Mark implemented/tested/certified separately in the implementation ledger with commit/report links. No row is complete merely because its command name exists.
 
@@ -101,14 +110,14 @@ Maintenance task inventory: memoryHygiene, deferredExtraction, validationCorpus,
 | --- | --- | --- |
 | CTX-01 | Standing directives, response style/addressing, user/assistant identity | 5A required sections independent of topical similarity; explicit versus inferred scope fixtures |
 | CTX-02 | Preferences, commitments, working profile, procedural guidance | 5A authority, freshness and byte-budget fixtures |
-| CTX-03 | Episodes, day summaries, temporal lookup, prior work | 4/5A evidence completeness, date/timezone and retired-source tests |
+| CTX-03 | Episodes, day summaries, temporal lookup, prior work | Deterministic episode digests and day summaries produced per captured generation and per UTC date (schema 7); suppression-safe (no quoted propositions), searchable and idempotent — [G6 evidence](evidence/g6-clients-admin.md) |
 | CTX-04 | Domains, workstreams, overlays, observations and cross-repo hints | 5A/6B manual fields, rollout gates, scoped provenance |
 | DATA-01 | All v1 tables, config, source roots and backup/recovery state | 5B per-table/field disposition and checksums |
 | UI-01 | Overview /api/overview and /api/health | 6B read-only gateway, readiness/count/coverage parity |
 | UI-02 | Memories /api/memories and /api/memories/filters | 6B scope/category filters, pagination, escaping |
 | UI-03 | Maintenance /api/maintenance | 6B schedule/run history and failures |
-| UI-04 | Episodes /api/episodes | 6B session groups and provenance |
-| UI-05 | Drill-down /api/drilldown | 6B lineage, supersession, canonical grouping and safe rendering |
+| UI-04 | Episodes /api/episodes | Real episode and day-summary rows in dashboard field names, with session/date/repository/significance and live capture health on the overview — [G6 evidence](evidence/g6-clients-admin.md) |
+| UI-05 | Drill-down /api/drilldown | Supersession lineage, canonical topic clusters, evidence/derived-episode graph, linked improvements (schema 10) and safe rendering — [G6 evidence](evidence/g6-clients-admin.md) |
 
 ## Scripts, setup and developer tooling
 

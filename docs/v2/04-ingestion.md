@@ -1,6 +1,6 @@
 # Slice 4: background transcript ingestion
 
-Status: planned. Depends on G3 go decision. Exit contributes to G4.
+Status: stage-4 capture complete 2026-10-07 — evidence in [evidence/g4.md](evidence/g4.md); G4 stays open until stage 5A extraction parity. Depends on G3 go decision. Exit contributes to G4.
 References: `lib/clients/bounded-jsonl-reader.mjs`, `lib/clients/cli-transcript-ingestion.mjs`, `pi-session-reader.mjs`, `lib/sessions/pi-archive-scanner.mjs`, `lib/sessions/session-store-reader.mjs`.
 
 ## Outcome and ownership

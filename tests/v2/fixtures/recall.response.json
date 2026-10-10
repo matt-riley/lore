@@ -1,0 +1,49 @@
+{
+  "ok": true,
+  "requestId": "fixture-recall-1",
+  "storeId": "store-fixture",
+  "result": {
+    "records": [
+      {
+        "id": "1f0f8f5a-6d5b-4f5e-9f1e-2b6f5a6d5b4f",
+        "type": "user_preference",
+        "content": "The build uses pnpm workspaces.",
+        "scope": "global",
+        "authority": "manual",
+        "confidence": 0.9,
+        "createdMs": 1759800000000,
+        "updatedMs": 1759800000000,
+        "tags": [
+          "build",
+          "tooling"
+        ]
+      }
+    ],
+    "context": "- The build uses pnpm workspaces.",
+    "sections": [
+      {
+        "id": "topical",
+        "memoryIds": [
+          "1f0f8f5a-6d5b-4f5e-9f1e-2b6f5a6d5b4f"
+        ],
+        "text": "- The build uses pnpm workspaces.",
+        "omitted": 0
+      }
+    ],
+    "memoryRevision": "1",
+    "evaluatedAtMs": 1759800000001,
+    "derivedGeneration": "0",
+    "diagnostics": {
+      "retrievalMode": "lexical",
+      "cache": "disabled",
+      "vectorContribution": 0,
+      "candidatePoolLimit": 200,
+      "candidatePoolTruncated": false,
+      "fallbackReason": "DISABLED",
+      "responseBytes": 0,
+      "omittedCount": 0,
+      "mandatoryTruncated": false,
+      "mandatoryOmitted": 0
+    }
+  }
+}

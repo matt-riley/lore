@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "requestId": "fixture-retain-1",
+  "storeId": "store-fixture",
+  "result": {
+    "memoryId": "1f0f8f5a-6d5b-4f5e-9f1e-2b6f5a6d5b4f",
+    "committedRevision": "1",
+    "writeResult": "created",
+    "embeddingStatus": "disabled"
+  }
+}

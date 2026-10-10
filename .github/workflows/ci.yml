@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2]
   pull_request:
     branches: [main]
 
@@ -101,3 +101,91 @@ jobs:
 
       - name: Transcript reliability gate
         run: npm run test:reliability
+
+  daemon:
+    name: Daemon (Rust 1.99, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    defaults:
+      run:
+        working-directory: daemon
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            daemon/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('daemon/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      - name: Build binaries
+        run: cargo build
+
+      - name: Rust CLI proof (no Node)
+        run: |
+          DATA_DIR="$(mktemp -d)"
+          SOCKET="$DATA_DIR/lored.sock"
+          CONFIG="$DATA_DIR/lore.json"
+          printf '{"configVersion":2,"enabled":true,"dataDir":"%s","socketPath":"%s"}' "$DATA_DIR" "$SOCKET" > "$CONFIG"
+          ./target/debug/lored --config "$CONFIG" &
+          LORED_PID=$!
+          for _ in $(seq 1 100); do [ -S "$SOCKET" ] && break; sleep 0.05; done
+          ./target/debug/lore --socket "$SOCKET" status --json | grep -q '"apiMajor":2'
+          kill "$LORED_PID"
+
+      - name: Two-client and lexical quality proofs
+        run: LORED_BIN="$PWD/target/debug/lored" node --test tests/two-client.test.mjs tests/lexical-quality.test.mjs
+
+      - name: Capability catalog and adapter proofs
+        run: |
+          node --test tests/capability-catalog.test.mjs
+          LORED_BIN="$PWD/target/debug/lored" node --test tests/adapter.test.mjs
+
+      - name: Host adapter proofs
+        run: LORED_BIN="$PWD/target/debug/lored" node --test tests/host-adapters.test.mjs
+
+      - name: Packaging proofs
+        run: node --test tests/packaging.test.mjs
+
+      - name: Bounded soak proof
+        run: LORED_BIN="$PWD/target/debug/lored" SOAK_SECONDS=15 node tests/soak.mjs
+
+      - name: Ingestion load proof (capture under foreground load)
+        run: LORED_BIN="$PWD/target/debug/lored" node tests/ingestion-load.mjs
+
+      - name: Node client proof
+        run: LORED_BIN="$PWD/target/debug/lored" node clients/js/status-probe.mjs
+
+      - name: Bun client proof (Pi runtime)
+        run: LORED_BIN="$PWD/target/debug/lored" bun clients/js/status-probe.mjs

@@ -25,7 +25,17 @@ const entry = fileURLToPath(new URL("../../lore-cli.mjs", import.meta.url));
 async function waitFor(predicate, { timeoutMs = 8000, intervalMs = 100 } = {}) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const value = predicate();
+    let value;
+    try {
+      value = predicate();
+    } catch (error) {
+      // The detached sweep holds the write lock while it works; a read-only
+      // probe can hit SQLITE_BUSY, which means "not yet", not "failed".
+      if (!/database is locked|SQLITE_BUSY/i.test(String(error?.message ?? error))) {
+        throw error;
+      }
+      value = null;
+    }
     if (value) return value;
     if (Date.now() >= deadline) {
       throw new Error("timed out waiting for background maintenance to complete");

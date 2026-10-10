@@ -1,0 +1,5985 @@
+{
+  "version": 1,
+  "source": "tests/fixtures/reliability-corpus.mjs",
+  "fillerTurns": 0,
+  "blueprints": [
+    {
+      "id": "repo-preference",
+      "family": "preference",
+      "repository": "acme/checkout",
+      "turns": [
+        {
+          "role": "user",
+          "text": "For this checkout repository, please prefer small pure functions over clever abstractions; it keeps review predictable."
+        },
+        {
+          "role": "assistant",
+          "text": "I will keep the implementation composed from small pure functions and explain any unavoidable state."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "prefer",
+            "small",
+            "pure",
+            "functions",
+            "checkout"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should helpers in checkout be structured?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "repo-rejection",
+      "family": "rejection",
+      "repository": "acme/payments",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Please avoid silently retrying payment mutations. A duplicate charge is worse than a visible failure, so retries need an idempotency key."
+        },
+        {
+          "role": "assistant",
+          "text": "The payment path will surface failures and only retry with an idempotency key."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "avoid",
+            "silently",
+            "retrying",
+            "payment",
+            "mutations"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What retry rule did we settle on for payment mutations?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "global-style",
+      "family": "global",
+      "repository": "acme/editor",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across all of my projects, I prefer examples that show the failure path before the happy path; this is a durable teaching preference."
+        },
+        {
+          "role": "assistant",
+          "text": "I will use failure-first examples when explaining work across repositories."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "prefer",
+            "examples",
+            "failure",
+            "path",
+            "happy"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What teaching style should I use in another project?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "decision-rationale",
+      "family": "decision",
+      "repository": "acme/ledger",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Which persistence layer should the ledger use under concurrent writers?"
+        },
+        {
+          "role": "assistant",
+          "text": "We decided to use PostgreSQL because row-level locking and transactional constraints matter for concurrent ledger writers."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "decided",
+            "PostgreSQL",
+            "row-level",
+            "locking",
+            "concurrent"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What persistence decision did we make for the ledger?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "question-only",
+      "family": "question",
+      "repository": "acme/search",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Would it make sense to always cache the search response, or should we measure the hit rate first? I am asking for options, not setting a rule."
+        },
+        {
+          "role": "assistant",
+          "text": "We should measure the hit rate before choosing a caching policy."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "always",
+            "cache",
+            "search",
+            "response"
+          ]
+        }
+      ],
+      "query": "Did we establish a cache rule for search?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "negated-directive",
+      "family": "negation",
+      "repository": "acme/importer",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The importer does not always need a background worker; for a one-shot repair, keeping it in the foreground is safer."
+        },
+        {
+          "role": "assistant",
+          "text": "That is a constraint for this repair, not a blanket preference about workers."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "always",
+            "background",
+            "worker"
+          ]
+        }
+      ],
+      "query": "What did we decide about importer workers?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "quoted-rule",
+      "family": "quotation",
+      "repository": "acme/docs",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The old runbook says, \"Always publish from main.\" I am quoting it so we can replace that unsafe advice, not asking Lore to remember it."
+        },
+        {
+          "role": "assistant",
+          "text": "We should replace the runbook wording and require a reviewed release branch."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "always",
+            "publish",
+            "main"
+          ]
+        }
+      ],
+      "query": "What publishing rule should the docs retain?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "hypothetical",
+      "family": "hypothetical",
+      "repository": "acme/alerts",
+      "turns": [
+        {
+          "role": "user",
+          "text": "If we ever moved alert delivery to a queue, we might prefer batches of fifty, but that is only a scenario for discussion."
+        },
+        {
+          "role": "assistant",
+          "text": "The current alert delivery remains synchronous while we gather measurements."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "batches",
+            "fifty",
+            "alert"
+          ]
+        }
+      ],
+      "query": "What alert batch size is currently agreed?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "ordinary-bug-report",
+      "family": "bug-report",
+      "repository": "acme/api",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The API returned a 502 after the proxy upgrade. Please inspect the timeout and include the failing request in the bug report."
+        },
+        {
+          "role": "assistant",
+          "text": "I will inspect the proxy timeout and reproduce the failing request before proposing a change."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "timeout",
+            "proxy"
+          ]
+        }
+      ],
+      "query": "Did we record an API timeout preference?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "correction",
+      "family": "correction",
+      "repository": "acme/worker",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use a 30 second timeout for the worker."
+        },
+        {
+          "role": "assistant",
+          "text": "I will use a 30 second timeout."
+        },
+        {
+          "role": "user",
+          "text": "Actually, that is wrong: use a 45 second timeout because the upstream batch window is longer."
+        },
+        {
+          "role": "assistant",
+          "text": "Understood; the corrected worker timeout is 45 seconds for this repository."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "use",
+            "45",
+            "second",
+            "timeout",
+            "worker"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "anchors": [
+            "use",
+            "30",
+            "second",
+            "timeout",
+            "worker"
+          ]
+        }
+      ],
+      "query": "Which worker timeout is the corrected one?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "changed-decision",
+      "family": "reversal",
+      "repository": "acme/catalog",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We initially chose Redis for catalog invalidation."
+        },
+        {
+          "role": "assistant",
+          "text": "The initial catalog decision was Redis."
+        },
+        {
+          "role": "user",
+          "text": "The decision changed after the durability review: use PostgreSQL notifications instead, because losing invalidations is unacceptable."
+        },
+        {
+          "role": "assistant",
+          "text": "The current decision is PostgreSQL notifications; Redis is historical context."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "decision",
+            "PostgreSQL",
+            "notifications",
+            "durability",
+            "invalidations"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "anchors": [
+            "initial",
+            "Redis",
+            "catalog",
+            "invalidation"
+          ]
+        }
+      ],
+      "query": "What is the current catalog invalidation decision?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "explicit-cross-project",
+      "family": "global",
+      "repository": "acme/cli",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Make this rule global across repositories: never put credentials in examples, including test fixtures, because readers copy them."
+        },
+        {
+          "role": "assistant",
+          "text": "I will treat credential-free examples as a cross-project rule and keep fixtures obviously synthetic."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "global",
+          "anchors": [
+            "never",
+            "credentials",
+            "examples",
+            "test",
+            "fixtures"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What security rule applies to examples in a new repository?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "repo-default",
+      "family": "scope",
+      "repository": "acme/mobile",
+      "turns": [
+        {
+          "role": "user",
+          "text": "For the mobile app only, prefer snapshot fixtures that include accessibility labels. This does not apply to my other repositories."
+        },
+        {
+          "role": "assistant",
+          "text": "I will keep that fixture preference scoped to the mobile app."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "prefer",
+            "snapshot",
+            "fixtures",
+            "accessibility",
+            "mobile"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What fixture preference does the mobile app have?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "relevance-negative",
+      "family": "relevance",
+      "repository": "acme/infra",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The deployment question is still open; first compare the rollback runbooks and their recovery time objectives."
+        },
+        {
+          "role": "assistant",
+          "text": "I will compare the runbooks before recommending a deployment mechanism."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "deployment",
+            "mechanism"
+          ]
+        }
+      ],
+      "query": "What is the capital of Finland?",
+      "negativeQuery": "How do penguins stay warm?",
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "long-window",
+      "family": "retention-window",
+      "repository": "acme/longrun",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Unrelated status question 1: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 1 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 2: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 2 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 3: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 3 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 4: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 4 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 5: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 5 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 6: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 6 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 7: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 7 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 8: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 8 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 9: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 9 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 10: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 10 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 11: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 11 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 12: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 12 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Unrelated status question 13: how is the release checklist looking today?"
+        },
+        {
+          "role": "assistant",
+          "text": "Checklist item 13 is unchanged."
+        },
+        {
+          "role": "user",
+          "text": "Remember this repository decision: use append-only event records and derive projections asynchronously, because audit replay is required."
+        },
+        {
+          "role": "assistant",
+          "text": "I will preserve the append-only event decision and its audit replay rationale."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "append-only",
+            "event",
+            "records",
+            "projections",
+            "audit"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What event storage decision protects audit replay?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "isolation-primary",
+      "family": "isolation",
+      "repository": "acme/alpha",
+      "turns": [
+        {
+          "role": "user",
+          "text": "For alpha, prefer UTC timestamps in persisted records so ordering is stable across regions."
+        },
+        {
+          "role": "assistant",
+          "text": "Alpha will persist UTC timestamps for cross-region ordering."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "prefer",
+            "UTC",
+            "timestamps",
+            "persisted",
+            "alpha"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "anchors": [
+            "local",
+            "wall-clock",
+            "timestamps",
+            "beta"
+          ]
+        }
+      ],
+      "query": "What timestamp policy does alpha use?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": [
+        "isolation"
+      ]
+    },
+    {
+      "id": "suppression",
+      "family": "suppression",
+      "repository": "acme/suppressed",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Prefer a compact release note with only user-visible changes; internal refactors belong in the engineering log."
+        },
+        {
+          "role": "assistant",
+          "text": "I will keep release notes focused on user-visible changes."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "prefer",
+            "compact",
+            "release",
+            "note",
+            "user-visible"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How detailed should release notes be?",
+      "negativeQuery": null,
+      "suppress": true,
+      "mandatoryRecall": false,
+      "critical": [
+        "suppression"
+      ]
+    },
+    {
+      "id": "multi-proposition",
+      "family": "multi-proposition",
+      "repository": "acme/edge",
+      "turns": [
+        {
+          "role": "user",
+          "text": "For edge services, prefer bounded queues and never drop the request identifier from logs; both rules matter when diagnosing overload."
+        },
+        {
+          "role": "assistant",
+          "text": "I will retain both the bounded queue preference and the request identifier requirement."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "prefer",
+            "bounded",
+            "queues",
+            "edge"
+          ]
+        },
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "never",
+            "drop",
+            "request",
+            "identifier",
+            "logs"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What queue and logging rules apply to edge services?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "assistant-outcome",
+      "family": "decision",
+      "repository": "acme/stream",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We need to choose a serialization format for the stream boundary."
+        },
+        {
+          "role": "assistant",
+          "text": "After comparing compatibility and tooling, we chose Avro with a schema registry; the earlier JSON suggestion is not the final decision."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "chose",
+            "Avro",
+            "schema",
+            "registry",
+            "compatibility"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "anchors": [
+            "earlier",
+            "JSON",
+            "stream",
+            "boundary"
+          ]
+        }
+      ],
+      "query": "Which serialization format was chosen for the stream boundary?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "assistant-claim",
+      "family": "outcome-verification",
+      "repository": "acme/verify",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Can you investigate why the verification job is flaky?"
+        },
+        {
+          "role": "assistant",
+          "text": "I think I fixed the verification job, but I have not run the complete suite yet."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "fixed",
+            "verification",
+            "job",
+            "complete",
+            "suite"
+          ]
+        }
+      ],
+      "query": "What verified decision did we retain for the flaky job?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "soft-preference",
+      "family": "preference",
+      "repository": "acme/web",
+      "turns": [
+        {
+          "role": "user",
+          "text": "It helps me when implementation notes lead with the user impact and then explain the code, so please use that order in this project."
+        },
+        {
+          "role": "assistant",
+          "text": "I will lead implementation notes with user impact and follow with the technical explanation."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "implementation",
+            "notes",
+            "user",
+            "impact",
+            "order"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should implementation notes be ordered here?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "explicit-forget",
+      "family": "suppression",
+      "repository": "acme/privacy",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Never retain personal customer names in debugging memories; use opaque account identifiers instead."
+        },
+        {
+          "role": "assistant",
+          "text": "I will use opaque identifiers and exclude personal names from retained debugging context."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "never",
+            "retain",
+            "personal",
+            "customer",
+            "names"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What customer identifier rule applies to debugging memories?",
+      "negativeQuery": null,
+      "suppress": true,
+      "mandatoryRecall": false,
+      "critical": [
+        "suppression"
+      ]
+    },
+    {
+      "id": "correction-implicit",
+      "family": "correction",
+      "repository": "acme/docs-site",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Please use the short link in the guide."
+        },
+        {
+          "role": "assistant",
+          "text": "I will use the short link."
+        },
+        {
+          "role": "user",
+          "text": "No, I meant the canonical full URL so copied guides remain self-contained."
+        },
+        {
+          "role": "assistant",
+          "text": "Understood; use the canonical full URL in the guide."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "canonical",
+            "full",
+            "URL",
+            "copied",
+            "guides"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "anchors": [
+            "short",
+            "link",
+            "guide"
+          ]
+        }
+      ],
+      "query": "Which URL format is current for the guide?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "quoted-preference",
+      "family": "quotation",
+      "repository": "acme/review",
+      "turns": [
+        {
+          "role": "user",
+          "text": "I disagree with the sentence \"Prefer one huge review commit.\" For this work, split changes by behavior so each commit can be reverted."
+        },
+        {
+          "role": "assistant",
+          "text": "I will split commits by behavior and keep each change independently revertible."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "split",
+            "changes",
+            "behavior",
+            "commit",
+            "reverted"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "one",
+            "huge",
+            "review",
+            "commit"
+          ]
+        }
+      ],
+      "query": "How should review commits be organized?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "global-identity",
+      "family": "global",
+      "repository": "acme/profile",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across projects I work best with direct, concise status updates that name uncertainty instead of hiding it."
+        },
+        {
+          "role": "assistant",
+          "text": "I will keep status updates direct and call out uncertainty wherever we work."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "status",
+            "updates",
+            "uncertainty",
+            "direct",
+            "concise"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What status update style should carry into a different repository?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "negative-prefer-word",
+      "family": "bug-report",
+      "repository": "acme/runtime",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The word prefer appears in a compatibility warning from the runtime; this report describes observed behavior and does not set a preference."
+        },
+        {
+          "role": "assistant",
+          "text": "I will record the warning as diagnostic evidence and wait for a confirmed policy."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "compatibility",
+            "warning",
+            "runtime"
+          ]
+        }
+      ],
+      "query": "Did the runtime report create a preference?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "decision-tradeoff",
+      "family": "decision",
+      "repository": "acme/cache",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Should cache invalidation happen on a timer or from domain events?"
+        },
+        {
+          "role": "assistant",
+          "text": "We chose domain events over a timer because an event gives us immediate invalidation without a polling race; document that tradeoff."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "chose",
+            "domain",
+            "events",
+            "timer",
+            "invalidation"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Why did we choose domain events for cache invalidation?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "footer-link-do-not",
+      "family": "rejection",
+      "repository": "acme/site",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Do not remove the footer link from the documentation page. Keep the canonical support URL in the footer so readers can find maintenance guidance."
+        },
+        {
+          "role": "assistant",
+          "text": "I will preserve the canonical support URL in the documentation footer."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "do",
+            "not",
+            "remove",
+            "footer",
+            "link",
+            "canonical"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What footer link rule applies to the documentation page?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "standing-mandatory-idempotency",
+      "family": null,
+      "repository": "acme/standing-idempotency",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Idempotency keys are mandatory for payment mutations."
+        },
+        {
+          "role": "assistant",
+          "text": "Payment mutations will require idempotency keys."
+        }
+      ],
+      "expected": [
+        {
+          "type": "directive",
+          "scope": "repo",
+          "anchors": [
+            "idempotency",
+            "keys",
+            "mandatory",
+            "payment",
+            "mutations"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What is mandatory for payment mutations?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": true,
+      "critical": []
+    },
+    {
+      "id": "standing-should-validate",
+      "family": null,
+      "repository": "acme/standing-validation",
+      "turns": [
+        {
+          "role": "user",
+          "text": "API boundaries should validate the declared wire type."
+        },
+        {
+          "role": "assistant",
+          "text": "API boundaries will validate the declared wire type."
+        }
+      ],
+      "expected": [
+        {
+          "type": "directive",
+          "scope": "repo",
+          "anchors": [
+            "API",
+            "boundaries",
+            "validate",
+            "declared",
+            "wire",
+            "type"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What should API boundaries validate?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": true,
+      "critical": []
+    },
+    {
+      "id": "standing-must-redact",
+      "family": null,
+      "repository": "acme/standing-redaction",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Debug logs must redact bearer tokens before storage."
+        },
+        {
+          "role": "assistant",
+          "text": "Debug logs will redact bearer tokens before storage."
+        }
+      ],
+      "expected": [
+        {
+          "type": "directive",
+          "scope": "repo",
+          "anchors": [
+            "debug",
+            "logs",
+            "must",
+            "redact",
+            "bearer",
+            "tokens",
+            "storage"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What must debug logs redact before storage?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": true,
+      "critical": []
+    },
+    {
+      "id": "standing-must-not-leak",
+      "family": null,
+      "repository": "acme/standing-examples",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Credentials must not appear in synthetic examples."
+        },
+        {
+          "role": "assistant",
+          "text": "Synthetic examples will use placeholders instead of credentials."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "credentials",
+            "must",
+            "not",
+            "appear",
+            "synthetic",
+            "examples"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What must not appear in synthetic examples?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": true,
+      "critical": []
+    },
+    {
+      "id": "independent-manifest-signing",
+      "family": "user_preference",
+      "repository": "acme/artifacts",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Keep release manifests signed with the CI key so downstream mirrors can verify provenance."
+        },
+        {
+          "role": "assistant",
+          "text": "We will sign manifests in CI and publish the verification record."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "release",
+            "manifests",
+            "signed",
+            "CI",
+            "provenance"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How are release manifests authenticated?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-upload-checksum",
+      "family": "user_preference",
+      "repository": "acme/uploads",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Require a SHA-256 checksum beside every uploaded archive; retries must not hide a changed payload."
+        },
+        {
+          "role": "assistant",
+          "text": "The upload record will include the checksum and reject mismatched retries."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "require",
+            "SHA-256",
+            "checksum",
+            "uploaded",
+            "archive"
+          ]
+        },
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "retries",
+            "must",
+            "not",
+            "hide",
+            "changed",
+            "payload"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What integrity check protects uploaded archives?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-audit-retention",
+      "family": "decision",
+      "repository": "acme/audit",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We decided to retain audit events for seven years because the regulator can request historical evidence."
+        },
+        {
+          "role": "assistant",
+          "text": "The seven-year audit retention decision is recorded with its regulatory rationale."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "decided",
+            "retain",
+            "audit",
+            "events",
+            "seven",
+            "years",
+            "regulator"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How long are audit events retained and why?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-batch-window",
+      "family": "user_preference",
+      "repository": "acme/jobs",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use a fifteen minute batch window for invoice jobs so late adjustments share one settlement run."
+        },
+        {
+          "role": "assistant",
+          "text": "Invoice jobs will use the fifteen minute settlement window."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "use",
+            "fifteen",
+            "minute",
+            "batch",
+            "window",
+            "invoice",
+            "jobs"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What batch window do invoice jobs use?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-inline-css",
+      "family": "rejected_approach",
+      "repository": "acme/theme",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Do not put inline CSS in generated pages; the CSP policy depends on hashed stylesheet assets."
+        },
+        {
+          "role": "assistant",
+          "text": "Generated pages will reference hashed stylesheet assets instead of inline CSS."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "do",
+            "not",
+            "put",
+            "inline",
+            "CSS",
+            "generated",
+            "pages"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What styling approach is required by the page CSP?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-privacy",
+      "family": "rejected_approach",
+      "repository": "acme/people",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across my projects, never include real names in synthetic examples; privacy-safe placeholders are a global rule."
+        },
+        {
+          "role": "assistant",
+          "text": "I will use privacy-safe placeholders for examples in every repository."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "global",
+          "anchors": [
+            "never",
+            "include",
+            "real",
+            "names",
+            "synthetic",
+            "examples"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What example privacy rule applies everywhere?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-cache-ttl",
+      "family": "user_preference",
+      "repository": "acme/catalog",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The catalog cache should expire after twelve minutes because inventory freshness matters more than hit rate."
+        },
+        {
+          "role": "assistant",
+          "text": "Catalog entries will use a twelve-minute TTL and document the freshness tradeoff."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "catalog",
+            "cache",
+            "expire",
+            "twelve",
+            "minutes",
+            "inventory",
+            "freshness"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What TTL did we choose for the catalog cache?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-queue-order",
+      "family": "user_preference",
+      "repository": "acme/events",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Preserve FIFO order for commands within one account; cross-account ordering is unnecessary."
+        },
+        {
+          "role": "assistant",
+          "text": "The event consumer will preserve per-account FIFO command order."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "preserve",
+            "FIFO",
+            "order",
+            "commands",
+            "account"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What ordering guarantee applies to account commands?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-token-redaction",
+      "family": "user_preference",
+      "repository": "acme/gateway",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Redact bearer tokens before gateway requests enter debug logs, including failed requests."
+        },
+        {
+          "role": "assistant",
+          "text": "Gateway diagnostics will redact bearer tokens before logging success or failure."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "redact",
+            "bearer",
+            "tokens",
+            "gateway",
+            "debug",
+            "logs"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What must gateway debug logs redact?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-sqlite-restore",
+      "family": "decision",
+      "repository": "acme/restore",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We chose SQLite backups with an integrity check before replacement because restores run on a single host."
+        },
+        {
+          "role": "assistant",
+          "text": "SQLite backup restore with pre-replacement integrity validation is the selected approach."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "chose",
+            "SQLite",
+            "backups",
+            "integrity",
+            "check",
+            "replacement"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which restore strategy did we select for the single-host service?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-status",
+      "family": "user_preference",
+      "repository": "acme/status",
+      "turns": [
+        {
+          "role": "user",
+          "text": "For all work, tell me when evidence is uncertain instead of presenting an inference as a fact."
+        },
+        {
+          "role": "assistant",
+          "text": "I will label uncertainty whenever a conclusion is inferred rather than verified."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "all",
+            "work",
+            "tell",
+            "uncertainty",
+            "inference",
+            "fact"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should uncertain status be communicated in other work?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-image-dimensions",
+      "family": "user_preference",
+      "repository": "acme/media",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Validate image dimensions at the boundary so oversized uploads fail before thumbnail work begins."
+        },
+        {
+          "role": "assistant",
+          "text": "The media boundary will reject oversized dimensions before thumbnail processing."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "validate",
+            "image",
+            "dimensions",
+            "boundary",
+            "oversized",
+            "uploads",
+            "thumbnail"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Where should image dimensions be validated?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-webhook-signature",
+      "family": "rejected_approach",
+      "repository": "acme/hooks",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Reject unsigned webhooks before parsing their JSON; parsing untrusted payloads first caused noisy failures."
+        },
+        {
+          "role": "assistant",
+          "text": "The hook endpoint will verify the signature before decoding the payload."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "reject",
+            "unsigned",
+            "webhooks",
+            "before",
+            "parsing",
+            "JSON"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What happens before webhook JSON is parsed?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-postgres-lock",
+      "family": "decision",
+      "repository": "acme/orders",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The order decision is PostgreSQL advisory locks because two workers must not claim the same order."
+        },
+        {
+          "role": "assistant",
+          "text": "PostgreSQL advisory locks are the recorded order-claim decision and rationale."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "order",
+            "decision",
+            "PostgreSQL",
+            "advisory",
+            "locks",
+            "workers",
+            "claim"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Why did we choose advisory locks for orders?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-search-fallback",
+      "family": "user_preference",
+      "repository": "acme/search",
+      "turns": [
+        {
+          "role": "user",
+          "text": "If the index is unavailable, return a clearly marked empty result rather than guessing from stale suggestions."
+        },
+        {
+          "role": "assistant",
+          "text": "Search will expose an empty fallback result and identify the index outage."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "index",
+            "unavailable",
+            "clearly",
+            "marked",
+            "empty",
+            "result",
+            "stale",
+            "suggestions"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What should search return during an index outage?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-secret-fixtures",
+      "family": "rejected_approach",
+      "repository": "acme/tests",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Never commit production secrets to fixtures; generated credentials must be visibly fake and scoped to the test."
+        },
+        {
+          "role": "assistant",
+          "text": "Fixtures will use visibly fake credentials with test-only scope."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "never",
+            "commit",
+            "production",
+            "secrets",
+            "fixtures"
+          ]
+        },
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "generated",
+            "credentials",
+            "visibly",
+            "fake",
+            "scoped",
+            "test"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What credential rule applies to test fixtures?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-migration-order",
+      "family": "user_preference",
+      "repository": "acme/migrate",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Run schema validation before copying rows so a migration cannot create a partially understood database."
+        },
+        {
+          "role": "assistant",
+          "text": "The migration workflow will validate the schema before any row copy."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "run",
+            "schema",
+            "validation",
+            "before",
+            "copying",
+            "rows",
+            "migration"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What is the first safety step in the migration?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-feature-flag",
+      "family": "decision",
+      "repository": "acme/flags",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We selected server-side feature flags over client guesses because rollback must take effect immediately."
+        },
+        {
+          "role": "assistant",
+          "text": "Server-side flags are the selected approach for immediate rollback control."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "selected",
+            "server-side",
+            "feature",
+            "flags",
+            "client",
+            "guesses",
+            "rollback"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Why are feature flags evaluated on the server?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-cron-timezone",
+      "family": "user_preference",
+      "repository": "acme/schedules",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Schedule billing jobs in UTC; local daylight changes should never shift an invoice run."
+        },
+        {
+          "role": "assistant",
+          "text": "Billing schedules will use UTC to avoid daylight-driven shifts."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "schedule",
+            "billing",
+            "jobs",
+            "UTC"
+          ]
+        },
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "daylight",
+            "changes",
+            "never",
+            "shift",
+            "invoice",
+            "run"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which timezone governs billing jobs?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-markdown-links",
+      "family": "user_preference",
+      "repository": "acme/guides",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Keep links as normal Markdown links so screen readers and copied documentation retain their targets."
+        },
+        {
+          "role": "assistant",
+          "text": "Guides will use normal Markdown links with durable targets."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "keep",
+            "normal",
+            "Markdown",
+            "links",
+            "screen",
+            "readers",
+            "copied",
+            "documentation"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should links be written in the guides?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-rate-limit-key",
+      "family": "user_preference",
+      "repository": "acme/limits",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Key rate limits by account rather than IP because mobile clients can share an address."
+        },
+        {
+          "role": "assistant",
+          "text": "The limiter will use account identity as its key and retain the mobile-client rationale."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "rate",
+            "limits",
+            "account",
+            "IP",
+            "mobile",
+            "clients"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What identifies a rate-limit bucket?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-commit",
+      "family": "user_preference",
+      "repository": "acme/history",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across repositories, make commits explain one behavior change so reviews and reverts stay legible."
+        },
+        {
+          "role": "assistant",
+          "text": "I will keep commits focused on one behavior change wherever we work."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "across",
+            "repositories",
+            "commits",
+            "one",
+            "behavior",
+            "change",
+            "reviews",
+            "reverts"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What commit structure should carry across repositories?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-csv-encoding",
+      "family": "user_preference",
+      "repository": "acme/import",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Read incoming CSV as UTF-8 and reject invalid bytes with a line number for operators."
+        },
+        {
+          "role": "assistant",
+          "text": "The importer will validate UTF-8 and report the offending line."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "CSV",
+            "UTF-8",
+            "reject",
+            "invalid",
+            "bytes",
+            "line",
+            "number"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How does the CSV importer handle encoding errors?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-job-idempotency",
+      "family": "user_preference",
+      "repository": "acme/settlement",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Require an idempotency key on settlement commands; a client retry must not create a second payout."
+        },
+        {
+          "role": "assistant",
+          "text": "Settlement commands will reject missing keys and deduplicate retries."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "require",
+            "idempotency",
+            "key",
+            "settlement",
+            "commands"
+          ]
+        },
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "client",
+            "retry",
+            "must",
+            "not",
+            "create",
+            "second",
+            "payout"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What prevents duplicate settlement payouts?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-tracing-sampling",
+      "family": "user_preference",
+      "repository": "acme/trace",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Sample successful requests at five percent but keep every failed trace so debugging retains the causal path."
+        },
+        {
+          "role": "assistant",
+          "text": "Tracing will use five percent success sampling and complete failure capture."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "sample",
+            "successful",
+            "requests",
+            "five",
+            "percent",
+            "every",
+            "failed",
+            "trace"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What sampling policy did we set for request traces?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-api-version",
+      "family": "user_preference",
+      "repository": "acme/public-api",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Expose the new report fields under API version v3; existing v2 clients must keep their response shape."
+        },
+        {
+          "role": "assistant",
+          "text": "The report fields will be added to v3 while v2 remains stable."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "expose",
+            "report",
+            "fields",
+            "API",
+            "version",
+            "v3"
+          ]
+        },
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "existing",
+            "v2",
+            "clients",
+            "keep",
+            "response",
+            "shape"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which API version receives the report fields?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-background-delete",
+      "family": "rejected_approach",
+      "repository": "acme/storage",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Do not delete objects in a background sweep until the retention ledger marks them eligible."
+        },
+        {
+          "role": "assistant",
+          "text": "Storage cleanup will consult the retention ledger before deleting an object."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "do",
+            "not",
+            "delete",
+            "objects",
+            "background",
+            "sweep",
+            "retention",
+            "ledger",
+            "eligible"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What guards object deletion?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-review",
+      "family": "user_preference",
+      "repository": "acme/review",
+      "turns": [
+        {
+          "role": "user",
+          "text": "I prefer review comments that name the requested behavior and a concrete reproduction, regardless of repository."
+        },
+        {
+          "role": "assistant",
+          "text": "Review comments will state behavior and reproduction details across projects."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "prefer",
+            "review",
+            "comments",
+            "behavior",
+            "concrete",
+            "reproduction"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What makes a review comment useful everywhere?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decimal-money",
+      "family": "user_preference",
+      "repository": "acme/money",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Represent money as integer minor units; binary floating point is not acceptable for totals."
+        },
+        {
+          "role": "assistant",
+          "text": "Money calculations will use integer minor units and avoid binary floating point."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "represent",
+            "money",
+            "integer",
+            "minor",
+            "units"
+          ]
+        },
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "binary",
+            "floating",
+            "point",
+            "not",
+            "acceptable",
+            "totals"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should monetary totals be represented?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-tenant-header",
+      "family": "user_preference",
+      "repository": "acme/tenants",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Validate the tenant header against the authenticated session before selecting a tenant database."
+        },
+        {
+          "role": "assistant",
+          "text": "Tenant selection will occur only after the header and session agree."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "validate",
+            "tenant",
+            "header",
+            "authenticated",
+            "session",
+            "database"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "When may the service select a tenant database?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-graphql",
+      "family": "decision",
+      "repository": "acme/graphql",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We decided to reject unknown GraphQL fields at validation time because permissive execution hides client drift."
+        },
+        {
+          "role": "assistant",
+          "text": "Unknown fields will fail validation and surface client drift early."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "decided",
+            "reject",
+            "unknown",
+            "GraphQL",
+            "fields",
+            "validation",
+            "client",
+            "drift"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Why does GraphQL reject unknown fields?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-audit-hash-chain",
+      "family": "user_preference",
+      "repository": "acme/ledger",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Chain audit records with the previous digest so tampering changes the verification result."
+        },
+        {
+          "role": "assistant",
+          "text": "Each audit record will carry the previous digest in the verification chain."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "chain",
+            "audit",
+            "records",
+            "previous",
+            "digest",
+            "tampering",
+            "verification"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How are ledger audit records chained?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-cache-question",
+      "family": "negative",
+      "repository": "acme/cache-question",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Should we cache the profile response, or first measure whether stale profiles are causing support tickets? This is an open question."
+        },
+        {
+          "role": "assistant",
+          "text": "We will measure stale-profile impact before setting a cache rule."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            ""
+          ]
+        }
+      ],
+      "query": "Did we set a profile cache policy?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-quoted-policy",
+      "family": "negative",
+      "repository": "acme/policy",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The old note says \"Always bypass review for hotfixes\"; I am quoting it as an example of advice to remove."
+        },
+        {
+          "role": "assistant",
+          "text": "The replacement requires review evidence even for a hotfix."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "always",
+            "bypass",
+            "review",
+            "hotfixes"
+          ]
+        }
+      ],
+      "query": "What hotfix review rule is current?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-hypothesis",
+      "family": "negative",
+      "repository": "acme/queue-question",
+      "turns": [
+        {
+          "role": "user",
+          "text": "If we moved this queue to a broker, we could prefer a large batch, but no batch size has been chosen."
+        },
+        {
+          "role": "assistant",
+          "text": "The current queue remains unchanged while we compare broker costs."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "large",
+            "batch",
+            "queue",
+            "broker"
+          ]
+        }
+      ],
+      "query": "What queue batch size is agreed?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-error",
+      "family": "negative",
+      "repository": "acme/client-error",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The client timed out while waiting for the report endpoint; capture the request ID before investigating."
+        },
+        {
+          "role": "assistant",
+          "text": "I will trace the request ID and reproduce the timeout before selecting a policy."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "retry",
+            "policy",
+            "timeout",
+            "report"
+          ]
+        }
+      ],
+      "query": "Did the timeout report establish a retry policy?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-assistant-claim",
+      "family": "negative",
+      "repository": "acme/check",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Can you inspect the flaky check?"
+        },
+        {
+          "role": "assistant",
+          "text": "I believe the check is fixed, but the full suite has not run and this is not a verified decision."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "fixed",
+            "check",
+            "verified",
+            "policy"
+          ]
+        }
+      ],
+      "query": "What verified policy did we retain for the check?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-retention-pointer",
+      "family": "user_preference",
+      "repository": "acme/retention",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Store a pointer to the source object in the retention record, not a second plaintext copy."
+        },
+        {
+          "role": "assistant",
+          "text": "Retention records will point to source objects and avoid duplicate plaintext."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "store",
+            "pointer",
+            "source",
+            "object",
+            "retention",
+            "record",
+            "plaintext",
+            "copy"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What does a retention record store?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-archive-format",
+      "family": "user_preference",
+      "repository": "acme/archive",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use zstd for cold archives because decompression speed matters during incident review."
+        },
+        {
+          "role": "assistant",
+          "text": "Cold archives will use zstd with incident review speed as the rationale."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "use",
+            "zstd",
+            "cold",
+            "archives",
+            "decompression",
+            "incident",
+            "review"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which compression format is used for cold archives?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-locale-fallback",
+      "family": "user_preference",
+      "repository": "acme/i18n",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Fall back to en-GB when a translation is missing so legal wording remains explicit."
+        },
+        {
+          "role": "assistant",
+          "text": "Missing translations will fall back to en-GB and emit a diagnostic."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "fall",
+            "back",
+            "en-GB",
+            "translation",
+            "missing",
+            "legal",
+            "wording"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What locale is the translation fallback?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-debug-pii",
+      "family": "rejected_approach",
+      "repository": "acme/support",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Never log full support messages in debug mode; redact customer details before retaining diagnostic context."
+        },
+        {
+          "role": "assistant",
+          "text": "Support diagnostics will redact customer details before any debug retention."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "never",
+            "log",
+            "full",
+            "support",
+            "messages",
+            "debug",
+            "mode"
+          ]
+        },
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "redact",
+            "customer",
+            "details",
+            "before",
+            "retaining",
+            "diagnostic",
+            "context"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What must support debug logs exclude?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-websocket-heartbeat",
+      "family": "user_preference",
+      "repository": "acme/realtime",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Send a heartbeat every twenty seconds so dead WebSocket peers are detected before work queues grow."
+        },
+        {
+          "role": "assistant",
+          "text": "The realtime server will send twenty-second heartbeats and close dead peers."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "heartbeat",
+            "twenty",
+            "seconds",
+            "WebSocket",
+            "dead",
+            "peers"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How often does the WebSocket heartbeat run?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-tests",
+      "family": "user_preference",
+      "repository": "acme/learning",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across projects, write a regression test for every fixed bug so the explanation includes the original failure."
+        },
+        {
+          "role": "assistant",
+          "text": "I will pair each bug fix with a regression test and its original failure."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "regression",
+            "test",
+            "fixed",
+            "bug",
+            "original",
+            "failure"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What testing habit applies across projects?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-db-readonly",
+      "family": "user_preference",
+      "repository": "acme/reporting",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Run reporting queries through a read-only database role; dashboards must not mutate operational data."
+        },
+        {
+          "role": "assistant",
+          "text": "Reporting will use a read-only role and reject mutation privileges."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "run",
+            "reporting",
+            "queries",
+            "read-only",
+            "database",
+            "role"
+          ]
+        },
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "dashboards",
+            "must",
+            "not",
+            "mutate",
+            "operational",
+            "data"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which database role do dashboards use?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-event-version",
+      "family": "user_preference",
+      "repository": "acme/events-v2",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Version event payloads explicitly so consumers can reject an incompatible schema instead of guessing."
+        },
+        {
+          "role": "assistant",
+          "text": "Event consumers will inspect the explicit payload version before decoding."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "version",
+            "event",
+            "payloads",
+            "explicit",
+            "incompatible",
+            "schema"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How are event payload versions handled?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-retry-backoff",
+      "family": "user_preference",
+      "repository": "acme/network",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use exponential backoff capped at two minutes for network retries so outages do not create a retry storm."
+        },
+        {
+          "role": "assistant",
+          "text": "Network retries will use exponential backoff with a two-minute cap."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "exponential",
+            "backoff",
+            "capped",
+            "two",
+            "minutes",
+            "network",
+            "retries"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What backoff policy governs network retries?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-ordinary-note",
+      "family": "negative",
+      "repository": "acme/notes",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The notes page lost its heading during the theme update; restore the heading before discussing navigation policy."
+        },
+        {
+          "role": "assistant",
+          "text": "I will restore the heading and inspect the theme diff first."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "navigation",
+            "preference",
+            "theme",
+            "update"
+          ]
+        }
+      ],
+      "query": "Did the notes bug create a navigation preference?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-snapshot-naming",
+      "family": "user_preference",
+      "repository": "acme/snapshots",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Name snapshots with the repository and UTC timestamp so operators can identify their source without opening them."
+        },
+        {
+          "role": "assistant",
+          "text": "Snapshots will use repository and UTC timestamp components in their names."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "name",
+            "snapshots",
+            "repository",
+            "UTC",
+            "timestamp"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should snapshots be named?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-data-classification",
+      "family": "user_preference",
+      "repository": "acme/data",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Classify imported records before indexing; restricted fields must never enter the general search index."
+        },
+        {
+          "role": "assistant",
+          "text": "The importer will classify records and route restricted fields away from general search."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "classify",
+            "imported",
+            "records",
+            "before",
+            "indexing"
+          ]
+        },
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "restricted",
+            "fields",
+            "never",
+            "enter",
+            "general",
+            "search",
+            "index"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What happens before imported records are indexed?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-tone",
+      "family": "user_preference",
+      "repository": "acme/voice",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use a calm, direct tone for difficult status updates in every repository; avoid theatrical certainty."
+        },
+        {
+          "role": "assistant",
+          "text": "I will keep difficult updates calm and direct while naming uncertainty."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "use",
+            "calm",
+            "direct",
+            "tone",
+            "difficult",
+            "status",
+            "updates"
+          ]
+        },
+        {
+          "type": "rejected_approach",
+          "scope": "global",
+          "anchors": [
+            "avoid",
+            "theatrical",
+            "certainty"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What tone should difficult status updates use?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-lock-timeout",
+      "family": "user_preference",
+      "repository": "acme/locks",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Fail a lock acquisition after eight seconds and return a retryable error instead of waiting indefinitely."
+        },
+        {
+          "role": "assistant",
+          "text": "Lock acquisition will time out at eight seconds with a retryable error."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "lock",
+            "acquisition",
+            "eight",
+            "seconds",
+            "retryable",
+            "error"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What is the lock acquisition timeout?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-implicit-cast",
+      "family": "rejected_approach",
+      "repository": "acme/types",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Do not implicitly cast external numbers to booleans; validate the declared wire type at the boundary."
+        },
+        {
+          "role": "assistant",
+          "text": "The boundary validator will reject wire-type mismatches instead of casting them."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "do",
+            "not",
+            "implicitly",
+            "cast",
+            "external",
+            "numbers",
+            "booleans"
+          ]
+        },
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "validate",
+            "declared",
+            "wire",
+            "type",
+            "boundary"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What type safety rule applies to external numbers?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-metrics-names",
+      "family": "user_preference",
+      "repository": "acme/metrics",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use stable metric names with a documented unit suffix so dashboards survive service renames."
+        },
+        {
+          "role": "assistant",
+          "text": "Metrics will use stable names and documented unit suffixes."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "stable",
+            "metric",
+            "names",
+            "documented",
+            "unit",
+            "suffix"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should service metrics be named?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-s3",
+      "family": "decision",
+      "repository": "acme/exports",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We chose object storage for exports because large files should not occupy the transactional database."
+        },
+        {
+          "role": "assistant",
+          "text": "Exports will use object storage while the database retains metadata and a pointer."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "chose",
+            "object",
+            "storage",
+            "exports",
+            "large",
+            "files",
+            "transactional",
+            "database"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Why did exports move to object storage?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-corrected-old",
+      "family": "user_preference",
+      "repository": "acme/correct",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use a ten second timeout for this endpoint."
+        },
+        {
+          "role": "assistant",
+          "text": "The endpoint will use ten seconds."
+        },
+        {
+          "role": "user",
+          "text": "Actually, that is wrong: use twenty seconds for the endpoint timeout because the upstream SLA changed."
+        },
+        {
+          "role": "assistant",
+          "text": "The corrected endpoint timeout is twenty seconds."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "use",
+            "twenty",
+            "seconds",
+            "timeout",
+            "upstream",
+            "SLA"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "anchors": [
+            "ten",
+            "seconds",
+            "timeout",
+            "endpoint"
+          ]
+        }
+      ],
+      "query": "What timeout applies after the upstream SLA correction?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-hypothetical-cache",
+      "family": "negative",
+      "repository": "acme/future",
+      "turns": [
+        {
+          "role": "user",
+          "text": "If the service becomes multi-region, we might prefer active-active writes, but that is not a current decision."
+        },
+        {
+          "role": "assistant",
+          "text": "The service remains single-region while replication options are researched."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "active-active",
+            "writes",
+            "multi-region"
+          ]
+        }
+      ],
+      "query": "What write topology is current?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-api-pagination",
+      "family": "user_preference",
+      "repository": "acme/list",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Return an opaque cursor for pagination; clients should not infer ordering from numeric offsets."
+        },
+        {
+          "role": "assistant",
+          "text": "List responses will expose opaque cursors and a documented ordering field."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "return",
+            "opaque",
+            "cursor",
+            "pagination"
+          ]
+        },
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "clients",
+            "should",
+            "not",
+            "infer",
+            "ordering",
+            "numeric",
+            "offsets"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How does the list API paginate?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-unbounded-input",
+      "family": "rejected_approach",
+      "repository": "acme/parser",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Reject unbounded input fields before parsing so a malicious payload cannot consume memory."
+        },
+        {
+          "role": "assistant",
+          "text": "Parser limits will reject oversized fields before decoding the full payload."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "reject",
+            "unbounded",
+            "input",
+            "fields",
+            "before",
+            "parsing",
+            "memory"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What protects the parser from oversized input?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-uncertainty",
+      "family": "user_preference",
+      "repository": "acme/decisions",
+      "turns": [
+        {
+          "role": "user",
+          "text": "When a decision is tentative, label it tentative in every project until evidence closes the question."
+        },
+        {
+          "role": "assistant",
+          "text": "Tentative decisions will carry an explicit label until verified."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "tentative",
+            "decision",
+            "label",
+            "every",
+            "project",
+            "evidence"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should tentative decisions be labeled?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-key-rotation",
+      "family": "user_preference",
+      "repository": "acme/keys",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Rotate signing keys quarterly and retain the previous key long enough to verify in-flight tokens."
+        },
+        {
+          "role": "assistant",
+          "text": "Key rotation will happen quarterly with an overlap period for in-flight tokens."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "rotate",
+            "signing",
+            "keys",
+            "quarterly",
+            "previous",
+            "key",
+            "in-flight",
+            "tokens"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How often are signing keys rotated?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-error-envelope",
+      "family": "user_preference",
+      "repository": "acme/errors",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Return a stable error code and request ID in every API error envelope; prose alone is not automatable."
+        },
+        {
+          "role": "assistant",
+          "text": "API errors will include stable codes and request IDs alongside prose."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "stable",
+            "error",
+            "code",
+            "request",
+            "ID",
+            "API",
+            "error",
+            "envelope"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What fields belong in an API error envelope?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-quoted-retry",
+      "family": "negative",
+      "repository": "acme/retry-note",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The incident says \"Always retry immediately\"; that quotation explains the outage and is not a retry instruction."
+        },
+        {
+          "role": "assistant",
+          "text": "The remediation adds capped backoff instead of immediate retries."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "always",
+            "retry",
+            "immediately",
+            "incident"
+          ]
+        }
+      ],
+      "query": "What retry behavior is current after the incident?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-blob-encryption",
+      "family": "user_preference",
+      "repository": "acme/blobs",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Encrypt stored blobs with the service key before replication; transport TLS alone is not storage protection."
+        },
+        {
+          "role": "assistant",
+          "text": "Blob encryption will occur before replication and use the service key."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "encrypt",
+            "stored",
+            "blobs",
+            "service",
+            "key",
+            "replication",
+            "TLS"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What protects replicated blobs at rest?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-release-channel",
+      "family": "user_preference",
+      "repository": "acme/release",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Publish candidate builds to the beta channel for one day before promoting them to stable."
+        },
+        {
+          "role": "assistant",
+          "text": "Candidate builds will spend one day in beta before stable promotion."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "candidate",
+            "builds",
+            "beta",
+            "channel",
+            "one",
+            "day",
+            "stable"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What release channel sequence did we choose?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-copy",
+      "family": "user_preference",
+      "repository": "acme/copy",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Prefer plain language in user-facing copy across projects; explain a technical term on first use."
+        },
+        {
+          "role": "assistant",
+          "text": "User-facing copy will use plain language and define technical terms once."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "prefer",
+            "plain",
+            "language",
+            "user-facing",
+            "copy",
+            "across",
+            "projects"
+          ]
+        },
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "explain",
+            "technical",
+            "term",
+            "first",
+            "use"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What copy style should apply to user-facing text?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-lease-renewal",
+      "family": "user_preference",
+      "repository": "acme/leases",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Renew a worker lease halfway through its duration and stop work if renewal fails."
+        },
+        {
+          "role": "assistant",
+          "text": "Workers will renew leases halfway through and halt safely on renewal failure."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "renew",
+            "worker",
+            "lease",
+            "halfway",
+            "stop",
+            "work",
+            "renewal",
+            "fails"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "When should a worker renew its lease?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-bug-prefer",
+      "family": "negative",
+      "repository": "acme/bug-text",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The crash report uses the word prefer in an example; it describes a parser bug and does not establish a preference."
+        },
+        {
+          "role": "assistant",
+          "text": "I will treat the report as evidence about the parser bug until a policy is chosen."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "parser",
+            "bug",
+            "crash",
+            "report"
+          ]
+        }
+      ],
+      "query": "Did the crash report establish a parser preference?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-schema-compat",
+      "family": "rejected_approach",
+      "repository": "acme/schema",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Reject a schema migration that removes a required field until all readers have moved to the replacement."
+        },
+        {
+          "role": "assistant",
+          "text": "Schema review will block removal until reader migration is complete."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "reject",
+            "schema",
+            "migration",
+            "removes",
+            "required",
+            "field",
+            "readers"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "When may a required schema field be removed?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-corrections",
+      "family": "user_preference",
+      "repository": "acme/feedback",
+      "turns": [
+        {
+          "role": "user",
+          "text": "When I correct an assumption, acknowledge the correction and use the new constraint in every project."
+        },
+        {
+          "role": "assistant",
+          "text": "I will acknowledge corrections and carry the corrected constraint forward."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "correct",
+            "assumption",
+            "acknowledge",
+            "correction",
+            "new",
+            "constraint"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should corrections be handled across projects?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-worker-pool",
+      "family": "user_preference",
+      "repository": "acme/pool",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Cap the image worker pool at twelve concurrent jobs so memory pressure stays predictable."
+        },
+        {
+          "role": "assistant",
+          "text": "The image worker pool will allow at most twelve concurrent jobs."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "image",
+            "worker",
+            "pool",
+            "twelve",
+            "concurrent",
+            "jobs",
+            "memory"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What is the image worker concurrency limit?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-raw-sql",
+      "family": "rejected_approach",
+      "repository": "acme/query",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Do not concatenate user input into SQL; parameterized queries are mandatory at every repository boundary."
+        },
+        {
+          "role": "assistant",
+          "text": "Repository queries will use parameters and reject concatenated user input."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "do",
+            "not",
+            "concatenate",
+            "user",
+            "input",
+            "SQL"
+          ]
+        },
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "parameterized",
+            "queries",
+            "mandatory",
+            "every",
+            "repository",
+            "boundary"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What SQL construction rule is mandatory?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-links",
+      "family": "user_preference",
+      "repository": "acme/links",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across repositories, preserve the destination of links when rewriting prose or formatting documentation."
+        },
+        {
+          "role": "assistant",
+          "text": "Documentation edits will keep link destinations unchanged unless explicitly requested."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "across",
+            "repositories",
+            "preserve",
+            "destination",
+            "links",
+            "documentation"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What should documentation rewrites preserve?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-kafka",
+      "family": "decision",
+      "repository": "acme/streaming",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We chose Kafka partitions keyed by customer because consumer ordering is needed within a customer."
+        },
+        {
+          "role": "assistant",
+          "text": "Kafka customer-keyed partitions are the recorded streaming decision."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "chose",
+            "Kafka",
+            "partitions",
+            "customer",
+            "consumer",
+            "ordering"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Why are streaming partitions keyed by customer?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-clock-injection",
+      "family": "user_preference",
+      "repository": "acme/time",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Inject the clock into expiry code so tests can cover a boundary without sleeping."
+        },
+        {
+          "role": "assistant",
+          "text": "Expiry code will receive an injected clock and deterministic boundary tests."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "inject",
+            "clock",
+            "expiry",
+            "code",
+            "tests",
+            "boundary",
+            "sleeping"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should expiry code obtain time?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-question-auth",
+      "family": "negative",
+      "repository": "acme/auth-question",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Should we require passkeys for every account, or compare recovery support costs first? No policy is set."
+        },
+        {
+          "role": "assistant",
+          "text": "We will compare recovery costs before deciding the authentication policy."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "require",
+            "passkeys",
+            "every",
+            "account",
+            "policy"
+          ]
+        }
+      ],
+      "query": "Did we decide on mandatory passkeys?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-redaction-order",
+      "family": "user_preference",
+      "repository": "acme/logging",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Redact sensitive headers before serializing the request for logs; redacting the final string leaves nested values exposed."
+        },
+        {
+          "role": "assistant",
+          "text": "Request logging will redact headers before serialization."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "redact",
+            "sensitive",
+            "headers",
+            "before",
+            "serializing",
+            "request",
+            "logs"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "When does request logging redact sensitive headers?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-archive-index",
+      "family": "user_preference",
+      "repository": "acme/history-index",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Index archive metadata separately from message bodies so a retention purge can remove derived text safely."
+        },
+        {
+          "role": "assistant",
+          "text": "Archive metadata and message bodies will have separate indexes for controlled purge."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "index",
+            "archive",
+            "metadata",
+            "separately",
+            "message",
+            "bodies",
+            "retention",
+            "purge"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How are archive metadata and message bodies indexed?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-commit-message",
+      "family": "user_preference",
+      "repository": "acme/commits",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use imperative commit subjects in all repositories so release notes can derive clear actions."
+        },
+        {
+          "role": "assistant",
+          "text": "Commit subjects will use imperative wording across repositories."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "imperative",
+            "commit",
+            "subjects",
+            "all",
+            "repositories",
+            "release",
+            "notes"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What commit subject style should releases expect?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-dead-letter",
+      "family": "user_preference",
+      "repository": "acme/dlq",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Move messages to a dead-letter queue after three processing failures and preserve the original error."
+        },
+        {
+          "role": "assistant",
+          "text": "The consumer will dead-letter after three failures with the original error attached."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "dead-letter",
+            "queue",
+            "three",
+            "processing",
+            "failures",
+            "original",
+            "error"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "When does a message enter the dead-letter queue?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-silent-truncate",
+      "family": "rejected_approach",
+      "repository": "acme/text",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Do not silently truncate user text; return a visible limit error and record the accepted maximum."
+        },
+        {
+          "role": "assistant",
+          "text": "Text input will return a visible limit error instead of silently truncating."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "do",
+            "not",
+            "silently",
+            "truncate",
+            "user",
+            "text"
+          ]
+        },
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "return",
+            "visible",
+            "limit",
+            "error",
+            "record",
+            "accepted",
+            "maximum"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What happens when user text exceeds the limit?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-rollback",
+      "family": "user_preference",
+      "repository": "acme/ops",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across projects, keep rollback instructions beside deployment steps so an operator can recover under pressure."
+        },
+        {
+          "role": "assistant",
+          "text": "I will place rollback instructions next to deployment steps wherever we work."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "across",
+            "projects",
+            "rollback",
+            "instructions",
+            "beside",
+            "deployment",
+            "steps"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Where should rollback instructions live?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-tls",
+      "family": "user_preference",
+      "repository": "acme/tls",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use TLS 1.3 for internal service calls because the platform supports it and handshake latency is acceptable."
+        },
+        {
+          "role": "assistant",
+          "text": "Internal calls will use TLS 1.3 with the measured latency tradeoff."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "use",
+            "TLS",
+            "1.3",
+            "internal",
+            "service",
+            "calls",
+            "handshake",
+            "latency"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which TLS version did we choose internally?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-queue-depth",
+      "family": "user_preference",
+      "repository": "acme/backpressure",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Pause intake when the queue reaches eight thousand messages and resume below six thousand."
+        },
+        {
+          "role": "assistant",
+          "text": "Backpressure will pause at eight thousand and resume below six thousand."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "pause",
+            "intake",
+            "queue",
+            "eight",
+            "thousand",
+            "resume",
+            "six",
+            "thousand"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What queue depth triggers backpressure?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-hypothetical-db",
+      "family": "negative",
+      "repository": "acme/db-future",
+      "turns": [
+        {
+          "role": "user",
+          "text": "If we outgrow one writer, we might prefer a distributed database, but the current service still uses one writer."
+        },
+        {
+          "role": "assistant",
+          "text": "We will measure writer contention before considering a distributed database."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "distributed",
+            "database",
+            "outgrow",
+            "writer"
+          ]
+        }
+      ],
+      "query": "What database topology is current?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-boundary-json",
+      "family": "rejected_approach",
+      "repository": "acme/json",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Reject duplicate JSON keys at the ingestion boundary because different parsers choose different values."
+        },
+        {
+          "role": "assistant",
+          "text": "Ingestion will reject duplicate keys and report the field name."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "reject",
+            "duplicate",
+            "JSON",
+            "keys",
+            "ingestion",
+            "boundary",
+            "parsers"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Why are duplicate JSON keys rejected?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-evidence",
+      "family": "user_preference",
+      "repository": "acme/evidence",
+      "turns": [
+        {
+          "role": "user",
+          "text": "For any project, distinguish observed evidence from an assumption in notes and reviews."
+        },
+        {
+          "role": "assistant",
+          "text": "Notes and reviews will label observations separately from assumptions."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "any",
+            "project",
+            "distinguish",
+            "observed",
+            "evidence",
+            "assumption",
+            "notes",
+            "reviews"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should notes distinguish evidence and assumptions?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-session-cookie",
+      "family": "user_preference",
+      "repository": "acme/session",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Set session cookies with Secure, HttpOnly, and SameSite=Lax attributes before enabling the login flow."
+        },
+        {
+          "role": "assistant",
+          "text": "The login flow will set all three session-cookie attributes."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "session",
+            "cookies",
+            "Secure",
+            "HttpOnly",
+            "SameSite",
+            "Lax"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which attributes must session cookies set?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-queue-db",
+      "family": "decision",
+      "repository": "acme/work",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We decided to persist the work queue in PostgreSQL rather than process memory so restarts do not lose jobs."
+        },
+        {
+          "role": "assistant",
+          "text": "PostgreSQL persistence is the work-queue decision for restart durability."
+        }
+      ],
+      "expected": [
+        {
+          "type": "decision",
+          "scope": "repo",
+          "anchors": [
+            "decided",
+            "work",
+            "queue",
+            "PostgreSQL",
+            "process",
+            "memory",
+            "restarts",
+            "jobs"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Why is the work queue persisted in PostgreSQL?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-quoted-always",
+      "family": "negative",
+      "repository": "acme/quote",
+      "turns": [
+        {
+          "role": "user",
+          "text": "A copied comment says \"Always use the fast path\"; the comment is being audited, not retained as a directive."
+        },
+        {
+          "role": "assistant",
+          "text": "The audit will compare the fast path with the guarded path before deciding."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "always",
+            "use",
+            "fast",
+            "path",
+            "copied",
+            "comment"
+          ]
+        }
+      ],
+      "query": "Did the copied comment create a fast-path rule?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-trace-correlation",
+      "family": "user_preference",
+      "repository": "acme/trace-id",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Propagate one correlation ID through HTTP, queue, and database logs so an incident can be followed end to end."
+        },
+        {
+          "role": "assistant",
+          "text": "The correlation ID will be propagated through each boundary."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "correlation",
+            "ID",
+            "HTTP",
+            "queue",
+            "database",
+            "logs"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What identifier links logs across service boundaries?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-small-diffs",
+      "family": "user_preference",
+      "repository": "acme/diffs",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Prefer small, reviewable diffs across all repositories so each change has a clear rollback point."
+        },
+        {
+          "role": "assistant",
+          "text": "I will keep diffs small and reviewable across projects."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "prefer",
+            "small",
+            "reviewable",
+            "diffs",
+            "rollback",
+            "point"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What change size preference carries across repositories?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-redelivery-count",
+      "family": "rejected_approach",
+      "repository": "acme/delivery",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Stop redelivering a message after five attempts and retain the delivery history for operators."
+        },
+        {
+          "role": "assistant",
+          "text": "Delivery will stop after five attempts with history retained."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "stop",
+            "redelivering",
+            "message",
+            "five",
+            "attempts",
+            "delivery",
+            "history"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "After how many attempts does delivery stop?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-unsafe-default",
+      "family": "rejected_approach",
+      "repository": "acme/defaults",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Do not choose an unsafe default when configuration is missing; fail closed and explain the missing setting."
+        },
+        {
+          "role": "assistant",
+          "text": "Missing configuration will produce a clear fail-closed error."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "do",
+            "not",
+            "unsafe",
+            "default",
+            "configuration",
+            "missing",
+            "fail",
+            "closed"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What happens when a safety setting is missing?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-summaries",
+      "family": "user_preference",
+      "repository": "acme/summaries",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across projects, put the decision and its reason before implementation detail in session summaries."
+        },
+        {
+          "role": "assistant",
+          "text": "Session summaries will lead with decisions and reasons."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "across",
+            "projects",
+            "decision",
+            "reason",
+            "before",
+            "implementation",
+            "detail"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should session summaries be structured?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-protobuf",
+      "family": "user_preference",
+      "repository": "acme/proto",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use Protobuf for the internal command stream because generated schemas make compatibility checks explicit."
+        },
+        {
+          "role": "assistant",
+          "text": "Internal commands will use Protobuf with generated compatibility checks."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "use",
+            "Protobuf",
+            "internal",
+            "command",
+            "stream",
+            "generated",
+            "schemas",
+            "compatibility"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which format did we choose for internal commands?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-cache-invalidation",
+      "family": "user_preference",
+      "repository": "acme/invalidate",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Invalidate account summaries from the account-updated event rather than polling every minute."
+        },
+        {
+          "role": "assistant",
+          "text": "Account updates will emit invalidation events and avoid a polling loop."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "invalidate",
+            "account",
+            "summaries",
+            "account-updated",
+            "event",
+            "polling"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How are account summaries invalidated?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-bug-never",
+      "family": "negative",
+      "repository": "acme/bug-never",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The bug report says the worker never acknowledged a packet; that is an observation, not a permanent prohibition."
+        },
+        {
+          "role": "assistant",
+          "text": "I will inspect the acknowledgement path before changing worker policy."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "never",
+            "acknowledged",
+            "packet",
+            "worker",
+            "prohibition"
+          ]
+        }
+      ],
+      "query": "Did the bug report create a worker prohibition?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-payload-limit",
+      "family": "user_preference",
+      "repository": "acme/payload",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Limit webhook payloads to two megabytes and return a typed error when the limit is exceeded."
+        },
+        {
+          "role": "assistant",
+          "text": "Webhook intake will enforce a two-megabyte payload limit."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "webhook",
+            "payloads",
+            "two",
+            "megabytes",
+            "typed",
+            "error"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What is the webhook payload limit?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-plain-errors",
+      "family": "user_preference",
+      "repository": "acme/errors-copy",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use actionable error messages in every project: name the failed operation and the next safe step."
+        },
+        {
+          "role": "assistant",
+          "text": "Errors will name the failed operation and offer a safe next step."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "actionable",
+            "error",
+            "messages",
+            "failed",
+            "operation",
+            "safe",
+            "step"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What should an actionable error message contain?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-worker-shutdown",
+      "family": "rejected_approach",
+      "repository": "acme/shutdown",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Stop accepting new work before closing database connections so in-flight jobs can finish cleanly."
+        },
+        {
+          "role": "assistant",
+          "text": "Shutdown will drain intake before closing the database."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "stop",
+            "accepting",
+            "work",
+            "before",
+            "closing",
+            "database",
+            "connections"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What order should worker shutdown follow?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-oidc",
+      "family": "user_preference",
+      "repository": "acme/identity",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use OIDC for service identity because short-lived tokens reduce credential rotation burden."
+        },
+        {
+          "role": "assistant",
+          "text": "Service identity will use OIDC and short-lived tokens."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "use",
+            "OIDC",
+            "service",
+            "identity",
+            "short-lived",
+            "tokens",
+            "rotation"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Why did we choose OIDC for service identity?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-question-retain",
+      "family": "negative",
+      "repository": "acme/retain-question",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Should retained notes include every tool output, or only evidence that changes a future decision? I am asking for guidance."
+        },
+        {
+          "role": "assistant",
+          "text": "We will compare retrieval noise before choosing a retention rule."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "retained",
+            "notes",
+            "every",
+            "tool",
+            "output",
+            "evidence",
+            "future",
+            "decision"
+          ]
+        }
+      ],
+      "query": "Did we choose which tool output to retain?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-public-stack",
+      "family": "rejected_approach",
+      "repository": "acme/security",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Do not expose stack traces in public errors; keep diagnostic details in protected logs with a request ID."
+        },
+        {
+          "role": "assistant",
+          "text": "Public errors will contain a request ID while protected logs retain diagnostics."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "do",
+            "not",
+            "expose",
+            "stack",
+            "traces",
+            "public",
+            "errors"
+          ]
+        },
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "keep",
+            "diagnostic",
+            "details",
+            "protected",
+            "logs",
+            "request",
+            "ID"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Where should stack traces appear?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-open-items",
+      "family": "user_preference",
+      "repository": "acme/planning",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across repositories, keep unresolved risks as explicit open items instead of silently dropping them from summaries."
+        },
+        {
+          "role": "assistant",
+          "text": "Unresolved risks will remain visible as open items in summaries."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "across",
+            "repositories",
+            "unresolved",
+            "risks",
+            "explicit",
+            "open",
+            "items",
+            "summaries"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should unresolved risks appear in summaries?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-index",
+      "family": "user_preference",
+      "repository": "acme/index",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use an inverted index for exact identifiers and semantic search only as a supplemental ranking signal."
+        },
+        {
+          "role": "assistant",
+          "text": "Exact identifiers will use the inverted index, with semantic ranking supplemental."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "inverted",
+            "index",
+            "exact",
+            "identifiers",
+            "semantic",
+            "supplemental"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which search path handles exact identifiers?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-clock-source",
+      "family": "user_preference",
+      "repository": "acme/clock",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Read monotonic time for elapsed durations and wall time only for displayed timestamps."
+        },
+        {
+          "role": "assistant",
+          "text": "Duration calculations will use monotonic time while displays use wall time."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "monotonic",
+            "time",
+            "elapsed",
+            "durations",
+            "wall",
+            "time",
+            "timestamps"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which clock source is used for elapsed durations?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-quote-never",
+      "family": "negative",
+      "repository": "acme/quote-never",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The proposal quotes \"Never page after midnight\" as a rule to challenge; it is not an adopted on-call policy."
+        },
+        {
+          "role": "assistant",
+          "text": "We will review actual overnight incidents before setting paging hours."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "never",
+            "page",
+            "after",
+            "midnight",
+            "on-call",
+            "policy"
+          ]
+        }
+      ],
+      "query": "What paging-hours policy was adopted?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-request-budget",
+      "family": "user_preference",
+      "repository": "acme/budget",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Cap each request's downstream fan-out at four services so latency remains explainable."
+        },
+        {
+          "role": "assistant",
+          "text": "Requests will allow at most four downstream calls and record the cap."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "request",
+            "downstream",
+            "fan-out",
+            "four",
+            "services",
+            "latency"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What limits downstream request fan-out?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-review-links",
+      "family": "user_preference",
+      "repository": "acme/review-links",
+      "turns": [
+        {
+          "role": "user",
+          "text": "When reviewing any repository, link a claim to the file or test that supports it."
+        },
+        {
+          "role": "assistant",
+          "text": "Reviews will connect claims to supporting files or tests."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "review",
+            "any",
+            "repository",
+            "claim",
+            "file",
+            "test",
+            "supports"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What evidence should review claims include?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-idempotent-migration",
+      "family": "user_preference",
+      "repository": "acme/migration-id",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Make migration steps idempotent so a crash after a committed step can resume safely."
+        },
+        {
+          "role": "assistant",
+          "text": "Migration steps will be rerunnable after a crash without duplicating changes."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "migration",
+            "steps",
+            "idempotent",
+            "crash",
+            "resume",
+            "safely"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What restart property should migrations have?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-error-prefer",
+      "family": "negative",
+      "repository": "acme/error-prefer",
+      "turns": [
+        {
+          "role": "user",
+          "text": "A support ticket says users prefer faster exports; it reports sentiment and is not a durable performance target."
+        },
+        {
+          "role": "assistant",
+          "text": "I will measure export latency and support volume before selecting a target."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "faster",
+            "exports",
+            "support",
+            "ticket",
+            "performance",
+            "target"
+          ]
+        }
+      ],
+      "query": "Did the support ticket set an export target?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-implicit-global",
+      "family": "user_preference",
+      "repository": "acme/scope",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Infer repository scope from the active workspace unless I explicitly declare a rule cross-project."
+        },
+        {
+          "role": "assistant",
+          "text": "The scope resolver will keep workspace guidance local by default."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "infer",
+            "repository",
+            "scope",
+            "active",
+            "workspace",
+            "cross-project"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What is the default scope for workspace guidance?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-retention-window",
+      "family": "user_preference",
+      "repository": "acme/window",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Retain the last thirty days of operational events online and archive older events for audit retrieval."
+        },
+        {
+          "role": "assistant",
+          "text": "Operational storage will keep thirty days online and archive older events."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "retain",
+            "thirty",
+            "days",
+            "operational",
+            "events",
+            "archive",
+            "older",
+            "audit"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What is the operational event retention split?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-naming",
+      "family": "user_preference",
+      "repository": "acme/naming",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Use descriptive names instead of unexplained abbreviations in code across all repositories."
+        },
+        {
+          "role": "assistant",
+          "text": "I will use descriptive names and explain necessary abbreviations."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "descriptive",
+            "names",
+            "unexplained",
+            "abbreviations",
+            "code"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What naming style carries across repositories?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-header-size",
+      "family": "rejected_approach",
+      "repository": "acme/http",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Reject HTTP headers larger than sixteen kilobytes before routing the request."
+        },
+        {
+          "role": "assistant",
+          "text": "The edge will reject headers over sixteen kilobytes before routing."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "reject",
+            "HTTP",
+            "headers",
+            "sixteen",
+            "kilobytes",
+            "routing"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What header-size limit applies before routing?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-hypothetical-global",
+      "family": "negative",
+      "repository": "acme/global-future",
+      "turns": [
+        {
+          "role": "user",
+          "text": "If we ever publish a public SDK, we might prefer generated clients, but that possibility is not current guidance."
+        },
+        {
+          "role": "assistant",
+          "text": "The SDK direction remains open until the API stability review."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "generated",
+            "clients",
+            "public",
+            "SDK"
+          ]
+        }
+      ],
+      "query": "What SDK generation policy is current?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-audit-actor",
+      "family": "user_preference",
+      "repository": "acme/audit-actor",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Record the authenticated actor and request ID on every administrative change."
+        },
+        {
+          "role": "assistant",
+          "text": "Administrative audit entries will include actor and request ID fields."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "authenticated",
+            "actor",
+            "request",
+            "ID",
+            "administrative",
+            "change"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which fields identify an administrative change?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-queue-priority",
+      "family": "user_preference",
+      "repository": "acme/priority",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Process account deletion before analytics work because privacy erasure has the higher priority."
+        },
+        {
+          "role": "assistant",
+          "text": "The queue will prioritize account deletion over analytics jobs."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "process",
+            "account",
+            "deletion",
+            "before",
+            "analytics",
+            "privacy",
+            "priority"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which queue work has priority over analytics?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-duplicate-events",
+      "family": "rejected_approach",
+      "repository": "acme/events-id",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Do not emit the same domain event twice for one committed transition; consumers rely on event identity."
+        },
+        {
+          "role": "assistant",
+          "text": "Event identity will prevent duplicate emission for a committed transition."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "do",
+            "not",
+            "emit",
+            "same",
+            "domain",
+            "event",
+            "twice",
+            "committed",
+            "transition"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What prevents duplicate domain events?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-outcome",
+      "family": "user_preference",
+      "repository": "acme/outcomes",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Across projects, record the final outcome and its evidence, not only the initial question."
+        },
+        {
+          "role": "assistant",
+          "text": "Summaries will prefer evidenced outcomes over unanswered initial questions."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "across",
+            "projects",
+            "final",
+            "outcome",
+            "evidence",
+            "initial",
+            "question"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What should a cross-project summary emphasize?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-rollback-marker",
+      "family": "user_preference",
+      "repository": "acme/deploy-marker",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Write a rollback marker before changing production traffic so the previous version is unambiguous."
+        },
+        {
+          "role": "assistant",
+          "text": "Deployment will write the rollback marker before shifting traffic."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "rollback",
+            "marker",
+            "before",
+            "changing",
+            "production",
+            "traffic",
+            "previous",
+            "version"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "When is the rollback marker written?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-negative-ordinary-prefer",
+      "family": "negative",
+      "repository": "acme/ordinary-prefer",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The incident timeline notes that operators prefer the old dashboard; this is context for a redesign discussion, not a directive."
+        },
+        {
+          "role": "assistant",
+          "text": "We will collect dashboard tasks before deciding which view to keep."
+        }
+      ],
+      "expected": [],
+      "forbidden": [
+        {
+          "anchors": [
+            "prefer",
+            "old",
+            "dashboard",
+            "incident",
+            "timeline",
+            "directive"
+          ]
+        }
+      ],
+      "query": "Did the incident timeline create a dashboard preference?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-safe-parser",
+      "family": "user_preference",
+      "repository": "acme/safe-parser",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Parse untrusted YAML with aliases disabled because recursive aliases can exhaust memory."
+        },
+        {
+          "role": "assistant",
+          "text": "The YAML parser will disable aliases before reading untrusted input."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "YAML",
+            "aliases",
+            "disabled",
+            "recursive",
+            "aliases",
+            "memory"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "Which YAML parser safety option is required?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-questions",
+      "family": "rejected_approach",
+      "repository": "acme/questions",
+      "turns": [
+        {
+          "role": "user",
+          "text": "When a prompt is only a question, do not store it as a preference until a decision is explicitly made."
+        },
+        {
+          "role": "assistant",
+          "text": "Questions will remain exploratory until an explicit decision appears."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "question",
+            "only",
+            "do",
+            "not",
+            "store",
+            "preference",
+            "explicit",
+            "decision"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should question-only prompts be treated?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-decision-restore",
+      "family": "user_preference",
+      "repository": "acme/restore-v2",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Restore snapshots into a staging file and validate them before replacing the active database."
+        },
+        {
+          "role": "assistant",
+          "text": "Snapshot restore will stage and validate before active replacement."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "restore",
+            "snapshots",
+            "staging",
+            "file",
+            "validate",
+            "replacing",
+            "active",
+            "database"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should database snapshots be restored?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-no-credential-output",
+      "family": "rejected_approach",
+      "repository": "acme/output",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Never print access tokens in command output, even when a diagnostic command fails."
+        },
+        {
+          "role": "assistant",
+          "text": "Diagnostic commands will redact access tokens on success and failure."
+        }
+      ],
+      "expected": [
+        {
+          "type": "rejected_approach",
+          "scope": "repo",
+          "anchors": [
+            "never",
+            "print",
+            "access",
+            "tokens",
+            "command",
+            "output",
+            "diagnostic",
+            "fails"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What must diagnostic command output exclude?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-global-reversals",
+      "family": "user_preference",
+      "repository": "acme/reversals",
+      "turns": [
+        {
+          "role": "user",
+          "text": "When a choice changes, preserve the current choice and label the old one as historical in every project."
+        },
+        {
+          "role": "assistant",
+          "text": "Changed decisions will keep the current choice clear and mark prior choices historical."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "global",
+          "anchors": [
+            "choice",
+            "changes",
+            "current",
+            "historical",
+            "every",
+            "project"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "How should changed decisions be represented?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    },
+    {
+      "id": "independent-concurrency-limit",
+      "family": "user_preference",
+      "repository": "acme/concurrency",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Limit concurrent report generation to three jobs because each job holds a large working set."
+        },
+        {
+          "role": "assistant",
+          "text": "Report generation will run at most three jobs concurrently."
+        }
+      ],
+      "expected": [
+        {
+          "type": "user_preference",
+          "scope": "repo",
+          "anchors": [
+            "limit",
+            "concurrent",
+            "report",
+            "generation",
+            "three",
+            "jobs",
+            "working",
+            "set"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "query": "What limits concurrent report generation?",
+      "negativeQuery": null,
+      "suppress": false,
+      "mandatoryRecall": false,
+      "critical": []
+    }
+  ]
+}

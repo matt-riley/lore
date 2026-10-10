@@ -1,0 +1,147 @@
+name: Daemon artifacts
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+
+    defaults:
+      run:
+        working-directory: daemon
+
+    env:
+      # Presence of the signing identity enables the macOS signing steps.
+      # Without it the build stays unsigned and says so in the report.
+      LORE_CODESIGN_IDENTITY: ${{ secrets.LORE_CODESIGN_IDENTITY }}
+      LORE_NOTARY_KEY_ID: ${{ secrets.LORE_NOTARY_KEY_ID }}
+      LORE_NOTARY_ISSUER: ${{ secrets.LORE_NOTARY_ISSUER }}
+      LORE_NOTARY_KEY: ${{ runner.temp }}/lore-notary-key.p8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            daemon/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('daemon/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build release binaries
+        run: cargo build --release
+
+      - name: Import the signing certificate
+        if: runner.os == 'macOS' && env.LORE_CODESIGN_IDENTITY != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.LORE_SIGNING_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.LORE_SIGNING_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.LORE_SIGNING_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE_BASE64:-}" ]; then
+            echo "LORE_SIGNING_CERTIFICATE_BASE64 is missing; refusing to continue unsigned" >&2
+            exit 1
+          fi
+          certificate="$RUNNER_TEMP/lore-signing.p12"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" lore-signing.keychain-db
+          security set-keychain-settings -lut 900 lore-signing.keychain-db
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" lore-signing.keychain-db
+          security import "$certificate" -k lore-signing.keychain-db \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" lore-signing.keychain-db
+          security list-keychains -d user -s lore-signing.keychain-db $(security list-keychains -d user | tr -d '"')
+          rm -f "$certificate"
+          # Prove the identity is usable before any build work is signed.
+          security find-identity -v -p codesigning lore-signing.keychain-db
+
+      # The API key is scoped to this step alone, so no build or dependency
+      # step can read it. Later steps only see the file it writes.
+      - name: Write the notary API key
+        if: runner.os == 'macOS' && env.LORE_CODESIGN_IDENTITY != ''
+        env:
+          LORE_NOTARY_KEY_BASE64: ${{ secrets.LORE_NOTARY_KEY }}
+        run: |
+          set -eo pipefail
+          if [ -z "${LORE_NOTARY_KEY_BASE64:-}" ]; then
+            echo "Notary API key secret is absent; the package step will skip notarization" >&2
+            exit 0
+          fi
+          printf '%s' "$LORE_NOTARY_KEY_BASE64" | base64 --decode > "$LORE_NOTARY_KEY"
+          chmod 600 "$LORE_NOTARY_KEY"
+
+      - name: Package with checksums, manifest and SBOM
+        if: runner.os != 'macOS' || env.LORE_CODESIGN_IDENTITY == ''
+        run: node scripts/package.mjs --skip-build --dist dist
+
+      - name: Package, sign and notarize
+        if: runner.os == 'macOS' && env.LORE_CODESIGN_IDENTITY != ''
+        run: |
+          set -euo pipefail
+          if [ -n "${LORE_NOTARY_KEY_ID:-}" ] && [ -f "$LORE_NOTARY_KEY" ]; then
+            node scripts/package.mjs --skip-build --dist dist --sign --notarize
+          else
+            echo "Notary credentials absent; signing only (recorded as signed, not notarized)" >&2
+            node scripts/package.mjs --skip-build --dist dist --sign
+          fi
+
+      - name: Verify the archive
+        run: |
+          for archive in dist/*.tar.gz; do
+            node scripts/package.mjs --verify "$archive"
+          done
+
+      - name: Verify the shipped signatures
+        if: runner.os == 'macOS' && env.LORE_CODESIGN_IDENTITY != ''
+        run: |
+          set -euo pipefail
+          mkdir -p verify-signature
+          tar -xzf dist/lore-*.tar.gz -C verify-signature
+          for binary in verify-signature/*/bin/lore verify-signature/*/bin/lored; do
+            codesign --verify --strict --verbose=2 "$binary"
+            codesign --display --verbose=2 "$binary" 2>&1 | grep -q "flags=.*runtime" \
+              || { echo "hardened runtime flag missing on $binary" >&2; exit 1; }
+          done
+          if [ -f dist/lore-*.zip ]; then
+            xcrun stapler validate dist/lore-*.zip 2>/dev/null \
+              || echo "zip artifacts keep an online ticket; stapling applies to pkg/dmg"
+          fi
+
+      - name: Attach artifacts to the release
+        if: github.event_name == 'release'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eo pipefail
+          shopt -s nullglob
+          # Each platform leg has its own manifest; a shared name would let one
+          # leg overwrite the other's checksums on the release.
+          manifest="daemon/dist/checksums-${{ matrix.os }}.txt"
+          cp daemon/dist/checksums.txt "$manifest"
+          # Only notarized builds produce a ZIP, so unmatched patterns drop out
+          # of the list instead of being passed to gh as literal paths.
+          assets=(daemon/dist/*.tar.gz daemon/dist/*.zip daemon/dist/*.sha256 "$manifest")
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "no release assets were produced" >&2
+            exit 1
+          fi
+          gh release upload "${{ github.event.release.tag_name }}" "${assets[@]}" --clobber

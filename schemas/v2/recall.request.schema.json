@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lore:v2:recall.request",
+  "title": "Lore v2 recall request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meta"],
+  "properties": {
+    "meta": { "$ref": "#/$defs/meta" },
+    "params": { "$ref": "#/$defs/params" }
+  },
+  "$defs": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientId", "requestId"],
+      "properties": {
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sessionId": { "type": "string", "maxLength": 256 },
+        "expectedStoreId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "timeoutMs": { "type": "integer", "minimum": 1 },
+        "requiredCapabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query"],
+      "properties": {
+        "query": { "type": "string", "maxLength": 16384 },
+        "repository": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "includeOtherRepositories": { "type": "boolean", "default": false },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "contextBytes": { "type": "integer", "minimum": 1, "maximum": 32768 }
+      }
+    }
+  }
+}

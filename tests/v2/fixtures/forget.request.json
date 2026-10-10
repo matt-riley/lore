@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "clientId": "fixture",
+    "requestId": "fixture-forget-1",
+    "expectedStoreId": "store-fixture"
+  },
+  "params": {
+    "idempotencyKey": "fixture-forget-key-1",
+    "memoryId": "00000000-0000-4000-8000-000000000000",
+    "reason": "fixture reason"
+  }
+}

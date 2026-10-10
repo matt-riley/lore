@@ -1,0 +1,5 @@
+{"type":"user","uuid":"a","sessionId":"cl-golden-1","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"Start the branch walk."}}
+{"type":"assistant","uuid":"b","parentUuid":"a","sessionId":"cl-golden-1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":"Main branch reply."}}
+{"type":"assistant","uuid":"c","parentUuid":"a","sessionId":"cl-golden-1","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"assistant","content":"Side branch reply."}}
+{"type":"assistant","uuid":"d","parentUuid":"b","sessionId":"cl-golden-1","timestamp":"2026-01-01T00:00:04.000Z","message":{"role":"assistant","content":"Back on the main chain."}}
+{"type":"user","uuid":"e","isMeta":true,"sessionId":"cl-golden-1","message":{"role":"user","content":"meta record that must be skipped"}}

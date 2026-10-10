@@ -365,24 +365,70 @@ pub fn maintenance_report(store: &Store, scopes: &[String], limit: u32) -> CoreR
 impl Store {
     /// Active memories whose expiry has passed: hygiene candidates, reported
     /// in shadow mode and marked only by an explicit manual apply.
+    /// Memories that hygiene may retire: expired rows, plus identical copies
+    /// (same content hash, same scope and repository) beyond the oldest one.
+    /// Duplicates are retired rather than merged so the exact-content rows stay
+    /// recoverable through the run marker.
     pub fn hygiene_candidates(&self, now_ms: i64, limit: usize) -> CoreResult<Vec<Value>> {
+        let limit = limit.clamp(1, 200) as i64;
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
-        let mut statement = connection.prepare(
-            "SELECT id, revision, content_hash, scope, repository FROM memories \
-             WHERE forgotten = 0 AND superseded_by IS NULL AND expires_at_ms IS NOT NULL \
-             AND expires_at_ms <= ?1 ORDER BY expires_at_ms ASC, id ASC LIMIT ?2",
-        )?;
-        let rows = statement.query_map(params![now_ms, limit as i64], |row| {
-            Ok(json!({
-                "id": row.get::<_, String>(0)?,
-                "revision": row.get::<_, i64>(1)?,
-                "contentHash": row.get::<_, String>(2)?,
-                "scope": row.get::<_, String>(3)?,
-                "repository": row.get::<_, Option<String>>(4)?,
-            }))
-        })?;
-        Ok(rows.collect::<Result<_, _>>()?)
+        let mut candidates: Vec<Value> = Vec::new();
+        {
+            let mut statement = connection.prepare(
+                "SELECT id, revision, content_hash, scope, repository FROM memories \
+                 WHERE forgotten = 0 AND superseded_by IS NULL AND expires_at_ms IS NOT NULL \
+                 AND expires_at_ms <= ?1 ORDER BY expires_at_ms ASC, id ASC LIMIT ?2",
+            )?;
+            let rows = statement.query_map(params![now_ms, limit], |row| {
+                Ok(json!({
+                    "id": row.get::<_, String>(0)?,
+                    "revision": row.get::<_, i64>(1)?,
+                    "contentHash": row.get::<_, String>(2)?,
+                    "scope": row.get::<_, String>(3)?,
+                    "repository": row.get::<_, Option<String>>(4)?,
+                    "reason": "expired",
+                }))
+            })?;
+            candidates.extend(rows.collect::<Result<Vec<_>, _>>()?);
+        }
+        {
+            // Keep the oldest copy of each identical group (ties broken by id)
+            // so the surviving row is stable across runs.
+            let mut statement = connection.prepare(
+                "SELECT id, revision, content_hash, scope, repository FROM memories m \
+                 WHERE forgotten = 0 AND superseded_by IS NULL \
+                 AND EXISTS (SELECT 1 FROM memories keeper WHERE keeper.forgotten = 0 \
+                   AND keeper.superseded_by IS NULL AND keeper.content_hash = m.content_hash \
+                   AND COALESCE(keeper.repository, '') = COALESCE(m.repository, '') \
+                   AND keeper.scope = m.scope \
+                   AND (keeper.created_ms < m.created_ms \
+                        OR (keeper.created_ms = m.created_ms AND keeper.id < m.id))) \
+                 ORDER BY m.created_ms ASC, m.id ASC LIMIT ?1",
+            )?;
+            let rows = statement.query_map(params![limit], |row| {
+                Ok(json!({
+                    "id": row.get::<_, String>(0)?,
+                    "revision": row.get::<_, i64>(1)?,
+                    "contentHash": row.get::<_, String>(2)?,
+                    "scope": row.get::<_, String>(3)?,
+                    "repository": row.get::<_, Option<String>>(4)?,
+                    "reason": "duplicate",
+                }))
+            })?;
+            let duplicates: Vec<Value> = rows.collect::<Result<_, _>>()?;
+            let seen: std::collections::HashSet<String> = candidates
+                .iter()
+                .filter_map(|entry| entry["id"].as_str().map(str::to_string))
+                .collect();
+            candidates.extend(
+                duplicates
+                    .into_iter()
+                    .filter(|entry| entry["id"].as_str().is_some_and(|id| !seen.contains(id)))
+                    .take((limit as usize).saturating_sub(candidates.len())),
+            );
+        }
+        Ok(candidates)
     }
 
     /// Mark hygiene candidates under one exact marker. Content and FTS rows

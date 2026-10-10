@@ -545,3 +545,138 @@ fn concurrent_views_do_not_deadlock_the_reader_pool() {
         handle.join().expect("join");
     }
 }
+
+/// Identical copies must not be rendered twice, and hygiene must be able to
+/// retire the redundant rows reversibly.
+#[test]
+fn duplicate_content_is_collapsed_in_recall_and_retired_by_hygiene() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(&config_with(dir.path(), Limits::default())).expect("open");
+
+    let mut ids = Vec::new();
+    for key in ["dup-1", "dup-2", "dup-3"] {
+        let outcome = store
+            .retain(
+                "client-dupes",
+                &RetainParams {
+                    idempotency_key: key.to_string(),
+                    kind: "user_preference".to_string(),
+                    content: "Always run the schema check before copying rows.".to_string(),
+                    scope: Scope::Global,
+                    repository: None,
+                    tags: Vec::new(),
+                    confidence: None,
+                    expires_at_ms: None,
+                    source_session_id: None,
+                },
+                1_000,
+            )
+            .expect("retain");
+        ids.push(outcome.memory_id);
+    }
+
+    // Recall returns one copy even though the store holds three.
+    let params = RecallParams {
+        query: "schema check".to_string(),
+        repository: None,
+        include_other_repositories: false,
+        limit: None,
+        context_bytes: None,
+    };
+    let context = store
+        .recall(&params, 2_000, 20, 16 * 1024, None)
+        .expect("recall");
+    let same_line: Vec<&str> = context
+        .context
+        .lines()
+        .filter(|line| line.contains("schema check"))
+        .collect();
+    assert_eq!(
+        same_line.len(),
+        1,
+        "identical content renders once: {:?}",
+        context.context
+    );
+    let returned: Vec<String> = context
+        .records
+        .iter()
+        .filter(|record| record.content.contains("schema check"))
+        .map(|record| record.id.clone())
+        .collect();
+    assert_eq!(returned.len(), 1, "one record per body: {returned:?}");
+
+    // Hygiene reports the two redundant copies, keeps the oldest, and rolls back.
+    let candidates = store.hygiene_candidates(3_000, 50).expect("candidates");
+    let duplicates: Vec<&serde_json::Value> = candidates
+        .iter()
+        .filter(|candidate| candidate["reason"] == "duplicate")
+        .collect();
+    assert_eq!(duplicates.len(), 2, "{candidates:?}");
+    let redundant = duplicates
+        .iter()
+        .filter_map(|candidate| candidate["id"].as_str())
+        .collect::<Vec<_>>();
+    // All three were retained in the same millisecond, so the tie-break is the
+    // id: the smallest one survives and the other two are redundant.
+    let survivor = ids.iter().min().expect("a smallest id").clone();
+    assert!(
+        !redundant.contains(&survivor.as_str()),
+        "the tie-break keeper survives: {redundant:?}"
+    );
+    for id in &ids {
+        if id != &survivor {
+            assert!(
+                redundant.contains(&id.as_str()),
+                "{id} is redundant: {redundant:?}"
+            );
+        }
+    }
+
+    // A hygiene apply belongs to a claimed run so its marker can be rolled back.
+    let run_id = store
+        .maintenance_claim("memoryHygiene", "global", "manual", false, 3_500)
+        .expect("claim")
+        .expect("a free claim");
+    let applied = store
+        .hygiene_apply(&candidates, &format!("hygiene-auto:{run_id}"), 4_000)
+        .expect("apply");
+    assert_eq!(applied, 2);
+    // The runner records the marker and the applied ids on the run, and that
+    // record is what rollback replays.
+    store
+        .maintenance_finish(
+            &run_id,
+            "complete",
+            applied as i64,
+            0,
+            0,
+            Some(serde_json::json!({
+                "marker": format!("hygiene-auto:{run_id}"),
+                "applied": candidates,
+            })),
+            4_100,
+        )
+        .expect("finish");
+    let connection =
+        rusqlite::Connection::open(&config_with(dir.path(), Limits::default()).store_path)
+            .expect("open store");
+    let forgotten: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE content LIKE 'Always run the schema check%' AND forgotten = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count");
+    assert_eq!(forgotten, 2, "redundant copies are forgotten");
+
+    let restored = store.hygiene_rollback(&run_id).expect("rollback");
+    assert_eq!(restored, 2, "the exact marker rolls back both copies");
+    let active: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE content LIKE 'Always run the schema check%' AND forgotten = 0",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count after rollback");
+    assert_eq!(active, 3);
+}

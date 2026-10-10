@@ -49,6 +49,12 @@ async function waitForSocket(socket) {
   throw new Error("daemon never started listening");
 }
 
+function toolText(result) {
+  if (typeof result === "string") return result;
+  const blocks = result?.content ?? [];
+  return blocks.map((block) => block?.text ?? "").join("");
+}
+
 async function withDaemon(t, options = {}) {
   const daemon = startDaemon({ dir: mkdtempSync(path.join(tmpdir(), "lore-host-")) });
   await waitForSocket(daemon.socket);
@@ -71,21 +77,24 @@ test("pi registration exposes exactly the nine canonical tools", async (t) => {
   assert.ok(pi.hooks.has("session_start"));
   assert.ok(pi.hooks.has("session_shutdown"));
 
-  const retained = await pi.tools.get("lore_retain").execute(null, {
+  const retainedRaw = await pi.tools.get("lore_retain").execute(null, {
     content: "Host adapters talk to the daemon over the socket.",
     kind: "note",
   });
+  // Pi requires content blocks: a bare string renders as nothing.
+  assert.equal(retainedRaw?.content?.[0]?.type, "text");
+  const retained = toolText(retainedRaw);
   assert.match(retained, /Saved memory/);
 
-  const recalled = await pi.tools.get("lore_recall").execute(null, {
-    query: "host adapters socket",
-  });
+  const recalled = toolText(
+    await pi.tools.get("lore_recall").execute(null, { query: "host adapters socket" }),
+  );
   assert.match(recalled, /Host adapters talk to the daemon/);
 
-  const status = await pi.tools.get("lore_status").execute(null, {});
+  const status = toolText(await pi.tools.get("lore_status").execute(null, {}));
   assert.match(status, /lore ready/);
 
-  const validate = await pi.tools.get("lore_validate").execute(null, {});
+  const validate = toolText(await pi.tools.get("lore_validate").execute(null, {}));
   assert.match(validate, /Validation passed/);
 
   await session.shutdownAll();
@@ -324,11 +333,13 @@ test("pi injects session and prompt context from the daemon and fails open", asy
 
   // A directive is always part of the mandatory context, so the capsule has
   // something to inject even in a fresh store.
-  const retained = await pi.tools.get("lore_retain").execute(null, {
-    content: "Always run the schema check before copying rows.",
-    kind: "directive",
-    scope: "global",
-  });
+  const retained = toolText(
+    await pi.tools.get("lore_retain").execute(null, {
+      content: "Always run the schema check before copying rows.",
+      kind: "directive",
+      scope: "global",
+    }),
+  );
   assert.match(retained, /Saved memory/);
   await pi.tools.get("lore_retain").execute(null, {
     content: "Prefer small pure functions over clever abstractions.",

@@ -598,6 +598,20 @@ impl Store {
     ) -> CoreResult<Vec<SourceRecord>> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
+        read_source_records(&connection, source_id, generation, limit)
+    }
+}
+
+/// Read normalized records through a caller-supplied connection, so callers
+/// that already hold the writer (digest building) never take a reader lock
+/// while a transaction is open: that inversion blocks every writer.
+pub(crate) fn read_source_records(
+    connection: &Connection,
+    source_id: &str,
+    generation: &str,
+    limit: usize,
+) -> CoreResult<Vec<SourceRecord>> {
+    {
         let mut statement = connection.prepare(
             "SELECT evidence_key, kind, role, turn_index, parent_key, branch, text, completeness, revision \
              FROM source_records WHERE source_id = ?1 AND generation = ?2 \
@@ -618,7 +632,9 @@ impl Store {
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
+}
 
+impl Store {
     /// Count normalized records for one source generation.
     pub fn source_record_count(&self, source_id: &str, generation: &str) -> CoreResult<i64> {
         let connection = self.reader();

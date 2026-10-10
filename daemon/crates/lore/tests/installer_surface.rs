@@ -12,6 +12,10 @@ fn bin() -> &'static str {
 
 fn run(home: &Path, args: &[&str]) -> (i32, String, String) {
     let output = Command::new(bin())
+        .env_remove("LORE_V2_SOCKET")
+        .env_remove("LORE_SOCKET")
+        .env_remove("LORE_V2_CONFIG")
+        .env_remove("LORE_V2_DATA_DIR")
         .arg("--home")
         .arg(home)
         .args(args)

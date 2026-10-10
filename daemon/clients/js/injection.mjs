@@ -7,17 +7,41 @@
 // a stopped daemon, a slow socket or a malformed result must never break the
 // host's startup or prompt path.
 
-import { execFileSync } from "node:child_process";
+import { resolveRepositoryIdentity } from "./repository-identity.mjs";
 
 /** The line every host uses to mark injected, session-scoped context. */
 export const LORE_CONTEXT_BOUNDARY =
   "Session context injected by Lore for this session only. Do not copy it into AGENTS.md, CLAUDE.md, or other instruction files.";
 
-/** Neutralize embedded envelope tags so memory content cannot break out. */
+/**
+ * Wrapper names that recalled text must not be able to open or close. This
+ * list and the matching rule mirror lib/context/context-escape.mjs, so the
+ * v1 and v2 adapters neutralize exactly the same markup.
+ */
+const CONTEXT_TAGS = [
+  "lore_context",
+  "hindsight_memories",
+  "relevant_memories",
+  "system-reminder",
+  "system",
+  "INSTRUCTIONS",
+  "user_instructions",
+  "environment_context",
+];
+
+// Opening or closing forms of those names, case-insensitive, with optional
+// whitespace inside the brackets. Only the `<` of a match is replaced.
+const TAG_ESCAPE_PATTERN = new RegExp(
+  `<\\s*/?\\s*(?:${CONTEXT_TAGS.join("|")})(?:\\s|>|/|$)`,
+  "gi",
+);
+
+/**
+ * Neutralize embedded envelope tags so memory content cannot break out. The
+ * `<` becomes a fullwidth `＜`, which keeps the text readable but unparseable.
+ */
 function neutralizeContextMarkup(text) {
-  return String(text ?? "")
-    .replaceAll("<lore_context>", "&lt;lore_context&gt;")
-    .replaceAll("</lore_context>", "&lt;/lore_context&gt;");
+  return String(text ?? "").replace(TAG_ESCAPE_PATTERN, (match) => `＜${match.slice(1)}`);
 }
 
 /**
@@ -29,36 +53,6 @@ export function wrapLoreContext(text, { instructions = "" } = {}) {
   if (!body) return "";
   const suffix = instructions ? `\n\n${instructions}` : "";
   return `<lore_context>\n${LORE_CONTEXT_BOUNDARY}\n\n${body}${suffix}\n</lore_context>`;
-}
-
-/**
- * Canonical `host/owner/repo` for a working directory, or null. Only used to
- * scope recall; a miss just means global context, never a failure.
- */
-export function canonicalRepositoryFromCwd(cwd, { exec = execFileSync } = {}) {
-  if (!cwd) return null;
-  let remote;
-  try {
-    remote = String(
-      exec("git", ["-C", String(cwd), "remote", "get-url", "origin"], {
-        encoding: "utf8",
-        timeout: 500,
-        stdio: ["ignore", "pipe", "ignore"],
-      }) ?? "",
-    ).trim();
-  } catch {
-    return null;
-  }
-  if (!remote) return null;
-  const cleaned = remote
-    .replace(/^[a-z+]+:\/\//i, "")
-    .replace(/^[^@/]+@/, "")
-    .replace(/\.git$/i, "")
-    .replace(/:/g, "/");
-  const parts = cleaned.split("/").filter(Boolean);
-  if (parts.length < 3) return null;
-  const [host, ...rest] = parts;
-  return `${host}/${rest.join("/")}`;
 }
 
 function sessionIdOf(ctx) {
@@ -77,13 +71,17 @@ export function createInjection({
   // Inject whenever there is anything at all: a single standing directive is
   // short and still worth the model's attention.
   minChars = 1,
-  repositoryFor = (ctx) => canonicalRepositoryFromCwd(ctx?.cwd ?? process.cwd()),
+  repositoryFor = (ctx) => resolveRepositoryIdentity(ctx?.cwd ?? process.cwd()),
   now = () => Date.now(),
 } = {}) {
   const lastPromptBySession = new Map();
 
-  async function recallMessage({ query, ctx, lorePhase }) {
-    if (!session?.invokeTool) return undefined;
+  /**
+   * Ask the daemon for context. `reached` is false only when the daemon could
+   * not be asked, so a transient failure never counts as a handled prompt.
+   */
+  async function recall({ query, ctx, lorePhase }) {
+    if (!session?.invokeTool) return { reached: false, message: undefined };
     const repository = repositoryFor(ctx);
     const args = query ? { query } : { query: "session start" };
     if (repository) args.repository = repository;
@@ -93,14 +91,15 @@ export function createInjection({
         sessionId: sessionIdOf(ctx),
       });
     } catch {
-      return undefined;
+      return { reached: false, message: undefined };
     }
     const text = String(result?.context ?? "").trim();
-    if (text.length < minChars) return undefined;
+    if (text.length < minChars) return { reached: true, message: undefined };
     const bounded = text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
     const content = wrapLoreContext(bounded);
-    if (!content) return undefined;
+    if (!content) return { reached: true, message: undefined };
     return {
+      reached: true,
       message: {
         customType: "lore",
         content,
@@ -114,17 +113,21 @@ export function createInjection({
     /** Session-start capsule: standing context, once per session. Defaults to
      *  injecting anything non-empty. */
     async sessionStart(_event, ctx) {
-      return recallMessage({ query: "", ctx, lorePhase: "session_start" });
+      const { message } = await recall({ query: "", ctx, lorePhase: "session_start" });
+      return message ? { message } : undefined;
     },
 
-    /** Per-prompt recall, skipping a repeat of the same prompt. */
+    /** Per-prompt recall, skipping a repeat of the same prompt that already
+     *  reached the daemon. A failed attempt stays retryable. */
     async beforeAgentStart(event, ctx) {
       const prompt = String(event?.prompt ?? "").trim();
       if (!prompt) return undefined;
-      const key = `${sessionIdOf(ctx)}|${prompt.toLowerCase()}`;
-      if (lastPromptBySession.get(sessionIdOf(ctx)) === key) return undefined;
-      lastPromptBySession.set(sessionIdOf(ctx), key);
-      return recallMessage({ query: prompt, ctx, lorePhase: "prompt_recall" });
+      const sessionKey = sessionIdOf(ctx);
+      const key = `${sessionKey}|${prompt.toLowerCase()}`;
+      if (lastPromptBySession.get(sessionKey) === key) return undefined;
+      const { reached, message } = await recall({ query: prompt, ctx, lorePhase: "prompt_recall" });
+      if (reached) lastPromptBySession.set(sessionKey, key);
+      return message ? { message } : undefined;
     },
 
     /** Recorded for tests and diagnostics. */

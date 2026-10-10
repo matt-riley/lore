@@ -6,6 +6,7 @@
 
 import { MODEL_TOOLS } from "../js/model-tools.mjs";
 import { createHostSession, renderToolCall } from "../js/host-session.mjs";
+import { createInjection } from "../js/injection.mjs";
 
 const VERB_TO_TOOL = new Map([
   ["recall", "lore_recall"],
@@ -115,9 +116,18 @@ export function registerPiV2(pi, options = {}) {
     },
   });
 
-  pi.on?.("session_start", () => {
-    session.startSession("session");
+  // Prompt-time context injection, unless the operator opts out. The host
+  // calls these handlers per session and per prompt; both fail open.
+  const injection =
+    process.env.LORE_V2_INJECT === "0" ? null : createInjection({ session });
+
+  pi.on?.("session_start", async (event, ctx) => {
+    session.startSession(sessionIdOf(ctx));
+    return injection ? await injection.sessionStart(event, ctx) : undefined;
   });
+  pi.on?.("before_agent_start", async (event, ctx) =>
+    injection ? await injection.beforeAgentStart(event, ctx) : undefined,
+  );
   pi.on?.("session_shutdown", async () => {
     await session.shutdownAll();
   });

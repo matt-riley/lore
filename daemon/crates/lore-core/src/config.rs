@@ -715,6 +715,25 @@ pub fn resolve_socket_path(
     Ok(path)
 }
 
+/// Resolve the socket for a command that may carry a `--data-dir` override.
+/// The override selects where the socket is derived; it is never the socket
+/// itself. A socket configured in the config file still takes precedence.
+pub fn resolve_socket_path_with_data_dir(
+    config_path: Option<&Path>,
+    data_dir_override: Option<&Path>,
+) -> CoreResult<PathBuf> {
+    let Some(data_dir) = data_dir_override else {
+        return resolve_socket_path(config_path, None);
+    };
+    let (_, file, _) = read_config(config_path)?;
+    if file.as_ref().is_some_and(|file| file.socket_path.is_some()) {
+        return resolve_socket_path(config_path, None);
+    }
+    // Command-line paths are relative to the working directory.
+    let base = std::env::current_dir()?;
+    Ok(default_socket_path(&absolutize(data_dir, &base)))
+}
+
 /// Fail unless `path` is an owned private directory; create it when missing.
 pub fn ensure_private_dir(path: &Path, label: &str) -> CoreResult<()> {
     match std::fs::symlink_metadata(path) {
@@ -774,4 +793,21 @@ pub fn socket_basename(data_dir: &Path) -> String {
 
 fn default_socket_path(data_dir: &Path) -> PathBuf {
     runtime_dir().join(socket_basename(data_dir))
+}
+
+#[cfg(test)]
+mod socket_tests {
+    use super::*;
+
+    #[test]
+    fn data_dir_override_derives_the_socket_rather_than_becoming_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data = dir.path().join("data");
+        let resolved = resolve_socket_path_with_data_dir(None, Some(&data)).expect("resolves");
+        assert_ne!(
+            resolved, data,
+            "the data directory is never the socket path"
+        );
+        assert_eq!(resolved, default_socket_path(&data));
+    }
 }

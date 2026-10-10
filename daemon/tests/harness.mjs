@@ -18,7 +18,7 @@ export function loredBinary() {
   return binary;
 }
 
-export function startDaemon({ enabled = true, limits = null, embedding = null, sources = null, dir: providedDir = null } = {}) {
+export function startDaemon({ enabled = true, limits = null, embedding = null, sources = null, dir: providedDir = null, env = {} } = {}) {
   const dir = providedDir ?? mkdtempSync(path.join(tmpdir(), "lore-v2-"));
   const socket = path.join(dir, "lored.sock");
   const configPath = path.join(dir, "lore.json");
@@ -39,7 +39,14 @@ export function startDaemon({ enabled = true, limits = null, embedding = null, s
     };
   }
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  // A developer shell that exports client-side variables must not be able to
+  // redirect the daemon under test to a real installation.
+  const childEnv = { ...process.env, ...env };
+  for (const name of ["LORE_V2_SOCKET", "LORE_SOCKET", "LORE_V2_CONFIG", "LORE_V2_DATA_DIR"]) {
+    if (!(name in env)) delete childEnv[name];
+  }
   const child = spawn(loredBinary(), ["--config", configPath], {
+    env: childEnv,
     stdio: ["ignore", "ignore", "inherit"],
   });
   return {

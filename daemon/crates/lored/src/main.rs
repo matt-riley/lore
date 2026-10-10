@@ -75,7 +75,12 @@ struct Args {
     #[arg(long, env = "LORE_V2_DATA_DIR")]
     data_dir: Option<PathBuf>,
     /// Unix socket path (overrides config).
-    #[arg(long, env = "LORE_V2_SOCKET")]
+    ///
+    /// Deliberately not read from LORE_V2_SOCKET: that variable tells *clients*
+    /// where to connect, and a daemon that honoured it would let any inherited
+    /// shell environment move its endpoint (two daemons then fight over one
+    /// lock file). The config is authoritative for the daemon.
+    #[arg(long)]
     socket: Option<PathBuf>,
     /// Concurrent foreground request limit.
     #[arg(long, env = "LORE_V2_MAX_INFLIGHT", default_value_t = FOREGROUND_LIMIT)]

@@ -498,3 +498,50 @@ fn response_context_budget_omits_whole_records() {
     assert!(recalled.context.is_empty(), "no partial context row fits");
     assert_eq!(recalled.sections[0].omitted, 2);
 }
+
+/// Regression: view requests must never take a second reader while holding
+/// one. Two threads doing that on a two-connection pool deadlock each other
+/// (each holds one reader and waits for the other's), which wedged the daemon
+/// behind its blocking pool while the dashboard polled views.
+#[test]
+fn concurrent_views_do_not_deadlock_the_reader_pool() {
+    use std::sync::Arc;
+    use std::sync::mpsc;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Arc::new(Store::open(&config_with(dir.path(), Limits::default())).expect("open"));
+    let (sender, receiver) = mpsc::channel();
+    let mut handles = Vec::new();
+    for worker in 0..8 {
+        let store = Arc::clone(&store);
+        let sender = sender.clone();
+        handles.push(std::thread::spawn(move || {
+            for round in 0..25 {
+                let result = if (worker + round) % 3 == 0 {
+                    store.view_maintenance().map(|_| ())
+                } else if (worker + round) % 3 == 1 {
+                    store.view_overview(None).map(|_| ())
+                } else {
+                    store.view_filters().map(|_| ())
+                };
+                result.expect("view completes");
+            }
+            let _ = sender.send(worker);
+        }));
+    }
+    drop(sender);
+    let mut finished = 0;
+    for _ in 0..8 {
+        match receiver.recv_timeout(Duration::from_secs(20)) {
+            Ok(_) => finished += 1,
+            Err(_) => break,
+        }
+    }
+    assert_eq!(
+        finished, 8,
+        "all view workers must finish; {finished}/8 completed before the deadline (deadlock on the reader pool)"
+    );
+    for handle in handles {
+        handle.join().expect("join");
+    }
+}

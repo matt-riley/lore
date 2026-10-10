@@ -61,8 +61,9 @@ impl Drop for Daemon {
 }
 
 async fn wait_for_socket(path: &Path) {
+    // The file can exist before the listener accepts, so wait for a real connection.
     for _ in 0..500 {
-        if path.exists() {
+        if tokio::net::UnixStream::connect(path).await.is_ok() {
             return;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;

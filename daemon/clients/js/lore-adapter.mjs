@@ -40,6 +40,8 @@ function unwrap(outcome) {
     const error = new Error(detail);
     error.code = body?.error?.code ?? "INTERNAL";
     error.reason = body?.error?.reason ?? "UNKNOWN";
+    // Only the daemon sets this; transport failures leave it undefined.
+    error.retryable = body?.error?.retryable;
     throw error;
   }
   return body.result;
@@ -76,65 +78,86 @@ export function createLoreClient({ socketPath, clientId = "adapter" }) {
     return state;
   }
 
+  /**
+   * Run one store-bound request. A STORE_MISMATCH means the daemon now serves
+   * a different store (after a migration or restore), so the cached identity
+   * is dropped, renegotiated and the request retried once. The daemon rejects
+   * mismatches before any work runs, so the retry cannot repeat a write.
+   */
+  async function bound(run, { signal } = {}) {
+    const state = await negotiated({ signal });
+    try {
+      return await run(state);
+    } catch (error) {
+      if (error?.reason !== "STORE_MISMATCH") throw error;
+      cached = null;
+      return run(await negotiated({ signal }));
+    }
+  }
+
   return {
     socketPath,
     clientId,
     status,
     negotiated,
     requireCapability,
-    async recall({ query, repository, limit, includeOtherRepositories, signal } = {}) {
-      const state = await negotiated({ signal });
-      return unwrap(
-        await withSignal(
-          request(
-            socketPath,
-            "/v2/recall",
-            { query, repository, limit, includeOtherRepositories },
-            { clientId, expectedStoreId: state.storeId, signal },
-          ),
-          signal,
-        ),
-      );
-    },
-    async retain({ idempotencyKey, kind, content, scope, repository, confidence, tags, signal } = {}) {
-      const state = await negotiated({ signal });
-      return unwrap(
-        await withSignal(
-          request(
-            socketPath,
-            "/v2/retain",
-            { idempotencyKey, type: kind, content, scope, repository, confidence, tags },
-            { clientId, expectedStoreId: state.storeId, signal },
-          ),
-          signal,
-        ),
-      );
-    },
-    async call(route, params = {}, { signal } = {}) {
-      const state = await negotiated({ signal });
-      return unwrap(
-        await withSignal(
-          request(socketPath, route, params, {
-            clientId,
-            expectedStoreId: state.storeId,
+    recall({ query, repository, limit, includeOtherRepositories, signal } = {}) {
+      return bound(
+        (state) =>
+          withSignal(
+            request(
+              socketPath,
+              "/v2/recall",
+              { query, repository, limit, includeOtherRepositories },
+              { clientId, expectedStoreId: state.storeId, signal },
+            ),
             signal,
-          }),
-          signal,
-        ),
+          ).then(unwrap),
+        { signal },
       );
     },
-    async forget({ idempotencyKey, memoryId, reason, signal } = {}) {
-      const state = await negotiated({ signal });
-      return unwrap(
-        await withSignal(
-          request(
-            socketPath,
-            "/v2/forget",
-            { idempotencyKey, memoryId, reason },
-            { clientId, expectedStoreId: state.storeId, signal },
-          ),
-          signal,
-        ),
+    retain({ idempotencyKey, kind, content, scope, repository, confidence, tags, signal } = {}) {
+      return bound(
+        (state) =>
+          withSignal(
+            request(
+              socketPath,
+              "/v2/retain",
+              { idempotencyKey, type: kind, content, scope, repository, confidence, tags },
+              { clientId, expectedStoreId: state.storeId, signal },
+            ),
+            signal,
+          ).then(unwrap),
+        { signal },
+      );
+    },
+    call(route, params = {}, { signal } = {}) {
+      return bound(
+        (state) =>
+          withSignal(
+            request(socketPath, route, params, {
+              clientId,
+              expectedStoreId: state.storeId,
+              signal,
+            }),
+            signal,
+          ).then(unwrap),
+        { signal },
+      );
+    },
+    forget({ idempotencyKey, memoryId, reason, signal } = {}) {
+      return bound(
+        (state) =>
+          withSignal(
+            request(
+              socketPath,
+              "/v2/forget",
+              { idempotencyKey, memoryId, reason },
+              { clientId, expectedStoreId: state.storeId, signal },
+            ),
+            signal,
+          ).then(unwrap),
+        { signal },
       );
     },
   };

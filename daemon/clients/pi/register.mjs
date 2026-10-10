@@ -81,10 +81,13 @@ export function registerPiV2(pi, options = {}) {
       description: tool.description,
       parameters: tool.parameters,
       async execute(_toolCallId, params, hostSignal, _onUpdate, ctx) {
-        return renderToolCall(session, tool.name, params ?? {}, {
+        const text = await renderToolCall(session, tool.name, params ?? {}, {
           sessionId: sessionIdOf(ctx),
           signal: hostSignal,
         });
+        // Pi tool results are content blocks, not bare strings; a string here
+        // renders as nothing and can take the TUI down.
+        return { content: [{ type: "text", text }] };
       },
     });
   }

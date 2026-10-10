@@ -16,6 +16,14 @@ fn run(home: &Path, args: &[&str]) -> (i32, String, String) {
 
 fn run_with_config(home: &Path, config: Option<&Path>, args: &[&str]) -> (i32, String, String) {
     let mut command = Command::new(bin());
+    for name in [
+        "LORE_V2_SOCKET",
+        "LORE_SOCKET",
+        "LORE_V2_CONFIG",
+        "LORE_V2_DATA_DIR",
+    ] {
+        command.env_remove(name);
+    }
     // Isolate the home so the CLI's installation-config default cannot reach
     // a real installation on the developer's machine.
     command.arg("--home").arg(home).env("HOME", home);
@@ -265,6 +273,10 @@ fn bare_verbs_use_the_installed_config() {
     // No --config/--socket: the CLI must find the installation config itself
     // and fail on the connection, not on argument resolution.
     let output = Command::new(bin())
+        .env_remove("LORE_V2_SOCKET")
+        .env_remove("LORE_SOCKET")
+        .env_remove("LORE_V2_CONFIG")
+        .env_remove("LORE_V2_DATA_DIR")
         .env("HOME", home.path())
         .args(["status", "--json"])
         .stdin(Stdio::null())

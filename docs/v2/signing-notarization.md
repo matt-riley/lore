@@ -16,7 +16,7 @@ anyone.
 | --- | --- | --- |
 | `lore-<version>-<target>.tar.gz` | portable install, checksums + manifest | n/a |
 | `lore-<version>-<target>.zip` | notarization submission for macOS | no — ticket is online |
-| `checksums.txt` | aggregate SHA-256 list | n/a |
+| `checksums-<os>.txt` | per-platform SHA-256 list (one per release leg) | n/a |
 | `SIGNATURE.json` (inside the archive) | identity and signing time | n/a |
 
 `.zip` cannot be stapled. Gatekeeper validates the ticket online on first run,
@@ -120,7 +120,7 @@ multi-line files; the workflow decodes it to a `0600` file on the runner.
 4. Verifies the archive (`package.mjs --verify`) and re-extracts the tarball
    to confirm the shipped binaries carry a valid signature and the hardened
    runtime flag.
-5. Attaches `.tar.gz`, `.zip`, `.sha256` and `checksums.txt` to the release.
+5. Attaches `.tar.gz`, `.zip`, `.sha256` and a `checksums-<os>.txt` per platform to the release.
 
 If a signature is requested and cannot be produced, the run fails — the
 workflow never falls back to an unsigned artifact silently.

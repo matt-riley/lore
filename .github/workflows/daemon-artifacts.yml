@@ -28,7 +28,6 @@ jobs:
       LORE_NOTARY_KEY_ID: ${{ secrets.LORE_NOTARY_KEY_ID }}
       LORE_NOTARY_ISSUER: ${{ secrets.LORE_NOTARY_ISSUER }}
       LORE_NOTARY_KEY: ${{ runner.temp }}/lore-notary-key.p8
-      LORE_NOTARY_KEY_BASE64: ${{ secrets.LORE_NOTARY_KEY }}
 
     steps:
       - name: Checkout
@@ -74,10 +73,18 @@ jobs:
           # Prove the identity is usable before any build work is signed.
           security find-identity -v -p codesigning lore-signing.keychain-db
 
+      # The API key is scoped to this step alone, so no build or dependency
+      # step can read it. Later steps only see the file it writes.
       - name: Write the notary API key
-        if: runner.os == 'macOS' && env.LORE_NOTARY_KEY_BASE64 != ''
+        if: runner.os == 'macOS' && env.LORE_CODESIGN_IDENTITY != ''
+        env:
+          LORE_NOTARY_KEY_BASE64: ${{ secrets.LORE_NOTARY_KEY }}
         run: |
-          set -euo pipefail
+          set -eo pipefail
+          if [ -z "${LORE_NOTARY_KEY_BASE64:-}" ]; then
+            echo "Notary API key secret is absent; the package step will skip notarization" >&2
+            exit 0
+          fi
           printf '%s' "$LORE_NOTARY_KEY_BASE64" | base64 --decode > "$LORE_NOTARY_KEY"
           chmod 600 "$LORE_NOTARY_KEY"
 
@@ -121,9 +128,20 @@ jobs:
       - name: Attach artifacts to the release
         if: github.event_name == 'release'
         working-directory: .
-        run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            daemon/dist/*.tar.gz daemon/dist/*.zip daemon/dist/*.sha256 \
-            daemon/dist/checksums.txt --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eo pipefail
+          shopt -s nullglob
+          # Each platform leg has its own manifest; a shared name would let one
+          # leg overwrite the other's checksums on the release.
+          manifest="daemon/dist/checksums-${{ matrix.os }}.txt"
+          cp daemon/dist/checksums.txt "$manifest"
+          # Only notarized builds produce a ZIP, so unmatched patterns drop out
+          # of the list instead of being passed to gh as literal paths.
+          assets=(daemon/dist/*.tar.gz daemon/dist/*.zip daemon/dist/*.sha256 "$manifest")
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "no release assets were produced" >&2
+            exit 1
+          fi
+          gh release upload "${{ github.event.release.tag_name }}" "${assets[@]}" --clobber

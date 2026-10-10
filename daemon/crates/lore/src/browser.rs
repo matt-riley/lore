@@ -135,10 +135,40 @@ async fn handle(request: Request<Incoming>, state: Arc<GatewayState>) -> Respons
         .and_then(|value| value.to_str().ok())
         .is_some_and(host_allowed);
     if !host_ok {
+        eprintln!(
+            "[lore browser] rejected host: {:?}",
+            request
+                .headers()
+                .get(hyper::header::HOST)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("<missing>")
+        );
         return message(StatusCode::FORBIDDEN, "host not allowed");
     }
-    if request.headers().contains_key(hyper::header::ORIGIN) {
-        return message(StatusCode::FORBIDDEN, "cross-origin request rejected");
+    // Cross-origin requests are refused, but same-origin ones carry an
+    // Origin header too: compare its authority with the Host we were asked
+    // for instead of rejecting the header outright.
+    if let Some(origin) = request
+        .headers()
+        .get(hyper::header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    {
+        let origin_authority = origin
+            .split_once("://")
+            .map(|(_, rest)| rest.trim_end_matches('/'))
+            .unwrap_or(origin);
+        let host = request
+            .headers()
+            .get(hyper::header::HOST)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        if !origin_authority.eq_ignore_ascii_case(host) {
+            eprintln!(
+                "[lore browser] rejected cross-origin request: host={host:?} origin={origin:?} path={:?}",
+                request.uri().path()
+            );
+            return message(StatusCode::FORBIDDEN, "cross-origin request rejected");
+        }
     }
     let path = request.uri().path().to_string();
     let query = request.uri().query().map(str::to_string);
@@ -161,6 +191,11 @@ async fn handle(request: Request<Incoming>, state: Arc<GatewayState>) -> Respons
         _ if path.starts_with("/api/") => {
             api(&path["/api/".len()..], query.as_deref(), &state).await
         }
+        // Browsers always ask; answering "no favicon" keeps the console clean.
+        "/favicon.ico" => secure(Response::builder())
+            .status(StatusCode::NO_CONTENT)
+            .body(Full::new(Bytes::new()))
+            .unwrap_or_else(|_| message(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
         _ => message(StatusCode::NOT_FOUND, "not found"),
     };
     if method == Method::HEAD {

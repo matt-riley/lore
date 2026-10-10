@@ -316,3 +316,61 @@ test("journal file is created with restrictive permissions on first write", asyn
   assert.ok(mode);
   rmSync(dir, { recursive: true, force: true });
 });
+
+test("pi injects session and prompt context from the daemon and fails open", async (t) => {
+  const { options } = await withDaemon(t);
+  const pi = fakePi();
+  registerPiV2(pi, options);
+
+  // A directive is always part of the mandatory context, so the capsule has
+  // something to inject even in a fresh store.
+  const retained = await pi.tools.get("lore_retain").execute(null, {
+    content: "Always run the schema check before copying rows.",
+    kind: "directive",
+    scope: "global",
+  });
+  assert.match(retained, /Saved memory/);
+  await pi.tools.get("lore_retain").execute(null, {
+    content: "Prefer small pure functions over clever abstractions.",
+    kind: "note",
+    scope: "global",
+  });
+
+  // Session start returns a non-displayed context capsule.
+  const capsule = await pi.hooks.get("session_start")({}, { sessionId: "s1", cwd: process.cwd() });
+  assert.ok(capsule?.message?.content, "session_start injects context");
+  assert.equal(capsule.message.display, false);
+  assert.equal(capsule.message.lorePhase, "session_start");
+  assert.match(capsule.message.content, /<lore_context>/);
+  assert.match(capsule.message.content, /Session context injected by Lore/);
+
+  // A prompt recalls memory and wraps it once.
+  const prompt = await pi.hooks.get("before_agent_start")(
+    { prompt: "pure functions" },
+    { sessionId: "s1", cwd: process.cwd() },
+  );
+  assert.match(prompt?.message?.content ?? "", /pure functions/i);
+
+  // The same prompt is not injected twice for one session.
+  const repeat = await pi.hooks.get("before_agent_start")(
+    { prompt: "pure functions" },
+    { sessionId: "s1", cwd: process.cwd() },
+  );
+  assert.equal(repeat, undefined, "identical prompts are not re-injected");
+
+  // A different prompt does inject again.
+  const other = await pi.hooks.get("before_agent_start")(
+    { prompt: "abstractions" },
+    { sessionId: "s1", cwd: process.cwd() },
+  );
+  assert.ok(other?.message?.content, "a new prompt injects again");
+
+  // A dead daemon must never break the host.
+  const dead = fakePi();
+  registerPiV2(dead, { socketPath: path.join(tmpdir(), "lore-missing", "lored.sock") });
+  const offline = await dead.hooks.get("before_agent_start")(
+    { prompt: "anything" },
+    { sessionId: "s2", cwd: process.cwd() },
+  );
+  assert.equal(offline, undefined, "injection fails open when the daemon is gone");
+});

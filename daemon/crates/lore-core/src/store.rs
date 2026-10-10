@@ -1765,7 +1765,44 @@ fn canonical_tags(tags: &[String]) -> Vec<String> {
     tags
 }
 
+/// Keep the store and its SQLite sidecars readable by the owner only. The
+/// process umask must not decide who can read stored memories and transcripts.
+#[cfg(unix)]
+fn ensure_private_store_files(path: &Path) -> CoreResult<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    // Creating the database private first matters: SQLite gives its journal
+    // and WAL/SHM sidecars the database file's mode when it creates them.
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+    {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    // A store created before this rule may be looser; tighten it rather than trust it.
+    for suffix in ["", "-wal", "-shm", "-journal"] {
+        let mut candidate = path.as_os_str().to_owned();
+        candidate.push(suffix);
+        match std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o600)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn ensure_private_store_files(_path: &Path) -> CoreResult<()> {
+    Ok(())
+}
+
 fn open_connection(path: &Path) -> CoreResult<Connection> {
+    ensure_private_store_files(path)?;
     let connection = Connection::open(path)?;
     connection.pragma_update(None, "journal_mode", "WAL")?;
     connection.pragma_update(None, "synchronous", 2)?;
@@ -1797,12 +1834,16 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
                 "database contains tables but no v2 metadata",
             ));
         }
-        connection.execute_batch(SCHEMA_V1_SQL)?;
-        connection.execute(
+        // Schema creation and its metadata row commit together, so a crash
+        // can never leave tables without the version row that guards them.
+        let transaction = connection.unchecked_transaction()?;
+        transaction.execute_batch(SCHEMA_V1_SQL)?;
+        transaction.execute(
             "INSERT INTO store_metadata (id, store_id, schema_version, memory_revision, \
              derived_generation, active_memories, forgotten_memories) VALUES (1, ?1, 1, 0, 0, 0, 0)",
             params![Uuid::new_v4().to_string()],
         )?;
+        transaction.commit()?;
     }
     let version: Option<i64> = connection
         .query_row(
@@ -1816,16 +1857,20 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
     // schema, so a fresh store and an upgraded store converge on the same
     // tables in one open.
     while version < STORE_SCHEMA_VERSION {
+        // Each step and its version bump share one transaction: an interrupted
+        // or failed step rolls back to the old version instead of leaving
+        // non-idempotent DDL applied with the version still behind it.
+        let transaction = connection.unchecked_transaction()?;
         match version {
-            1 => connection.execute_batch(MIGRATION_2_SQL)?,
-            2 => connection.execute_batch(MIGRATION_3_SQL)?,
-            3 => connection.execute_batch(MIGRATION_4_SQL)?,
-            4 => connection.execute_batch(MIGRATION_5_SQL)?,
-            5 => connection.execute_batch(MIGRATION_6_SQL)?,
-            6 => connection.execute_batch(MIGRATION_7_SQL)?,
-            7 => connection.execute_batch(MIGRATION_8_SQL)?,
-            8 => connection.execute_batch(MIGRATION_9_SQL)?,
-            9 => connection.execute_batch(MIGRATION_10_SQL)?,
+            1 => transaction.execute_batch(MIGRATION_2_SQL)?,
+            2 => transaction.execute_batch(MIGRATION_3_SQL)?,
+            3 => transaction.execute_batch(MIGRATION_4_SQL)?,
+            4 => transaction.execute_batch(MIGRATION_5_SQL)?,
+            5 => transaction.execute_batch(MIGRATION_6_SQL)?,
+            6 => transaction.execute_batch(MIGRATION_7_SQL)?,
+            7 => transaction.execute_batch(MIGRATION_8_SQL)?,
+            8 => transaction.execute_batch(MIGRATION_9_SQL)?,
+            9 => transaction.execute_batch(MIGRATION_10_SQL)?,
             other => {
                 return Err(CoreError::internal(
                     "SCHEMA_UNSUPPORTED",
@@ -1834,10 +1879,11 @@ fn migrate(connection: &Connection) -> CoreResult<()> {
             }
         }
         version += 1;
-        connection.execute(
+        transaction.execute(
             "UPDATE store_metadata SET schema_version = ?1 WHERE id = 1",
             params![version],
         )?;
+        transaction.commit()?;
     }
     if version != STORE_SCHEMA_VERSION {
         return Err(CoreError::internal(

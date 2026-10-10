@@ -22,7 +22,7 @@ docs agree, and no unresolved safety or correctness regression remains.
 | 7 | Cutover from v1 is rehearsed | **Met (fixtures)** | `migration_proof.rs` cutover drill: round trips and suppression on the migrated store, v1 source byte-identical |
 | 8 | Cutover on a real v1 store | **Open — pilot** | Needs one real store imported and verified per [migration-guide.md](../migration-guide.md) |
 | 9 | Recovery: backup/restore and suppression survive | **Met** | Migration and governance suites; restore preserves later deletions and receipts |
-| 10 | All five clients pass the documented soak | **Open — calendar** | Harness in CI (bounded soak on Ubuntu and macOS); ≥10 distinct successful days per client has not elapsed |
+| 10 | All five clients pass the documented soak | **In progress — live** | The operator is running v2 as their daily memory system on a real machine from 2026-10-10: Pi tools and prompt-time injection, capture from Pi/Codex/Claude roots, the dashboard, service restarts, and a migrated v1 store (~300 memories). CI also runs the bounded soak. Remaining: the calendar window (≥10 distinct successful days per client) |
 | 11 | Real-host certification (Pi, Copilot, Codex, Claude, Antigravity) | **Open — real sessions** | Adapters proven against synthetic hosts and a real daemon; no real client session has exercised capture, recall and restart |
 | 12 | Client adapters fail open | **Met** | Neutral hook output when the daemon is stopped or unhealthy; no automatic write fallback |
 | 13 | Mode selection is explicit and defaults to v1 | **Met** | `mode status` reports `v1 (configured: false)`; `--apply` required to change; installer tests cover the default |
@@ -40,6 +40,15 @@ docs agree, and no unresolved safety or correctness regression remains.
 | Concurrent sweeps minted duplicate generations | duplicate digests and work | one process-wide sweep lock |
 | Soak markers were single-character tokens | harness could not recall its own row | padded FTS tokens |
 | Service unit ignored `--config` | unit pointed at the wrong config file | `service install` honours the passed config |
+
+## Live findings from the real-host soak
+
+| Symptom | Cause | Resolution |
+| --- | --- | --- |
+| Tool output vanished and took the TUI down | adapter returned a bare string where Pi requires content blocks | tools return `{ content: [{ type: "text", text }] }`; the test asserts the shape |
+| A spawned daemon fought the installed service for one socket | `lored` read `LORE_V2_SOCKET`, a client-side variable, for its own endpoint | the daemon endpoint is config-only; a test proves the variable cannot move it |
+| The same memory appeared twice in one prompt | identical copies in the store (v1 history, re-extraction) plus a required item that also matched the query | recall collapses repeated ids and bodies and excludes bodies already in the required sections |
+| 29 rows shared a content hash | duplicates span scopes and repositories; only 2 were genuine within-scope copies | hygiene retires within-scope copies (oldest kept, marker + exact rollback); cross-scope copies are deliberately kept |
 
 ## To sign
 

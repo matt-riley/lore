@@ -335,6 +335,18 @@ enum MigrateCommand {
         #[arg(long)]
         run: String,
     },
+    /// Import the repo-scoped v1 rows the main migration quarantined, as
+    /// global scope. Explicit choice: nothing is imported implicitly.
+    Unscoped {
+        #[arg(long)]
+        source: PathBuf,
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
     /// Resume a staged import from its immutable snapshot.
     Resume {
         #[arg(long)]
@@ -504,7 +516,59 @@ async fn run(cli: Cli) -> Result<(), String> {
             return Ok(());
         }
         Command::Migrate { action } => {
+            if let MigrateCommand::Unscoped {
+                source,
+                dry_run,
+                apply,
+                output,
+            } = &action
+            {
+                let socket = cli
+                    .socket
+                    .clone()
+                    .or_else(|| {
+                        resolve_socket(cli.config.as_deref(), None, cli.data_dir.as_deref())
+                    })
+                    .ok_or_else(|| "provide --config or --socket".to_string())?;
+                let expected = resolve_store_id(&socket).await?;
+                let mut meta = audit_meta();
+                meta.expected_store_id = Some(expected);
+                let outcome = lore::request(
+                    &socket,
+                    "/v2/admin/migration-unscoped",
+                    meta,
+                    serde_json::json!({
+                        "source": source.display().to_string(),
+                        "action": if *apply && !*dry_run { "apply" } else { "preview" },
+                    }),
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+                if !outcome.is_success() {
+                    return Err(outcome.body);
+                }
+                let body: Value = serde_json::from_str(&outcome.body).unwrap_or_default();
+                if output == "json" {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&body["result"]).unwrap_or_default()
+                    );
+                } else {
+                    let r = &body["result"];
+                    println!(
+                        "unscoped import: found {} | imported {} | already present {} | suppressed {} | evidence {}",
+                        r["found"],
+                        r["imported"],
+                        r["alreadyPresent"],
+                        r["suppressed"],
+                        r["evidenceLinked"]
+                    );
+                }
+                return Ok(());
+            }
             match action {
+                // Handled above, before the other migrate verbs.
+                MigrateCommand::Unscoped { .. } => unreachable!("handled above"),
                 MigrateCommand::V1 {
                     source,
                     destination,

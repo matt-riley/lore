@@ -615,3 +615,90 @@ fn cutover_drill_serves_round_trips_on_the_migrated_store() {
         "the v1 source is never mutated"
     );
 }
+
+/// The quarantined-set follow-up: repo-scoped rows with no repository import
+/// as global only when asked, keep their suppression state, and re-running
+/// changes nothing.
+#[test]
+fn unscoped_repo_rows_import_as_global_on_request() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let source = build_v1(dir.path(), V20);
+    let destination = dir.path().join("v2");
+    std::fs::create_dir_all(&destination).expect("destination");
+    let config = config(&destination);
+    let store = Store::open(&config).expect("open");
+
+    // Add a transferable row with no repository: the schema cannot represent
+    // that scope without one, so the explicit import lands it as global too.
+    {
+        let connection = rusqlite::Connection::open(&source).expect("open source");
+        connection
+            .execute_batch(
+                "INSERT INTO semantic_memory (id, type, content, confidence, scope, repository, tags, created_at, updated_at, metadata_json) \
+                 VALUES ('mem-transferable', 'directive', 'Applies to every project.', 1.0, 'transferable', NULL, '', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '{}');",
+            )
+            .expect("transferable row");
+    }
+
+    // The fixture has one repo-scoped row with no repository.
+    let preview = store
+        .import_unscoped_as_global(&source, false, 2_000)
+        .expect("preview");
+    assert_eq!(preview["found"], 2, "{preview}");
+    assert_eq!(preview["apply"], false);
+    assert_eq!(
+        store
+            .view_memories(None, None, None, None, false, None, 10)
+            .expect("view")["items"]
+            .as_array()
+            .map(Vec::len),
+        Some(0),
+        "a preview must not write anything"
+    );
+
+    let applied = store
+        .import_unscoped_as_global(&source, true, 2_000)
+        .expect("apply");
+    assert_eq!(applied["imported"], 2, "{applied}");
+    assert_eq!(applied["scope"], "global");
+    let transferable_scope: String = rusqlite::Connection::open(&config.store_path)
+        .expect("open store")
+        .query_row(
+            "SELECT scope FROM memories WHERE kind = 'directive' AND content = 'Applies to every project.'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("transferable row");
+    assert_eq!(
+        transferable_scope, "global",
+        "a transferable row with no repository has no representable scope, so it lands as global"
+    );
+
+    // The row is now present as global scope with its content searchable.
+    let connection = rusqlite::Connection::open(&config.store_path).expect("open store");
+    let (scope, repository, forgotten): (String, Option<String>, i64) = connection
+        .query_row(
+            "SELECT scope, repository, forgotten FROM memories WHERE content LIKE 'No repository identity%'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("imported row");
+    assert_eq!(scope, "global");
+    assert_eq!(repository, None);
+    assert_eq!(forgotten, 0);
+    let fts: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM memory_fts WHERE content LIKE 'No repository identity%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("fts");
+    assert_eq!(fts, 1, "imported rows are searchable");
+
+    // Idempotent: a second apply imports nothing new.
+    let again = store
+        .import_unscoped_as_global(&source, true, 3_000)
+        .expect("second apply");
+    assert_eq!(again["imported"], 0, "{again}");
+    assert_eq!(again["alreadyPresent"], 2, "{again}");
+}

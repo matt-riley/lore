@@ -122,8 +122,15 @@ impl Store {
         )?;
 
         for candidate in &candidates {
-            let records =
-                self.source_records(&candidate.source_id, &candidate.generation, MAX_RECORDS)?;
+            // Read through the open transaction: taking a reader here would
+            // invert the lock order (writer held, reader wanted) and can wedge
+            // the daemon behind a busy reader.
+            let records = crate::store::source::read_source_records(
+                &transaction,
+                &candidate.source_id,
+                &candidate.generation,
+                MAX_RECORDS,
+            )?;
             if records.is_empty() {
                 continue;
             }

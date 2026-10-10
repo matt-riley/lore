@@ -348,7 +348,25 @@ pub fn start(home: &Path, apply: bool) -> Result<Value, String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
+    // Bootstrapping is asynchronous and can race a just-issued bootout, so a
+    // zero exit status is not proof the daemon came up. Insist on the job
+    // being loaded under this home's unit before reporting success.
+    let mut loaded = false;
+    for _ in 0..50 {
+        if probe_running(platform, Some(&unit)) {
+            loaded = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    if !loaded {
+        return Err(format!(
+            "{} did not load; inspect it with `{program} print gui/$(id -u)/{LABEL}`",
+            unit.display()
+        ));
+    }
     plan["applied"] = json!(true);
+    plan["running"] = json!(true);
     Ok(plan)
 }
 
@@ -378,7 +396,18 @@ pub fn stop(home: &Path, apply: bool) -> Result<Value, String> {
         ));
     }
     plan["applied"] = json!(true);
-    let _ = home;
+    // A following start must not race the bootout: wait for the job to be
+    // gone (bounded) so restart sequences are reliable.
+    let unit = unit_path(home, platform);
+    let mut still_running = true;
+    for _ in 0..50 {
+        if !probe_running(platform, unit.as_deref()) {
+            still_running = false;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    plan["stopped"] = json!(!still_running);
     Ok(plan)
 }
 

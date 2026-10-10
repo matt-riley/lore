@@ -60,17 +60,39 @@ pub fn prompt_from(payload: &Value) -> Option<String> {
     None
 }
 
+/// Repository identity for a hook payload.
+///
+/// A host-provided identity always wins. Otherwise the working directory the
+/// host reports is resolved through the same canonicalisation the daemon uses
+/// for capture (`git remote get-url origin`, then a stable local identity), so
+/// prompt-time recall is scoped to the same repository the sessions were
+/// captured under instead of falling back to global context only.
 pub fn repository_from(payload: &Value) -> Option<String> {
-    payload
+    let explicit = payload
         .get("repository")
         .and_then(Value::as_str)
-        .map(str::to_string)
         .or_else(|| {
             payload
                 .pointer("/workspace/repository")
                 .and_then(Value::as_str)
-                .map(str::to_string)
         })
+        .map(str::to_string);
+    let cwd = payload
+        .get("cwd")
+        .and_then(Value::as_str)
+        .or_else(|| payload.pointer("/workspace/cwd").and_then(Value::as_str))
+        .or_else(|| payload.pointer("/workspacePaths/0").and_then(Value::as_str))
+        .or_else(|| {
+            payload
+                .pointer("/workspace/paths/0")
+                .and_then(Value::as_str)
+        });
+    repository_identity::resolve_repository_identity(repository_identity::ResolveInput {
+        cwd: cwd.map(Path::new),
+        explicit: explicit.as_deref(),
+        legacy: None,
+        mappings: &[],
+    })
 }
 
 /// Neutral response when no context can be produced.

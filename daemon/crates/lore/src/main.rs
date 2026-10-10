@@ -348,7 +348,20 @@ enum MigrateCommand {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    // Bare verbs work against the conventional installation: when no path is
+    // supplied and the installer's config exists, use it instead of demanding
+    // --config or --socket.
+    if cli.config.is_none()
+        && cli.socket.is_none()
+        && cli.data_dir.is_none()
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        let candidate = PathBuf::from(home).join(".lore/lore.json");
+        if candidate.is_file() {
+            cli.config = Some(candidate);
+        }
+    }
     match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {

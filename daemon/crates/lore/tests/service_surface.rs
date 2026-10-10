@@ -16,7 +16,9 @@ fn run(home: &Path, args: &[&str]) -> (i32, String, String) {
 
 fn run_with_config(home: &Path, config: Option<&Path>, args: &[&str]) -> (i32, String, String) {
     let mut command = Command::new(bin());
-    command.arg("--home").arg(home);
+    // Isolate the home so the CLI's installation-config default cannot reach
+    // a real installation on the developer's machine.
+    command.arg("--home").arg(home).env("HOME", home);
     if let Some(config) = config {
         command.arg("--config").arg(config);
     }
@@ -243,6 +245,39 @@ fn service_install_honors_an_explicit_config_path() {
             .expect("config path")
             .ends_with(".lore/lore.json"),
         "{plan}"
+    );
+}
+
+#[test]
+fn bare_verbs_use_the_installed_config() {
+    let home = tempfile::tempdir().expect("home");
+    let lore_dir = home.path().join(".lore");
+    std::fs::create_dir_all(&lore_dir).expect("lore dir");
+    std::fs::write(
+        lore_dir.join("lore.json"),
+        format!(
+            r#"{{"configVersion":2,"enabled":true,"dataDir":"{}","socketPath":"{}/lored.sock"}}"#,
+            lore_dir.display(),
+            lore_dir.display()
+        ),
+    )
+    .expect("config");
+    // No --config/--socket: the CLI must find the installation config itself
+    // and fail on the connection, not on argument resolution.
+    let output = Command::new(bin())
+        .env("HOME", home.path())
+        .args(["status", "--json"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run lore");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("provide --config or --socket"),
+        "bare verbs must resolve the installed config: {stderr}"
+    );
+    assert!(
+        stderr.contains("connect") || stderr.contains("No such file") || stderr.is_empty(),
+        "expected a transport error, got: {stderr}"
     );
 }
 

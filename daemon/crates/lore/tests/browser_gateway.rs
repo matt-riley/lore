@@ -308,6 +308,31 @@ fn gateway_negotiates_the_store_identity_before_reading_views() {
 }
 
 #[test]
+fn same_origin_origin_headers_are_allowed_and_favicon_is_quiet() {
+    let daemon = FakeDaemon::start();
+    let gateway = wait_for_gateway(&daemon.socket);
+    let host = format!("127.0.0.1:{}", gateway.port);
+
+    // A browser may attach Origin to a same-origin subresource request.
+    let (status, _, body) = gateway.request(&format!(
+        "GET /app.js HTTP/1.1\r\nHost: {host}\r\nOrigin: http://{host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 200, "same-origin must not be refused: {body}");
+
+    // A genuinely cross-origin request is still refused.
+    let (status, _, _) = gateway.request(&format!(
+        "GET /app.js HTTP/1.1\r\nHost: {host}\r\nOrigin: http://evil.example\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 403);
+
+    // Favicon requests answer cleanly instead of 404.
+    let (status, _, _) = gateway.request(&format!(
+        "GET /favicon.ico HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 204);
+}
+
+#[test]
 fn gateway_refreshes_the_identity_once_when_the_daemon_changed() {
     // The first view request answers STORE_ID_MISMATCH; the gateway must
     // re-probe Status and retry exactly once, then reuse the identity.

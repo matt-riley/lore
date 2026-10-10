@@ -6,7 +6,7 @@
 // (LORE_V2_SOCKET or LORE_SOCKET) so the adapter never reads the v1 store or
 // config format.
 
-import { resolveSocketPath as resolveEndpoint } from "../js/endpoint.mjs";
+import { resolveJournalPath as resolveJournal, resolveSocketPath as resolveEndpoint } from "../js/endpoint.mjs";
 import { registerPiV2 } from "./register.mjs";
 
 interface PiApi {
@@ -22,7 +22,7 @@ export function resolveSocketPath(env: Record<string, string | undefined> = proc
 export function resolveJournalPath(
   env: Record<string, string | undefined> = process.env,
 ): string | undefined {
-  return env.LORE_V2_JOURNAL;
+  return resolveJournal(env) ?? undefined;
 }
 
 export default function lorePiV2(pi: PiApi, options: { socketPath?: string } = {}): void {

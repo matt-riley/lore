@@ -247,6 +247,9 @@ impl Store {
 
     /// Maintenance summary: queues and background work.
     pub fn view_maintenance(&self) -> CoreResult<Value> {
+        // Hold the reader only for the counts. `maintenance_report` locks its
+        // own reader, and taking a second reader while holding one deadlocks
+        // the two-connection pool when two requests do it at once.
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
         let jobs: Vec<Value> = {
@@ -275,6 +278,8 @@ impl Store {
             })?;
             rows.collect::<Result<_, _>>()?
         };
+        // Release the reader before the report re-locks a reader.
+        drop(connection);
         let report = crate::store::maintenance_report(
             self,
             &[crate::store::DEFAULT_MAINTENANCE_SCOPE.to_string()],

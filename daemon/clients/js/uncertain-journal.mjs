@@ -6,7 +6,7 @@
 // its payload dropped. Connection failures leave the payload for an explicit
 // retry with the identical key.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -16,6 +16,18 @@ function journalError(reason, message) {
   const error = new Error(message);
   error.reason = reason;
   return error;
+}
+
+function syncDirectory(directory) {
+  const handle = openSync(directory, "r");
+  try {
+    fsyncSync(handle);
+  } catch (error) {
+    // Some filesystems refuse directory fsync; the file itself is already durable.
+    if (error.code !== "EINVAL") throw error;
+  } finally {
+    closeSync(handle);
+  }
 }
 
 export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY } = {}) {
@@ -38,11 +50,21 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY } = {
     }
   }
 
+  // The entry must be on disk before the mutation is dispatched, so the
+  // payload is fsynced, renamed into place and the rename itself is fsynced.
   function persist(state) {
-    mkdirSync(dirname(path), { recursive: true });
+    const directory = dirname(path);
+    mkdirSync(directory, { recursive: true });
     const temp = `${path}.tmp-${randomUUID()}`;
-    writeFileSync(temp, `${JSON.stringify(state)}\n`, { mode: 0o600 });
+    const handle = openSync(temp, "w", 0o600);
+    try {
+      writeSync(handle, `${JSON.stringify(state)}\n`);
+      fsyncSync(handle);
+    } finally {
+      closeSync(handle);
+    }
     renameSync(temp, path);
+    syncDirectory(directory);
   }
 
   return {
@@ -50,9 +72,18 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY } = {
     capacity,
     record(entry) {
       const state = load();
+      const existing = state.entries[entry.key];
+      // Overwriting an unresolved payload would lose the only record of a write
+      // that may have committed, so the new write is refused instead.
+      if (existing && !existing.resolved) {
+        throw journalError("JOURNAL_KEY_PENDING", "an unresolved uncertain write already uses this idempotency key");
+      }
       const unresolved = Object.values(state.entries).filter((item) => !item.resolved).length;
-      if (!state.entries[entry.key] && unresolved >= capacity) {
-        throw journalError("JOURNAL_FULL", "uncertain-write journal is full");
+      if (!existing && unresolved >= capacity) {
+        throw journalError(
+          "JOURNAL_FULL",
+          "uncertain-write journal is full; review /lore retries and discard writes you will not retry",
+        );
       }
       state.entries[entry.key] = {
         key: entry.key,
@@ -73,6 +104,22 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY } = {
       entry.resolved = true;
       entry.params = null;
       entry.resolvedAt = Date.now();
+      persist(state);
+      return true;
+    },
+    /**
+     * Resolve an entry without a commit: the daemon rejected the write
+     * outright, or an operator decided not to retry it. Returns false when
+     * there is no unresolved entry under this key.
+     */
+    discard(key) {
+      const state = load();
+      const entry = state.entries[key];
+      if (!entry || entry.resolved) return false;
+      entry.resolved = true;
+      entry.params = null;
+      entry.resolvedAt = Date.now();
+      entry.outcome = "discarded";
       persist(state);
       return true;
     },

@@ -159,14 +159,24 @@ fn unknown_operations_fail_before_dispatch() {
 
 #[test]
 fn prompt_hooks_return_context_from_recall() {
+    // Recall pins the store it reads, so the hook negotiates status first and
+    // then recalls against that identity; without the negotiation the daemon
+    // refuses the recall with STORE_ID_REQUIRED and the host gets nothing.
+    let status = serde_json::json!({
+        "ok": true,
+        "requestId": "s",
+        "storeId": "store-abc",
+        "result": { "readiness": "ready" }
+    })
+    .to_string();
     let body = serde_json::json!({
         "ok": true,
         "requestId": "r",
-        "storeId": "s",
+        "storeId": "store-abc",
         "result": { "context": "- Prefer UTC timestamps." }
     })
     .to_string();
-    let (socket, _dir, handle) = fake_daemon(vec![body]);
+    let (socket, _dir, handle) = fake_daemon(vec![status, body]);
     let (code, stdout, stderr) = run_cli(
         &[
             "--socket",
@@ -185,6 +195,32 @@ fn prompt_hooks_return_context_from_recall() {
         value["context"], "- Prefer UTC timestamps.",
         "stdout: {stdout} stderr: {stderr}"
     );
+}
+
+#[test]
+fn prompt_hooks_stay_neutral_when_status_cannot_be_read() {
+    // A daemon that answers status with a refusal must not produce context:
+    // the hook has no store identity to pin, so it degrades neutrally.
+    let refusal = serde_json::json!({
+        "ok": false,
+        "requestId": "s",
+        "error": { "code": "INTERNAL", "reason": "IO_FAILURE", "retryable": true, "message": "no" }
+    })
+    .to_string();
+    let (socket, _dir, handle) = fake_daemon(vec![refusal]);
+    let (code, stdout, _stderr) = run_cli(
+        &[
+            "--socket",
+            socket.to_str().expect("utf8"),
+            "hook",
+            "codex",
+            "UserPromptSubmit",
+        ],
+        Some(r#"{"prompt":"what timestamps do we prefer?"}"#),
+    );
+    handle.join().expect("fake daemon");
+    assert_eq!(code, 0, "hooks never fail the host: {stdout}");
+    assert_eq!(stdout.trim(), "{}", "no identity means no context");
 }
 
 #[test]

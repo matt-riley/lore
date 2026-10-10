@@ -114,6 +114,36 @@ pub async fn run(
         timeout_ms: Some(HOOK_BUDGET_MS),
         required_capabilities: Vec::new(),
     };
+    // Recall pins the store it reads, so the hook must negotiate the identity
+    // first: without it every prompt-time recall is refused with
+    // STORE_ID_REQUIRED and the host silently gets no context.
+    let status_meta = RequestMeta {
+        request_id: format!("hook-status-{}-{}", std::process::id(), nanos()),
+        ..meta.clone()
+    };
+    let store_id = match lore::request(socket, "/v2/status", status_meta, json!({})).await {
+        Ok(outcome) if outcome.is_success() => serde_json::from_str::<Value>(&outcome.body)
+            .ok()
+            .and_then(|body| {
+                body.pointer("/storeId")
+                    .or_else(|| body.pointer("/result/storeId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            }),
+        Ok(_) => None,
+        Err(_) => None,
+    };
+    let Some(store_id) = store_id else {
+        return (
+            neutral_response(client, event),
+            Some("lore hook: daemon status unavailable".to_string()),
+        );
+    };
+    let meta = RequestMeta {
+        expected_store_id: Some(store_id),
+        ..meta
+    };
+
     let params = json!({
         "query": prompt.chars().take(16 * 1024).collect::<String>(),
         "repository": repository,

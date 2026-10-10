@@ -50,6 +50,15 @@ docs agree, and no unresolved safety or correctness regression remains.
 | The same memory appeared twice in one prompt | identical copies in the store (v1 history, re-extraction) plus a required item that also matched the query | recall collapses repeated ids and bodies and excludes bodies already in the required sections |
 | 29 rows shared a content hash | duplicates span scopes and repositories; only 2 were genuine within-scope copies | hygiene retires within-scope copies (oldest kept, marker + exact rollback); cross-scope copies are deliberately kept |
 
+## Known gaps to close later
+
+Recorded here so they are not rediscovered as surprises:
+
+| Gap | What exists | What is missing |
+| --- | --- | --- |
+| Antigravity has no in-session tools | Capture works (its `brain/` transcripts are a configured source) and prompt-time injection works through its own `hooks.json`, which now calls the v2 CLI. The hook path also resolves the repository from the payload's workspace, so its recall is repo-scoped. | No `lore_recall`-style tools inside Antigravity. It has no extension API in v2; the only route to tools is **MCP**: Antigravity reads `~/.gemini/config/mcp_config.json` (a DaVinci Resolve server is already configured there) and documents the format in `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md`. v2 ships no MCP server, so this needs a small stdio JSON-RPC server wrapping the daemon's routes, plus one entry in that config. |
+| Copilot tools need a host restart | The v2 extension is installed at `~/.copilot/extensions/lore-v2/` with v1's moved to `~/.lore/backups/copilot-extension-v1-<stamp>/`, and it resolves the socket without host input. | A running Copilot session keeps the old extension loaded; nothing else is outstanding. |
+
 ## To sign
 
 1. Add the Apple secrets and produce one signed, notarized release

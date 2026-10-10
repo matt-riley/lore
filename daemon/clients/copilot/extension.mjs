@@ -6,6 +6,8 @@
 
 import { MODEL_TOOLS } from "../js/model-tools.mjs";
 import { createHostSession, renderToolCall } from "../js/host-session.mjs";
+import { createInjection } from "../js/injection.mjs";
+import { resolveSocketPath } from "../js/endpoint.mjs";
 import { parseSlashArgs } from "../pi/register.mjs";
 
 const VERB_TO_TOOL = new Map([
@@ -37,7 +39,7 @@ function argsFromRest(tool, rest) {
 
 export function createCopilotLore(options = {}) {
   return createHostSession({
-    socketPath: options.socketPath,
+    socketPath: options.socketPath ?? resolveSocketPath(options.env ?? process.env) ?? undefined,
     clientId: options.clientId ?? "copilot",
     journalPath: options.journalPath,
     notify: options.notify,
@@ -57,15 +59,34 @@ export function buildCopilotTools(session) {
   }));
 }
 
-export function buildCopilotHooks(session) {
+export function buildCopilotHooks(session, { injection = null } = {}) {
   return {
-    onSessionStart: async (_input, invocation) => {
-      session.startSession(invocation?.sessionId ?? "session");
-      return undefined;
+    onSessionStart: async (input, invocation) => {
+      const sessionId = invocation?.sessionId ?? "session";
+      session.startSession(sessionId);
+      if (!injection) return undefined;
+      const capsule = await injection.sessionStart(input, {
+        sessionId,
+        ...(input ?? {}),
+        cwd: input?.cwd ?? invocation?.cwd ?? process.cwd(),
+      });
+      return capsule?.message?.content
+        ? { additionalContext: capsule.message.content }
+        : undefined;
     },
     onUserPromptSubmitted: async (input, invocation) => {
       const prompt = String(input?.prompt ?? "");
-      if (!prompt.startsWith("/lore")) return undefined;
+      if (!prompt.startsWith("/lore")) {
+        if (!injection) return undefined;
+        const recalled = await injection.beforeAgentStart(input, {
+          sessionId: invocation?.sessionId ?? "session",
+          ...(input ?? {}),
+          cwd: input?.cwd ?? invocation?.cwd ?? process.cwd(),
+        });
+        return recalled?.message?.content
+          ? { additionalContext: recalled.message.content }
+          : undefined;
+      }
       const { verb, rest } = parseSlashArgs(prompt.replace(/^\/lore\s*/, ""));
       const sessionId = invocation?.sessionId ?? "session";
       if (verb === "retries") {
@@ -97,9 +118,11 @@ export function buildCopilotHooks(session) {
 
 export default function createLoreV2Extension(options = {}) {
   const session = createCopilotLore(options);
+  const injection =
+    (options.env ?? process.env).LORE_V2_INJECT === "0" ? null : createInjection({ session });
   return {
     tools: buildCopilotTools(session),
-    hooks: buildCopilotHooks(session),
+    hooks: buildCopilotHooks(session, { injection }),
     session,
   };
 }

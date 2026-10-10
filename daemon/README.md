@@ -8,7 +8,7 @@ hooks, installers, database imports or support-claim changes.
 ## Crates
 
 - `crates/protocol` — wire types plus JSON Schema parity and fixture tests.
-- `crates/lore-core` — configuration, SQLite store (schema 5 with embedding
+- `crates/lore-core` — configuration, SQLite store (schema 10 with embedding
   intents, jobs, vectors, source capture, memory evidence, extraction leases,
   migration manifests and repository mappings), policy, retrieval, extraction,
   ingestion, migration/backup and store/endpoint lifecycle.

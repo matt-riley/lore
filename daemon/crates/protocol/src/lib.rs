@@ -26,11 +26,27 @@ pub const MAX_INFLIGHT_DEFAULT: usize = 64;
 /// Stable error codes. Clients branch on these, never on message text.
 pub mod code {
     pub const INVALID_ARGUMENT: &str = "INVALID_ARGUMENT";
+    pub const NOT_FOUND: &str = "NOT_FOUND";
+    pub const ALREADY_EXISTS: &str = "ALREADY_EXISTS";
     pub const UNIMPLEMENTED: &str = "UNIMPLEMENTED";
     pub const FAILED_PRECONDITION: &str = "FAILED_PRECONDITION";
     pub const RESOURCE_EXHAUSTED: &str = "RESOURCE_EXHAUSTED";
     pub const DEADLINE_EXCEEDED: &str = "DEADLINE_EXCEEDED";
+    pub const UNAVAILABLE: &str = "UNAVAILABLE";
     pub const INTERNAL: &str = "INTERNAL";
+
+    /// Every stable code. The error schema's `code` enum must list exactly these.
+    pub const ALL: &[&str] = &[
+        INVALID_ARGUMENT,
+        NOT_FOUND,
+        ALREADY_EXISTS,
+        UNIMPLEMENTED,
+        FAILED_PRECONDITION,
+        RESOURCE_EXHAUSTED,
+        DEADLINE_EXCEEDED,
+        UNAVAILABLE,
+        INTERNAL,
+    ];
 }
 
 /// Stable error reasons for the G1 proof surface.
@@ -863,6 +879,24 @@ mod tests {
             keys(&value["error"]),
             "error detail required fields"
         );
+    }
+
+    #[test]
+    fn error_schema_code_enum_lists_every_wire_code() {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../schemas/v2/error.response.schema.json"
+        ))
+        .expect("error response schema parses");
+        let mut listed: Vec<String> = schema["$defs"]["error"]["properties"]["code"]["enum"]
+            .as_array()
+            .expect("code enum is an array")
+            .iter()
+            .map(|value| value.as_str().expect("code is a string").to_string())
+            .collect();
+        let mut expected: Vec<String> = code::ALL.iter().map(|value| value.to_string()).collect();
+        listed.sort();
+        expected.sort();
+        assert_eq!(listed, expected, "error schema code enum");
     }
 
     #[test]

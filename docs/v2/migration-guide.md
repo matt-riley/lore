@@ -1,9 +1,9 @@
 # Migrating from v1 to v2
 
-Status: draft. Migration is implemented, preview-first and proven on fixtures;
-it has not been run against a real user store outside tests, and v1 is still
-the default mode. Treat this guide as the runbook for a pilot, not an
-announcement.
+Status: draft. Migration is implemented, preview-first and proven on fixtures.
+One real v1 store (about 300 memories) has been migrated and is in pilot use;
+that is the only real-store run so far. v1 is still the default mode. Treat
+this guide as the runbook for further pilots, not an announcement.
 
 ## What changes
 

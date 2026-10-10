@@ -60,7 +60,7 @@ Send only completed submitted prompts. Never send partial keystrokes. Transcript
 
 ## Durable uncertain-write journal
 
-Before sending a mutation, assign the stable client namespace, canonical operation and random key. Persist the exact normalized semantic payload, target store ID and key in a private bounded journal using atomic write/fsync. The journal is sensitive because explicit manual write content is needed for recovery; it contains no ambient recall queries.
+Before sending a mutation, assign the stable client namespace, canonical operation and random key. Persist the exact normalized semantic payload, target store ID and key in a private bounded journal using atomic write/fsync. The journal is sensitive because explicit manual write content is needed for recovery; it contains no ambient recall queries. Every host adapter uses a per-user journal by default (`~/.lore/uncertain-writes-v2.json`), and `LORE_V2_JOURNAL` overrides it; durable recovery is not opt-in.
 
 After receiving a committed acknowledgement, atomically mark the entry resolved, then remove its payload. If the connection fails or a deadline expires, preserve it as uncertain. A later reconnect retries the identical operation/key only against the same store. Automatic retries are at most one per interaction within its deadline; an explicit `lore retries list|resolve` handles remaining entries. Never change clientId/key, regenerate timestamps or reroute to v1.
 

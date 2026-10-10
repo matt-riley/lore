@@ -32,6 +32,25 @@ function sessionIdOf(ctx) {
   return ctx?.sessionId ?? ctx?.session?.id ?? "session";
 }
 
+/**
+ * Answer `/lore retries` and `/lore retries discard <key>`. Shared by the Pi
+ * and Copilot adapters so both hosts list and discard the same way.
+ */
+export function retriesResponse(session, rest) {
+  const discard = /^discard\s+(\S+)$/u.exec(rest);
+  if (discard) {
+    return session.discardRetry(discard[1])
+      ? `lore: discarded uncertain write ${discard[1]}.`
+      : `lore: no unresolved uncertain write ${discard[1]}.`;
+  }
+  if (rest !== "") return "lore: usage: /lore retries [discard <key>]";
+  const entries = session.retries();
+  if (entries.length === 0) return "lore: no uncertain writes pending.";
+  return entries
+    .map((entry) => `- ${entry.operation} ${entry.key} (${entry.hasPayload ? "payload kept" : "no payload"})`)
+    .join("\n");
+}
+
 /** Parse `/lore <verb> [text|json]` without executing anything. */
 export function parseSlashArgs(argsText) {
   const text = String(argsText ?? "").trim();
@@ -41,7 +60,12 @@ export function parseSlashArgs(argsText) {
   return { verb: text.slice(0, separator).toLowerCase(), rest: text.slice(separator + 1).trim() };
 }
 
-function argsFromRest(tool, rest) {
+/**
+ * Map the text after a `/lore <verb>` to the arguments of its tool. A JSON
+ * object is passed through; otherwise the positional text fills the one field
+ * the verb names, so `forget <id>` reaches the daemon as `memoryId`.
+ */
+export function argsFromRest(tool, rest) {
   if (rest === "") return {};
   if (rest.startsWith("{")) {
     try {
@@ -52,6 +76,7 @@ function argsFromRest(tool, rest) {
       throw failure;
     }
   }
+  if (tool === "lore_forget") return { memoryId: rest };
   const keyed = MODEL_TOOLS.find((entry) => entry.name === tool);
   if (keyed?.name === "lore_status" || keyed?.name === "lore_validate") return {};
   return { query: rest, content: rest };
@@ -97,13 +122,7 @@ export function registerPiV2(pi, options = {}) {
     handler: async (argsText, ctx) => {
       const { verb, rest } = parseSlashArgs(argsText);
       const sessionId = sessionIdOf(ctx);
-      if (verb === "retries") {
-        const entries = session.retries();
-        if (entries.length === 0) return "lore: no uncertain writes pending.";
-        return entries
-          .map((entry) => `- ${entry.operation} ${entry.key} (${entry.hasPayload ? "payload kept" : "no payload"})`)
-          .join("\n");
-      }
+      if (verb === "retries") return retriesResponse(session, rest);
       const tool = VERB_TO_TOOL.get(verb);
       if (!tool) return USAGE;
       let args;
@@ -115,6 +134,7 @@ export function registerPiV2(pi, options = {}) {
       if ((tool === "lore_recall" || tool === "lore_search" || tool === "lore_explain") && !args.query) {
         return USAGE;
       }
+      if (tool === "lore_forget" && !args.memoryId) return USAGE;
       return renderToolCall(session, tool, args, { sessionId });
     },
   });

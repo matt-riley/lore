@@ -7,8 +7,8 @@
 import { MODEL_TOOLS } from "../js/model-tools.mjs";
 import { createHostSession, renderToolCall } from "../js/host-session.mjs";
 import { createInjection } from "../js/injection.mjs";
-import { resolveSocketPath } from "../js/endpoint.mjs";
-import { parseSlashArgs } from "../pi/register.mjs";
+import { resolveJournalPath, resolveSocketPath } from "../js/endpoint.mjs";
+import { argsFromRest, parseSlashArgs, retriesResponse } from "../pi/register.mjs";
 
 const VERB_TO_TOOL = new Map([
   ["recall", "lore_recall"],
@@ -30,18 +30,12 @@ const USAGE =
   "lore: verbs are recall <query>, retain <text>, search <query>, forget <id>, " +
   "status, explain <query>, validate, correct <json>, onboard <json>, retries.";
 
-function argsFromRest(tool, rest) {
-  if (rest === "") return {};
-  if (rest.startsWith("{")) return JSON.parse(rest);
-  if (tool === "lore_status" || tool === "lore_validate") return {};
-  return { query: rest, content: rest };
-}
-
 export function createCopilotLore(options = {}) {
+  const env = options.env ?? process.env;
   return createHostSession({
-    socketPath: options.socketPath ?? resolveSocketPath(options.env ?? process.env) ?? undefined,
+    socketPath: options.socketPath ?? resolveSocketPath(env),
     clientId: options.clientId ?? "copilot",
-    journalPath: options.journalPath,
+    journalPath: options.journalPath ?? resolveJournalPath(env),
     notify: options.notify,
   });
 }
@@ -65,9 +59,10 @@ export function buildCopilotHooks(session, { injection = null } = {}) {
       const sessionId = invocation?.sessionId ?? "session";
       session.startSession(sessionId);
       if (!injection) return undefined;
+      // The host's own sessionId must not override the one the session was started with.
       const capsule = await injection.sessionStart(input, {
-        sessionId,
         ...(input ?? {}),
+        sessionId,
         cwd: input?.cwd ?? invocation?.cwd ?? process.cwd(),
       });
       return capsule?.message?.content
@@ -76,11 +71,12 @@ export function buildCopilotHooks(session, { injection = null } = {}) {
     },
     onUserPromptSubmitted: async (input, invocation) => {
       const prompt = String(input?.prompt ?? "");
-      if (!prompt.startsWith("/lore")) {
+      // Only the `/lore` command itself, so `/loremaster` reaches the model.
+      if (!/^\/lore(\s|$)/.test(prompt)) {
         if (!injection) return undefined;
         const recalled = await injection.beforeAgentStart(input, {
-          sessionId: invocation?.sessionId ?? "session",
           ...(input ?? {}),
+          sessionId: invocation?.sessionId ?? "session",
           cwd: input?.cwd ?? invocation?.cwd ?? process.cwd(),
         });
         return recalled?.message?.content
@@ -89,14 +85,7 @@ export function buildCopilotHooks(session, { injection = null } = {}) {
       }
       const { verb, rest } = parseSlashArgs(prompt.replace(/^\/lore\s*/, ""));
       const sessionId = invocation?.sessionId ?? "session";
-      if (verb === "retries") {
-        const entries = session.retries();
-        return {
-          response: entries.length
-            ? entries.map((entry) => `- ${entry.operation} ${entry.key}`).join("\n")
-            : "lore: no uncertain writes pending.",
-        };
-      }
+      if (verb === "retries") return { response: retriesResponse(session, rest) };
       const tool = VERB_TO_TOOL.get(verb);
       if (!tool) return { response: USAGE };
       let args;
@@ -105,6 +94,7 @@ export function buildCopilotHooks(session, { injection = null } = {}) {
       } catch (error) {
         return { response: `lore: ${error.message}` };
       }
+      if (tool === "lore_forget" && !args.memoryId) return { response: USAGE };
       return {
         response: await renderToolCall(session, tool, args, { sessionId }),
       };
@@ -117,9 +107,13 @@ export function buildCopilotHooks(session, { injection = null } = {}) {
 }
 
 export default function createLoreV2Extension(options = {}) {
+  const env = options.env ?? process.env;
+  if (!(options.socketPath ?? resolveSocketPath(env))) {
+    // No socket: register nothing rather than dialing a guessed endpoint, as the Pi entrypoint does.
+    return { tools: [], hooks: {}, session: null };
+  }
   const session = createCopilotLore(options);
-  const injection =
-    (options.env ?? process.env).LORE_V2_INJECT === "0" ? null : createInjection({ session });
+  const injection = env.LORE_V2_INJECT === "0" ? null : createInjection({ session });
   return {
     tools: buildCopilotTools(session),
     hooks: buildCopilotHooks(session, { injection }),

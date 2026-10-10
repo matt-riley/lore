@@ -2,6 +2,7 @@
 //
 // The table is shared by the Pi and Copilot adapters. It contains no storage
 // logic: every entry names one daemon route and how to shape its parameters.
+// Cross-repository recall is admin-only, so no model-facing entry forwards it.
 
 export const MODEL_TOOL_NAMES = [
   "lore_recall",
@@ -39,7 +40,6 @@ export const MODEL_TOOLS = [
       query: args.query,
       repository: args.repository,
       limit: args.limit,
-      includeOtherRepositories: args.includeOtherRepositories === true,
     }),
     present: (result) => result.context ?? "",
   },
@@ -116,7 +116,6 @@ export const MODEL_TOOLS = [
     buildParams: (args) => ({
       query: args.query,
       repository: args.repository,
-      includeOtherRepositories: args.includeOtherRepositories === true,
       cursor: args.cursor,
       limit: args.limit,
     }),

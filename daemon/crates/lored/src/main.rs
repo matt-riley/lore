@@ -42,6 +42,7 @@ use worker::{WorkerState, spawn as spawn_worker};
 mod maintenance;
 mod semantics;
 mod sources;
+mod watchdog;
 mod worker;
 use protocol::{
     API_MAJOR, API_MINOR, AdminParams, BODY_DEADLINE_MS, ConfigReloadParams, ConfigReloadResult,
@@ -178,6 +179,8 @@ async fn main() -> Result<()> {
         .unwrap_or(0);
     let scheduler = sources::spawn(Arc::clone(&store), config.clone());
     scheduler.wake();
+    // A wedged store must not leave a daemon that answers nothing.
+    watchdog::spawn(Arc::clone(&store));
     let maintenance_config =
         ResolvedMaintenance::load(config.config_path.as_deref()).map_err(to_anyhow)?;
     let analysis_config =

@@ -587,6 +587,7 @@ dependencies = [
  "hyper-util",
  "lore-core",
  "protocol",
+ "repository-identity",
  "serde",
  "serde_json",
  "tempfile",

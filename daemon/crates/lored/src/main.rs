@@ -1402,6 +1402,22 @@ async fn handle_admin(
                     }
                 }
             }
+            "migration-unscoped" => {
+                let source = params.source.clone().ok_or_else(|| {
+                    CoreError::invalid(
+                        "ADMIN_ARGUMENT_INVALID",
+                        "an unscoped import needs the v1 database path as `source`",
+                    )
+                })?;
+                let apply = params.action.as_deref() == Some("apply");
+                let outcome =
+                    store.import_unscoped_as_global(std::path::Path::new(&source), apply, now)?;
+                if apply {
+                    shared.worker_state.request_resume();
+                    shared.notify.notify_one();
+                }
+                Ok(outcome)
+            }
             "reflect" => {
                 let query = params.query.as_deref();
                 let repository = params.repository.as_deref();

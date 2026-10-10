@@ -671,6 +671,7 @@ pub fn known_admin(name: &str) -> bool {
             | "skill-validate"
             | "repair"
             | "replay"
+            | "migration-unscoped"
     )
 }
 

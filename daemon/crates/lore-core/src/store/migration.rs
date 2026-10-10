@@ -323,6 +323,9 @@ fn import_semantic_memory(
                 continue;
             }
             let repository = value_str(row, "repository").filter(|value| !value.is_empty());
+            // The store checks this invariant: a non-global scope must name a
+            // repository, so an unscoped row is quarantined rather than
+            // rewritten here. The explicit unscoped import decides otherwise.
             if scope != "global" && repository.is_none() {
                 resolve(counts, "semantic_memory", "unresolved_repository");
                 continue;
@@ -597,4 +600,244 @@ fn rebuild_metadata(store: &Store, now_ms: i64) -> CoreResult<()> {
     let _ = now_ms;
     transaction.commit()?;
     Ok(())
+}
+
+/// One quarantined v1 row: id, kind, content, confidence, scope, session,
+/// created, updated, expires, topic key, tags, metadata.
+type UnscopedRow = (
+    String,
+    String,
+    String,
+    f64,
+    String,
+    Option<String>,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+);
+
+impl Store {
+    /// Import the rows the conservative migration quarantined: repo-scoped
+    /// memories with no repository identity anywhere. This is an explicit
+    /// operator choice — they become global instead of staying behind — and
+    /// suppression state is carried over so nothing forgotten is resurrected.
+    /// Safe against a live store: deterministic ids make it idempotent.
+    pub fn import_unscoped_as_global(
+        &self,
+        source: &std::path::Path,
+        apply: bool,
+        now_ms: i64,
+    ) -> CoreResult<serde_json::Value> {
+        let source_connection = rusqlite::Connection::open_with_flags(
+            source,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        let rows: Vec<UnscopedRow> = {
+            let mut statement = source_connection.prepare(
+                "SELECT id, type, content, confidence, scope, source_session_id, created_at, \
+                 updated_at, expires_at, canonical_key, COALESCE(tags, ''), COALESCE(metadata_json, '') \
+                 FROM semantic_memory \
+                 WHERE (repository IS NULL OR repository = '') \
+                 AND scope IN ('repo', 'transferable') \
+                 ORDER BY created_at ASC",
+            )?;
+            let mapped = statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, f64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, String>(10)?,
+                    row.get::<_, String>(11)?,
+                ))
+            })?;
+            mapped.collect::<Result<Vec<_>, _>>()?
+        };
+        let suppressed: std::collections::HashSet<String> = {
+            let mut statement =
+                source_connection.prepare("SELECT memory_id FROM memory_suppression")?;
+            let mapped = statement.query_map([], |row| row.get::<_, String>(0))?;
+            mapped.collect::<Result<_, _>>()?
+        };
+        let found = rows.len() as i64;
+        if !apply {
+            return Ok(serde_json::json!({
+                "found": found,
+                "suppressed": rows
+                    .iter()
+                    .filter(|row| suppressed.contains(&row.0))
+                    .count() as i64,
+                "apply": false,
+                "scope": "global",
+            }));
+        }
+
+        let mut connection = self.writer.lock().expect("writer lock");
+        let transaction =
+            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let generation: String = transaction
+            .query_row(
+                "SELECT generation FROM memory_evidence LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| "v1-unscoped".to_string());
+        let mut imported = 0i64;
+        let mut already = 0i64;
+        let mut suppressed_rows = 0i64;
+        let mut linked = 0i64;
+        for row in &rows {
+            let (
+                v1_id,
+                kind,
+                content,
+                confidence,
+                source_scope,
+                session,
+                created_at,
+                updated_at,
+                expires_at,
+                topic_key,
+                tags_raw,
+                metadata,
+            ) = row;
+            // A transferable row keeps its scope: it was never repository-bound.
+            // A transferable row without a repository is not representable in
+            // the v2 schema (non-global scopes must name one), so the operator
+            // chose global for the whole quarantined set.
+            let _ = source_scope;
+            let target_scope = "global";
+            let Some(created) = parse_iso_ms(created_at) else {
+                continue;
+            };
+            let updated = parse_iso_ms(updated_at).unwrap_or(created);
+            let expires = expires_at.as_deref().and_then(parse_iso_ms);
+            let (memory_id, _remapped) = map_id(v1_id);
+            let exists: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM memories WHERE id = ?1)",
+                params![memory_id],
+                |row| row.get(0),
+            )?;
+            if exists {
+                already += 1;
+                continue;
+            }
+            let is_suppressed = suppressed.contains(v1_id);
+            let body = if is_suppressed {
+                String::new()
+            } else {
+                content.clone()
+            };
+            let content_hash = crate::store::content_hash(&body);
+            let tags: Vec<String> = tags_raw
+                .split([',', ';'])
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect();
+            let authority = if metadata.contains("manual") {
+                "manual"
+            } else {
+                "auto"
+            };
+            let topic = topic_key
+                .clone()
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| crate::store::content_hash(content));
+            transaction.execute(
+                "INSERT INTO memories (id, kind, content, content_hash, scope, repository, authority, \
+                 confidence, tags_json, source_session_id, created_ms, updated_ms, expires_at_ms, \
+                 revision, forgotten, topic_key, superseded_by) \
+                 VALUES (?1, ?2, ?3, ?4, ?14, NULL, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?13, NULL) \
+                 ON CONFLICT (id) DO NOTHING",
+                params![
+                    memory_id,
+                    kind,
+                    body,
+                    content_hash,
+                    authority,
+                    confidence,
+                    serde_json::to_string(&tags)?,
+                    session,
+                    created,
+                    updated,
+                    expires,
+                    i64::from(is_suppressed),
+                    topic,
+                    target_scope,
+                ],
+            )?;
+            if is_suppressed {
+                transaction.execute(
+                    "INSERT INTO suppressions (memory_id, scope, repository, fingerprint, reason, \
+                     revision, created_ms, state) VALUES (?1, ?2, NULL, ?3, 'migrated_v1', 1, ?4, 'active')",
+                    params![memory_id, target_scope, content_hash, now_ms],
+                )?;
+                suppressed_rows += 1;
+            } else {
+                transaction.execute(
+                    "INSERT INTO memory_fts (content, kind, tags, memory_id) VALUES (?1, ?2, ?3, ?4)",
+                    params![body, kind, tags.join(" "), memory_id],
+                )?;
+                transaction.execute(
+                    "INSERT OR IGNORE INTO embedding_intents \
+                     (memory_id, desired_revision, state, attempts, next_attempt_ms, terminal_reason, \
+                      content_hash, model_identity, updated_ms) \
+                     VALUES (?1, 1, 'pending', 0, NULL, NULL, ?2, '', ?3)",
+                    params![memory_id, content_hash, now_ms],
+                )?;
+            }
+            // Carry the evidence links the main import could not attach.
+            let mut statement = source_connection.prepare(
+                "SELECT evidence_key, linked_at, retired_at FROM memory_evidence \
+                 WHERE memory_id = ?1 LIMIT 50",
+            )?;
+            let evidence = statement.query_map(params![v1_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for entry in evidence {
+                let (evidence_key, linked_at, retired_at) = entry?;
+                let linked_ms = parse_iso_ms(&linked_at).unwrap_or(now_ms);
+                let retired_ms = retired_at.as_deref().and_then(parse_iso_ms);
+                transaction.execute(
+                    "INSERT INTO memory_evidence (memory_id, source_id, generation, evidence_key, role, \
+                     created_ms, retired_ms) VALUES (?1, 'v1-import', ?2, ?3, NULL, ?4, ?5) \
+                     ON CONFLICT (memory_id, source_id, generation, evidence_key) DO NOTHING",
+                    params![memory_id, generation, evidence_key, linked_ms, retired_ms],
+                )?;
+                linked += 1;
+            }
+            imported += 1;
+        }
+        transaction.execute(
+            "UPDATE store_metadata SET memory_revision = (SELECT COUNT(*) FROM memories), \
+             active_memories = (SELECT COUNT(*) FROM memories WHERE forgotten = 0 AND superseded_by IS NULL), \
+             forgotten_memories = (SELECT COUNT(*) FROM memories WHERE forgotten = 1) WHERE id = 1",
+            [],
+        )?;
+        transaction.commit()?;
+        Ok(serde_json::json!({
+            "found": found,
+            "imported": imported,
+            "alreadyPresent": already,
+            "suppressed": suppressed_rows,
+            "evidenceLinked": linked,
+            "apply": true,
+            "scope": "global",
+        }))
+    }
 }

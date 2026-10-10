@@ -20,10 +20,10 @@ docs agree, and no unresolved safety or correctness regression remains.
 | 5 | Service lifecycle: install, start, stop, restart, reload, status, uninstall | **Met** | `service_surface.rs`: previews, ownership hashes, idempotent reruns, refusal to overwrite edited units, uninstall limited to owned files |
 | 6 | Service runs a real load | **Open — real machine** | Unit content and lifecycle proofs exist; no real launchd/systemd load has been observed for a full day |
 | 7 | Cutover from v1 is rehearsed | **Met (fixtures)** | `migration_proof.rs` cutover drill: round trips and suppression on the migrated store, v1 source byte-identical |
-| 8 | Cutover on a real v1 store | **Open — pilot** | Needs one real store imported and verified per [migration-guide.md](../migration-guide.md) |
+| 8 | Cutover on a real v1 store | **Met (one pilot store)** | One real v1 store has been migrated to v2 and is in pilot use (~300 memories). Attach the import and verification output to [G5 evidence](g5-migration.md) before counting it as a second pilot; further stores follow [migration-guide.md](../migration-guide.md) |
 | 9 | Recovery: backup/restore and suppression survive | **Met** | Migration and governance suites; restore preserves later deletions and receipts |
 | 10 | All five clients pass the documented soak | **In progress — live** | The operator is running v2 as their daily memory system on a real machine from 2026-10-10: Pi tools and prompt-time injection, capture from Pi/Codex/Claude roots, the dashboard, service restarts, and a migrated v1 store (~300 memories). CI also runs the bounded soak. Remaining: the calendar window (≥10 distinct successful days per client) |
-| 11 | Real-host certification (Pi, Copilot, Codex, Claude, Antigravity) | **Open — real sessions** | Adapters proven against synthetic hosts and a real daemon; no real client session has exercised capture, recall and restart |
+| 11 | Real-host certification (Pi, Copilot, Codex, Claude, Antigravity) | **Open — Copilot and Antigravity** | Pi, Codex and Claude are live (row 10). Copilot and Antigravity still need a recorded real-session capture, recall and restart; adapters are otherwise proven against synthetic hosts and a real daemon |
 | 12 | Client adapters fail open | **Met** | Neutral hook output when the daemon is stopped or unhealthy; no automatic write fallback |
 | 13 | Mode selection is explicit and defaults to v1 | **Met** | `mode status` reports `v1 (configured: false)`; `--apply` required to change; installer tests cover the default |
 | 14 | Docs agree (README, support matrix, guides) | **Met** | Runbooks linked from the stage index; support levels unchanged this cycle |
@@ -64,7 +64,7 @@ Recorded here so they are not rediscovered as surprises:
 1. Add the Apple secrets and produce one signed, notarized release
    ([runbook](../signing-notarization.md)).
 2. Run the daemon as a real service for at least a day and record the load.
-3. Import one real v1 store and verify per the migration guide.
+3. Record the verification output for the pilot store in G5 evidence, then import and verify one more real v1 store per the migration guide.
 4. Run the five-client cohort for the agreed soak window and record it in
    [G7 evidence](g7-rollout.md).
 5. Re-check rows 4, 6, 8, 10 and 11, then replace this status line with the

@@ -680,3 +680,27 @@ fn duplicate_content_is_collapsed_in_recall_and_retired_by_hygiene() {
         .expect("count after rollback");
     assert_eq!(active, 3);
 }
+
+#[cfg(unix)]
+#[test]
+fn store_files_are_owner_only_even_when_a_looser_file_already_exists() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    // A store left behind with group/other access must be tightened on open.
+    let database = dir.path().join("lore-v2.db");
+    std::fs::write(&database, b"").expect("seed database file");
+    std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o644))
+        .expect("loosen seed file");
+
+    let _store = open(dir.path());
+
+    for name in ["lore-v2.db", "lore-v2.db-wal", "lore-v2.db-shm"] {
+        let path = dir.path().join(name);
+        let mode = std::fs::metadata(&path)
+            .expect("store file exists")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600, "{name} must be owner-only");
+    }
+}

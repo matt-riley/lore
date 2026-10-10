@@ -16,6 +16,7 @@ import createLoreV2Extension, {
   buildCopilotHooks,
   buildCopilotTools,
 } from "../clients/copilot/extension.mjs";
+import { resolveSocketPath } from "../clients/js/endpoint.mjs";
 
 function fakePi() {
   const tools = new Map();
@@ -324,6 +325,41 @@ test("journal file is created with restrictive permissions on first write", asyn
   const mode = readFileSync(journalPath, "utf8").length > 0;
   assert.ok(mode);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("copilot injects session and prompt context from the daemon", async (t) => {
+  const { options } = await withDaemon(t);
+  const extension = createLoreV2Extension(options);
+  await extension.tools
+    .find((tool) => tool.name === "lore_retain")
+    .handler(
+      { content: "Always run the schema check before copying rows.", kind: "directive", scope: "global" },
+      { sessionId: "c1" },
+    );
+
+  const capsule = await extension.hooks.onSessionStart(
+    { cwd: process.cwd() },
+    { sessionId: "c1" },
+  );
+  assert.match(capsule?.additionalContext ?? "", /<lore_context>/);
+  assert.match(capsule.additionalContext, /Session context injected by Lore/);
+
+  const prompt = await extension.hooks.onUserPromptSubmitted(
+    { prompt: "schema check", cwd: process.cwd() },
+    { sessionId: "c1" },
+  );
+  assert.match(prompt?.additionalContext ?? "", /schema check/i);
+
+  // The /lore command still answers instead of injecting.
+  const slash = await extension.hooks.onUserPromptSubmitted(
+    { prompt: "/lore status", cwd: process.cwd() },
+    { sessionId: "c1" },
+  );
+  assert.match(slash?.response ?? "", /lore ready/);
+
+  // A host that passes no socket still resolves the installed config.
+  const resolved = resolveSocketPath({ HOME: path.join(tmpdir(), "lore-no-such-home") });
+  assert.equal(resolved, null, "an unresolved endpoint registers nothing");
 });
 
 test("pi injects session and prompt context from the daemon and fails open", async (t) => {

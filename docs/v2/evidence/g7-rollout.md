@@ -109,7 +109,8 @@ only when deadline misses exceed one percent of recalls (normally zero).
   existing Rust, adapter and ingestion proofs.
 - `.github/workflows/daemon-artifacts.yml` builds release binaries on
   Ubuntu 22.04 and macOS 14, packages and verifies them, and attaches the
-  archives, checksums and `checksums.txt` to a published GitHub release.
+  archives, checksums and one `checksums-<os>.txt` per platform to a published
+  GitHub release.
   `workflow_dispatch` runs the same job without uploading.
 - release-please and the v1 npm release flow are unchanged.
 

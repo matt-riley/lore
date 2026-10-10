@@ -331,10 +331,15 @@ fn prompt_hooks_return_context_from_recall() {
     assert_eq!(code, 0, "cli failed: {stdout} / {stderr}");
     let value: serde_json::Value = serde_json::from_str(&stdout)
         .unwrap_or_else(|_| panic!("stdout not json: {stdout} / stderr: {stderr}"));
+    let injected = value["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no additionalContext: {stdout}"));
     assert_eq!(
-        value["context"], "- Prefer UTC timestamps.",
-        "stdout: {stdout} stderr: {stderr}"
+        value["hookSpecificOutput"]["hookEventName"],
+        "UserPromptSubmit"
     );
+    assert!(injected.starts_with("<lore_context>\n"), "{injected}");
+    assert!(injected.contains("- Prefer UTC timestamps."), "{injected}");
 }
 
 #[test]

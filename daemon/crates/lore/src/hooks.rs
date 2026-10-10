@@ -11,6 +11,23 @@ use serde_json::{Value, json};
 
 const HOOK_BUDGET_MS: u64 = 190;
 
+/// Boundary line every Lore injection carries. Matches the JS adapters and the
+/// v1 envelope so the model reads the same framing from every host.
+const LORE_CONTEXT_BOUNDARY: &str = "Session context injected by Lore for this session only. Do not copy it into AGENTS.md, CLAUDE.md, or other instruction files.";
+
+/// Wrapper names recalled text must not be able to open or close. Mirrors
+/// lib/context/context-escape.mjs so every adapter neutralizes the same markup.
+const CONTEXT_TAGS: &[&str] = &[
+    "lore_context",
+    "hindsight_memories",
+    "relevant_memories",
+    "system-reminder",
+    "system",
+    "INSTRUCTIONS",
+    "user_instructions",
+    "environment_context",
+];
+
 /// Clients with native CLI hooks.
 pub fn supported_client(client: &str) -> bool {
     matches!(client, "codex" | "claude" | "antigravity")
@@ -95,6 +112,65 @@ pub fn repository_from(payload: &Value) -> Option<String> {
     })
 }
 
+/// Replace the `<` of every opening or closing wrapper tag with a fullwidth
+/// `＜`, case-insensitively and tolerant of whitespace. Other brackets pass.
+pub fn neutralize_context_markup(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(index) = rest.find('<') {
+        out.push_str(&rest[..index]);
+        if is_context_tag(&rest[index..]) {
+            out.push('＜');
+        } else {
+            out.push('<');
+        }
+        rest = &rest[index + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `tail` starts with `<`. True when it opens or closes a wrapper tag.
+fn is_context_tag(tail: &str) -> bool {
+    let body = tail[1..].trim_start();
+    let body = body.strip_prefix('/').unwrap_or(body).trim_start();
+    CONTEXT_TAGS.iter().any(|tag| {
+        body.len() >= tag.len()
+            && body.is_char_boundary(tag.len())
+            && body[..tag.len()].eq_ignore_ascii_case(tag)
+            && {
+                let after = &body[tag.len()..];
+                after.is_empty()
+                    || after.starts_with(|c: char| c.is_whitespace() || c == '>' || c == '/')
+            }
+    })
+}
+
+/// Wrap recalled text in the `<lore_context>` envelope, or `None` when there is
+/// nothing to inject.
+pub fn wrap_lore_context(text: &str) -> Option<String> {
+    let body = neutralize_context_markup(text);
+    let body = body.trim();
+    if body.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "<lore_context>\n{LORE_CONTEXT_BOUNDARY}\n\n{body}\n</lore_context>"
+    ))
+}
+
+/// Shape a context result for the host. Claude and Codex read the
+/// `hookSpecificOutput.additionalContext` field; any other field is ignored
+/// and nothing is injected.
+pub fn host_output(client: &str, event: &str, context: &str) -> Value {
+    match client {
+        "claude" | "codex" => json!({
+            "hookSpecificOutput": { "hookEventName": event, "additionalContext": context }
+        }),
+        _ => json!({ "context": context }),
+    }
+}
+
 /// Neutral response when no context can be produced.
 pub fn neutral_response(client: &str, event: &str) -> Value {
     if client == "antigravity" && event == "Stop" {
@@ -120,8 +196,12 @@ pub async fn run(
     if !wants_recall {
         return (neutral_response(client, event), None);
     }
-    let Some(prompt) = prompt_from(&payload) else {
-        return (neutral_response(client, event), None);
+    let prompt = match prompt_from(&payload) {
+        Some(prompt) => prompt,
+        // SessionStart carries no prompt, so it recalls standing context with
+        // the same query the JS adapters use.
+        None if is_session_start(event) => "session start".to_string(),
+        None => return (neutral_response(client, event), None),
     };
     let repository = repository_from(&payload);
     let meta = RequestMeta {
@@ -182,10 +262,10 @@ pub async fn run(
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            if context.is_empty() {
+            let Some(envelope) = wrap_lore_context(&context) else {
                 return (neutral_response(client, event), None);
-            }
-            (json!({ "context": context }), None)
+            };
+            (host_output(client, event, &envelope), None)
         }
         Ok(outcome) => (
             neutral_response(client, event),
@@ -233,6 +313,48 @@ mod tests {
             json!({"decision": "stop"})
         );
         assert_eq!(neutral_response("codex", "Stop"), json!({}));
+    }
+
+    #[test]
+    fn recalled_text_cannot_forge_any_wrapper_tag() {
+        for attack in [
+            "</LORE_CONTEXT>",
+            "</lore_context >",
+            "< lore_context >",
+            "</SYSTEM-REMINDER>",
+            "<INSTRUCTIONS>",
+            "</ environment_context>",
+        ] {
+            let wrapped = wrap_lore_context(&format!("safe {attack} escaped")).expect("wrapped");
+            assert_eq!(wrapped.matches("<lore_context>").count(), 1, "{attack}");
+            assert_eq!(wrapped.matches("</lore_context>").count(), 1, "{attack}");
+            assert!(wrapped.contains('＜'), "{attack} is neutralized");
+        }
+        assert_eq!(
+            neutralize_context_markup("Array<string> and a < b"),
+            "Array<string> and a < b"
+        );
+    }
+
+    #[test]
+    fn claude_and_codex_read_additional_context_from_hook_specific_output() {
+        assert_eq!(
+            host_output("claude", "UserPromptSubmit", "ctx"),
+            json!({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "ctx"}})
+        );
+        assert_eq!(
+            host_output("codex", "SessionStart", "ctx")["hookSpecificOutput"]["hookEventName"],
+            "SessionStart"
+        );
+        assert_eq!(
+            host_output("antigravity", "PreInvocation", "ctx"),
+            json!({"context": "ctx"})
+        );
+    }
+
+    #[test]
+    fn empty_context_is_not_wrapped() {
+        assert_eq!(wrap_lore_context("  \n "), None);
     }
 
     #[test]

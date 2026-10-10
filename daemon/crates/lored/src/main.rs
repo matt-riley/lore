@@ -25,7 +25,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
 use lore_core::config::{ResolvedAnalysis, ResolvedConfig, ResolvedEmbedding, ResolvedMaintenance};
@@ -95,6 +95,9 @@ struct State {
     process_instance_id: String,
     started: Instant,
     inflight: Arc<Semaphore>,
+    /// Slots for blocking store work. A timed-out request cannot cancel its
+    /// SQLite closure, so the slot is held until that closure returns.
+    blocking: Arc<Semaphore>,
     max_inflight: usize,
     clients: Mutex<HashMap<String, usize>>,
     semantics: Arc<Semantics>,
@@ -210,6 +213,7 @@ async fn main() -> Result<()> {
         process_instance_id: Uuid::new_v4().to_string(),
         started: Instant::now(),
         inflight: Arc::new(Semaphore::new(max_inflight)),
+        blocking: Arc::new(Semaphore::new(max_inflight)),
         max_inflight,
         clients: Mutex::new(HashMap::new()),
         semantics,
@@ -619,6 +623,25 @@ impl Drop for ClientGuard {
     }
 }
 
+/// Admission for one blocking store call. The returned permit must move into
+/// the closure: a deadline drops the awaiting future, but the closure keeps
+/// running, and its capacity must stay accounted for until it actually exits.
+#[allow(clippy::result_large_err)]
+fn blocking_slot(state: &State, request_id: Option<&str>) -> Result<OwnedSemaphorePermit, Resp> {
+    Arc::clone(&state.blocking)
+        .try_acquire_owned()
+        .map_err(|_| {
+            fail_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                code::RESOURCE_EXHAUSTED,
+                reason::REQUEST_CAPACITY,
+                true,
+                request_id,
+                Some(&state.store_id),
+            )
+        })
+}
+
 #[allow(clippy::result_large_err)]
 fn acquire_client(client_id: &str, state: &Arc<State>) -> Result<ClientGuard, Resp> {
     let mut clients = state.clients.lock().expect("client map");
@@ -673,10 +696,15 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
         );
     }
 
+    let slot = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => slot,
+        Err(response) => return response,
+    };
     let store = Arc::clone(&state.store);
     let identity = state.semantics.identity();
     let now = now_ms();
     let work = tokio::task::spawn_blocking(move || {
+        let _slot = slot;
         let status = store.status()?;
         let counts = match &identity {
             Some(identity) => store.embedding_counts(identity, now)?,
@@ -882,7 +910,14 @@ async fn handle_retain(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     let client_id = envelope.meta.client_id.clone();
     let params = envelope.params.clone();
     let now = now_ms();
-    let work = tokio::task::spawn_blocking(move || store.retain(&client_id, &params, now));
+    let slot = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => slot,
+        Err(response) => return response,
+    };
+    let work = tokio::task::spawn_blocking(move || {
+        let _slot = slot;
+        store.retain(&client_id, &params, now)
+    });
     let deadline = effective_deadline(&envelope.meta, MAX_TIMEOUT_MS);
     match tokio::time::timeout(deadline, work).await {
         Err(_) => fail_response(
@@ -959,7 +994,14 @@ async fn handle_forget(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     let client_id = envelope.meta.client_id.clone();
     let params = envelope.params.clone();
     let now = now_ms();
-    let work = tokio::task::spawn_blocking(move || store.forget(&client_id, &params, now));
+    let slot = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => slot,
+        Err(response) => return response,
+    };
+    let work = tokio::task::spawn_blocking(move || {
+        let _slot = slot;
+        store.forget(&client_id, &params, now)
+    });
     let deadline = effective_deadline(&envelope.meta, MAX_TIMEOUT_MS);
     match tokio::time::timeout(deadline, work).await {
         Err(_) => fail_response(
@@ -1089,7 +1131,12 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
 
     let final_store = Arc::clone(&store);
     let final_params = params.clone();
+    let slot = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => slot,
+        Err(response) => return response,
+    };
     let work = tokio::task::spawn_blocking(move || {
+        let _slot = slot;
         let semantic = SemanticInput {
             identity: &identity,
             vector: vector.as_deref(),
@@ -1780,7 +1827,12 @@ async fn handle_jobs_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<
     let store = Arc::clone(&state.store);
     let identity = state.semantics.identity();
     let now = now_ms();
+    let slot = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => slot,
+        Err(response) => return response,
+    };
     let work = tokio::task::spawn_blocking(move || {
+        let _slot = slot;
         let jobs = store.list_jobs(state_filter.as_deref(), cursor.as_deref(), limit)?;
         let counts = match &identity {
             Some(identity) => store.embedding_counts(identity, now)?,
@@ -1927,7 +1979,12 @@ async fn handle_jobs_retry(raw: &[u8], state: &Arc<State>, fallback_id: Option<S
     };
     let store = Arc::clone(&state.store);
     let now = now_ms();
+    let slot = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => slot,
+        Err(response) => return response,
+    };
     let work = tokio::task::spawn_blocking(move || {
+        let _slot = slot;
         store.retry_failed_jobs(identity.as_deref(), ids.as_deref(), now)
     });
     let reset = match tokio::time::timeout(effective_deadline(&envelope.meta, MAX_TIMEOUT_MS), work)

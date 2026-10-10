@@ -6,6 +6,8 @@
 // (LORE_V2_SOCKET or LORE_SOCKET) so the adapter never reads the v1 store or
 // config format.
 
+import { existsSync, readFileSync } from "node:fs";
+
 import { registerPiV2 } from "./register.mjs";
 
 interface PiApi {
@@ -17,7 +19,20 @@ interface PiApi {
 export function resolveSocketPath(env: Record<string, string | undefined> = process.env): string | null {
   const explicit = env.LORE_V2_SOCKET ?? env.LORE_SOCKET;
   if (explicit) return explicit;
-  return null;
+  const home = env.HOME;
+  if (!home) return null;
+  // An installed daemon needs no environment: read the config the installer
+  // wrote, and fall back to the conventional socket when it exists.
+  try {
+    const parsed = JSON.parse(readFileSync(`${home}/.lore/lore.json`, "utf8")) as {
+      socketPath?: string;
+    };
+    if (parsed.socketPath) return parsed.socketPath.replace(/^~/, home);
+  } catch {
+    // No config: fall through to the default socket path.
+  }
+  const fallback = `${home}/.lore/lored.sock`;
+  return existsSync(fallback) ? fallback : null;
 }
 
 export function resolveJournalPath(

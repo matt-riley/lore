@@ -77,6 +77,146 @@ fn fake_daemon(bodies: Vec<String>) -> (PathBuf, tempfile::TempDir, std::thread:
     (socket, dir, handle)
 }
 
+/// Like `fake_daemon`, but records every request body it receives so a test
+/// can assert what the CLI actually sent.
+fn fake_daemon_capturing(
+    bodies: Vec<String>,
+) -> (
+    PathBuf,
+    tempfile::TempDir,
+    std::thread::JoinHandle<()>,
+    std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let socket = dir.path().join("fake.sock");
+    let listener = UnixListener::bind(&socket).expect("bind");
+    listener.set_nonblocking(true).expect("nonblocking");
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorder = std::sync::Arc::clone(&seen);
+    let handle = std::thread::spawn(move || {
+        for body in bodies {
+            let started = Instant::now();
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if started.elapsed() > Duration::from_secs(5) {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("accept: {error}"),
+                }
+            };
+            let mut buffer = Vec::new();
+            let mut chunk = [0u8; 8192];
+            loop {
+                let read = stream.read(&mut chunk).expect("read");
+                if read == 0 {
+                    break;
+                }
+                buffer.extend_from_slice(&chunk[..read]);
+                if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                    // Headers are complete; keep reading the declared body.
+                    let header_end = buffer
+                        .windows(4)
+                        .position(|window| window == b"\r\n\r\n")
+                        .map(|index| index + 4)
+                        .unwrap_or(buffer.len());
+                    let headers = String::from_utf8_lossy(&buffer[..header_end]).to_lowercase();
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .and_then(|value| value.trim().parse().ok())
+                        .unwrap_or(0);
+                    if buffer.len() >= header_end + length {
+                        break;
+                    }
+                }
+            }
+            recorder
+                .lock()
+                .expect("recorder")
+                .push(String::from_utf8_lossy(&buffer).to_string());
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    (socket, dir, handle, seen)
+}
+
+#[test]
+fn hook_recall_is_scoped_to_the_repository_of_the_working_directory() {
+    let status = serde_json::json!({
+        "ok": true,
+        "requestId": "s",
+        "storeId": "store-abc",
+        "result": { "readiness": "ready" }
+    })
+    .to_string();
+    let recall = serde_json::json!({
+        "ok": true,
+        "requestId": "r",
+        "storeId": "store-abc",
+        "result": { "context": "- Prefer small commits." }
+    })
+    .to_string();
+    let (socket, _dir, handle, seen) = fake_daemon_capturing(vec![status, recall]);
+
+    // A real git worktree with a remote, which is what a host reports as cwd.
+    let work = tempfile::tempdir().expect("worktree");
+    let run_git = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(work.path())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("git runs");
+        assert!(status.success(), "git {args:?}");
+    };
+    run_git(&["init", "--quiet"]);
+    run_git(&[
+        "remote",
+        "add",
+        "origin",
+        "git@github.com:matt-riley/lore.git",
+    ]);
+
+    let (code, stdout, stderr) = run_cli(
+        &[
+            "--socket",
+            socket.to_str().expect("utf8"),
+            "hook",
+            "codex",
+            "UserPromptSubmit",
+        ],
+        Some(
+            &serde_json::json!({
+                "prompt": "what timestamps do we prefer?",
+                "cwd": work.path().to_string_lossy(),
+            })
+            .to_string(),
+        ),
+    );
+    handle.join().expect("fake daemon");
+    assert_eq!(code, 0, "cli failed: {stdout} / {stderr}");
+
+    let requests = seen.lock().expect("requests").clone();
+    let recall_request = requests
+        .iter()
+        .find(|request| request.contains("/v2/recall"))
+        .expect("the hook called recall");
+    assert!(
+        recall_request.contains("github.com/matt-riley/lore"),
+        "recall must be scoped to the worktree's repository: {recall_request}"
+    );
+}
+
 #[test]
 fn capability_catalog_is_served_without_a_daemon() {
     let (code, stdout, _) = run_cli(&["capabilities", "--output", "json"], None);

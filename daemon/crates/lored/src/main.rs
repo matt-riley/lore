@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::error::Error as _;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -322,12 +323,36 @@ async fn serve(stream: UnixStream, state: Arc<State>) {
         let state = Arc::clone(&state);
         async move { Ok::<Resp, Infallible>(handle(request, state).await) }
     });
-    if let Err(error) = http1::Builder::new()
+    let outcome = http1::Builder::new()
         .serve_connection(TokioIo::new(stream), service)
-        .await
+        .await;
+    if let Err(error) = outcome
+        && !is_client_close(&error)
     {
         eprintln!("[lored] connection error: {error}");
     }
+}
+
+/// The client went away: either it closed a keep-alive connection after the
+/// response (hyper reports the failed shutdown as "not connected") or it
+/// abandoned a request mid-flight. Neither is a server fault, so neither is
+/// logged.
+fn is_client_close(error: &hyper::Error) -> bool {
+    if error.is_incomplete_message() {
+        return true;
+    }
+    error.is_shutdown()
+        && error
+            .source()
+            .and_then(|cause| cause.downcast_ref::<std::io::Error>())
+            .is_some_and(|io| {
+                matches!(
+                    io.kind(),
+                    std::io::ErrorKind::NotConnected
+                        | std::io::ErrorKind::BrokenPipe
+                        | std::io::ErrorKind::ConnectionReset
+                )
+            })
 }
 
 async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {

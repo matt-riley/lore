@@ -1008,7 +1008,7 @@ impl Store {
                 tags: serde_json::from_str(&tags_json).unwrap_or_default(),
             })
         })?;
-        let records: Vec<MemoryRecord> = rows.collect::<Result<_, _>>()?;
+        let records: Vec<MemoryRecord> = collapse_duplicates(rows.collect::<Result<_, _>>()?);
         drop(statement);
         ensure_within(deadline)?;
 
@@ -1153,8 +1153,16 @@ impl Store {
 
         let truncated = pool.len() >= self.limits.candidate_pool;
         let topical_budget = (context_bytes as usize).saturating_sub(required.text.len() + 1);
+        // A required item can also match the query; its text is already in the
+        // context, so the topical section must not repeat it.
+        let required_bodies: std::collections::HashSet<String> = required
+            .records
+            .iter()
+            .map(|record| record.content.trim().to_string())
+            .collect();
         let mut topical_selected: Vec<MemoryRecord> = pool
             .into_iter()
+            .filter(|record| !required_bodies.contains(record.content.trim()))
             .take((limit as usize).saturating_sub(required.records.len()))
             .collect();
         let mut mandatory_truncated = required.truncated;
@@ -1489,6 +1497,10 @@ impl Store {
             }
         }
 
+        // Identical bodies can arrive as several distinct ids (v1 history and
+        // re-extraction), and a required item can also be a topical hit. The
+        // same text must not be rendered twice in one prompt.
+        let mut selected = collapse_duplicates(selected);
         let required = self.required_context(
             &transaction,
             params,
@@ -1496,6 +1508,12 @@ impl Store {
             context_bytes as usize,
             deadline,
         )?;
+        let required_bodies: std::collections::HashSet<String> = required
+            .records
+            .iter()
+            .map(|record| record.content.trim().to_string())
+            .collect();
+        selected.retain(|record| !required_bodies.contains(record.content.trim()));
         if terms.is_empty() {
             let mut result = RecallResult {
                 records: required.records,
@@ -1699,8 +1717,24 @@ impl Store {
                 tags: serde_json::from_str(&tags_json).unwrap_or_default(),
             })
         })?;
-        Ok(rows.collect::<Result<_, _>>()?)
+        Ok(collapse_duplicates(rows.collect::<Result<Vec<_>, _>>()?))
     }
+}
+
+/// One rendering per memory: drop repeated ids and identical bodies, keeping
+/// the first (highest-ranked) occurrence. v1 history and re-extraction leave
+/// byte-identical copies in the store, and the same text twice in a prompt is
+/// wasted context.
+fn collapse_duplicates(records: Vec<MemoryRecord>) -> Vec<MemoryRecord> {
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut seen_bodies = std::collections::HashSet::new();
+    records
+        .into_iter()
+        .filter(|record| {
+            seen_ids.insert(record.id.clone())
+                && seen_bodies.insert(record.content.trim().to_string())
+        })
+        .collect()
 }
 
 fn ensure_within(deadline: Option<Instant>) -> CoreResult<()> {

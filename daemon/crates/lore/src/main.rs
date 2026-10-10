@@ -1383,7 +1383,7 @@ fn resolve_socket(
     if let Some(socket) = socket {
         return Some(socket);
     }
-    lore_core::config::resolve_socket_path(config, data_dir).ok()
+    lore_core::config::resolve_socket_path_with_data_dir(config, data_dir).ok()
 }
 
 async fn probe_readiness(socket: &Path) -> bool {

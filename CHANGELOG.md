@@ -20,6 +20,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [0.20.4](https://github.com/matt-riley/lore/compare/lore-v0.20.3...lore-v0.20.4) (2026-10-09)
+
+
+### Bug Fixes
+
+* **context:** mark injected recall context as session-scoped ([579ecb8](https://github.com/matt-riley/lore/commit/579ecb8ff50d335c7dbd017b93058afdd7ae2ef0))
+
 ## [0.20.3](https://github.com/matt-riley/lore/compare/lore-v0.20.2...lore-v0.20.3) (2026-10-07)
 
 

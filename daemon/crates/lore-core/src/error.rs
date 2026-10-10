@@ -36,11 +36,11 @@ impl CoreError {
     }
 
     pub fn not_found(reason: &str, message: impl Into<String>) -> Self {
-        Self::new(404, "NOT_FOUND", reason, message, false)
+        Self::new(404, code::NOT_FOUND, reason, message, false)
     }
 
     pub fn conflict(reason: &str, message: impl Into<String>) -> Self {
-        Self::new(409, "ALREADY_EXISTS", reason, message, false)
+        Self::new(409, code::ALREADY_EXISTS, reason, message, false)
     }
 
     pub fn precondition(reason: &str, message: impl Into<String>) -> Self {
@@ -66,7 +66,7 @@ impl CoreError {
     }
 
     pub fn unavailable(reason: &str, message: impl Into<String>) -> Self {
-        Self::new(503, "UNAVAILABLE", reason, message, true)
+        Self::new(503, code::UNAVAILABLE, reason, message, true)
     }
 }
 

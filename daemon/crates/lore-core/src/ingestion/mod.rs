@@ -92,24 +92,33 @@ pub fn safe_source_path(
     Ok(canonical)
 }
 
-/// Read at most the source byte quantum starting at `offset`, retaining any
-/// trailing incomplete record for the next quantum. Returns complete lines.
+/// Read from `offset` until at least one complete line is available, the file
+/// ends, or a record exceeds `max_record` bytes. A trailing incomplete record
+/// is retained for a later sweep. Returns complete lines, the new offset, and
+/// whether an oversized record was consumed so the caller can count it.
+///
+/// A record longer than one quantum must still finish: stopping at the
+/// quantum would leave the offset where it was, and every later sweep would
+/// reread the same bytes.
 fn read_quantum(
     file: &mut std::fs::File,
     offset: i64,
     quantum: usize,
-) -> CoreResult<(Vec<Vec<u8>>, i64)> {
+    max_record: usize,
+) -> CoreResult<(Vec<Vec<u8>>, i64, bool)> {
     file.seek(SeekFrom::Start(offset as u64))?;
-    let mut buffer = vec![0u8; quantum];
-    let mut filled = 0usize;
-    while filled < quantum {
-        let read = file.read(&mut buffer[filled..])?;
+    let mut buffer: Vec<u8> = Vec::new();
+    loop {
+        let mut chunk = vec![0u8; quantum.max(1)];
+        let read = file.read(&mut chunk)?;
         if read == 0 {
             break;
         }
-        filled += read;
+        buffer.extend_from_slice(&chunk[..read]);
+        if buffer.contains(&b'\n') || buffer.len() > max_record {
+            break;
+        }
     }
-    buffer.truncate(filled);
     let mut lines = Vec::new();
     let mut start = 0usize;
     while let Some(newline) = buffer[start..].iter().position(|byte| *byte == b'\n') {
@@ -117,7 +126,12 @@ fn read_quantum(
         lines.push(buffer[start..end].to_vec());
         start = end + 1;
     }
-    Ok((lines, offset + start as i64))
+    if lines.is_empty() && buffer.len() > max_record {
+        // No newline within the record limit: consume the oversized prefix so
+        // capture moves on. The caller counts it as skipped.
+        return Ok((Vec::new(), offset + buffer.len() as i64, true));
+    }
+    Ok((lines, offset + start as i64, false))
 }
 
 fn hash_prefix(file: &mut std::fs::File, size: i64) -> CoreResult<Option<String>> {
@@ -302,7 +316,9 @@ fn capture_jsonl(
     report.generation = generation.clone();
 
     let quantum = sources.quantum_bytes;
-    let (lines, consumed_to) = match read_quantum(&mut file, offset, quantum) {
+    let max_record = sources.max_record_bytes;
+    let (lines, consumed_to, oversized) = match read_quantum(&mut file, offset, quantum, max_record)
+    {
         Ok(value) => value,
         Err(_) => {
             report.state = "retry_wait".into();
@@ -318,7 +334,6 @@ fn capture_jsonl(
             return;
         }
     };
-    let max_record = sources.max_record_bytes;
     let mut parser = LineParser::new(
         &row.client,
         &path_identity(row, path),
@@ -326,7 +341,7 @@ fn capture_jsonl(
     );
     let mut records: Vec<SourceRecord> = Vec::new();
     let mut corrections: HashMap<String, String> = HashMap::new();
-    let mut skipped = 0i64;
+    let mut skipped = i64::from(oversized);
     for line in &lines {
         if line.len() > max_record {
             skipped += 1;
@@ -624,15 +639,19 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
 /// when the walk is complete.
 /// How deep discovery walks below a root, and how many files it collects.
 const MAX_DISCOVERY_DEPTH: usize = 4;
-const MAX_DISCOVERY_ENTRIES: usize = 20_000;
+/// Largest candidate list one sweep builds. Beyond it the walk stops and the
+/// scan is reported incomplete, so a truncated listing is never taken for the
+/// whole directory.
+const MAX_DISCOVERY_ENTRIES: usize = 200_000;
 
-/// Collect candidate files under a root, breadth-first and bounded.
+/// Collect candidate files under a root, bounded by depth and by `cap`. Returns
+/// true when the cap stopped the walk before every candidate was listed.
 fn collect_candidate_files(
     directory: &Path,
     max_depth: usize,
     cap: usize,
     out: &mut Vec<PathBuf>,
-) -> std::io::Result<()> {
+) -> std::io::Result<bool> {
     let mut queue: Vec<(PathBuf, usize)> = vec![(directory.to_path_buf(), 0)];
     while let Some((dir, depth)) = queue.pop() {
         let mut children: Vec<PathBuf> = std::fs::read_dir(&dir)?
@@ -650,11 +669,11 @@ fn collect_candidate_files(
             }
             out.push(path);
             if out.len() >= cap {
-                return Ok(());
+                return Ok(true);
             }
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 pub fn discover_page(
@@ -669,7 +688,7 @@ pub fn discover_page(
     // <root>/<project>/<session>.jsonl), so discovery walks bounded depth
     // instead of only the root's immediate entries.
     let mut entries: Vec<PathBuf> = Vec::new();
-    collect_candidate_files(
+    let truncated = collect_candidate_files(
         directory,
         MAX_DISCOVERY_DEPTH,
         MAX_DISCOVERY_ENTRIES,
@@ -689,7 +708,9 @@ pub fn discover_page(
         };
         registered.push(row);
     }
-    let complete = start + page.len() >= entries.len();
+    // A truncated listing is never complete: the sessions it left out would
+    // otherwise be skipped by every later sweep.
+    let complete = !truncated && start + page.len() >= entries.len();
     let next_cursor = page
         .last()
         .map(|path| path.to_string_lossy().to_string())
@@ -922,4 +943,22 @@ pub fn reject_relative_escape(path: &Path) -> CoreResult<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_walk_stopped_by_the_cap_reports_truncation() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for name in ["a.jsonl", "b.jsonl", "c.jsonl"] {
+            std::fs::write(dir.path().join(name), "{}\n").expect("write");
+        }
+        let mut listed = Vec::new();
+        assert!(collect_candidate_files(dir.path(), 1, 2, &mut listed).expect("walk"));
+        let mut all = Vec::new();
+        assert!(!collect_candidate_files(dir.path(), 1, 10, &mut all).expect("walk"));
+        assert_eq!(all.len(), 3);
+    }
 }

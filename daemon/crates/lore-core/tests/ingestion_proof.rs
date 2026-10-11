@@ -563,3 +563,50 @@ fn claude_sessions_with_leading_control_records_still_register() {
         "identity comes from the matched turn record, not the control lines"
     );
 }
+
+#[test]
+fn a_record_larger_than_one_quantum_is_skipped_and_capture_moves_on() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut config = config(dir.path(), "pi", None);
+    config.sources.quantum_bytes = 1024;
+    config.sources.max_record_bytes = 2 * 1024;
+    let store = Store::open(&config).expect("open");
+    let oversized = format!(
+        "{{\"type\":\"message\",\"pad\":\"{}\"}}\n",
+        "x".repeat(10 * 1024)
+    );
+    let contents = format!(
+        "{}{}",
+        oversized,
+        PI.replace("pi-golden-1", "pi-after-big-1")
+    );
+    let path = write(dir.path(), "big.jsonl", &contents);
+    let row = register(&store, &config, &path, Some("pi-after-big-1"));
+    let mut report = capture(&store, &config, &row, 2_000);
+    for tick in 0..50 {
+        if report.state == "caught_up" {
+            break;
+        }
+        let row = store
+            .source_by_id(&row.source_id)
+            .expect("get")
+            .expect("row");
+        report = capture(&store, &config, &row, 2_100 + tick);
+    }
+    assert_eq!(
+        report.state, "caught_up",
+        "capture finishes past the oversized record"
+    );
+    assert_eq!(
+        report.offset as u64,
+        std::fs::metadata(&path).expect("meta").len()
+    );
+    assert!(report.skipped >= 1, "the oversized record is counted");
+    assert_eq!(
+        store
+            .source_record_count(&row.source_id, &report.generation)
+            .expect("count"),
+        5,
+        "the records after it are captured"
+    );
+}

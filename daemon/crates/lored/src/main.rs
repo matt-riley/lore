@@ -2657,7 +2657,9 @@ async fn handle_analysis(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
             },
         );
     }
-    let prompt = build_analysis_prompt(kind, &query, params.repository.as_deref(), &records);
+    let (prompt, included) =
+        build_analysis_prompt(kind, &query, params.repository.as_deref(), &records);
+    let records: Vec<Value> = records.into_iter().take(included).collect();
     let provider = match lore_provider::ChatProvider::new(
         &config.endpoint,
         &config.model,
@@ -2771,12 +2773,17 @@ async fn handle_analysis(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
     )
 }
 
+/// The most prompt bytes one analysis call carries.
+const ANALYSIS_PROMPT_LIMIT: usize = 64 * 1024;
+
+/// Build the prompt and report how many records it includes. The repository and query
+/// are reserved first, so records are the part that gets cut, never the query.
 fn build_analysis_prompt(
     kind: &str,
     query: &str,
     repository: Option<&str>,
     records: &[Value],
-) -> String {
+) -> (String, usize) {
     let mut prompt = String::new();
     if kind == "query-expansion" {
         prompt.push_str(
@@ -2789,27 +2796,35 @@ fn build_analysis_prompt(
             "Reply with JSON: {\"sections\": [{\"id\": \"<record id>\", \"text\": \"...\"}]}. ",
         );
         prompt.push_str("Use only the supplied ids and never invent one. Do not add commentary.\n");
+    }
+    let tail = format!(
+        "\nRepository: {}\nQuery: {query}",
+        repository.unwrap_or("global")
+    );
+    let mut included = 0;
+    if kind != "query-expansion" {
         for record in records {
             let content = record["content"].as_str().unwrap_or_default();
             let bounded: String = content.chars().take(2_000).collect();
-            prompt.push_str(&format!(
+            let entry = format!(
                 "\n[{}] {bounded}\n",
                 record["id"].as_str().unwrap_or_default()
-            ));
+            );
+            if prompt.len() + entry.len() + tail.len() > ANALYSIS_PROMPT_LIMIT {
+                break;
+            }
+            prompt.push_str(&entry);
+            included += 1;
         }
     }
-    prompt.push_str("\nRepository: ");
-    prompt.push_str(repository.unwrap_or("global"));
-    prompt.push_str("\nQuery: ");
-    prompt.push_str(query);
-    // Cut at a character boundary: byte 64 KiB can fall inside a multibyte character,
-    // and truncating there would panic.
-    let mut cut = (64 * 1024).min(prompt.len());
+    prompt.push_str(&tail);
+    // A query longer than the whole limit is cut at a character boundary, not mid-character.
+    let mut cut = ANALYSIS_PROMPT_LIMIT.min(prompt.len());
     while !prompt.is_char_boundary(cut) {
         cut -= 1;
     }
     prompt.truncate(cut);
-    prompt
+    (prompt, included)
 }
 
 /// Validate the model's JSON against the bounded contract. Unknown ids are
@@ -3139,9 +3154,36 @@ mod tests {
     fn analysis_prompts_are_cut_on_a_character_boundary() {
         // Multibyte characters put byte 64 KiB inside one of them.
         let query = "é".repeat(40 * 1024);
-        let prompt = build_analysis_prompt("query-expansion", &query, None, &[]);
+        let (prompt, _) = build_analysis_prompt("query-expansion", &query, None, &[]);
         assert!(prompt.len() <= 64 * 1024);
         assert!(prompt.is_char_boundary(prompt.len()));
+    }
+
+    #[test]
+    fn context_compression_keeps_the_query_and_only_the_records_it_includes() {
+        let records: Vec<Value> = (0..40)
+            .map(|index| serde_json::json!({ "id": format!("m{index}"), "content": "x".repeat(2_000) }))
+            .collect();
+        let (prompt, included) = build_analysis_prompt(
+            "context-compression",
+            "find the deployment notes",
+            Some("acme/app"),
+            &records,
+        );
+        assert!(
+            prompt.contains("Query: find the deployment notes"),
+            "{prompt:.200}"
+        );
+        assert!(
+            included > 0 && included < records.len(),
+            "included {included}"
+        );
+        assert!(prompt.contains(&format!("[m{}]", included - 1)));
+        assert!(
+            !prompt.contains(&format!("[m{included}]")),
+            "a record past the count was sent"
+        );
+        assert!(prompt.len() <= 64 * 1024);
     }
 
     #[tokio::test]

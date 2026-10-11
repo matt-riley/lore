@@ -104,6 +104,21 @@ fn expand_selection(clients: &[String]) -> Result<Vec<String>, String> {
     validate_selection(clients)
 }
 
+/// Put back files a failed setup had already changed. `None` means the file did
+/// not exist before, so it is removed again.
+fn restore_files(touched: &[(PathBuf, Option<Vec<u8>>)]) {
+    for (path, previous) in touched.iter().rev() {
+        match previous {
+            Some(bytes) => {
+                let _ = write_private(path, bytes);
+            }
+            None => {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
 fn integration_document(client: &str, socket: Option<&Path>, version: &str) -> Value {
     json!({
         "formatVersion": 1,
@@ -206,69 +221,83 @@ pub fn setup_apply(
         }
     }
 
-    for client in &selected {
-        let path = integration_file(home, client);
-        if remove {
-            if !path.exists() {
-                actions.push(json!({ "client": client, "state": "absent" }));
+    // Every write or removal is recorded first. If any later step fails, the
+    // earlier files are put back, so no client is left changed without its
+    // manifest entry.
+    let mut touched: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
+    let outcome = (|| -> Result<(), String> {
+        for client in &selected {
+            let path = integration_file(home, client);
+            if remove {
+                if !path.exists() {
+                    actions.push(json!({ "client": client, "state": "absent" }));
+                    continue;
+                }
+                let recorded = manifest["managed"][client]["hash"]
+                    .as_str()
+                    .map(str::to_string);
+                let current = std::fs::read(&path)
+                    .map(|bytes| sha256_hex(&bytes))
+                    .unwrap_or_default();
+                if recorded.as_deref() != Some(current.as_str()) {
+                    actions.push(json!({
+                        "client": client,
+                        "state": "retained",
+                        "reason": "file was modified outside lore; not removing",
+                    }));
+                    continue;
+                }
+                touched.push((path.clone(), std::fs::read(&path).ok()));
+                std::fs::remove_file(&path).map_err(|error| format!("remove {path:?}: {error}"))?;
+                if let Some(map) = manifest["managed"].as_object_mut() {
+                    map.remove(client);
+                }
+                actions.push(json!({ "client": client, "state": "removed" }));
                 continue;
             }
-            let recorded = manifest["managed"][client]["hash"]
-                .as_str()
-                .map(str::to_string);
-            let current = std::fs::read(&path)
-                .map(|bytes| sha256_hex(&bytes))
-                .unwrap_or_default();
-            if recorded.as_deref() != Some(current.as_str()) {
-                actions.push(json!({
-                    "client": client,
-                    "state": "retained",
-                    "reason": "file was modified outside lore; not removing",
-                }));
-                continue;
-            }
-            std::fs::remove_file(&path).map_err(|error| format!("remove {path:?}: {error}"))?;
-            if let Some(map) = manifest["managed"].as_object_mut() {
-                map.remove(client);
-            }
-            actions.push(json!({ "client": client, "state": "removed" }));
-            continue;
-        }
 
-        let document = integration_document(client, socket, version);
-        let rendered = serde_json::to_string_pretty(&document).unwrap_or_default();
-        let hash = sha256_hex(rendered.as_bytes());
-        if path.exists() {
-            let current = std::fs::read(&path)
-                .map(|bytes| sha256_hex(&bytes))
-                .unwrap_or_default();
-            let recorded = manifest["managed"][client]["hash"]
-                .as_str()
-                .map(str::to_string);
-            let owned = recorded.as_deref() == Some(current.as_str());
-            if hash == current {
-                actions.push(json!({ "client": client, "state": "unchanged" }));
-                continue;
+            let document = integration_document(client, socket, version);
+            let rendered = serde_json::to_string_pretty(&document).unwrap_or_default();
+            let hash = sha256_hex(rendered.as_bytes());
+            if path.exists() {
+                let current = std::fs::read(&path)
+                    .map(|bytes| sha256_hex(&bytes))
+                    .unwrap_or_default();
+                let recorded = manifest["managed"][client]["hash"]
+                    .as_str()
+                    .map(str::to_string);
+                let owned = recorded.as_deref() == Some(current.as_str());
+                if hash == current {
+                    actions.push(json!({ "client": client, "state": "unchanged" }));
+                    continue;
+                }
+                if !owned && !replace_unowned {
+                    return Err(format!(
+                        "{} exists and is not owned by lore; rerun with --replace-unowned to replace it",
+                        path.display()
+                    ));
+                }
+                // Recoverable copy before replacing an owned entry.
+                std::fs::create_dir_all(backup_dir(home))
+                    .map_err(|error| format!("create backup dir: {error}"))?;
+                let backup = backup_dir(home).join(format!("{client}.{}.json", now_ms()));
+                std::fs::copy(&path, &backup)
+                    .map_err(|error| format!("backup {path:?}: {error}"))?;
             }
-            if !owned && !replace_unowned {
-                return Err(format!(
-                    "{} exists and is not owned by lore; rerun with --replace-unowned to replace it",
-                    path.display()
-                ));
-            }
-            // Recoverable copy before replacing an owned entry.
-            std::fs::create_dir_all(backup_dir(home))
-                .map_err(|error| format!("create backup dir: {error}"))?;
-            let backup = backup_dir(home).join(format!("{client}.{}.json", now_ms()));
-            std::fs::copy(&path, &backup).map_err(|error| format!("backup {path:?}: {error}"))?;
+            touched.push((path.clone(), std::fs::read(&path).ok()));
+            write_private(&path, rendered.as_bytes())?;
+            manifest["managed"][client] = json!({
+                "path": path.display().to_string(),
+                "hash": hash,
+                "updatedMs": now_ms(),
+            });
+            actions.push(json!({ "client": client, "state": "written" }));
         }
-        write_private(&path, rendered.as_bytes())?;
-        manifest["managed"][client] = json!({
-            "path": path.display().to_string(),
-            "hash": hash,
-            "updatedMs": now_ms(),
-        });
-        actions.push(json!({ "client": client, "state": "written" }));
+        Ok(())
+    })();
+    if let Err(error) = outcome {
+        restore_files(&touched);
+        return Err(error);
     }
     if !remove {
         manifest["formatVersion"] = json!(1);

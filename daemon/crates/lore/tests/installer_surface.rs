@@ -445,3 +445,35 @@ fn setup_refuses_before_writing_any_client_when_a_later_target_is_unowned() {
         "no client file is written when a later one is refused"
     );
 }
+
+#[test]
+fn a_failed_setup_restores_the_clients_it_already_wrote() {
+    let home = tempfile::tempdir().expect("home");
+    let integrations = home.path().join(".lore/integrations");
+    std::fs::create_dir_all(&integrations).expect("mkdir");
+    std::fs::write(integrations.join("codex.json"), "{}\n").expect("unowned codex");
+    // A file where the backup directory should be makes codex's backup step fail
+    // after pi (processed first) has already been written.
+    std::fs::write(integrations.join(".backup"), "not a directory").expect("block backups");
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "setup",
+            "--clients",
+            "pi,codex",
+            "--apply",
+            "--replace-unowned",
+            "--output",
+            "json",
+        ],
+    );
+    assert_ne!(code, 0, "{stderr}");
+    assert!(
+        !integrations.join("pi.json").exists(),
+        "pi is rolled back when codex fails"
+    );
+    assert_eq!(
+        std::fs::read_to_string(integrations.join("codex.json")).expect("codex intact"),
+        "{}\n"
+    );
+}

@@ -8,8 +8,16 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 fn run_cli(args: &[&str], stdin: Option<&str>) -> (i32, String, String) {
+    run_cli_with_env(args, stdin, &[])
+}
+
+fn run_cli_with_env(
+    args: &[&str],
+    stdin: Option<&str>,
+    env: &[(&str, &str)],
+) -> (i32, String, String) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_lore"));
-    command.args(args);
+    command.args(args).envs(env.iter().copied());
     if stdin.is_some() {
         command.stdin(Stdio::piped());
     } else {
@@ -440,6 +448,52 @@ fn prompt_hook_answers_neutrally_when_the_daemon_never_replies() {
     assert_eq!(stdout.trim(), "{}", "neutral output: {stdout}");
     assert!(
         started.elapsed() < std::time::Duration::from_secs(2),
+        "bounded by the hook budget"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stalled_repository_lookup_still_answers_within_the_hook_budget() {
+    // A `git` that never returns stands in for a repository on a hung filesystem.
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let git = dir.path().join("git");
+    std::fs::write(&git, "#!/bin/sh\nsleep 30\n").expect("fake git");
+    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    let socket = dir.path().join("silent.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
+    let _keep = std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming().flatten() {
+            held.push(stream);
+        }
+    });
+    let payload = format!(
+        r#"{{"prompt":"anything","cwd":"{}"}}"#,
+        dir.path().display()
+    );
+    let started = std::time::Instant::now();
+    let path = format!(
+        "{}:{}",
+        dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let (code, stdout, stderr) = run_cli_with_env(
+        &[
+            "--socket",
+            socket.to_str().expect("utf8"),
+            "hook",
+            "claude",
+            "UserPromptSubmit",
+        ],
+        Some(&payload),
+        &[("PATH", &path)],
+    );
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(stdout.trim(), "{}", "neutral output: {stdout}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
         "bounded by the hook budget"
     );
 }

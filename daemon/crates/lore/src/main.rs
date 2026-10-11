@@ -467,7 +467,10 @@ async fn run(cli: Cli) -> Result<(), String> {
                 "{}",
                 serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
             );
-            return Ok(());
+            // The answer is out. Exit now: the runtime would otherwise wait for a
+            // blocking lookup (such as a stalled git) that the deadline abandoned.
+            std::io::Write::flush(&mut std::io::stdout()).ok();
+            std::process::exit(0);
         }
         Command::Backup { destination } => {
             let store = resolve_store_path(&cli)?;

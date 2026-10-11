@@ -256,7 +256,15 @@ async fn run_within_budget(
         None if is_session_start(event) => "session start".to_string(),
         None => return (neutral_response(client, event), None),
     };
-    let repository = repository_from(&payload);
+    // Git can stall on a slow filesystem. Running the lookup on a blocking
+    // thread lets the hook's deadline fire while it is still waiting.
+    let repository = {
+        let payload = payload.clone();
+        tokio::task::spawn_blocking(move || repository_from(&payload))
+            .await
+            .ok()
+            .flatten()
+    };
     let meta = RequestMeta {
         client_id: format!("hook.{client}"),
         request_id: format!("hook-{}-{}", std::process::id(), nanos()),

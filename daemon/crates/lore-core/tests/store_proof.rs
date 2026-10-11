@@ -1231,3 +1231,42 @@ fn a_pending_receipt_marks_an_operation_that_never_settled() {
         .expect("receipt present");
     assert_eq!(response, r#"{"ok":true}"#);
 }
+
+#[test]
+fn extraction_retry_settles_its_receipt_with_the_reset() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = open(dir.path());
+    let receipt = lore_core::store::ReceiptRef {
+        client_id: "client",
+        operation: "extraction.retry",
+        key: "extraction-retry-1",
+        request_hash: "hash",
+    };
+
+    // A response that cannot be produced rolls the receipt back with the reset.
+    store
+        .reset_extraction_intents_with_receipt("rules-v1", 1_000, &receipt, |_| {
+            Err(lore_core::error::CoreError::internal("NO_RESPONSE", "test"))
+        })
+        .expect_err("the response closure failed");
+    assert!(
+        store
+            .lookup_receipt_json("client", "extraction.retry", "extraction-retry-1")
+            .expect("lookup")
+            .is_none(),
+        "a failed reset leaves no receipt"
+    );
+
+    // A successful reset commits its receipt in the same transaction.
+    let reset = store
+        .reset_extraction_intents_with_receipt("rules-v1", 2_000, &receipt, |reset| {
+            Ok(format!(r#"{{"reset":{reset}}}"#))
+        })
+        .expect("reset");
+    let (hash, response) = store
+        .lookup_receipt_json("client", "extraction.retry", "extraction-retry-1")
+        .expect("lookup")
+        .expect("receipt present");
+    assert_eq!(hash, "hash");
+    assert_eq!(response, format!(r#"{{"reset":{reset}}}"#));
+}

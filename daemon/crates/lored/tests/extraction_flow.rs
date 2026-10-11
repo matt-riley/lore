@@ -231,6 +231,29 @@ async fn extraction_applies_scoped_automatic_memories_with_evidence() {
         "reset count must be reported: {retry}"
     );
     assert_eq!(retry["result"]["ruleVersion"], "rules-v1");
+
+    // The same key replays its stored acknowledgement.
+    let (status, replay) = call(
+        &daemon.socket,
+        "/v2/extraction/retry",
+        json!({ "idempotencyKey": "retry-1" }),
+    )
+    .await;
+    assert_eq!(status, 200, "body: {replay}");
+    assert_eq!(replay["result"], retry["result"], "the same key replays");
+
+    // A reused key with a different rule version is a conflict, not a second reset.
+    let (status, conflict) = call(
+        &daemon.socket,
+        "/v2/extraction/retry",
+        json!({ "idempotencyKey": "retry-1", "ruleVersion": "rules-v0" }),
+    )
+    .await;
+    assert_eq!(status, 409, "body: {conflict}");
+    assert_eq!(
+        conflict["error"]["reason"], "IDEMPOTENCY_CONFLICT",
+        "{conflict}"
+    );
 }
 
 #[tokio::test]

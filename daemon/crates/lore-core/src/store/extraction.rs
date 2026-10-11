@@ -1,12 +1,14 @@
 //! Proposal application: memory writes, evidence links, suppression and
 //! supersession for automatic extraction.
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, CoreResult};
 use crate::extraction::{Proposal, memory_id_for};
 use crate::store::Store;
+
+use super::{ReceiptRef, store_receipt};
 
 /// Outcome of applying one extraction result.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -372,16 +374,31 @@ impl Store {
     /// Explicit reprocessing: reschedule every completed or failed intent
     /// under the requested rule version. Existing evidence is not rewritten
     /// without this call; the result is idempotent because propositions keep
-    /// stable identity.
-    pub fn reset_extraction_intents(&self, rule_version: &str, now_ms: i64) -> CoreResult<u64> {
-        let connection = self.writer.lock().expect("writer lock");
-        let changed = connection.execute(
-            "UPDATE extraction_intents SET state = 'pending', rule_version = ?1, attempts = 0, \
-             next_attempt_ms = NULL, terminal_reason = NULL, updated_ms = ?2 \
-             WHERE state IN ('complete', 'failed', 'pending', 'retry_wait')",
-            params![rule_version, now_ms],
+    /// stable identity. The reset and its replay receipt commit together, so a
+    /// committed reset always has a response to replay and a failed one leaves
+    /// neither.
+    pub fn reset_extraction_intents_with_receipt(
+        &self,
+        rule_version: &str,
+        now_ms: i64,
+        receipt: &ReceiptRef<'_>,
+        response: impl FnOnce(u64) -> CoreResult<String>,
+    ) -> CoreResult<u64> {
+        let mut connection = self.writer.lock().expect("writer lock");
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let reset = reset_extraction_intents(&transaction, rule_version, now_ms)?;
+        let response_json = response(reset)?;
+        store_receipt(
+            &transaction,
+            receipt.client_id,
+            receipt.operation,
+            receipt.key,
+            receipt.request_hash,
+            &response_json,
+            now_ms,
         )?;
-        Ok(changed as u64)
+        transaction.commit()?;
+        Ok(reset)
     }
 
     /// Count intents by state for diagnostics.
@@ -440,4 +457,19 @@ impl Store {
             now_ms,
         )
     }
+}
+
+/// The reset itself, run inside a caller-owned transaction.
+fn reset_extraction_intents(
+    transaction: &rusqlite::Transaction<'_>,
+    rule_version: &str,
+    now_ms: i64,
+) -> CoreResult<u64> {
+    let changed = transaction.execute(
+        "UPDATE extraction_intents SET state = 'pending', rule_version = ?1, attempts = 0, \
+         next_attempt_ms = NULL, terminal_reason = NULL, updated_ms = ?2 \
+         WHERE state IN ('complete', 'failed', 'pending', 'retry_wait')",
+        params![rule_version, now_ms],
+    )?;
+    Ok(changed as u64)
 }

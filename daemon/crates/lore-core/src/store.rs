@@ -756,7 +756,7 @@ impl Store {
             memory_id,
             committed_revision: revision.to_string(),
             write_result: "created".to_string(),
-            embedding_status: "disabled".to_string(),
+            embedding_status: intent_state.to_string(),
         };
         let response_json = serde_json::to_string(&result)?;
         store_receipt(

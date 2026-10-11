@@ -424,3 +424,22 @@ async fn config_reload_replays_the_first_result_for_a_same_key() {
         "the retry did not apply 0.75: {second}"
     );
 }
+
+#[tokio::test]
+async fn an_unchanged_reload_settles_and_replays_its_acknowledgement() {
+    let provider = FakeProvider::start(Mode::Ok).await;
+    let daemon = Daemon::start(&provider.endpoint);
+    let initial = wait_for_status(&daemon.socket, |_| true).await;
+    let store_id = initial["storeId"].as_str().expect("storeId").to_string();
+
+    // The configured file already matches the running settings, so nothing changes.
+    let first = reload(&daemon.socket, &store_id, "reload-unchanged").await;
+    assert_eq!(first["result"]["reason"], "UNCHANGED", "{first}");
+    assert_eq!(first["result"]["reloaded"], false, "{first}");
+
+    let replay = reload(&daemon.socket, &store_id, "reload-unchanged").await;
+    assert_eq!(
+        replay["result"], first["result"],
+        "the same key replays the unchanged acknowledgement"
+    );
+}

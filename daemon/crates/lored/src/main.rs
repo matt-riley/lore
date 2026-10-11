@@ -2459,6 +2459,32 @@ async fn handle_jobs_retry(raw: &[u8], state: &Arc<State>, fallback_id: Option<S
     )
 }
 
+/// Settle a keyed reload receipt with the result being reported. Serialization or
+/// a transient store failure is retried; a failure leaves the pending marker in
+/// place, so a retry is refused as an unknown outcome instead of re-reading the
+/// file.
+fn settle_reload_receipt(
+    state: &Arc<State>,
+    client_id: &str,
+    key: &str,
+    result: &ConfigReloadResult,
+) -> Result<(), String> {
+    let response = serde_json::to_string(result).map_err(|error| error.to_string())?;
+    let settle = || {
+        state
+            .store
+            .finish_receipt_json(client_id, "config.reload", key, &response)
+    };
+    let mut attempt = settle();
+    for _ in 1..3 {
+        if attempt.is_ok() {
+            break;
+        }
+        attempt = settle();
+    }
+    attempt.map_err(|error| error.to_string())
+}
+
 async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Option<String>) -> Resp {
     let envelope =
         match parse_route::<ConfigReloadParams>(raw, fallback_id.as_deref(), &state.store_id) {
@@ -2605,15 +2631,24 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
             generation: state.generation.load(Ordering::Relaxed),
             reason: "UNCHANGED".to_string(),
         };
-        // Nothing changed, so a lost response retries to the same answer.
-        if let Ok(response) = serde_json::to_string(&result) {
-            let _ = state.store.store_receipt_json(
-                &client_id,
-                "config.reload",
-                &key,
-                &hash,
-                &response,
-                now_ms(),
+        // Nothing changed, but the acknowledgement is still recorded before it is
+        // reported: a lost response must replay, not apply a newer file later.
+        if let Err(error) =
+            state
+                .store
+                .begin_receipt_json(&client_id, "config.reload", &key, &hash, now_ms())
+        {
+            return core_response(error, &request_id, &store_id);
+        }
+        if let Err(error) = settle_reload_receipt(state, &client_id, &key, &result) {
+            eprintln!("[lored] config.reload receipt not settled: {error}");
+            return fail_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                code::INTERNAL,
+                "IDEMPOTENCY_OUTCOME_UNKNOWN",
+                false,
+                Some(&request_id),
+                Some(&store_id),
             );
         }
         return json(
@@ -2666,26 +2701,9 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
         generation,
         reason: reason.to_string(),
     };
-    // The settings are live now, so a failed settle is reported as an unknown
-    // outcome; the pending marker keeps a retry from applying the file again.
-    let settled = serde_json::to_string(&result)
-        .map_err(|error| error.to_string())
-        .and_then(|response| {
-            let settle = || {
-                state
-                    .store
-                    .finish_receipt_json(&client_id, "config.reload", &key, &response)
-            };
-            let mut attempt = settle();
-            for _ in 1..3 {
-                if attempt.is_ok() {
-                    break;
-                }
-                attempt = settle();
-            }
-            attempt.map_err(|error| error.to_string())
-        });
-    if let Err(error) = settled {
+    // The live state and the marker agree on the key now, so a failed settle is
+    // reported as an unknown outcome rather than a success that cannot replay.
+    if let Err(error) = settle_reload_receipt(state, &client_id, &key, &result) {
         eprintln!("[lored] config.reload receipt not settled: {error}");
         return fail_response(
             StatusCode::INTERNAL_SERVER_ERROR,

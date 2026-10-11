@@ -292,6 +292,45 @@ test("an uncertain write is replayed from the journal before it is cleared", asy
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("a retry is refused when the daemon serves a different store", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-"));
+  const journalPath = path.join(dir, "uncertain-writes.json");
+  let dispatched = 0;
+  let servedStore = "store-original";
+  const fakeClient = {
+    negotiated: async () => ({ storeId: servedStore, capabilities: [] }),
+    requireCapability: async () => {},
+    call: async () => {
+      dispatched += 1;
+      const error = new Error("daemon did not answer");
+      error.reason = "REQUEST_DEADLINE";
+      throw error;
+    },
+  };
+  const session = createHostSession({
+    socketPath: "/tmp/unused.sock",
+    createClient: () => fakeClient,
+    journalPath,
+  });
+  await assert.rejects(
+    () => session.invokeTool("lore_retain", { content: "Uncertain." }, { sessionId: "s" }),
+    /did not answer/,
+  );
+  const [pending] = session.retries();
+  assert.equal(dispatched, 1);
+
+  // The store is replaced; the recorded write must not follow it.
+  servedStore = "store-replaced";
+  const response = await retriesResponse(session, `retry ${pending.key}`);
+  assert.match(response, /belongs to store store-original/);
+  assert.equal(dispatched, 1, "the replacement store received no dispatch");
+  assert.equal(session.retries().length, 1, "the entry stays unresolved");
+  const entry = session.journal.entry(pending.key);
+  assert.equal(entry.resolved, false);
+  assert.notEqual(entry.params, null);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("journal capacity rejects a write before dispatch", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-"));
   const journalPath = path.join(dir, "uncertain-writes.json");

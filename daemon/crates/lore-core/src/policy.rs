@@ -151,8 +151,9 @@ pub fn scope_str(scope: Scope) -> &'static str {
     }
 }
 
-/// Deterministic canonical payload hash for Retain retries.
-pub fn retain_request_hash(params: &RetainParams) -> String {
+/// Deterministic canonical payload hash for Retain retries. A payload that
+/// cannot be encoded is an error, never a hash of empty bytes.
+pub fn retain_request_hash(params: &RetainParams) -> CoreResult<String> {
     let mut map = Map::new();
     map.insert("type".to_string(), json!(params.kind));
     map.insert("content".to_string(), json!(params.content));
@@ -176,7 +177,7 @@ pub fn retain_request_hash(params: &RetainParams) -> String {
         "sourceSessionId".to_string(),
         json!(params.source_session_id),
     );
-    sha256_hex(&serde_json::to_vec(&Value::Object(map)).unwrap_or_default())
+    params_fingerprint(&Value::Object(map))
 }
 
 /// Deterministic canonical payload hash for Forget retries.

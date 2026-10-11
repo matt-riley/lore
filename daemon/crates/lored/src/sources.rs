@@ -178,13 +178,22 @@ pub fn extract_pending(store: &Store, limit: usize, now: i64) -> ExtractionSweep
                     .complete_extraction(&claim, applied.applied, now)
                     .unwrap_or(false)
                 {
-                    let _ = store.store_extraction_receipt(
-                        &claim.source_id,
-                        &claim.generation,
-                        &claim.rule_version,
-                        &serde_json::to_string(&applied).unwrap_or_default(),
-                        now,
-                    );
+                    // An unencodable acknowledgement stores no receipt at all;
+                    // an empty body would replay as a valid-looking result.
+                    match serde_json::to_string(&applied) {
+                        Ok(body) => {
+                            let _ = store.store_extraction_receipt(
+                                &claim.source_id,
+                                &claim.generation,
+                                &claim.rule_version,
+                                &body,
+                                now,
+                            );
+                        }
+                        Err(error) => {
+                            eprintln!("[lored] extraction receipt not stored: {error}");
+                        }
+                    }
                 }
             }
             Err(_) => {

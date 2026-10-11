@@ -511,6 +511,14 @@ mod tests {
         (format!("http://127.0.0.1:{}/v1", address.port()), handle)
     }
 
+    #[test]
+    fn ipv6_loopback_endpoints_keep_their_brackets_in_the_request_uri() {
+        // url::Url::host_str keeps the brackets for IPv6 hosts; this pins that behavior.
+        let endpoint = "http://[::1]:12434/v1";
+        let provider = provider(endpoint);
+        assert_eq!(provider.request_uri(), "http://[::1]:12434/v1/embeddings");
+    }
+
     fn provider(endpoint: &str) -> EmbeddingProvider {
         let identity = ProviderIdentity::new(endpoint, "test-model", 1, 3).expect("identity");
         EmbeddingProvider::new(identity, endpoint, Duration::from_secs(5)).expect("provider")

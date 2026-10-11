@@ -95,7 +95,7 @@ async fn backlog_journal_and_review_gate_round_trip() {
     let (code, added) = call(
         &daemon.socket,
         "/v2/admin/backlog",
-        json!({ "action": "add", "title": "Port the exporter", "kind": "improvement" }),
+        json!({ "action": "add", "idempotencyKey": "gov-backlog-add-1", "title": "Port the exporter", "kind": "improvement" }),
         Some(&store_id),
     )
     .await;
@@ -116,7 +116,7 @@ async fn backlog_journal_and_review_gate_round_trip() {
     let (code, decided) = call(
         &daemon.socket,
         "/v2/admin/review-gate",
-        json!({ "action": "decide", "id": item, "state": "accepted" }),
+        json!({ "action": "decide", "idempotencyKey": "gov-review-decide-1", "id": item, "state": "accepted" }),
         Some(&store_id),
     )
     .await;
@@ -133,7 +133,7 @@ async fn backlog_journal_and_review_gate_round_trip() {
     let (code, journaled) = call(
         &daemon.socket,
         "/v2/admin/journal",
-        json!({ "action": "add", "intent": "Ship adapters next", "note": "after governance" }),
+        json!({ "action": "add", "idempotencyKey": "gov-journal-add-1", "intent": "Ship adapters next", "note": "after governance" }),
         Some(&store_id),
     )
     .await;
@@ -154,7 +154,7 @@ async fn backlog_journal_and_review_gate_round_trip() {
     let (code, moved) = call(
         &daemon.socket,
         "/v2/admin/journal",
-        json!({ "action": "update", "id": entry, "state": "doing" }),
+        json!({ "action": "update", "idempotencyKey": "gov-journal-update-1", "id": entry, "state": "doing" }),
         Some(&store_id),
     )
     .await;
@@ -178,7 +178,7 @@ async fn backlog_journal_and_review_gate_round_trip() {
     let (code, appended) = call(
         &daemon.socket,
         "/v2/admin/ledger",
-        json!({ "action": "append", "entryType": "note", "detail": "manual checkpoint" }),
+        json!({ "action": "append", "idempotencyKey": "gov-ledger-append-1", "entryType": "note", "detail": "manual checkpoint" }),
         Some(&store_id),
     )
     .await;
@@ -244,7 +244,7 @@ async fn repair_preview_applies_and_refuses_stale_plans() {
     let (code, stale) = call(
         &daemon.socket,
         "/v2/admin/repair",
-        json!({ "action": "apply", "planFingerprint": "wrong" }),
+        json!({ "action": "apply", "idempotencyKey": "gov-repair-stale-1", "planFingerprint": "wrong" }),
         Some(&store_id),
     )
     .await;
@@ -253,7 +253,7 @@ async fn repair_preview_applies_and_refuses_stale_plans() {
     let (code, applied) = call(
         &daemon.socket,
         "/v2/admin/repair",
-        json!({ "action": "apply", "planFingerprint": fingerprint, "actor": "tester" }),
+        json!({ "action": "apply", "idempotencyKey": "gov-repair-apply-1", "planFingerprint": fingerprint, "actor": "tester" }),
         Some(&store_id),
     )
     .await;

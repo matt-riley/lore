@@ -603,7 +603,7 @@ async fn reflection_chat_synthesis_validates_evidence_and_falls_back() {
     let (code, body) = call(
         &daemon.socket,
         "/v2/admin/reflect",
-        json!({ "mode": "chat", "persist": true, "limit": 10 }),
+        json!({ "mode": "chat", "persist": true, "idempotencyKey": "reflect-persist-1", "limit": 10 }),
         Some(&first_store),
     )
     .await;
@@ -651,7 +651,7 @@ async fn reflection_chat_synthesis_validates_evidence_and_falls_back() {
     let (code, body) = call(
         &strict.socket,
         "/v2/admin/reflect",
-        json!({ "mode": "chat", "persist": true, "limit": 10 }),
+        json!({ "mode": "chat", "persist": true, "idempotencyKey": "reflect-persist-2", "limit": 10 }),
         Some(&strict_store),
     )
     .await;

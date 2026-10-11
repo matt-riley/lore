@@ -352,6 +352,7 @@ async fn repair_reports_typed_candidates_and_respects_selection() {
         "/v2/admin/repair",
         json!({
             "action": "apply",
+            "idempotencyKey": "repair-unknown-1",
             "planFingerprint": fingerprint,
             "sourceLimitBytes": 1024 * 1024,
             "selectedCandidateIds": ["fts_gap:does-not-exist"]
@@ -368,6 +369,7 @@ async fn repair_reports_typed_candidates_and_respects_selection() {
         "/v2/admin/repair",
         json!({
             "action": "apply",
+            "idempotencyKey": "repair-apply-1",
             "planFingerprint": fingerprint,
             "sourceLimitBytes": 1024 * 1024,
             "selectedCandidateIds": [format!("fts_gap:{memory}")],
@@ -429,7 +431,7 @@ async fn repair_reports_typed_candidates_and_respects_selection() {
     let (code, limited) = call(
         &daemon.socket,
         "/v2/admin/repair",
-        json!({ "action": "apply", "planFingerprint": limited_plan, "sourceLimitBytes": 16 }),
+        json!({ "action": "apply", "idempotencyKey": "repair-limited-1", "planFingerprint": limited_plan, "sourceLimitBytes": 16 }),
         Some(&store_id),
     )
     .await;
@@ -462,7 +464,7 @@ async fn audit_report_stays_read_only_and_markers_apply_and_roll_back() {
     let (code, missing) = call(
         &daemon.socket,
         "/v2/admin/audit/extractions",
-        json!({ "action": "apply", "runId": "nope" }),
+        json!({ "action": "apply", "idempotencyKey": "audit-apply-missing", "runId": "nope" }),
         Some(&store_id),
     )
     .await;
@@ -472,7 +474,7 @@ async fn audit_report_stays_read_only_and_markers_apply_and_roll_back() {
     let (code, rollback_missing) = call(
         &daemon.socket,
         "/v2/admin/audit/extractions",
-        json!({ "action": "rollback", "runId": "nope" }),
+        json!({ "action": "rollback", "idempotencyKey": "audit-rollback-missing", "runId": "nope" }),
         Some(&store_id),
     )
     .await;
@@ -544,4 +546,49 @@ async fn a_keyed_admin_call_that_fails_early_is_not_left_pending() {
         second["error"]["reason"], "IDEMPOTENCY_OUTCOME_UNKNOWN",
         "{second}"
     );
+}
+
+#[tokio::test]
+async fn a_mutating_admin_operation_requires_an_idempotency_key() {
+    let daemon = Daemon::start();
+    let (_, status) = call(&daemon.socket, "/v2/status", json!({}), None).await;
+    let store_id = status["storeId"].as_str().expect("store id").to_string();
+
+    // A read still runs without a key.
+    let (read_status, read) = call(
+        &daemon.socket,
+        "/v2/admin/backlog",
+        json!({}),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(read_status, 200, "{read}");
+
+    // The same operation with a writing action is refused without one.
+    let (missing_status, missing) = call(
+        &daemon.socket,
+        "/v2/admin/backlog",
+        json!({ "action": "add", "title": "needs a key" }),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(missing_status, 400, "{missing}");
+    assert_eq!(
+        missing["error"]["reason"], "INVALID_IDEMPOTENCY_KEY",
+        "{missing}"
+    );
+
+    let (keyed_status, keyed) = call(
+        &daemon.socket,
+        "/v2/admin/backlog",
+        json!({
+            "idempotencyKey": "admin-write-1",
+            "action": "add",
+            "title": "needs a key"
+        }),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(keyed_status, 200, "{keyed}");
+    assert_eq!(keyed["result"]["state"], "proposed", "{keyed}");
 }

@@ -164,6 +164,7 @@ async fn correction_previews_applies_and_retires_the_original() {
             "id": original,
             "content": "Different proposal entirely.",
             "action": "apply",
+            "idempotencyKey": "wo-correct-stale-1",
             "planFingerprint": fingerprint
         }),
         Some(&store_id),
@@ -179,6 +180,7 @@ async fn correction_previews_applies_and_retires_the_original() {
             "id": original,
             "content": "Prefer forty-five second timeouts because the upstream batch window is longer.",
             "action": "apply",
+            "idempotencyKey": "wo-correct-apply-1",
             "planFingerprint": fingerprint,
             "reason": "test correction"
         }),
@@ -252,7 +254,7 @@ async fn purge_requires_a_plan_and_leaves_durable_suppression() {
     let (code, stale) = call(
         &daemon.socket,
         "/v2/admin/purge",
-        json!({ "memoryIds": [first], "action": "apply", "planFingerprint": "nope" }),
+        json!({ "memoryIds": [first], "action": "apply", "idempotencyKey": "wo-purge-stale-1", "planFingerprint": "nope" }),
         Some(&store_id),
     )
     .await;
@@ -264,6 +266,7 @@ async fn purge_requires_a_plan_and_leaves_durable_suppression() {
         json!({
             "memoryIds": [first],
             "action": "apply",
+            "idempotencyKey": "wo-purge-apply-1",
             "planFingerprint": fingerprint,
             "reason": "test purge"
         }),
@@ -347,6 +350,7 @@ async fn scope_override_applies_audits_and_clears() {
             "scope": "repo",
             "repository": "acme/app",
             "action": "apply",
+            "idempotencyKey": "wo-scope-apply-1",
             "planFingerprint": fingerprint,
             "actor": "tester",
             "reason": "belongs to one repository"

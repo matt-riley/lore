@@ -119,6 +119,7 @@ async fn onboard_is_idempotent_and_updates_in_place() {
         &daemon.socket,
         "/v2/admin/onboard",
         json!({
+            "idempotencyKey": "onboard-1",
             "userName": "Matt",
             "assistantName": "Felix",
             "voice": "collaborative",
@@ -145,6 +146,7 @@ async fn onboard_is_idempotent_and_updates_in_place() {
         &daemon.socket,
         "/v2/admin/onboard",
         json!({
+            "idempotencyKey": "onboard-2",
             "userName": "Matt",
             "assistantName": "Felix",
             "voice": "collaborative",
@@ -163,7 +165,7 @@ async fn onboard_is_idempotent_and_updates_in_place() {
     let (code, updated) = call(
         &daemon.socket,
         "/v2/admin/onboard",
-        json!({ "assistantName": "Felix", "voice": "playful" }),
+        json!({ "idempotencyKey": "onboard-3", "assistantName": "Felix", "voice": "playful" }),
         Some(&store_id),
     )
     .await;
@@ -185,7 +187,7 @@ async fn onboard_is_idempotent_and_updates_in_place() {
     let (_, invalid) = call(
         &daemon.socket,
         "/v2/admin/onboard",
-        json!({}),
+        json!({ "idempotencyKey": "onboard-4" }),
         Some(&store_id),
     )
     .await;
@@ -226,7 +228,7 @@ async fn maintenance_inventory_reports_and_refuses_unknown_tasks() {
     let (code, dry) = call(
         &daemon.socket,
         "/v2/admin/maintenance",
-        json!({ "action": "run", "task": "deferredExtraction", "dryRun": true }),
+        json!({ "action": "run", "idempotencyKey": "maint-dry-1", "task": "deferredExtraction", "dryRun": true }),
         Some(&store_id),
     )
     .await;
@@ -239,7 +241,7 @@ async fn maintenance_inventory_reports_and_refuses_unknown_tasks() {
     let (code, unknown) = call(
         &daemon.socket,
         "/v2/admin/maintenance",
-        json!({ "action": "run", "task": "not_a_task" }),
+        json!({ "action": "run", "idempotencyKey": "maint-unknown-1", "task": "not_a_task" }),
         Some(&store_id),
     )
     .await;
@@ -288,7 +290,7 @@ async fn reflect_builds_and_optionally_persists_a_digest() {
     let (code, persisted) = call(
         &daemon.socket,
         "/v2/admin/reflect",
-        json!({ "limit": 10, "persist": true }),
+        json!({ "limit": 10, "persist": true, "idempotencyKey": "reflect-persist-1" }),
         Some(&store_id),
     )
     .await;
@@ -317,7 +319,7 @@ async fn reflect_builds_and_optionally_persists_a_digest() {
     let (_, empty) = call(
         &daemon.socket,
         "/v2/admin/reflect",
-        json!({ "query": "zzzz-no-such-term", "persist": true }),
+        json!({ "query": "zzzz-no-such-term", "persist": true, "idempotencyKey": "reflect-empty-1" }),
         Some(&store_id),
     )
     .await;

@@ -220,6 +220,7 @@ async fn drilldown_reports_lineage_canonical_grouping_and_a_consistent_graph() {
         "/v2/admin/backlog",
         json!({
             "action": "add",
+            "idempotencyKey": "dd-backlog-add-1",
             "kind": "improvement",
             "title": "Tighten the retry path",
             "linkedMemoryId": replacement,
@@ -252,7 +253,7 @@ async fn drilldown_reports_lineage_canonical_grouping_and_a_consistent_graph() {
     let (code, unknown) = call(
         &daemon.socket,
         "/v2/admin/backlog",
-        json!({ "action": "link", "id": backlog_id, "linkedMemoryId": "mem_nope" }),
+        json!({ "action": "link", "idempotencyKey": "dd-backlog-link-1", "id": backlog_id, "linkedMemoryId": "mem_nope" }),
         Some(&store_id),
     )
     .await;
@@ -263,7 +264,7 @@ async fn drilldown_reports_lineage_canonical_grouping_and_a_consistent_graph() {
     let (code, cleared) = call(
         &daemon.socket,
         "/v2/admin/backlog",
-        json!({ "action": "link", "id": backlog_id }),
+        json!({ "action": "link", "idempotencyKey": "dd-backlog-link-2", "id": backlog_id }),
         Some(&store_id),
     )
     .await;

@@ -1310,6 +1310,31 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     }
 }
 
+/// Whether the selected admin operation writes. A writing operation needs an
+/// idempotency key so a lost response can be retried without repeating it.
+fn admin_operation_writes(operation: &str, params: &AdminParams) -> bool {
+    let action = params.action.as_deref();
+    let apply = action == Some("apply") || params.plan_fingerprint.is_some();
+    match operation {
+        "correct" | "purge" | "scope-override" | "repair" => apply,
+        "migration-unscoped" => action == Some("apply"),
+        "audit/extractions" => matches!(action, Some("apply") | Some("rollback")),
+        "reflect" => params.persist,
+        "backlog" => matches!(action, Some("add") | Some("link") | Some("update")),
+        "ledger" => action == Some("append"),
+        "journal" => matches!(action, Some("add") | Some("update")),
+        "review-gate" => action == Some("decide"),
+        "bundle" => action == Some("import"),
+        // Onboarding always writes; maintenance only when it runs a task. Deferred
+        // extraction and backfill sweeps resume safely, so a retry needs no key.
+        "onboard" => true,
+        "maintenance" => matches!(action, Some("run") | Some("rollback")),
+        // search, explain, validate, scope-audit, run-status, skill-validate,
+        // replay and doctor are read-only.
+        _ => false,
+    }
+}
+
 async fn handle_admin(
     raw: &[u8],
     state: &Arc<State>,
@@ -1336,10 +1361,14 @@ async fn handle_admin(
     }
     // A keyed admin request is replayed from its receipt when the same operation
     // with the same parameters was already applied. A reused key with different
-    // parameters is a conflict, so a lost response can be retried safely.
+    // parameters is a conflict, so a lost response can be retried safely. A
+    // writing operation without a key is refused rather than run unrecoverably.
     let client_id = envelope.meta.client_id.clone();
     let receipt = match envelope.params.idempotency_key.clone() {
         Some(key) => {
+            if let Err(error) = policy::validate_idempotency_key(&key) {
+                return core_response(error, &request_id, &store_id);
+            }
             let receipt_operation = format!("admin.{operation}");
             let mut canonical = envelope.params.clone();
             canonical.idempotency_key = None;
@@ -1349,7 +1378,21 @@ async fn handle_admin(
             };
             Some((key, receipt_operation, hash))
         }
-        None => None,
+        None => {
+            // A write without a key cannot be retried safely, so it is refused
+            // rather than run once with no receipt to replay.
+            if admin_operation_writes(&operation, &envelope.params) {
+                return core_response(
+                    CoreError::invalid(
+                        "INVALID_IDEMPOTENCY_KEY",
+                        "a mutating admin operation requires an idempotencyKey",
+                    ),
+                    &request_id,
+                    &store_id,
+                );
+            }
+            None
+        }
     };
     // Only one request per key runs at a time. Without this, two concurrent
     // requests could both miss the receipt and both perform the operation.

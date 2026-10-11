@@ -140,7 +140,7 @@ async fn maintenance_run_is_bounded_claim_exclusive_and_rolls_back_exactly() {
     let (code, dry) = call(
         &daemon.socket,
         "/v2/admin/maintenance",
-        json!({ "action": "run", "task": "memoryHygiene", "dryRun": true }),
+        json!({ "action": "run", "idempotencyKey": "maint-flow-dry-1", "task": "memoryHygiene", "dryRun": true }),
         Some(&store_id),
     )
     .await;
@@ -153,7 +153,7 @@ async fn maintenance_run_is_bounded_claim_exclusive_and_rolls_back_exactly() {
     let (code, unknown) = call(
         &daemon.socket,
         "/v2/admin/maintenance",
-        json!({ "action": "run", "task": "not-a-task" }),
+        json!({ "action": "run", "idempotencyKey": "maint-flow-unknown-1", "task": "not-a-task" }),
         Some(&store_id),
     )
     .await;
@@ -190,7 +190,7 @@ async fn maintenance_run_is_bounded_claim_exclusive_and_rolls_back_exactly() {
     let (code, applied) = call(
         &daemon.socket,
         "/v2/admin/maintenance",
-        json!({ "action": "run", "task": "memoryHygiene", "dryRun": false }),
+        json!({ "action": "run", "idempotencyKey": "maint-flow-apply-1", "task": "memoryHygiene", "dryRun": false }),
         Some(&store_id),
     )
     .await;
@@ -210,7 +210,7 @@ async fn maintenance_run_is_bounded_claim_exclusive_and_rolls_back_exactly() {
     let (code, rolled_back) = call(
         &daemon.socket,
         "/v2/admin/maintenance",
-        json!({ "action": "rollback", "runId": run_id }),
+        json!({ "action": "rollback", "idempotencyKey": "maint-flow-rollback-1", "runId": run_id }),
         Some(&store_id),
     )
     .await;
@@ -234,7 +234,7 @@ async fn maintenance_run_is_bounded_claim_exclusive_and_rolls_back_exactly() {
     let (code, bad) = call(
         &daemon.socket,
         "/v2/admin/maintenance",
-        json!({ "action": "rollback", "runId": dry_run_id }),
+        json!({ "action": "rollback", "idempotencyKey": "maint-flow-rollback-2", "runId": dry_run_id }),
         Some(&store_id),
     )
     .await;

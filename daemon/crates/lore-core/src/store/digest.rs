@@ -208,15 +208,20 @@ impl Store {
                 format!("sig:{significance}"),
                 format!("extracted:{extracted_total}")
             ]);
-            let existing: Option<(String, String)> = transaction
+            // A forgotten digest stays as a tombstone for its topic. Without it, the
+            // next pass would insert a fresh digest and resurrect what was forgotten.
+            let existing: Option<(String, String, i64)> = transaction
                 .query_row(
-                    "SELECT id, content FROM memories WHERE kind = 'episode_digest' \
-                     AND topic_key = ?1 AND forgotten = 0 AND superseded_by IS NULL LIMIT 1",
+                    "SELECT id, content, forgotten FROM memories WHERE kind = 'episode_digest' \
+                     AND topic_key = ?1 AND superseded_by IS NULL LIMIT 1",
                     params![topic_key],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .ok();
-            if let Some((existing_id, existing_content)) = &existing {
+            if let Some((_, _, 1)) = &existing {
+                continue;
+            }
+            if let Some((existing_id, existing_content, _)) = &existing {
                 if existing_content == &content {
                     // Unchanged: nothing to refresh, not even the day summary.
                     continue;
@@ -373,15 +378,20 @@ impl Store {
                 format!("episodes:{}", episode_ids.len()),
                 format!("extracted:{day_extracted}")
             ]);
-            let existing: Option<String> = transaction
+            // Same tombstone rule as episode digests: a forgotten summary keeps its
+            // topic, so a later touch of the day cannot make it visible again.
+            let existing: Option<(String, i64)> = transaction
                 .query_row(
-                    "SELECT id FROM memories WHERE kind = 'day_summary' AND topic_key = ?1 \
-                     AND forgotten = 0 AND superseded_by IS NULL LIMIT 1",
+                    "SELECT id, forgotten FROM memories WHERE kind = 'day_summary' AND topic_key = ?1 \
+                     AND superseded_by IS NULL LIMIT 1",
                     params![topic_key],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .ok();
-            match existing {
+            if let Some((_, 1)) = &existing {
+                continue;
+            }
+            match existing.map(|(memory_id, _)| memory_id) {
                 Some(memory_id) => {
                     revision += 1;
                     transaction.execute(

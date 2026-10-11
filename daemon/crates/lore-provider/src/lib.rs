@@ -15,6 +15,25 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::net::TcpStream;
 
+/// Parse a provider endpoint this build can reach. The transport is plain HTTP
+/// over a raw socket, so an `https` URL is refused rather than rewritten to
+/// `http`, which would send memory text unencrypted or fail on port 443. TLS
+/// needs its own dependency decision first.
+fn plaintext_endpoint(endpoint: &str, label: &str) -> Result<url::Url, ProviderError> {
+    let parsed = url::Url::parse(endpoint)
+        .map_err(|_| ProviderError::Config(format!("invalid {label} URL")))?;
+    match parsed.scheme() {
+        "http" if parsed.host_str().is_some() => Ok(parsed),
+        "http" => Err(ProviderError::Config(format!("{label} needs a host"))),
+        "https" => Err(ProviderError::Config(format!(
+            "{label} must be http: https is not supported by this build"
+        ))),
+        _ => Err(ProviderError::Config(format!(
+            "{label} must be an http URL"
+        ))),
+    }
+}
+
 /// Hard cap for a provider response body.
 pub const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 /// Hard cap for decoded dimensions.
@@ -51,13 +70,7 @@ impl ProviderIdentity {
                 "dimensions must be 1-{MAX_DIMENSIONS}"
             )));
         }
-        let parsed = url::Url::parse(endpoint)
-            .map_err(|_| ProviderError::Config("endpoint must be an absolute URL".to_string()))?;
-        if !matches!(parsed.scheme(), "http" | "https") {
-            return Err(ProviderError::Config(
-                "endpoint must be http or https".to_string(),
-            ));
-        }
+        let parsed = plaintext_endpoint(endpoint, "endpoint")?;
         if parsed.host_str().is_none() {
             return Err(ProviderError::Config("endpoint needs a host".to_string()));
         }
@@ -167,8 +180,7 @@ impl EmbeddingProvider {
         endpoint: &str,
         timeout: Duration,
     ) -> Result<Self, ProviderError> {
-        let endpoint = url::Url::parse(endpoint)
-            .map_err(|_| ProviderError::Config("invalid endpoint URL".to_string()))?;
+        let endpoint = plaintext_endpoint(endpoint, "endpoint")?;
         Ok(Self {
             identity,
             endpoint,
@@ -367,8 +379,7 @@ impl ChatProvider {
         api_key: Option<String>,
         timeout: Duration,
     ) -> Result<Self, ProviderError> {
-        let endpoint = url::Url::parse(endpoint)
-            .map_err(|_| ProviderError::Config("invalid analysis endpoint URL".to_string()))?;
+        let endpoint = plaintext_endpoint(endpoint, "analysis endpoint")?;
         Ok(Self {
             endpoint,
             model: model.to_string(),
@@ -609,6 +620,13 @@ mod tests {
         assert!(!identity.slug().contains("secret"));
         assert!(identity.slug().contains(":m:g2:d768:"));
         assert!(ProviderIdentity::new("http://127.0.0.1:1/v1", "", 1, 3).is_err());
+        // https is refused rather than silently sent as plaintext.
+        let https = ProviderIdentity::new("https://embeddings.example.com/v1", "m", 1, 3)
+            .expect_err("https endpoints are refused");
+        assert!(
+            https.to_string().contains("https is not supported"),
+            "{https}"
+        );
         assert!(ProviderIdentity::new("http://127.0.0.1:1/v1", "m", 1, 0).is_err());
         assert!(ProviderIdentity::new("ftp://127.0.0.1/v1", "m", 1, 3).is_err());
     }

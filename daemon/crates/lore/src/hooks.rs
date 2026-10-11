@@ -5,6 +5,7 @@
 //! host: the hook prints its neutral response and exits zero.
 
 use std::path::Path;
+use std::time::Duration;
 
 use protocol::RequestMeta;
 use serde_json::{Value, json};
@@ -209,8 +210,30 @@ pub fn neutral_response(client: &str, event: &str) -> Value {
     json!({})
 }
 
-/// Run one hook. Returns the exact stdout payload plus a stderr diagnostic.
+/// Run one hook under a single deadline. The status and recall requests share
+/// the budget, and a peer that accepts a connection but never answers cannot
+/// hold the host past it: the hook answers neutrally instead.
 pub async fn run(
+    client: &str,
+    event: &str,
+    socket: &Path,
+    payload: Value,
+) -> (Value, Option<String>) {
+    match tokio::time::timeout(
+        Duration::from_millis(HOOK_BUDGET_MS),
+        run_within_budget(client, event, socket, payload),
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(_) => (
+            neutral_response(client, event),
+            Some("lore hook: budget exceeded; no context injected".to_string()),
+        ),
+    }
+}
+
+async fn run_within_budget(
     client: &str,
     event: &str,
     socket: &Path,

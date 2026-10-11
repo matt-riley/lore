@@ -412,3 +412,31 @@ fn hooks_ignore_non_prompt_events_without_calling_the_daemon() {
     assert_eq!(code, 0);
     assert_eq!(stdout.trim(), "{}");
 }
+
+#[test]
+fn prompt_hook_answers_neutrally_when_the_daemon_never_replies() {
+    // A socket that accepts and then stays silent must not hold the host.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let socket = dir.path().join("silent.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
+    let _keep = std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming().flatten() {
+            held.push(stream);
+        }
+    });
+    let started = std::time::Instant::now();
+    let (code, stdout, stderr) = run_cli(
+        &[
+            "--socket",
+            socket.to_str().expect("utf8"),
+            "hook",
+            "claude",
+            "UserPromptSubmit",
+        ],
+        Some(r#"{"prompt":"anything at all"}"#),
+    );
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(stdout.trim(), "{}", "neutral output: {stdout}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "bounded by the hook budget");
+}

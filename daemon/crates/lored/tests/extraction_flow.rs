@@ -1,78 +1,30 @@
 //! End-to-end extraction: capture, apply, recall, suppression and correction.
 
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
 use std::time::Duration;
 
 use protocol::RequestMeta;
 use serde_json::{Value, json};
 
-struct Daemon {
-    child: Child,
-    socket: PathBuf,
-    _dir: tempfile::TempDir,
-}
+mod support;
+use support::Daemon;
 
-impl Daemon {
-    fn start(fixture: &str) -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let socket = dir.path().join("lored.sock");
-        let sources = dir.path().join("sources");
-        std::fs::create_dir_all(&sources).expect("sources dir");
-        std::fs::write(sources.join("session.jsonl"), fixture).expect("fixture");
-        let config_path = dir.path().join("lore.json");
-        let config = json!({
-            "configVersion": 2,
-            "enabled": true,
-            "dataDir": dir.path().to_str().expect("utf8"),
-            "socketPath": socket.to_str().expect("utf8"),
-            "sources": {
-                "roots": [{
-                    "rootId": "pi-root",
-                    "client": "pi",
-                    "path": sources.to_str().expect("utf8"),
-                    "repository": "acme/checkout"
-                }],
-                "sweepSeconds": 5
-            }
-        });
-        std::fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&config).expect("config"),
-        )
-        .expect("write config");
-        let child = Command::new(env!("CARGO_BIN_EXE_lored"))
-            .arg("--config")
-            .arg(&config_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn lored");
-        Self {
-            child,
-            socket,
-            _dir: dir,
-        }
-    }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        // SIGTERM lets the daemon exit cleanly, so coverage counters are written.
-        // SIGKILL would discard them.
-        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        // Wait for a clean exit, then fall back to SIGKILL so a stuck daemon cannot hang the test.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
+fn start(fixture: &str) -> Daemon {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sources = dir.path().join("sources");
+    std::fs::create_dir_all(&sources).expect("sources dir");
+    std::fs::write(sources.join("session.jsonl"), fixture).expect("fixture");
+    let mut config = Daemon::config_with(dir.path());
+    config["sources"] = json!({
+        "roots": [{
+            "rootId": "pi-root",
+            "client": "pi",
+            "path": sources.to_str().expect("utf8"),
+            "repository": "acme/checkout"
+        }],
+        "sweepSeconds": 5
+    });
+    Daemon::spawn(dir, &config, &[])
 }
 
 fn meta() -> RequestMeta {
@@ -113,7 +65,10 @@ async fn call(socket: &Path, route: &str, params: Value) -> (u16, Value) {
             Err(_) => tokio::time::sleep(Duration::from_millis(20)).await,
         }
     }
-    panic!("daemon did not accept requests");
+    panic!(
+        "daemon did not accept requests; stderr:\n{}",
+        support::stderr_for(socket)
+    );
 }
 
 async fn recall(socket: &Path, query: &str) -> Value {
@@ -192,7 +147,7 @@ const CORRECTION_FIXTURE: &str = concat!(
 
 #[tokio::test]
 async fn extraction_applies_scoped_automatic_memories_with_evidence() {
-    let daemon = Daemon::start(PREFERENCE_FIXTURE);
+    let daemon = start(PREFERENCE_FIXTURE);
     let _ = store_id(&daemon.socket).await;
     let body = wait_for_memory(&daemon.socket, "UTC timestamps persisted records", "utc").await;
     let memory = memories(&body)
@@ -258,7 +213,7 @@ async fn extraction_applies_scoped_automatic_memories_with_evidence() {
 
 #[tokio::test]
 async fn required_sections_return_without_a_topical_match() {
-    let daemon = Daemon::start(PREFERENCE_FIXTURE);
+    let daemon = start(PREFERENCE_FIXTURE);
     let _ = store_id(&daemon.socket).await;
     let _ = wait_for_memory(&daemon.socket, "UTC timestamps persisted records", "utc").await;
 
@@ -305,7 +260,7 @@ async fn required_sections_return_without_a_topical_match() {
 
 #[tokio::test]
 async fn forgetting_an_extracted_memory_survives_reread() {
-    let daemon = Daemon::start(PREFERENCE_FIXTURE);
+    let daemon = start(PREFERENCE_FIXTURE);
     let _ = store_id(&daemon.socket).await;
     let body = wait_for_memory(&daemon.socket, "UTC timestamps persisted records", "utc").await;
     let memory = memories(&body)
@@ -359,7 +314,7 @@ async fn forgetting_an_extracted_memory_survives_reread() {
 
 #[tokio::test]
 async fn corrections_retire_the_superseded_memory() {
-    let daemon = Daemon::start(CORRECTION_FIXTURE);
+    let daemon = start(CORRECTION_FIXTURE);
     let _ = store_id(&daemon.socket).await;
     let body = wait_for_memory(&daemon.socket, "worker timeout seconds", "45 second").await;
     assert!(

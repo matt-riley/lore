@@ -7,6 +7,8 @@ use std::time::Duration;
 use protocol::RequestMeta;
 use serde_json::json;
 
+mod support;
+
 fn write_config(dir: &Path, enabled: bool, socket: &Path) -> PathBuf {
     let config = dir.join("lore.json");
     let document = json!({
@@ -31,7 +33,9 @@ fn spawn(dir: &Path, enabled: bool) -> (Child, PathBuf) {
         .arg(&config)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::from(
+            std::fs::File::create(dir.join("lored.stderr")).expect("stderr file"),
+        ))
         .spawn()
         .expect("spawn lored");
     (child, socket)
@@ -89,12 +93,20 @@ fn store_meta(store_id: &str) -> RequestMeta {
 async fn sigterm_drains_and_removes_only_its_own_socket() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (mut child, socket) = spawn(dir.path(), true);
-    assert!(wait_for_socket(&socket).await, "socket should appear");
+    assert!(
+        wait_for_socket(&socket).await,
+        "socket should appear; stderr:\n{}",
+        support::stderr_for(&socket)
+    );
 
     // SAFETY: sending SIGTERM to a child we own.
     unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
     let status = child.wait().expect("wait");
-    assert!(status.success(), "SIGTERM should drain cleanly: {status:?}");
+    assert!(
+        status.success(),
+        "SIGTERM should drain cleanly: {status:?}; stderr:\n{}",
+        support::stderr_for(&socket)
+    );
     assert!(!socket.exists(), "a clean shutdown removes its own socket");
 }
 

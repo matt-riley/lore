@@ -1,70 +1,22 @@
 //! Maintenance inventory over the daemon: status, manual runs, cadence floors
 //! and exact rollback.
 
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
 use std::time::Duration;
 
 use protocol::RequestMeta;
 use serde_json::{Value, json};
 
-struct Daemon {
-    child: Child,
-    socket: PathBuf,
-    _dir: tempfile::TempDir,
-}
+mod support;
+use support::Daemon;
 
-impl Daemon {
-    fn start(maintenance: Option<Value>) -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let socket = dir.path().join("lored.sock");
-        let config_path = dir.path().join("lore.json");
-        let mut config = json!({
-            "configVersion": 2,
-            "enabled": true,
-            "dataDir": dir.path().to_str().expect("utf8"),
-            "socketPath": socket.to_str().expect("utf8"),
-        });
-        if let Some(maintenance) = maintenance {
-            config["maintenance"] = maintenance;
-        }
-        std::fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&config).expect("config"),
-        )
-        .expect("write config");
-        let child = Command::new(env!("CARGO_BIN_EXE_lored"))
-            .arg("--config")
-            .arg(&config_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn lored");
-        Self {
-            child,
-            socket,
-            _dir: dir,
-        }
+fn start(maintenance: Option<Value>) -> Daemon {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut config = Daemon::config_with(dir.path());
+    if let Some(maintenance) = maintenance {
+        config["maintenance"] = maintenance;
     }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        // SIGTERM lets the daemon exit cleanly, so coverage counters are written.
-        // SIGKILL would discard them.
-        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        // Wait for a clean exit, then fall back to SIGKILL so a stuck daemon cannot hang the test.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
+    Daemon::spawn(dir, &config, &[])
 }
 
 fn meta(store_id: Option<&str>) -> RequestMeta {
@@ -86,12 +38,15 @@ async fn call(socket: &Path, route: &str, params: Value, store_id: Option<&str>)
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("daemon never accepted requests");
+    panic!(
+        "daemon never accepted requests; stderr:\n{}",
+        support::stderr_for(socket)
+    );
 }
 
 #[tokio::test]
 async fn maintenance_status_lists_the_inventory_and_cadence_floors() {
-    let daemon = Daemon::start(Some(json!({
+    let daemon = start(Some(json!({
         "tasks": {
             "memoryHygiene": { "enabled": true, "cadenceSeconds": 0 },
             "traceCompaction": { "enabled": false, "cadenceSeconds": 120 }
@@ -132,7 +87,7 @@ async fn maintenance_status_lists_the_inventory_and_cadence_floors() {
 
 #[tokio::test]
 async fn maintenance_run_is_bounded_claim_exclusive_and_rolls_back_exactly() {
-    let daemon = Daemon::start(None);
+    let daemon = start(None);
     let (_, status) = call(&daemon.socket, "/v2/status", json!({}), None).await;
     let store_id = status["storeId"].as_str().expect("store").to_string();
 
@@ -177,7 +132,7 @@ async fn maintenance_run_is_bounded_claim_exclusive_and_rolls_back_exactly() {
         assert_eq!(code, 200, "{body}");
         let memory_id = body["result"]["memoryId"].as_str().expect("id").to_string();
         let connection =
-            rusqlite::Connection::open(daemon._dir.path().join("lore-v2.db")).expect("open db");
+            rusqlite::Connection::open(daemon.dir.path().join("lore-v2.db")).expect("open db");
         connection
             .execute(
                 "UPDATE memories SET expires_at_ms = 1 WHERE id = ?1",
@@ -218,7 +173,7 @@ async fn maintenance_run_is_bounded_claim_exclusive_and_rolls_back_exactly() {
     assert_eq!(rolled_back["result"]["restored"], 1);
     let forgotten: i64 = {
         let connection =
-            rusqlite::Connection::open(daemon._dir.path().join("lore-v2.db")).expect("open db");
+            rusqlite::Connection::open(daemon.dir.path().join("lore-v2.db")).expect("open db");
         connection
             .query_row(
                 "SELECT forgotten FROM memories WHERE id = ?1",

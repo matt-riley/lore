@@ -4,8 +4,7 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,6 +13,18 @@ use serde_json::{Value, json};
 
 /// Scripted chat endpoint: replies with a fixed assistant content and logs
 /// every prompt it receives.
+mod support;
+use support::Daemon;
+
+fn start(analysis: Option<Value>) -> Daemon {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut config = Daemon::config_with(dir.path());
+    if let Some(analysis) = analysis {
+        config["analysis"] = analysis;
+    }
+    Daemon::spawn(dir, &config, &[])
+}
+
 struct FakeChat {
     port: u16,
     prompts: Arc<Mutex<Vec<String>>>,
@@ -233,68 +244,6 @@ fn find_double_crlf(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|window| window == b"\r\n\r\n")
 }
 
-struct Daemon {
-    child: Child,
-    socket: PathBuf,
-    _dir: tempfile::TempDir,
-    database_path: PathBuf,
-}
-
-impl Daemon {
-    fn start(analysis: Option<Value>) -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let socket = dir.path().join("lored.sock");
-        let config_path = dir.path().join("lore.json");
-        let mut config = json!({
-            "configVersion": 2,
-            "enabled": true,
-            "dataDir": dir.path().to_str().expect("utf8"),
-            "socketPath": socket.to_str().expect("utf8"),
-        });
-        if let Some(analysis) = analysis {
-            config["analysis"] = analysis;
-        }
-        std::fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&config).expect("config"),
-        )
-        .expect("write config");
-        let child = Command::new(env!("CARGO_BIN_EXE_lored"))
-            .arg("--config")
-            .arg(&config_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn lored");
-        let database_path = dir.path().join("lore-v2.db");
-        Self {
-            child,
-            socket,
-            _dir: dir,
-            database_path,
-        }
-    }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        // SIGTERM lets the daemon exit cleanly, so coverage counters are written.
-        // SIGKILL would discard them.
-        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        // Wait for a clean exit, then fall back to SIGKILL so a stuck daemon cannot hang the test.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 fn meta(store_id: Option<&str>) -> RequestMeta {
     RequestMeta {
         client_id: "test.rust.analysis".to_string(),
@@ -314,7 +263,10 @@ async fn call(socket: &Path, route: &str, params: Value, store_id: Option<&str>)
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("daemon never accepted requests");
+    panic!(
+        "daemon never accepted requests; stderr:\n{}",
+        support::stderr_for(socket)
+    );
 }
 
 async fn store_id(socket: &Path) -> String {
@@ -341,7 +293,7 @@ async fn retain(socket: &Path, store_id: &str, key: &str, content: &str) -> Stri
 
 #[tokio::test]
 async fn analysis_is_unavailable_until_explicitly_enabled() {
-    let daemon = Daemon::start(None);
+    let daemon = start(None);
     let store_id = store_id(&daemon.socket).await;
     let (code, body) = call(
         &daemon.socket,
@@ -357,7 +309,7 @@ async fn analysis_is_unavailable_until_explicitly_enabled() {
 #[tokio::test]
 async fn query_expansion_returns_bounded_terms_without_touching_the_store() {
     let chat = FakeChat::start(json!({ "terms": ["pure functions", "small units"] }), 0);
-    let daemon = Daemon::start(Some(json!({
+    let daemon = start(Some(json!({
         "enabled": true,
         "endpoint": chat.endpoint(),
         "model": "fake-chat"
@@ -384,7 +336,7 @@ async fn query_expansion_returns_bounded_terms_without_touching_the_store() {
         after["result"]["memoryRevision"]
     );
     let runs: i64 = {
-        let connection = rusqlite::Connection::open(&daemon.database_path).expect("db");
+        let connection = rusqlite::Connection::open(daemon.database_path()).expect("db");
         connection
             .query_row("SELECT COUNT(*) FROM operation_runs", [], |row| row.get(0))
             .expect("count")
@@ -398,7 +350,7 @@ async fn compression_revalidates_selected_records() {
     let reply_for_server = Arc::clone(&reply);
     let flexible =
         FakeChat::start_dynamic(move |_prompt| reply_for_server.lock().expect("reply").clone());
-    let daemon = Daemon::start(Some(json!({
+    let daemon = start(Some(json!({
         "enabled": true,
         "endpoint": flexible.endpoint(),
         "model": "fake-chat"
@@ -420,7 +372,7 @@ async fn compression_revalidates_selected_records() {
     .await;
     // Memory revisions are store-wide, so read the real ones back.
     let (keep_revision, other_revision) = {
-        let connection = rusqlite::Connection::open(&daemon.database_path).expect("db");
+        let connection = rusqlite::Connection::open(daemon.database_path()).expect("db");
         let revision = |id: &str| -> i64 {
             connection
                 .query_row(
@@ -523,7 +475,7 @@ async fn compression_revalidates_selected_records() {
 #[tokio::test]
 async fn analysis_rejects_bad_input_and_keeps_one_chat_lane() {
     let chat = FakeChat::start(json!({ "terms": ["slow"] }), 700);
-    let daemon = Daemon::start(Some(json!({
+    let daemon = start(Some(json!({
         "enabled": true,
         "endpoint": chat.endpoint(),
         "model": "fake-chat"
@@ -586,7 +538,7 @@ async fn analysis_rejects_bad_input_and_keeps_one_chat_lane() {
 async fn reflection_chat_synthesis_validates_evidence_and_falls_back() {
     // A healthy synthesis is used and persisted.
     let chat = FakeChat::start_text("The team prefers small pure functions.", 0);
-    let daemon = Daemon::start(Some(json!({
+    let daemon = start(Some(json!({
         "enabled": true,
         "endpoint": chat.endpoint(),
         "model": "fake-chat"
@@ -618,7 +570,7 @@ async fn reflection_chat_synthesis_validates_evidence_and_falls_back() {
         .expect("persisted")
         .to_string();
     let stored: String = {
-        let connection = rusqlite::Connection::open(&daemon.database_path).expect("db");
+        let connection = rusqlite::Connection::open(daemon.database_path()).expect("db");
         connection
             .query_row(
                 "SELECT content FROM memories WHERE id = ?1",
@@ -635,7 +587,7 @@ async fn reflection_chat_synthesis_validates_evidence_and_falls_back() {
         "We decided this in mem_11111111-2222-3333-4444-555555555555 earlier.",
         0,
     );
-    let strict = Daemon::start(Some(json!({
+    let strict = start(Some(json!({
         "enabled": true,
         "endpoint": inventive.endpoint(),
         "model": "fake-chat"
@@ -674,7 +626,7 @@ async fn reflection_chat_synthesis_validates_evidence_and_falls_back() {
     );
 
     // An unreachable provider falls back deterministically, not an error.
-    let dead = Daemon::start(Some(json!({
+    let dead = start(Some(json!({
         "enabled": true,
         "endpoint": "http://127.0.0.1:9",
         "model": "fake-chat",
@@ -707,7 +659,7 @@ async fn optional_rerank_reorders_the_topical_section_and_fails_open() {
     let reply_for_server = Arc::clone(&reply);
     let chat =
         FakeChat::start_dynamic(move |_prompt| reply_for_server.lock().expect("reply").clone());
-    let daemon = Daemon::start(Some(json!({
+    let daemon = start(Some(json!({
         "enabled": true,
         "endpoint": chat.endpoint(),
         "model": "fake-chat",
@@ -781,7 +733,7 @@ async fn optional_rerank_reorders_the_topical_section_and_fails_open() {
     );
 
     // An unreachable provider also fails open rather than failing recall.
-    let dead = Daemon::start(Some(json!({
+    let dead = start(Some(json!({
         "enabled": true,
         "endpoint": "http://127.0.0.1:9",
         "model": "fake-chat",
@@ -821,7 +773,7 @@ async fn rerank_keeps_the_full_contents_of_long_memories() {
     let reply_for_server = Arc::clone(&reply);
     let chat =
         FakeChat::start_dynamic(move |_prompt| reply_for_server.lock().expect("reply").clone());
-    let daemon = Daemon::start(Some(json!({
+    let daemon = start(Some(json!({
         "enabled": true,
         "endpoint": chat.endpoint(),
         "model": "fake-chat",

@@ -137,10 +137,19 @@ struct Gateway {
     child: Child,
     port: u16,
     token: String,
+    stderr_file: tempfile::NamedTempFile,
 }
 
 impl Gateway {
     fn start(socket: &std::path::Path) -> Self {
+        // The socket path may deliberately not exist (the gateway reports that
+        // itself), so the capture file lives in the system temp directory.
+        let stderr_file = tempfile::Builder::new()
+            .prefix("lore-gateway-")
+            .suffix(".stderr")
+            .tempfile()
+            .expect("gateway stderr file");
+        let stderr = stderr_file.as_file().try_clone().expect("clone stderr");
         let mut child = Command::new(env!("CARGO_BIN_EXE_lore"))
             .args([
                 "--socket",
@@ -151,7 +160,7 @@ impl Gateway {
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(stderr))
             .spawn()
             .expect("spawn gateway");
         let stdout = child.stdout.take().expect("stdout");
@@ -172,7 +181,13 @@ impl Gateway {
             child,
             port,
             token: token.to_string(),
+            stderr_file,
         }
+    }
+
+    /// Everything the gateway wrote to stderr so far.
+    fn gateway_stderr(&self) -> String {
+        std::fs::read_to_string(self.stderr_file.path()).unwrap_or_default()
     }
 
     /// Send a request as the browser that completed the first visit would: with
@@ -193,8 +208,13 @@ impl Gateway {
             .expect("addr")
             .next()
             .expect("addr");
-        let mut stream =
-            TcpStream::connect_timeout(&address, Duration::from_secs(5)).expect("connect");
+        let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(5))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "gateway unreachable: {error}; stderr:\n{}",
+                    self.gateway_stderr()
+                )
+            });
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .expect("timeout");

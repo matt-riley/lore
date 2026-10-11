@@ -7,6 +7,8 @@ use std::time::Duration;
 use protocol::RequestMeta;
 use serde_json::{Value, json};
 
+mod support;
+
 #[tokio::test]
 async fn unfinished_import_stores_are_unavailable() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -39,7 +41,9 @@ async fn unfinished_import_stores_are_unavailable() {
         .arg(&config_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::from(
+            std::fs::File::create(dir.path().join("lored.stderr")).expect("stderr file"),
+        ))
         .spawn()
         .expect("spawn lored");
 
@@ -94,5 +98,8 @@ async fn wait_for_status(socket: &Path) -> Value {
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("daemon never reported status");
+    panic!(
+        "daemon never reported status; stderr:\n{}",
+        support::stderr_for(socket)
+    );
 }

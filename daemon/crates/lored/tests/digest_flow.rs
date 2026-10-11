@@ -1,87 +1,39 @@
 //! Episode digests and day summaries produced from captured sources.
 
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
 use std::time::Duration;
 
 use protocol::RequestMeta;
 use serde_json::{Value, json};
 
-struct Daemon {
-    child: Child,
-    socket: PathBuf,
-    _dir: tempfile::TempDir,
-}
+mod support;
+use support::Daemon;
 
-impl Daemon {
-    fn start() -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let socket = dir.path().join("lored.sock");
-        let sources = dir.path().join("sources");
-        std::fs::create_dir_all(&sources).expect("sources dir");
-        std::fs::write(
-            sources.join("session.jsonl"),
-            concat!(
-                "{\"type\":\"session\",\"id\":\"digest-session-1\",\"cwd\":\"/work\"}\n",
-                "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"Please always prefer small pure functions for this repository.\"}}\n",
-                "{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":\"I will keep functions small and pure.\"}}\n",
-                "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"Also remember to run schema validation before copying rows.\"}}\n",
-                "{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":\"I will run schema validation before copying rows.\"}}\n"
-            ),
-        )
-        .expect("fixture");
-        let config_path = dir.path().join("lore.json");
-        let config = json!({
-            "configVersion": 2,
-            "enabled": true,
-            "dataDir": dir.path().to_str().expect("utf8"),
-            "socketPath": socket.to_str().expect("utf8"),
-            "sources": {
-                "roots": [{
-                    "rootId": "pi-root",
-                    "client": "pi",
-                    "path": sources.to_str().expect("utf8")
-                }],
-                "sweepSeconds": 60
-            }
-        });
-        std::fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&config).expect("config"),
-        )
-        .expect("write config");
-        let child = Command::new(env!("CARGO_BIN_EXE_lored"))
-            .arg("--config")
-            .arg(&config_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn lored");
-        Self {
-            child,
-            socket,
-            _dir: dir,
-        }
-    }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        // SIGTERM lets the daemon exit cleanly, so coverage counters are written.
-        // SIGKILL would discard them.
-        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        // Wait for a clean exit, then fall back to SIGKILL so a stuck daemon cannot hang the test.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
+fn start() -> Daemon {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sources = dir.path().join("sources");
+    std::fs::create_dir_all(&sources).expect("sources dir");
+    std::fs::write(
+        sources.join("session.jsonl"),
+        concat!(
+            "{\"type\":\"session\",\"id\":\"digest-session-1\",\"cwd\":\"/work\"}\n",
+            "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"Please always prefer small pure functions for this repository.\"}}\n",
+            "{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":\"I will keep functions small and pure.\"}}\n",
+            "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"Also remember to run schema validation before copying rows.\"}}\n",
+            "{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":\"I will run schema validation before copying rows.\"}}\n"
+        ),
+    )
+    .expect("fixture");
+    let mut config = Daemon::config_with(dir.path());
+    config["sources"] = json!({
+        "roots": [{
+            "rootId": "pi-root",
+            "client": "pi",
+            "path": sources.to_str().expect("utf8")
+        }],
+        "sweepSeconds": 60
+    });
+    Daemon::spawn(dir, &config, &[])
 }
 
 fn meta(store_id: Option<&str>) -> RequestMeta {
@@ -108,7 +60,10 @@ async fn call(socket: &Path, route: &str, params: Value, store_id: Option<&str>)
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("daemon never accepted requests");
+    panic!(
+        "daemon never accepted requests; stderr:\n{}",
+        support::stderr_for(socket)
+    );
 }
 
 async fn store_id(socket: &Path) -> String {
@@ -118,7 +73,7 @@ async fn store_id(socket: &Path) -> String {
 
 #[tokio::test]
 async fn captured_sessions_produce_episode_digests_and_day_summaries() {
-    let daemon = Daemon::start();
+    let daemon = start();
     let store_id = store_id(&daemon.socket).await;
 
     // Discovery, capture and extraction run in the background scheduler; the

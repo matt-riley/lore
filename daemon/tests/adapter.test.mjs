@@ -70,3 +70,27 @@ test("adapter refuses capabilities the daemon does not advertise", async () => {
     await daemon.stop();
   }
 });
+
+test("a pinned call never renegotiates onto another store", async () => {
+  const daemon = startDaemon();
+  try {
+    const status = await waitForLiveStatus(daemon.socket);
+    const client = createLoreClient({ socketPath: daemon.socket, clientId: "adapter.pinned" });
+    const params = {
+      idempotencyKey: "adapter-pinned-1",
+      type: "note",
+      content: "A pinned adapter write.",
+      scope: "global",
+    };
+    await assert.rejects(
+      () => client.call("/v2/retain", params, { pinStoreId: "store_not_this_one" }),
+      (error) => error.reason === "STORE_MISMATCH",
+    );
+    // The unpinned default still renegotiates and writes to the served store.
+    const retained = await client.call("/v2/retain", params, {});
+    assert.ok(retained.memoryId, JSON.stringify(retained));
+    assert.ok(status.storeId.length > 0);
+  } finally {
+    await daemon.stop();
+  }
+});

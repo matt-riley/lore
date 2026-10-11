@@ -131,7 +131,27 @@ export function createLoreClient({ socketPath, clientId = "adapter" }) {
         { signal },
       );
     },
-    call(route, params = {}, { signal } = {}) {
+    call(route, params = {}, { signal, pinStoreId } = {}) {
+      // A recovery retry belongs to the store that recorded it. Sending the pinned
+      // identity directly skips `bound`, whose STORE_MISMATCH retry would otherwise
+      // renegotiate and apply the write to a replacement database.
+      if (pinStoreId) {
+        return withSignal(
+          request(socketPath, route, params, {
+            clientId,
+            expectedStoreId: pinStoreId,
+            signal,
+          }),
+          signal,
+        )
+          .then(unwrap)
+          .catch((error) => {
+            // The daemon serves another store now, so the cached identity is
+            // stale; the next negotiation must observe the replacement.
+            if (error?.reason === "STORE_MISMATCH") cached = null;
+            throw error;
+          });
+      }
       return bound(
         (state) =>
           withSignal(

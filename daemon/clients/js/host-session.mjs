@@ -165,10 +165,21 @@ export function createHostSession({
       if (!entry || entry.resolved || entry.params === null) return null;
       let result;
       try {
-        result = await client.call(entry.route, entry.params, {});
+        // The daemon is the authority on which store it serves, so the pinned
+        // request is dispatched directly rather than compared against a cached
+        // identity that may itself be stale.
+        result = await client.call(entry.route, entry.params, { pinStoreId: entry.storeId });
       } catch (error) {
-        // A definitive rejection committed nothing, so the entry is no longer
-        // needed; anything else may have committed and stays for another retry.
+        // A mismatch is still uncertain: the write may have committed in the
+        // recorded store, so the entry is kept. Any other definitive rejection
+        // committed nothing.
+        if (error?.reason === "STORE_MISMATCH") {
+          const mismatch = new Error(
+            `uncertain write ${key} belongs to store ${entry.storeId}; this daemon serves another store`,
+          );
+          mismatch.reason = "STORE_MISMATCH";
+          throw mismatch;
+        }
         if (error?.retryable === false) journal.discard(key);
         throw error;
       }

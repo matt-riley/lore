@@ -136,6 +136,7 @@ impl Drop for FakeDaemon {
 struct Gateway {
     child: Child,
     port: u16,
+    token: String,
 }
 
 impl Gateway {
@@ -157,16 +158,36 @@ impl Gateway {
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
         reader.read_line(&mut line).expect("read url");
-        let port = line
-            .trim()
+        // The printed address is http://127.0.0.1:PORT/?token=TOKEN.
+        let url = line.trim();
+        let (base, token) = url
+            .split_once("/?token=")
+            .unwrap_or_else(|| panic!("unexpected gateway url: {line:?}"));
+        let port = base
             .rsplit(':')
             .next()
-            .and_then(|value| value.trim_end_matches('/').parse::<u16>().ok())
+            .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or_else(|| panic!("unexpected gateway url: {line:?}"));
-        Self { child, port }
+        Self {
+            child,
+            port,
+            token: token.to_string(),
+        }
     }
 
+    /// Send a request as the browser that completed the first visit would: with
+    /// the session cookie the gateway issued.
     fn request(&self, raw: &str) -> (u16, String, String) {
+        let raw = raw.replacen(
+            "\r\n",
+            &format!("\r\nCookie: lore_browser={}\r\n", self.token),
+            1,
+        );
+        self.send(&raw)
+    }
+
+    /// Send exactly what is given, without the session cookie.
+    fn send(&self, raw: &str) -> (u16, String, String) {
         let address = ("127.0.0.1", self.port)
             .to_socket_addrs()
             .expect("addr")
@@ -413,4 +434,34 @@ fn gateway_is_read_only_and_has_no_traversal_or_unknown_routes() {
         "GET /../browser/../etc/passwd HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
     ));
     assert_eq!(status, 404);
+}
+
+#[test]
+fn the_gateway_serves_only_a_browser_that_presented_its_token() {
+    let socket = std::path::Path::new("/nonexistent/lored.sock");
+    let gateway = Gateway::start(socket);
+    let host = format!("127.0.0.1:{}", gateway.port);
+
+    // A local process without the token is refused, whatever the route.
+    let (status, _, body) = gateway.send(&format!(
+        "GET /api/health HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 403, "{body}");
+
+    // A wrong token is refused as well.
+    let (status, _, _) = gateway.send(&format!(
+        "GET /?token=wrong HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 403);
+
+    // The printed address trades the token for a cookie and redirects to the clean path.
+    let (status, headers, _) = gateway.send(&format!(
+        "GET /?token={} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n",
+        gateway.token
+    ));
+    assert_eq!(status, 303, "{headers}");
+    let lower = headers.to_ascii_lowercase();
+    assert!(lower.contains("set-cookie: lore_browser="), "{headers}");
+    assert!(lower.contains("httponly"), "{headers}");
+    assert!(lower.contains("samesite=strict"), "{headers}");
 }

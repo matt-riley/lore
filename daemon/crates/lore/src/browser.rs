@@ -50,6 +50,53 @@ const VIEWS: &[&str] = &[
 struct GatewayState {
     socket: PathBuf,
     store_id: tokio::sync::Mutex<Option<String>>,
+    /// Per-process secret. Any local account can reach a loopback port, so the
+    /// gateway serves only a browser that presented this token once.
+    token: String,
+}
+
+/// Cookie that carries the token after the first visit. HttpOnly and
+/// SameSite=Strict keep it away from scripts and from cross-site requests.
+const TOKEN_COOKIE: &str = "lore_browser";
+
+fn new_token() -> String {
+    // Two v4 UUIDs: about 244 bits from the operating system's random source.
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+/// The token presented in the query string, if any.
+fn query_token(query: Option<&str>) -> Option<String> {
+    query_pairs(query)
+        .into_iter()
+        .find(|(key, _)| key == "token")
+        .map(|(_, value)| value)
+}
+
+/// The token presented in the cookie header, if any.
+fn cookie_token(request: &Request<Incoming>) -> Option<String> {
+    request
+        .headers()
+        .get_all(hyper::header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find(|(name, _)| *name == TOKEN_COOKIE)
+        .map(|(_, value)| value.to_string())
+}
+
+/// Constant-time comparison, so a guess is not checked byte by byte.
+fn token_matches(presented: &str, expected: &str) -> bool {
+    presented.len() == expected.len()
+        && presented
+            .bytes()
+            .zip(expected.bytes())
+            .fold(0u8, |difference, (a, b)| difference | (a ^ b))
+            == 0
 }
 
 /// Serve the dashboard until the process is stopped.
@@ -58,7 +105,8 @@ pub async fn run(socket: &Path, port: u16, open: bool) -> Result<(), String> {
         .await
         .map_err(|error| format!("bind 127.0.0.1:{port}: {error}"))?;
     let bound = listener.local_addr().map_err(|error| error.to_string())?;
-    let url = format!("http://127.0.0.1:{}/", bound.port());
+    let token = new_token();
+    let url = format!("http://127.0.0.1:{}/?token={token}", bound.port());
     println!("{url}");
     if open {
         let _ = std::process::Command::new("open").arg(&url).spawn();
@@ -66,6 +114,7 @@ pub async fn run(socket: &Path, port: u16, open: bool) -> Result<(), String> {
     let state: Arc<GatewayState> = Arc::new(GatewayState {
         socket: socket.to_path_buf(),
         store_id: tokio::sync::Mutex::new(None),
+        token,
     });
     loop {
         let (stream, remote) = match listener.accept().await {
@@ -172,6 +221,31 @@ async fn handle(request: Request<Incoming>, state: Arc<GatewayState>) -> Respons
     }
     let path = request.uri().path().to_string();
     let query = request.uri().query().map(str::to_string);
+    // Access requires the token. The first visit presents it in the URL; the
+    // gateway answers with a cookie and redirects to the clean path, so the token
+    // leaves the address bar. Every later request must present the cookie.
+    if let Some(presented) = query_token(query.as_deref())
+        && token_matches(&presented, &state.token)
+    {
+        let cookie = format!(
+            "{TOKEN_COOKIE}={}; HttpOnly; SameSite=Strict; Path=/",
+            state.token
+        );
+        return secure(Response::builder())
+            .status(StatusCode::SEE_OTHER)
+            .header(hyper::header::LOCATION, "/")
+            .header(hyper::header::SET_COOKIE, cookie)
+            .body(Full::new(Bytes::new()))
+            .unwrap_or_else(|_| message(StatusCode::INTERNAL_SERVER_ERROR, "internal"));
+    }
+    let authorized =
+        cookie_token(&request).is_some_and(|presented| token_matches(&presented, &state.token));
+    if !authorized {
+        return message(
+            StatusCode::FORBIDDEN,
+            "open the address printed by `lore browser` to start a session",
+        );
+    }
     let response = match path.as_str() {
         "/" | "/index.html" => body(
             StatusCode::OK,

@@ -620,3 +620,136 @@ fn a_failed_reinstall_of_the_active_version_keeps_that_version_runnable() {
         "the active version directory is still there and runs"
     );
 }
+
+#[test]
+fn upgrade_refuses_when_a_launcher_name_is_an_unowned_file() {
+    let home = tempfile::tempdir().expect("home");
+    let package_dir = tempfile::tempdir().expect("packages");
+    let good = fake_package(package_dir.path(), "1.0.0", true);
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            good.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_eq!(code, 0, "{stderr}");
+
+    // A user file at the launcher name is not ours; the upgrade must not replace it.
+    let launcher = home.path().join(".lore/bin/lored");
+    std::fs::remove_file(&launcher).expect("remove symlink");
+    std::fs::write(&launcher, "not a launcher").expect("write user file");
+
+    let next = fake_package(package_dir.path(), "1.0.1", true);
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            next.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_ne!(code, 0, "{stderr}");
+    assert!(stderr.contains("not a launcher link"), "{stderr}");
+    assert_eq!(
+        std::fs::read_to_string(&launcher).expect("user file kept"),
+        "not a launcher"
+    );
+    assert!(!home.path().join(".lore/versions/1.0.1").exists());
+}
+
+#[test]
+fn upgrade_refuses_a_launcher_link_the_installer_did_not_make() {
+    let home = tempfile::tempdir().expect("home");
+    let package_dir = tempfile::tempdir().expect("packages");
+    let good = fake_package(package_dir.path(), "1.0.0", true);
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            good.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_eq!(code, 0, "{stderr}");
+
+    // A symlink the user made elsewhere is not the installer's link; it stays put.
+    let launcher = home.path().join(".lore/bin/lored");
+    std::fs::remove_file(&launcher).expect("remove installer link");
+    let elsewhere = package_dir.path().join("their-own-binary");
+    std::fs::write(&elsewhere, "theirs").expect("write");
+    std::os::unix::fs::symlink(&elsewhere, &launcher).expect("user link");
+
+    let next = fake_package(package_dir.path(), "1.0.1", true);
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            next.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_ne!(code, 0, "{stderr}");
+    assert!(stderr.contains("not a launcher link"), "{stderr}");
+    assert_eq!(
+        std::fs::read_link(&launcher).expect("user link kept"),
+        elsewhere
+    );
+}
+
+#[test]
+fn upgrade_refuses_a_launcher_link_that_climbs_out_of_the_versions_directory() {
+    let home = tempfile::tempdir().expect("home");
+    let package_dir = tempfile::tempdir().expect("packages");
+    let good = fake_package(package_dir.path(), "1.0.0", true);
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            good.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_eq!(code, 0, "{stderr}");
+
+    // Starts in the versions directory, then climbs back out of it: not the installer's link.
+    let launcher = home.path().join(".lore/bin/lored");
+    std::fs::remove_file(&launcher).expect("remove installer link");
+    let climbing = std::path::PathBuf::from("../versions/../../their-own-binary");
+    std::os::unix::fs::symlink(&climbing, &launcher).expect("user link");
+
+    let next = fake_package(package_dir.path(), "1.0.1", true);
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            next.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_ne!(code, 0, "{stderr}");
+    assert!(stderr.contains("not a launcher link"), "{stderr}");
+    assert_eq!(
+        std::fs::read_link(&launcher).expect("user link kept"),
+        climbing
+    );
+}

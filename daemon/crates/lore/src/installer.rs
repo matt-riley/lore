@@ -496,6 +496,34 @@ fn restore_version_dir(target: &Path, previous: Option<&Path>) {
     }
 }
 
+/// True for a link shaped `../versions/<version>/...`, the only form this installer
+/// writes. A `..` after the version directory would climb back out of it.
+fn is_installer_link(target: &Path) -> bool {
+    use std::path::Component;
+    let mut parts = target.components();
+    matches!(parts.next(), Some(Component::ParentDir))
+        && matches!(parts.next(), Some(Component::Normal(name)) if name == "versions")
+        && parts.all(|part| matches!(part, Component::Normal(_)))
+}
+
+/// Refuse an upgrade when a launcher name is taken by a file this installer did
+/// not make. A missing name or a link into the versions directory is fine.
+fn refuse_unowned_launchers(home: &Path) -> Result<(), String> {
+    let directory = launcher_dir(home);
+    for binary in ["lore", "lored"] {
+        let link = directory.join(binary);
+        // Only a link this installer made, into the versions directory, is ours.
+        let ours = std::fs::read_link(&link).is_ok_and(|target| is_installer_link(&target));
+        if std::fs::symlink_metadata(&link).is_ok() && !ours {
+            return Err(format!(
+                "{} exists and is not a launcher link; move it aside and retry the upgrade",
+                link.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn upgrade_apply(home: &Path, from: &Path) -> Result<Value, String> {
     let mut plan = upgrade_preview(home, from)?;
     let version = plan["version"]
@@ -503,6 +531,9 @@ pub fn upgrade_apply(home: &Path, from: &Path) -> Result<Value, String> {
         .ok_or_else(|| "missing version".to_string())?
         .to_string();
     let target = versions_root(home).join(&version);
+    // A launcher that exists but is not a symlink was not written by the installer.
+    // Replacing it could not be rolled back, so refuse before anything changes.
+    refuse_unowned_launchers(home)?;
     // Stage beside the live version, so a failed copy or validation never touches
     // the directory the launchers point at.
     let pid = std::process::id();

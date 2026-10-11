@@ -6,7 +6,7 @@
 // its payload dropped. Connection failures leave the payload for an explicit
 // retry with the identical key.
 
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { closeSync, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -43,17 +43,48 @@ function sleepBriefly(ms) {
  * journal is shared by every host adapter for a user, and each update is a
  * read-modify-write, so unlocked updates could lose another process's entry.
  */
+/**
+ * Remove a lock left by a dead process. The stale file is first moved aside under
+ * a unique name, then checked by inode: if it is still the file that was judged
+ * stale it is deleted; if a live holder's lock was moved by mistake it is put back.
+ */
+function takeOverStaleLock(lockPath, observedIno) {
+  const aside = `${lockPath}.stale-${process.pid}-${randomUUID()}`;
+  try {
+    renameSync(lockPath, aside);
+  } catch {
+    return;
+  }
+  try {
+    if (statSync(aside).ino !== observedIno) {
+      // A live lock was moved aside. Restore it if nothing has taken the path.
+      try {
+        linkSync(aside, lockPath);
+      } catch {
+        // Something already holds the path; the moved lock is no longer needed.
+      }
+    }
+  } catch {
+    // The file vanished; nothing to restore.
+  } finally {
+    rmSync(aside, { force: true });
+  }
+}
+
 function withLock(lockPath, waitMs, fn) {
   const deadline = Date.now() + waitMs;
   let fd;
+  let ino;
   for (;;) {
     try {
       fd = openSync(lockPath, "wx");
+      ino = fstatSync(fd).ino;
       break;
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
       try {
-        if (Date.now() - statSync(lockPath).mtimeMs > STALE_LOCK_MS) rmSync(lockPath, { force: true });
+        const observed = statSync(lockPath);
+        if (Date.now() - observed.mtimeMs > STALE_LOCK_MS) takeOverStaleLock(lockPath, observed.ino);
       } catch {
         // The holder released it between the check and the stat; retry.
       }
@@ -67,7 +98,12 @@ function withLock(lockPath, waitMs, fn) {
     return fn();
   } finally {
     closeSync(fd);
-    rmSync(lockPath, { force: true });
+    // Remove only the lock this call created; a taken-over path belongs to someone else.
+    try {
+      if (statSync(lockPath).ino === ino) unlinkSync(lockPath);
+    } catch {
+      // Already gone.
+    }
   }
 }
 

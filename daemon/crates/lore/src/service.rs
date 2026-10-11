@@ -105,10 +105,31 @@ UMask=0077
 
 [Install]
 WantedBy=default.target
-"#
+"#,
+            executable = systemd_arg(&executable.to_string()),
+            config = systemd_arg(&config.to_string()),
         ),
         Platform::Unsupported => String::new(),
     }
+}
+
+/// One systemd `ExecStart` argument. Plain paths are written as they are, so
+/// existing units keep their text; anything with whitespace or specials is
+/// double-quoted with `\`, `"`, `%` and `$` escaped as systemd requires.
+fn systemd_arg(value: &str) -> String {
+    let plain = !value.is_empty()
+        && value.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+' | '=' | ':' | '@')
+        });
+    if plain {
+        return value.to_string();
+    }
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('%', "%%")
+        .replace('$', "$$");
+    format!("\"{escaped}\"")
 }
 
 fn read_manifest(home: &Path) -> Option<Value> {
@@ -385,6 +406,16 @@ pub fn stop(home: &Path, apply: bool) -> Result<Value, String> {
         plan["note"] = json!("the daemon drains in-flight work and exits cleanly on SIGTERM");
         return Ok(plan);
     }
+    // The stop targets the user-wide service name, so it is only issued when
+    // the loaded unit is this home's unit. Otherwise another install's daemon
+    // would be stopped.
+    let unit = unit_path(home, platform);
+    if !probe_running(platform, unit.as_deref()) {
+        plan["note"] =
+            json!("no daemon is loaded from this home's service unit; nothing was stopped");
+        plan["stopped"] = json!(false);
+        return Ok(plan);
+    }
     let output = Command::new(&program)
         .args(&args)
         .output()
@@ -398,7 +429,6 @@ pub fn stop(home: &Path, apply: bool) -> Result<Value, String> {
     plan["applied"] = json!(true);
     // A following start must not race the bootout: wait for the job to be
     // gone (bounded) so restart sequences are reliable.
-    let unit = unit_path(home, platform);
     let mut still_running = true;
     for _ in 0..50 {
         if !probe_running(platform, unit.as_deref()) {
@@ -546,4 +576,38 @@ pub fn mode_select(home: &Path, mode: &str, apply: bool) -> Result<Value, String
     )?;
     plan["applied"] = json!(true);
     Ok(plan)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_systemd_paths_are_written_unchanged() {
+        assert_eq!(systemd_arg("/usr/local/bin/lored"), "/usr/local/bin/lored");
+    }
+
+    #[test]
+    fn systemd_paths_with_spaces_or_specials_are_quoted() {
+        assert_eq!(
+            systemd_arg("/tmp/lore bin/lored"),
+            "\"/tmp/lore bin/lored\""
+        );
+        assert_eq!(systemd_arg("/tmp/50%/a$b\"c"), "\"/tmp/50%%/a$$b\\\"c\"");
+    }
+
+    #[test]
+    fn linux_unit_quotes_an_executable_path_with_a_space() {
+        let unit = unit_contents(
+            Platform::Linux,
+            Path::new("/Applications/Lore Tools/lored"),
+            Path::new("/home/me/.lore/lore.json"),
+        );
+        assert!(
+            unit.contains(
+                "ExecStart=\"/Applications/Lore Tools/lored\" --config /home/me/.lore/lore.json"
+            ),
+            "{unit}"
+        );
+    }
 }

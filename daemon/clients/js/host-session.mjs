@@ -94,6 +94,7 @@ export function createHostSession({
 
     const key = args.idempotencyKey ?? randomUUID();
     const payload = { ...params, idempotencyKey: key };
+    let recordedStore = null;
     if (journal) {
       const state = await client.negotiated({ signal });
       // Capacity failure rejects before dispatch; the write never leaves.
@@ -106,14 +107,22 @@ export function createHostSession({
         storeId: state.storeId,
         createdAt: now(),
       });
+      // The entry names exactly one store, so the dispatch is pinned to it.
+      // Following a replacement store instead would journal the write under a
+      // store it never reached, stranding its only recovery record.
+      recordedStore = state.storeId;
     }
+    const dispatch = () =>
+      recordedStore
+        ? client.call(tool.route, payload, { signal, pinStoreId: recordedStore })
+        : client.call(tool.route, payload, { signal });
     let result;
     try {
       try {
-        result = await client.call(tool.route, payload, { signal });
+        result = await dispatch();
       } catch (error) {
         if (!isRetryableTransportError(error)) throw error;
-        result = await client.call(tool.route, payload, { signal });
+        result = await dispatch();
       }
     } catch (error) {
       // A definitive daemon rejection means nothing committed, so the entry is

@@ -337,6 +337,54 @@ test("a retry is refused when the daemon serves a different store", async () => 
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("a journaled write is pinned to the store its entry records", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-"));
+  const journalPath = path.join(dir, "uncertain-writes.json");
+  const calls = [];
+  let cachedStore = "store-live";
+  let liveStore = "store-live";
+  const fakeClient = {
+    negotiated: async () => ({ storeId: cachedStore, capabilities: [] }),
+    requireCapability: async () => {},
+    call: async (_route, _params, options) => {
+      calls.push(options?.pinStoreId);
+      if (options?.pinStoreId !== undefined && options.pinStoreId !== liveStore) {
+        const error = new Error("store mismatch");
+        error.reason = "STORE_MISMATCH";
+        error.retryable = false;
+        throw error;
+      }
+      return { memoryId: "mem-pinned" };
+    },
+  };
+  const session = createHostSession({
+    socketPath: "/tmp/unused.sock",
+    createClient: () => fakeClient,
+    journalPath,
+  });
+
+  const recorded = await session.invokeTool(
+    "lore_retain",
+    { content: "Pinned." },
+    { sessionId: "s" },
+  );
+  assert.equal(recorded.memoryId, "mem-pinned");
+  assert.deepEqual(calls, ["store-live"], "the dispatch carries the recorded store");
+  assert.deepEqual(session.retries(), []);
+
+  // A stale cached identity must fail loudly instead of silently writing to the
+  // replacement store under the old entry's name.
+  cachedStore = "store-live";
+  liveStore = "store-replacement";
+  await assert.rejects(
+    () => session.invokeTool("lore_retain", { content: "Stale." }, { sessionId: "s" }),
+    /store mismatch/,
+  );
+  assert.equal(calls.at(-1), "store-live", "the stale dispatch stays pinned");
+  assert.deepEqual(session.retries(), [], "a definitive mismatch leaves nothing pending");
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("journal capacity rejects a write before dispatch", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-"));
   const journalPath = path.join(dir, "uncertain-writes.json");

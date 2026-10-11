@@ -702,3 +702,43 @@ fn unscoped_repo_rows_import_as_global_on_request() {
     assert_eq!(again["imported"], 0, "{again}");
     assert_eq!(again["alreadyPresent"], 2, "{again}");
 }
+
+#[test]
+fn restore_runs_when_the_configured_path_contains_an_apostrophe() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let data = dir.path().join("o'connor");
+    std::fs::create_dir(&data).expect("create apostrophe directory");
+    let config = config(&data);
+    let store = Store::open(&config).expect("open");
+    store
+        .retain(
+            "client",
+            &RetainParams {
+                idempotency_key: "k1".to_string(),
+                kind: "note".to_string(),
+                content: "Kept across restore.".to_string(),
+                scope: Scope::Global,
+                repository: None,
+                confidence: None,
+                tags: Vec::new(),
+                source_session_id: None,
+                expires_at_ms: None,
+            },
+            1_000,
+        )
+        .expect("retain");
+    let snapshot = dir.path().join("backup.db");
+    backup::backup(&config.store_path, &snapshot, 2_000).expect("backup");
+    drop(store);
+
+    let preview = backup::restore_preview(&snapshot, &config.store_path).expect("preview");
+    let report = backup::restore_apply(
+        &snapshot,
+        &config.store_path,
+        &preview.plan_fingerprint,
+        true,
+        2_300,
+    )
+    .expect("restore into an apostrophe path");
+    assert!(Path::new(&report.rescue).exists());
+}

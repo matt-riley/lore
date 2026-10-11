@@ -181,12 +181,12 @@ pub fn restore_preview(snapshot: &Path, target: &Path) -> CoreResult<RestorePrev
         Connection::open_with_flags(target, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(
             |error| CoreError::precondition("RESTORE_TARGET_UNREADABLE", format!("{error}")),
         )?;
-    let (target_store_id, target_schema, _target_revision): (String, i64, i64) = target_connection
+    let (target_store_id, target_schema, target_revision): (String, i64, i64) = target_connection
         .query_row(
-            "SELECT store_id, schema_version, memory_revision FROM store_metadata WHERE id = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )?;
+        "SELECT store_id, schema_version, memory_revision FROM store_metadata WHERE id = 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
     let mut blockers = Vec::new();
     if manifest.schema_version > target_schema {
         blockers.push("snapshot schema is newer than the target".to_string());
@@ -216,6 +216,9 @@ pub fn restore_preview(snapshot: &Path, target: &Path) -> CoreResult<RestorePrev
     hasher.update(target_store_id.as_bytes());
     hasher.update(target_memories.to_string().as_bytes());
     hasher.update(current_suppressions.to_string().as_bytes());
+    // Any write to the target bumps its revision, so a same-count change after
+    // preview (a correction, scope override, or forget) invalidates the plan.
+    hasher.update(target_revision.to_string().as_bytes());
     Ok(RestorePreview {
         snapshot: snapshot.display().to_string(),
         target: target.display().to_string(),
@@ -286,10 +289,14 @@ pub fn restore_apply(
     // Merge current suppressions and receipts into the staged copy.
     let (merged_suppressions, merged_receipts) = {
         let connection = Connection::open(&stage)?;
-        connection.execute_batch(&format!(
-            "ATTACH DATABASE '{}' AS current;",
-            target.display()
-        ))?;
+        let target_path = target.to_str().ok_or_else(|| {
+            CoreError::invalid(
+                "RESTORE_TARGET_PATH",
+                "restore target path must be valid UTF-8",
+            )
+        })?;
+        // Bound rather than interpolated, so quotes in the configured path are harmless.
+        connection.execute("ATTACH DATABASE ?1 AS current", [target_path])?;
         let suppressions = connection.execute(
             "INSERT OR IGNORE INTO suppressions (memory_id, scope, repository, fingerprint, reason, revision, created_ms, state) \
              SELECT memory_id, scope, repository, fingerprint, reason, revision, created_ms, state FROM current.suppressions",

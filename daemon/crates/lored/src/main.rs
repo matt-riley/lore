@@ -3105,13 +3105,16 @@ async fn apply_rerank(
             order.push(id.clone());
         }
     }
+    // The provider prompt used bounded excerpts, but the rebuilt context keeps each
+    // record's full content: reranking must not shorten what recall already fitted.
     let contents: Vec<String> = order
         .iter()
         .filter_map(|id| {
-            candidates
-                .iter()
-                .find(|(candidate, _)| candidate == id)
-                .map(|(_, content)| content.clone())
+            value["records"]
+                .as_array()
+                .and_then(|records| records.iter().find(|record| record["id"] == id.as_str()))
+                .and_then(|record| record["content"].as_str())
+                .map(str::to_string)
         })
         .collect();
     let budget = original_text.len().max(1);

@@ -814,3 +814,50 @@ async fn optional_rerank_reorders_the_topical_section_and_fails_open() {
     assert_eq!(body["result"]["diagnostics"]["rerank"]["applied"], false);
     assert!(body["result"]["diagnostics"]["rerank"]["reason"].is_string());
 }
+
+#[tokio::test]
+async fn rerank_keeps_the_full_contents_of_long_memories() {
+    let reply = Arc::new(Mutex::new(json!({ "order": [] })));
+    let reply_for_server = Arc::clone(&reply);
+    let chat =
+        FakeChat::start_dynamic(move |_prompt| reply_for_server.lock().expect("reply").clone());
+    let daemon = Daemon::start(Some(json!({
+        "enabled": true,
+        "endpoint": chat.endpoint(),
+        "model": "fake-chat",
+        "rerank": true
+    })));
+    let store_id_value = store_id(&daemon.socket).await;
+    // Longer than the 400-character excerpt sent to the rerank provider.
+    let long = format!(
+        "Long note about retrieval order. TAILMARKER {}",
+        "tail ".repeat(120)
+    );
+    let first = retain(&daemon.socket, &store_id_value, "rerank-long", &long).await;
+    let second = retain(
+        &daemon.socket,
+        &store_id_value,
+        "rerank-short",
+        "Short note about retrieval order.",
+    )
+    .await;
+
+    *reply.lock().expect("reply") = json!({ "order": [second, first] });
+    let (code, body) = call(
+        &daemon.socket,
+        "/v2/recall",
+        json!({ "query": "retrieval order note", "limit": 5 }),
+        Some(&store_id_value),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(
+        body["result"]["diagnostics"]["rerank"]["applied"], true,
+        "{body}"
+    );
+    let context = body["result"]["context"].as_str().expect("context");
+    assert!(
+        context.contains("TAILMARKER"),
+        "the full content survives reranking: {context}"
+    );
+}

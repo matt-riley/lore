@@ -393,16 +393,52 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
 fn switch_launcher(home: &Path, version: &str) -> Result<(), String> {
     let directory = launcher_dir(home);
     std::fs::create_dir_all(&directory).map_err(|error| format!("create launcher dir: {error}"))?;
+    // Both launchers must move together. If the second fails, the first is put
+    // back, so the CLI and the daemon never end up on different versions.
+    let mut switched: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
     for binary in ["lore", "lored"] {
         let target = PathBuf::from(format!("../versions/{version}/bin/{binary}"));
         let link = directory.join(binary);
         let temp = directory.join(format!("{binary}.new"));
+        let previous = std::fs::read_link(&link).ok();
         let _ = std::fs::remove_file(&temp);
-        std::os::unix::fs::symlink(&target, &temp)
-            .map_err(|error| format!("symlink {temp:?}: {error}"))?;
-        std::fs::rename(&temp, &link).map_err(|error| format!("switch {link:?}: {error}"))?;
+        let result = std::os::unix::fs::symlink(&target, &temp)
+            .map_err(|error| format!("symlink {temp:?}: {error}"))
+            .and_then(|()| {
+                std::fs::rename(&temp, &link).map_err(|error| format!("switch {link:?}: {error}"))
+            });
+        if let Err(error) = result {
+            let _ = std::fs::remove_file(&temp);
+            restore_launchers(&directory, &switched);
+            return Err(error);
+        }
+        switched.push((link, previous));
     }
     Ok(())
+}
+
+/// Point launchers back at their previous targets. `None` means the link did not
+/// exist before, so it is removed.
+#[cfg(unix)]
+fn restore_launchers(directory: &Path, switched: &[(PathBuf, Option<PathBuf>)]) {
+    for (link, previous) in switched.iter().rev() {
+        let name = link
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("launcher");
+        match previous {
+            Some(target) => {
+                let temp = directory.join(format!("{name}.restore"));
+                let _ = std::fs::remove_file(&temp);
+                if std::os::unix::fs::symlink(target, &temp).is_ok() {
+                    let _ = std::fs::rename(&temp, link);
+                }
+            }
+            None => {
+                let _ = std::fs::remove_file(link);
+            }
+        }
+    }
 }
 
 #[cfg(not(unix))]

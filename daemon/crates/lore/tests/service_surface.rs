@@ -328,3 +328,16 @@ fn audit_verb_reports_and_refuses_unknown_actions() {
         "{stderr}"
     );
 }
+
+#[test]
+fn a_failed_manifest_write_removes_the_unit_it_would_have_described() {
+    let home = tempfile::tempdir().expect("home");
+    // The manifest path is a directory, so saving it fails after the unit is written.
+    std::fs::create_dir_all(home.path().join(".lore/service.json")).expect("block manifest");
+    let (code, _, stderr) = run(home.path(), &["service", "install", "--apply"]);
+    assert_ne!(code, 0, "{stderr}");
+    assert!(
+        !unit_path(home.path()).exists(),
+        "the unit is rolled back with its manifest"
+    );
+}

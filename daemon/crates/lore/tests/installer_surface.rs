@@ -495,3 +495,48 @@ fn a_failed_manifest_write_restores_the_client_files_it_describes() {
         "pi's file is rolled back when its manifest entry cannot be saved"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_failed_launcher_switch_puts_the_cli_back_on_its_previous_version() {
+    let home = tempfile::tempdir().expect("home");
+    let package_dir = tempfile::tempdir().expect("packages");
+    let first = fake_package(package_dir.path(), "9.9.30", true);
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            first.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_eq!(code, 0, "{stderr}");
+    let launcher = home.path().join(".lore/bin");
+    let before = std::fs::read_link(launcher.join("lore")).expect("lore launcher");
+
+    // Blocking the daemon's launcher with a directory makes the second switch fail
+    // after the CLI's launcher has already moved to the new version.
+    std::fs::remove_file(launcher.join("lored")).expect("remove lored launcher");
+    std::fs::create_dir_all(launcher.join("lored")).expect("block lored launcher");
+    let second = fake_package(package_dir.path(), "9.9.31", true);
+    let (code, _, _) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            second.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_ne!(code, 0, "the switch fails");
+    assert_eq!(
+        std::fs::read_link(launcher.join("lore")).expect("lore launcher still a link"),
+        before,
+        "the CLI launcher is restored to its previous version"
+    );
+}

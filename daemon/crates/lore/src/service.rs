@@ -328,6 +328,10 @@ pub fn install(
             ));
         }
     }
+    // The unit and its ownership manifest change together. If the manifest cannot
+    // be saved, the previous unit and manifest are put back.
+    let previous_unit = std::fs::read(&unit).ok();
+    let previous_manifest = std::fs::read(manifest_path(home)).ok();
     write_private(&unit, contents.as_bytes())?;
     let manifest = json!({
         "label": LABEL,
@@ -337,12 +341,25 @@ pub fn install(
         "configPath": config.display().to_string(),
         "installedMs": now_ms(),
     });
-    write_private(
+    if let Err(error) = write_private(
         &manifest_path(home),
         serde_json::to_vec_pretty(&manifest)
             .unwrap_or_default()
             .as_slice(),
-    )?;
+    ) {
+        match previous_unit {
+            Some(bytes) => {
+                let _ = write_private(&unit, &bytes);
+            }
+            None => {
+                let _ = std::fs::remove_file(&unit);
+            }
+        }
+        if let Some(bytes) = previous_manifest {
+            let _ = write_private(&manifest_path(home), &bytes);
+        }
+        return Err(error);
+    }
     plan["applied"] = json!(true);
     plan["loaded"] = json!(false);
     if socket.is_none() {

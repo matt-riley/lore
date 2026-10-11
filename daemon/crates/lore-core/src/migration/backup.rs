@@ -88,6 +88,8 @@ pub fn backup(source: &Path, destination: &Path, now_ms: i64) -> CoreResult<Back
         Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(
             |error| CoreError::precondition("BACKUP_SOURCE_UNREADABLE", format!("{error}")),
         )?;
+    // The copy is a full database, so it is created owner-only before any data lands in it.
+    create_private_file(destination)?;
     let mut target = Connection::open(destination)?;
     {
         let backup = rusqlite::backup::Backup::new(&source_connection, &mut target)

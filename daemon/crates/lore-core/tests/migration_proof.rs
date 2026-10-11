@@ -332,6 +332,52 @@ fn resume_replays_idempotently_from_the_snapshot() {
 }
 
 #[test]
+fn malformed_updated_at_is_quarantined_not_replaced() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let source = build_v1(dir.path(), V20);
+    rusqlite::Connection::open(&source)
+        .expect("open v1")
+        .execute(
+            "UPDATE semantic_memory SET updated_at = 'not-a-date' WHERE id = 'mem-a'",
+            [],
+        )
+        .expect("corrupt updated_at");
+    let preview = migration::preview(&source, &dir.path().join("v2")).expect("preview");
+    let destination = dir.path().join("v2");
+    std::fs::create_dir_all(destination.join(migration::STAGING_DIR)).expect("staging");
+    let staging = destination.join(migration::STAGING_DIR);
+    let snapshot = staging.join(migration::SOURCE_SNAPSHOT);
+    migration::snapshot_database(&source, &snapshot).expect("snapshot");
+    let store =
+        Store::open_migration_store(&staging.join(migration::STAGING_STORE)).expect("store");
+    let run_id = "run-timestamps";
+    store
+        .begin_migration(
+            run_id,
+            20,
+            &preview.fingerprint,
+            &source.display().to_string(),
+            1_000,
+        )
+        .expect("manifest");
+    store
+        .migration_import(&snapshot, run_id, 20, 1_000)
+        .expect("import");
+    let counts = store.migration_counts().expect("counts");
+    // The row is quarantined with a reason, not imported under a made-up update time.
+    assert_eq!(
+        counts.imported.get("semantic_memory"),
+        Some(&4),
+        "{counts:?}"
+    );
+    assert_eq!(
+        counts.unresolved.get("semantic_memory:invalid_updated_at"),
+        Some(&1),
+        "{counts:?}"
+    );
+}
+
+#[test]
 fn backup_and_restore_preserve_later_deletions() {
     let dir = tempfile::tempdir().expect("tempdir");
     let config = config(dir.path());

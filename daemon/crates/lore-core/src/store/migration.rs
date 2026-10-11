@@ -210,6 +210,16 @@ fn bump(counts: &mut MigrateCounts, table: &str) {
     *counts.imported.entry(table.to_string()).or_insert(0) += 1;
 }
 
+/// An optional timestamp column. `Ok(None)` when the column is absent or empty;
+/// `Err(())` when it is present but does not parse, so the caller quarantines the
+/// row instead of inventing a time for it.
+fn optional_ms(row: &BTreeMap<String, Value>, column: &str) -> Result<Option<i64>, ()> {
+    match value_str(row, column).filter(|value| !value.trim().is_empty()) {
+        None => Ok(None),
+        Some(value) => parse_iso_ms(&value).map(Some).ok_or(()),
+    }
+}
+
 fn resolve(counts: &mut MigrateCounts, table: &str, reason: &str) {
     let key = format!("{table}:{reason}");
     *counts.unresolved.entry(key).or_insert(0) += 1;
@@ -264,9 +274,12 @@ fn import_suppressions(
                 .or_else(|| value_str(row, "evidence_fingerprint"))
                 .unwrap_or_default();
             let reason = value_str(row, "reason").unwrap_or_else(|| "migrated_v1".to_string());
-            let created = value_str(row, "created_at")
-                .and_then(|value| parse_iso_ms(&value))
-                .unwrap_or(now_ms);
+            // An absent creation time is the import moment; a malformed one is quarantined.
+            let Ok(created) = optional_ms(row, "created_at") else {
+                resolve(counts, "memory_suppression", "invalid_created_at");
+                continue;
+            };
+            let created = created.unwrap_or(now_ms);
             transaction.execute(
                 "INSERT INTO suppressions (memory_id, scope, repository, fingerprint, reason, revision, created_ms, state) \
                  VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, 'active') \
@@ -337,9 +350,11 @@ fn import_semantic_memory(
                 resolve(counts, "semantic_memory", "invalid_created_at");
                 continue;
             };
-            let updated = value_str(row, "updated_at")
-                .and_then(|value| parse_iso_ms(&value))
-                .unwrap_or(created);
+            let Ok(updated) = optional_ms(row, "updated_at") else {
+                resolve(counts, "semantic_memory", "invalid_updated_at");
+                continue;
+            };
+            let updated = updated.unwrap_or(created);
             let expires = value_str(row, "expires_at").and_then(|value| parse_iso_ms(&value));
             if value_str(row, "expires_at")
                 .is_some_and(|value| !value.is_empty() && expires.is_none())
@@ -480,9 +495,11 @@ fn import_evidence(
                 resolve(counts, "memory_evidence", "missing_evidence_key");
                 continue;
             };
-            let linked = value_str(row, "linked_at")
-                .and_then(|value| parse_iso_ms(&value))
-                .unwrap_or(now_ms);
+            let Ok(linked) = optional_ms(row, "linked_at") else {
+                resolve(counts, "memory_evidence", "invalid_linked_at");
+                continue;
+            };
+            let linked = linked.unwrap_or(now_ms);
             let retired = value_str(row, "retired_at")
                 .filter(|value| !value.is_empty())
                 .and_then(|value| parse_iso_ms(&value));

@@ -313,6 +313,18 @@ async fn api(name: &str, query: Option<&str>, state: &GatewayState) -> Response<
         Ok(store_id) => store_id,
         Err(response) => return response,
     };
+    if name == "memories" {
+        let page_result = match memories_page(state, query, &params).await {
+            Ok(result) => result,
+            Err(response) => return response,
+        };
+        let translated = translate_view(name, query, &page_result);
+        return body(
+            StatusCode::OK,
+            "application/json; charset=utf-8",
+            Bytes::from(serde_json::to_vec(&json!({ "data": translated })).unwrap_or_default()),
+        );
+    }
     let mut outcome = view_request(state, &route, &params_json, &store_id).await;
     // The daemon may have been replaced by one serving a different store;
     // refresh the identity once and retry rather than serving a mismatch.
@@ -449,22 +461,80 @@ fn query_value(pairs: &[(String, String)], key: &str) -> Option<String> {
 fn adjust_params(name: &str, query: Option<&str>, params: &mut ViewParams) {
     let pairs = query_pairs(query);
     if name == "memories" {
-        let page = query_value(&pairs, "page")
-            .and_then(|value| value.parse::<u32>().ok())
-            .unwrap_or(1)
-            .clamp(1, 40);
         let page_size = query_value(&pairs, "pageSize")
             .or_else(|| query_value(&pairs, "limit"))
             .and_then(|value| value.parse::<u32>().ok())
             .unwrap_or(25)
             .clamp(1, 200);
-        params.page_size = Some(page.saturating_mul(page_size).min(200));
-        if page > 1 {
-            params.limit = Some((page - 1).saturating_mul(page_size));
-        }
-        let state = query_value(&pairs, "state").unwrap_or_else(|| "active".to_string());
-        params.include_forgotten = state != "active";
+        params.page_size = Some(page_size);
+        params.limit = None;
         params.cursor = None;
+        params.include_forgotten = false;
+        params.state = Some(match query_value(&pairs, "state").as_deref() {
+            Some(state @ ("superseded" | "forgotten" | "all")) => state.to_string(),
+            _ => "active".to_string(),
+        });
+    }
+}
+
+/// One memories page. The daemon pages by keyset cursor, so reaching page N means
+/// following the cursor N-1 times; each step is bounded by the page size.
+#[allow(clippy::result_large_err)]
+async fn memories_page(
+    state: &GatewayState,
+    query: Option<&str>,
+    params: &ViewParams,
+) -> Result<Value, Response<Full<Bytes>>> {
+    let pairs = query_pairs(query);
+    let page = query_value(&pairs, "page")
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .clamp(1, 40);
+    let mut step_params = serde_json::to_value(params).unwrap_or_default();
+    let mut cursor: Option<String> = None;
+    for index in 1..=page {
+        step_params["cursor"] = cursor.clone().map_or(Value::Null, Value::String);
+        let result = fetch_view(state, "/v2/views/memories", &step_params).await?;
+        let next = result["nextCursor"].as_str().map(str::to_string);
+        if index == page {
+            return Ok(result);
+        }
+        match next {
+            Some(next) => cursor = Some(next),
+            None => return Ok(json!({ "items": [], "nextCursor": null })),
+        }
+    }
+    Ok(json!({ "items": [], "nextCursor": null }))
+}
+
+/// One read-only view request with the gateway's store-identity refresh and error
+/// mapping, returning the result payload.
+#[allow(clippy::result_large_err)]
+async fn fetch_view(
+    state: &GatewayState,
+    route: &str,
+    params: &Value,
+) -> Result<Value, Response<Full<Bytes>>> {
+    let store_id = gateway_store_id(state).await?;
+    let mut outcome = view_request(state, route, params, &store_id).await;
+    if let Ok((_, body)) = &outcome {
+        let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        if parsed["error"]["reason"] == "STORE_ID_MISMATCH" {
+            let refreshed = gateway_store_id_refresh(state).await?;
+            outcome = view_request(state, route, params, &refreshed).await;
+        }
+    }
+    match outcome {
+        Ok((success, raw_body)) => {
+            let parsed: Value =
+                serde_json::from_str(&raw_body).unwrap_or_else(|_| json!({ "ok": false }));
+            if success && parsed["ok"] == true {
+                Ok(parsed["result"].clone())
+            } else {
+                Err(downstream_error(&parsed))
+            }
+        }
+        Err(_) => Err(daemon_unavailable()),
     }
 }
 
@@ -479,12 +549,12 @@ fn translate_memories(query: Option<&str>, result: &Value) -> Value {
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(25)
         .clamp(1, 200);
+    // `result` already holds exactly the requested page.
     let items: Vec<Value> = result["items"].as_array().cloned().unwrap_or_default();
     let skip = ((page - 1).saturating_mul(page_size)) as usize;
+    let more = result["nextCursor"].is_string();
     let rows: Vec<Value> = items
         .iter()
-        .skip(skip)
-        .take(page_size as usize)
         .map(|item| {
             json!({
                 "id": item["id"],
@@ -499,7 +569,8 @@ fn translate_memories(query: Option<&str>, result: &Value) -> Value {
                 "tags": item["tags"],
                 "createdAt": item["createdMs"],
                 "updatedAt": item["updatedMs"],
-                "supersededBy": null,
+                "supersededBy": item["supersededBy"],
+                "forgotten": item["forgotten"],
                 "canonicalKey": null,
                 "reinforcementCount": null,
                 "lastSeenAt": null,
@@ -508,7 +579,6 @@ fn translate_memories(query: Option<&str>, result: &Value) -> Value {
             })
         })
         .collect();
-    let more = items.len() as u64 > skip as u64 + rows.len() as u64;
     let total = if more {
         (page * page_size + 1) as i64
     } else {
@@ -808,28 +878,30 @@ mod tests {
     }
 
     #[test]
-    fn memories_translation_pages_by_offset_in_v1_field_names() {
-        let result = json!({
-            "items": [memory("a"), memory("b"), memory("c")],
-            "nextCursor": null,
-            "pageSize": 3,
+    fn memories_translation_maps_one_daemon_page_into_v1_field_names() {
+        // The gateway follows the keyset cursor, so `result` is already the requested page.
+        let page = json!({
+            "items": [memory("a"), memory("b")],
+            "nextCursor": "b",
+            "pageSize": 2,
         });
-        let page_one = translate_memories(Some("page=1&pageSize=2"), &result);
-        assert_eq!(page_one["page"], 1);
-        assert_eq!(page_one["pageSize"], 2);
-        assert_eq!(page_one["rows"].as_array().expect("rows").len(), 2);
-        assert_eq!(page_one["rows"][0]["type"], "note");
-        assert_eq!(page_one["rows"][0]["updatedAt"], 2);
-        assert_eq!(page_one["rows"][0]["canonicalKey"], Value::Null);
-        assert_eq!(page_one["total"], 3, "more rows remain");
+        let translated = translate_memories(Some("page=2&pageSize=2"), &page);
+        assert_eq!(translated["page"], 2);
+        assert_eq!(translated["pageSize"], 2);
+        assert_eq!(translated["rows"].as_array().expect("rows").len(), 2);
+        assert_eq!(translated["rows"][0]["type"], "note");
+        assert_eq!(translated["rows"][0]["updatedAt"], 2);
+        assert_eq!(translated["rows"][0]["canonicalKey"], Value::Null);
+        assert_eq!(translated["total"], 5, "a further page exists");
 
-        let page_two = translate_memories(Some("page=2&pageSize=2"), &result);
-        assert_eq!(page_two["rows"].as_array().expect("rows").len(), 1);
-        assert_eq!(page_two["total"], 3);
-
-        let page_three = translate_memories(Some("page=3&pageSize=2"), &result);
-        assert_eq!(page_three["rows"].as_array().expect("rows").len(), 0);
-        assert_eq!(page_three["total"], 4);
+        let last = json!({ "items": [memory("c")], "nextCursor": null, "pageSize": 2 });
+        let translated = translate_memories(Some("page=3&pageSize=2"), &last);
+        assert_eq!(translated["rows"].as_array().expect("rows").len(), 1);
+        assert_eq!(
+            translated["total"], 5,
+            "the total is the rows up to this page"
+        );
+        assert_eq!(translated["rows"][0]["supersededBy"], Value::Null);
     }
 
     #[test]
@@ -840,15 +912,20 @@ mod tests {
             Some("page=3&pageSize=10&state=all"),
             &mut params,
         );
-        assert_eq!(params.page_size, Some(30));
-        assert_eq!(params.limit, Some(20));
-        assert!(params.include_forgotten);
+        // The page size is the page size; the requested page is reached by cursor.
+        assert_eq!(params.page_size, Some(10));
+        assert_eq!(params.limit, None);
+        assert_eq!(params.state.as_deref(), Some("all"));
 
         let mut params = ViewParams::default();
         adjust_params("memories", Some("state=active"), &mut params);
         assert_eq!(params.page_size, Some(25));
         assert_eq!(params.limit, None);
-        assert!(!params.include_forgotten);
+        assert_eq!(params.state.as_deref(), Some("active"));
+
+        let mut params = ViewParams::default();
+        adjust_params("memories", Some("state=superseded"), &mut params);
+        assert_eq!(params.state.as_deref(), Some("superseded"));
     }
 
     #[test]

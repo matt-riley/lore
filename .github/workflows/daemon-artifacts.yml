@@ -128,10 +128,12 @@ jobs:
             codesign --display --verbose=2 "$binary" 2>&1 | grep -q "flags=.*runtime" \
               || { echo "hardened runtime flag missing on $binary" >&2; exit 1; }
           done
-          if [ -f dist/lore-*.zip ]; then
-            xcrun stapler validate dist/lore-*.zip 2>/dev/null \
+          # Check each zip on its own: `[ -f <glob> ]` breaks once the glob matches two files.
+          shopt -s nullglob
+          for zip in dist/lore-*.zip; do
+            xcrun stapler validate "$zip" 2>/dev/null \
               || echo "zip artifacts keep an online ticket; stapling applies to pkg/dmg"
-          fi
+          done
 
       - name: Attach artifacts to the release
         if: github.event_name == 'release'

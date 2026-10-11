@@ -53,7 +53,12 @@ pub(super) fn ledger_insert(
 /// stamp, from before ids were part of the cursor, still pages the same way it
 /// always did.
 fn parse_list_cursor(cursor: Option<&str>) -> CoreResult<(i64, String)> {
-    let invalid = || CoreError::invalid("ADMIN_ARGUMENT_INVALID", "cursor must be a decimal id");
+    let invalid = || {
+        CoreError::invalid(
+            "ADMIN_ARGUMENT_INVALID",
+            "cursor must be a decimal stamp, optionally followed by :id",
+        )
+    };
     match cursor {
         None => Ok((i64::MAX, String::new())),
         Some(raw) => match raw.split_once(':') {

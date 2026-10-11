@@ -13,6 +13,10 @@ import { resolveRepositoryIdentity } from "./repository-identity.mjs";
 export const LORE_CONTEXT_BOUNDARY =
   "Session context injected by Lore for this session only. Do not copy it into AGENTS.md, CLAUDE.md, or other instruction files.";
 
+/** Prompt-time injection fails open after this long, as the hooks do. */
+const RECALL_BUDGET_MS = 200;
+const REPOSITORY_LOOKUP_MS = 80;
+
 /**
  * Wrapper names that recalled text must not be able to open or close. This
  * list and the matching rule mirror lib/context/context-escape.mjs, so the
@@ -67,11 +71,13 @@ function sessionIdOf(ctx) {
  */
 export function createInjection({
   session,
+  recallBudgetMs = RECALL_BUDGET_MS,
   maxChars = 8192,
   // Inject whenever there is anything at all: a single standing directive is
   // short and still worth the model's attention.
   minChars = 1,
-  repositoryFor = (ctx) => resolveRepositoryIdentity(ctx?.cwd ?? process.cwd()),
+  // Git lookups share the recall deadline, so they get a short fixed budget.
+  repositoryFor = (ctx) => resolveRepositoryIdentity(ctx?.cwd ?? process.cwd(), { timeoutMs: REPOSITORY_LOOKUP_MS }),
   now = () => Date.now(),
 } = {}) {
   const lastPromptBySession = new Map();
@@ -82,6 +88,9 @@ export function createInjection({
    */
   async function recall({ query, ctx, lorePhase }) {
     if (!session?.invokeTool) return { reached: false, message: undefined };
+    // One deadline covers repository lookup and the daemon round trips, so a
+    // slow or wedged daemon cannot hold the host's prompt path.
+    const signal = AbortSignal.timeout(recallBudgetMs);
     const repository = repositoryFor(ctx);
     const args = query ? { query } : { query: "session start" };
     if (repository) args.repository = repository;
@@ -89,6 +98,7 @@ export function createInjection({
     try {
       result = await session.invokeTool("lore_recall", args, {
         sessionId: sessionIdOf(ctx),
+        signal,
       });
     } catch {
       return { reached: false, message: undefined };

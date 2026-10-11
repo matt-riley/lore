@@ -45,13 +45,13 @@ export function canonicalRemoteIdentity(value) {
  * identity derived from its Git common directory, so linked worktrees agree.
  * A miss only means global scope; it is never a failure.
  */
-export function resolveRepositoryIdentity(cwd, { exec = execFileSync } = {}) {
+export function resolveRepositoryIdentity(cwd, { exec = execFileSync, timeoutMs = 500 } = {}) {
   if (!cwd) return null;
   const git = (args) =>
     String(
       exec("git", ["-C", String(cwd), ...args], {
         encoding: "utf8",
-        timeout: 500,
+        timeout: timeoutMs,
         stdio: ["ignore", "pipe", "ignore"],
       }) ?? "",
     ).trim();

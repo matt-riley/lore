@@ -26,6 +26,7 @@ import {
   resolveRepositoryIdentity,
 } from "../clients/js/repository-identity.mjs";
 import { createServer } from "node:http";
+import { createServer as createNetServer } from "node:net";
 import { execFileSync } from "node:child_process";
 import { readFileSync as readJson } from "node:fs";
 
@@ -622,6 +623,27 @@ test("an adapter uses the socket its installer document recorded for its host", 
     assert.equal(resolveSocketPath({ HOME: home, LORE_V2_SOCKET: "/env.sock" }, "pi"), "/env.sock", "the environment still wins");
   } finally {
     rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("prompt injection fails open within its deadline when the daemon never answers", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-silent-"));
+  const socket = path.join(dir, "silent.sock");
+  const held = [];
+  const server = createNetServer((connection) => held.push(connection));
+  await new Promise((resolve) => server.listen(socket, resolve));
+  try {
+    const session = createHostSession({ socketPath: socket, clientId: "pi" });
+    const injection = createInjection({ session, repositoryFor: () => null });
+    const started = Date.now();
+    const message = await injection.beforeAgentStart({ prompt: "hang please" }, { sessionId: "slow" });
+    const elapsed = Date.now() - started;
+    assert.equal(message, undefined, "no context is injected");
+    assert.ok(elapsed < 600, `answered in ${elapsed} ms, within the injection deadline`);
+  } finally {
+    for (const connection of held) connection.destroy();
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

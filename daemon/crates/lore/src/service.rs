@@ -7,9 +7,11 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
+use crate::installer::{read_json, write_private};
+use lore_core::now_ms;
+use lore_core::policy::sha256_hex;
 
 pub const LABEL: &str = "dev.lore.lored";
 
@@ -41,23 +43,16 @@ pub fn unit_path(home: &Path, platform: Platform) -> Option<PathBuf> {
     }
 }
 
+fn read_manifest(home: &Path) -> Option<Value> {
+    read_json(&manifest_path(home))
+}
+
 pub fn manifest_path(home: &Path) -> PathBuf {
     home.join(".lore/service.json")
 }
 
 pub fn mode_path(home: &Path) -> PathBuf {
     home.join(".lore/installation.json")
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    lore_core::policy::sha256_hex(bytes)
 }
 
 /// Escape text for an XML element, so a path with `&` or `<` stays well formed.
@@ -145,24 +140,6 @@ fn systemd_arg(value: &str) -> String {
         .replace('%', "%%")
         .replace('$', "$$");
     format!("\"{escaped}\"")
-}
-
-fn read_manifest(home: &Path) -> Option<Value> {
-    let raw = std::fs::read_to_string(manifest_path(home)).ok()?;
-    serde_json::from_str(&raw).ok()
-}
-
-fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| format!("create {parent:?}: {error}"))?;
-    }
-    std::fs::write(path, bytes).map_err(|error| format!("write {path:?}: {error}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
 }
 
 /// Whether *this home's* unit is loaded and running. The label is global per

@@ -320,7 +320,7 @@ pub fn maintenance_report(store: &Store, scopes: &[String], limit: u32) -> CoreR
         for row in store.maintenance_tasks(scope)? {
             task_states.push(serde_json::to_value(&row)?);
         }
-        let now = crate::store::ops::now_ms();
+        let now = crate::now_ms();
         for row in store.maintenance_due(scope, now)? {
             due_tasks.push(json!({
                 "task": row.task,
@@ -528,7 +528,7 @@ impl Store {
                 "UPDATE memories SET forgotten = 0, revision = ?2, updated_ms = ?3 \
                  WHERE id = ?1 AND forgotten = 1 \
                  AND NOT EXISTS (SELECT 1 FROM suppressions WHERE memory_id = ?1)",
-                params![id, revision, crate::store::ops::now_ms()],
+                params![id, revision, crate::now_ms()],
             )?;
             if changed > 0 {
                 restored += 1;

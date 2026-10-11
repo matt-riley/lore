@@ -267,7 +267,7 @@ async fn run_within_budget(
     };
     let meta = RequestMeta {
         client_id: format!("hook.{client}"),
-        request_id: format!("hook-{}-{}", std::process::id(), nanos()),
+        request_id: format!("hook-{}-{}", std::process::id(), lore_core::now_nanos()),
         session_id: payload
             .get("sessionId")
             .or_else(|| payload.get("session_id"))
@@ -281,7 +281,7 @@ async fn run_within_budget(
     // first: without it every prompt-time recall is refused with
     // STORE_ID_REQUIRED and the host silently gets no context.
     let status_meta = RequestMeta {
-        request_id: format!("hook-status-{}-{}", std::process::id(), nanos()),
+        request_id: format!("hook-status-{}-{}", std::process::id(), lore_core::now_nanos()),
         ..meta.clone()
     };
     let store_id = match lore::request(socket, "/v2/status", status_meta, json!({})).await {
@@ -345,13 +345,6 @@ async fn run_within_budget(
             Some(format!("lore hook: daemon unavailable: {error:#}")),
         ),
     }
-}
-
-fn nanos() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_nanos())
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

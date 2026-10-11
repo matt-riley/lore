@@ -11,20 +11,14 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::params;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::error::{CoreError, CoreResult};
+use crate::policy::sha256_hex;
 use crate::store::Store;
 
 const MAX_BUNDLE_FILES: usize = 200;
 const MAX_BUNDLE_FILE_BYTES: u64 = 256 * 1024;
 const MAX_ARTIFACTS: i64 = 500;
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
-}
 
 /// Data directory that contains the store file.
 fn data_dir(store: &Store) -> CoreResult<PathBuf> {

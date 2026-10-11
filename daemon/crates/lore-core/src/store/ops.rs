@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{CoreError, CoreResult};
 use crate::store::Store;
+use crate::now_ms;
 
 /// One durable operation run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,13 +74,6 @@ pub(crate) fn fingerprint(operation: &str, store_id: &str, parts: &[String]) -> 
         hasher.update(part.as_bytes());
     }
     format!("{:x}", hasher.finalize())
-}
-
-pub(crate) fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 struct MemoryRow {

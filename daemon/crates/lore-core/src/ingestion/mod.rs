@@ -10,11 +10,11 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::config::{ResolvedSourceRoot, ResolvedSources};
 use crate::error::{CoreError, CoreResult};
+use crate::policy::sha256_hex;
 use crate::store::{CaptureCommit, SourceRecord, SourceRow, Store, open_readonly};
 use parsers::{LineParser, ParserState, TurnCursor, matches_client};
 
@@ -49,12 +49,6 @@ pub struct SweepReport {
     pub captured: usize,
     pub pending: usize,
     pub unavailable: usize,
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
 }
 
 /// Canonicalize an approved source path and reject escapes. The returned path

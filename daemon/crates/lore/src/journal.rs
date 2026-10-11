@@ -230,10 +230,7 @@ fn take_over_stale_lock(path: &Path) {
             "{}.stale-{}-{}",
             path.display(),
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_nanos())
-                .unwrap_or(0)
+            lore_core::now_nanos()
         ));
         if std::fs::rename(path, &aside).is_err() {
             return;

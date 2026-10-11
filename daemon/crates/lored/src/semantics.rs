@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use lore_provider::EmbeddingProvider;
+use lore_core::now_ms;
 use sha2::{Digest, Sha256};
 use tokio::sync::{Semaphore, watch};
 
@@ -299,17 +300,10 @@ impl Semantics {
     }
 
     /// Number of cached query vectors (diagnostics and tests).
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn cache_len(&self) -> usize {
         self.cache.lock().expect("cache").entries.len()
     }
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

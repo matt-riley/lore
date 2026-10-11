@@ -372,12 +372,7 @@ fn import_semantic_memory(
                 _ => 1.0,
             };
             let tags = value_str(row, "tags").unwrap_or_default();
-            let tags: Vec<String> = tags
-                .split([',', ';'])
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .collect();
+            let tags = split_legacy_tags(&tags);
             let metadata = value_str(row, "metadata_json").unwrap_or_default();
             let authority = if metadata.contains("\"source\":\"manual\"")
                 || metadata.contains("\"authority\":\"manual\"")
@@ -798,12 +793,7 @@ impl Store {
                 content.clone()
             };
             let content_hash = crate::store::content_hash(&body);
-            let tags: Vec<String> = tags_raw
-                .split([',', ';'])
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .collect();
+            let tags = split_legacy_tags(tags_raw);
             let authority = if metadata.contains("manual") {
                 "manual"
             } else {
@@ -900,4 +890,13 @@ impl Store {
             "scope": "global",
         }))
     }
+}
+
+/// Split a legacy comma/semicolon separated tag column.
+fn split_legacy_tags(raw: &str) -> Vec<String> {
+    raw.split([',', ';'])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
 }

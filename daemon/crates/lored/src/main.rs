@@ -11,7 +11,7 @@ use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
@@ -31,6 +31,7 @@ use uuid::Uuid;
 
 use lore_core::config::{ResolvedAnalysis, ResolvedConfig, ResolvedEmbedding, ResolvedMaintenance};
 use lore_core::error::CoreError;
+use lore_core::now_ms;
 use lore_core::lifecycle;
 use lore_core::policy;
 use lore_core::store::{EmbeddingCounts, OnboardInput, SemanticInput, Store};
@@ -656,13 +657,6 @@ fn core_response(error: CoreError, request_id: &str, store_id: &str) -> Resp {
         Some(request_id),
         Some(store_id),
     )
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn effective_deadline(meta: &RequestMeta, maximum_ms: u64) -> Duration {
@@ -2609,10 +2603,7 @@ async fn handle_analysis(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
     }
 
     // Refetch and revalidate the client's selection before any model work.
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0);
+    let now = now_ms();
     let selection: Vec<(String, i64)> = params
         .records
         .iter()
@@ -2829,14 +2820,19 @@ fn build_analysis_prompt(
 
 /// Validate the model's JSON against the bounded contract. Unknown ids are
 /// rejected rather than trusted.
-fn parse_analysis_completion(kind: &str, text: &str, records: &[Value]) -> Result<Value, String> {
+/// Parse model output as JSON, tolerating a surrounding ```json fence.
+fn parse_model_json(text: &str) -> Result<Value, serde_json::Error> {
     let trimmed = text.trim();
     let json_text = trimmed
         .strip_prefix("```json")
         .and_then(|rest| rest.strip_suffix("```"))
         .map(str::trim)
         .unwrap_or(trimmed);
-    let parsed: Value = serde_json::from_str(json_text).map_err(|error| error.to_string())?;
+    serde_json::from_str(json_text)
+}
+
+fn parse_analysis_completion(kind: &str, text: &str, records: &[Value]) -> Result<Value, String> {
+    let parsed = parse_model_json(text).map_err(|error| error.to_string())?;
     if kind == "query-expansion" {
         let terms = parsed["terms"].as_array().ok_or("terms missing")?;
         if terms.len() > 32 {
@@ -3060,13 +3056,7 @@ async fn apply_rerank(
             return value;
         }
     };
-    let trimmed = text.trim();
-    let json_text = trimmed
-        .strip_prefix("```json")
-        .and_then(|rest| rest.strip_suffix("```"))
-        .map(str::trim)
-        .unwrap_or(trimmed);
-    let parsed: Value = match serde_json::from_str(json_text) {
+    let parsed: Value = match parse_model_json(&text) {
         Ok(parsed) => parsed,
         Err(_) => {
             value["diagnostics"]["rerank"] =

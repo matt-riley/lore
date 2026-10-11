@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{CoreError, CoreResult};
 use crate::store::{Store, parse_scope};
+use crate::now_ms;
 
 /// Bounded page size for administrative browsing.
 pub const ADMIN_PAGE_DEFAULT: u32 = 50;
@@ -650,13 +651,6 @@ impl Store {
             "gaps": { "sourcesWithSkippedRecords": with_gaps },
         }))
     }
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 /// Unknown admin operation names never fall through to another handler.

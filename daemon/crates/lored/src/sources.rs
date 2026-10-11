@@ -254,14 +254,12 @@ fn run_sweep_locked(store: &Store, config: &ResolvedConfig, now: i64) -> SweepRe
         }
     }
 
+    let stored_roots = store.source_roots().unwrap_or_default();
     for root in &sources.roots {
-        let cursor = match store.source_roots() {
-            Ok(roots) => roots
-                .into_iter()
-                .find(|row| row.root_id == root.root_id)
-                .and_then(|row| discovery_cursor(&row)),
-            Err(_) => None,
-        };
+        let cursor = stored_roots
+            .iter()
+            .find(|row| row.root_id == root.root_id)
+            .and_then(discovery_cursor);
         let (registered, next_cursor, complete) =
             match discover_page(store, root, cursor.as_deref(), sources.page_entries, now) {
                 Ok(value) => value,

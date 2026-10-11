@@ -11,22 +11,12 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
+use lore_core::now_ms;
+use lore_core::policy::sha256_hex;
 
 pub const CLIENTS: [&str; 5] = ["pi", "copilot", "codex", "claude", "antigravity"];
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    lore_core::policy::sha256_hex(bytes)
-}
 
 pub fn integrations_path(home: &Path) -> PathBuf {
     home.join(".lore/integrations.json")
@@ -49,13 +39,13 @@ fn backup_dir(home: &Path) -> PathBuf {
     home.join(".lore/integrations/.backup")
 }
 
-fn read_json(path: &Path) -> Option<Value> {
+pub(crate) fn read_json(path: &Path) -> Option<Value> {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
 }
 
-fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| format!("create {parent:?}: {error}"))?;
     }

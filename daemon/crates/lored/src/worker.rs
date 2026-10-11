@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use lore_core::store::{Store, jittered_backoff_ms};
+use lore_core::now_ms;
 use tokio::sync::Notify;
 
 use crate::semantics::Semantics;
@@ -280,13 +281,6 @@ async fn wait(notify: &Notify, duration: Duration) {
         _ = notify.notified() => {}
         _ = tokio::time::sleep(duration) => {}
     }
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn seed() -> u64 {

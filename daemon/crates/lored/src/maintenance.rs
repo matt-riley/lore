@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lore_core::config::ResolvedMaintenance;
+use lore_core::now_ms;
 use lore_core::store::Store;
 use serde_json::{Value, json};
 
@@ -41,13 +42,6 @@ impl TaskOutcome {
             detail: json!({ "error": reason }),
         }
     }
-}
-
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 /// How many candidates a bounded maintenance pass considers.
@@ -254,7 +248,7 @@ pub fn spawn(store: Arc<Store>, maintenance: ResolvedMaintenance, scope: String)
         .spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(15));
-                let _ = maintenance_tick(&store, &maintenance, &scope, now());
+                let _ = maintenance_tick(&store, &maintenance, &scope, now_ms());
             }
         })
         .expect("spawn maintenance scheduler");

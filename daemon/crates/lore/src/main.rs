@@ -11,11 +11,11 @@ mod service;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Parser, Subcommand};
 use protocol::RequestMeta;
 use serde_json::{Value, json};
+use lore_core::now_ms;
 
 #[derive(Debug, Parser)]
 #[command(name = "lore", version, about = "Lore v2 CLI")]
@@ -384,10 +384,7 @@ async fn main() -> ExitCode {
 }
 
 async fn run(cli: Cli) -> Result<(), String> {
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0);
+    let now_ms = now_ms();
     match &cli.command {
         Command::Browser { port, open } => {
             let socket = lore_core::config::resolve_socket_path(
@@ -1275,13 +1272,6 @@ fn resolve_data_dir(cli: &Cli) -> Result<PathBuf, String> {
     Ok(config.data_dir)
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
-}
-
 /// Bounded hook payload read: hosts never get an unbounded stdin copy.
 fn read_stdin_hook() -> Result<Value, String> {
     let mut raw = String::new();
@@ -1304,7 +1294,7 @@ async fn request(
 ) -> Result<lore::StatusOutcome, String> {
     let meta = RequestMeta {
         client_id: "cli".to_string(),
-        request_id: format!("cli-{}-{:x}", std::process::id(), nanos()),
+        request_id: format!("cli-{}-{:x}", std::process::id(), lore_core::now_nanos()),
         session_id: None,
         expected_store_id: expected_store_id.map(str::to_string),
         timeout_ms: None,
@@ -1349,13 +1339,6 @@ fn print_outcome(outcome: &lore::StatusOutcome) -> Result<(), String> {
     } else {
         Err("request failed".to_string())
     }
-}
-
-fn nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_nanos())
-        .unwrap_or(0)
 }
 
 fn audit_meta() -> RequestMeta {

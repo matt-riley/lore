@@ -432,7 +432,7 @@ async fn view_request(
 fn browser_meta() -> RequestMeta {
     RequestMeta {
         client_id: "browser".to_string(),
-        request_id: format!("browser-{}-{}", std::process::id(), nanos()),
+        request_id: format!("browser-{}-{}", std::process::id(), lore_core::now_nanos()),
         session_id: None,
         expected_store_id: None,
         timeout_ms: Some(GATEWAY_BUDGET_MS),
@@ -869,12 +869,6 @@ fn translate_view(name: &str, query: Option<&str>, result: &Value) -> Value {
     }
 }
 
-fn nanos() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_nanos())
-        .unwrap_or(0)
-}
 #[cfg(test)]
 mod tests {
     use super::*;

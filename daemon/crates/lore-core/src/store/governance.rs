@@ -1086,7 +1086,7 @@ impl Store {
             Some(&format!("passed={passed} failed={failed}")),
             None,
             Some(memory_revision),
-            crate::store::ops::now_ms(),
+            crate::now_ms(),
         )?;
         transaction.commit()?;
         Ok(json!({

@@ -63,10 +63,6 @@ const RESPONSE_HEADROOM: usize = 4 * 1024;
 const MAX_VECTOR_SCAN: usize = 10_000;
 /// Stored-vector page size.
 const VECTOR_PAGE: usize = 128;
-/// Reciprocal-rank-fusion constant retained for documentation; the current
-/// merge keeps semantic precedence as recorded in the G3 calibration report.
-#[allow(dead_code)]
-const RRF_K: f64 = 60.0;
 
 const SCHEMA_V1_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS store_metadata (

@@ -176,7 +176,7 @@ export const MODEL_TOOLS = [
       contextBytes: args.contextBytes,
     }),
     present: (result) =>
-      `${(result.representedIds ?? []).length} memories represented; ${result.diagnostics?.length ?? 0} diagnostics`,
+      `${(result.representedIds ?? []).length} memories represented; ${result.diagnostics?.omittedCount ?? 0} omitted`,
   },
   {
     name: "lore_validate",

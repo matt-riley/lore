@@ -744,3 +744,38 @@ fn copilot_session_updated_between_quanta_does_not_skip_later_sessions() {
         "the short session is captured even though the long session moved past it"
     );
 }
+
+#[test]
+fn a_hint_is_checked_against_the_identifying_record_not_the_first_line() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config(dir.path(), "claude", None);
+    let store = Store::open(&config).expect("open");
+    // Claude Code starts a transcript with bookkeeping records before the first turn.
+    let path = write(
+        dir.path(),
+        "control-first.jsonl",
+        "{\"type\":\"queue-operation\",\"operation\":\"enqueue\"}\n\
+         {\"type\":\"user\",\"sessionId\":\"actual-session\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
+    );
+    let error = register_hinted_source(
+        &store,
+        &config.sources.roots[0],
+        &path,
+        Some("some-other-session"),
+        None,
+        1_000,
+    )
+    .expect_err("a hint must be compared with the identifying record");
+    assert_eq!(error.reason, "SOURCE_IDENTITY_MISMATCH");
+
+    let row = register_hinted_source(
+        &store,
+        &config.sources.roots[0],
+        &path,
+        Some("actual-session"),
+        None,
+        1_001,
+    )
+    .expect("matching hint registers");
+    assert_eq!(row.native_session_id.as_deref(), Some("actual-session"));
+}

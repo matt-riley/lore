@@ -900,20 +900,6 @@ fn identity_line(client: &str, path: &Path) -> CoreResult<Option<String>> {
 /// How many leading records may precede a session's identifying record.
 const MAX_IDENTITY_SCAN_LINES: usize = 64;
 
-fn first_line(path: &Path) -> CoreResult<Option<String>> {
-    let mut file = std::fs::File::open(path)?;
-    let mut buffer = vec![0u8; 64 * 1024];
-    let read = file.read(&mut buffer)?;
-    buffer.truncate(read);
-    let text = String::from_utf8_lossy(&buffer);
-    Ok(text
-        .lines()
-        .next()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_string))
-}
-
 fn header_identity(client: &str, line: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     match client {
@@ -981,8 +967,10 @@ pub fn register_hinted_source(
             repository,
         )
     } else {
-        let first = first_line(&canonical)?.unwrap_or_default();
-        let derived = header_identity(&root.client, &first);
+        // Bookkeeping records can precede the identifying one, so scan the same
+        // bounded window as discovery before trusting any supplied hint.
+        let derived = identity_line(&root.client, &canonical)?
+            .and_then(|line| header_identity(&root.client, &line));
         if let (Some(hint), Some(derived)) = (native_hint, derived.as_deref())
             && hint != derived
         {

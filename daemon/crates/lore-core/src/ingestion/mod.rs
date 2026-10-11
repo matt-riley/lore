@@ -720,6 +720,9 @@ const MAX_DISCOVERY_DEPTH: usize = 4;
 /// scan is reported incomplete, so a truncated listing is never taken for the
 /// whole directory.
 const MAX_DISCOVERY_ENTRIES: usize = 200_000;
+/// Most files one sweep visits under a root, candidates or not. Files that are not
+/// candidates do not count toward the candidate cap, so this bounds the walk itself.
+const MAX_DISCOVERY_VISITS: usize = 1_000_000;
 
 /// Whether a file under a root of this client is a session candidate, judged by
 /// its extension. Only candidates count toward the discovery cap.
@@ -742,10 +745,12 @@ fn collect_candidate_files(
     directory: &Path,
     max_depth: usize,
     cap: usize,
+    visit_cap: usize,
     accept: &dyn Fn(&Path) -> bool,
     out: &mut Vec<PathBuf>,
 ) -> std::io::Result<bool> {
     let mut queue: Vec<(PathBuf, usize)> = vec![(directory.to_path_buf(), 0)];
+    let mut visited = 0usize;
     while let Some((dir, depth)) = queue.pop() {
         let mut children: Vec<PathBuf> = std::fs::read_dir(&dir)?
             .filter_map(Result::ok)
@@ -759,6 +764,10 @@ fn collect_candidate_files(
                     queue.push((path, depth + 1));
                 }
                 continue;
+            }
+            visited += 1;
+            if visited > visit_cap {
+                return Ok(true);
             }
             if !accept(&path) {
                 continue;
@@ -788,6 +797,7 @@ pub fn discover_page(
         directory,
         MAX_DISCOVERY_DEPTH,
         MAX_DISCOVERY_ENTRIES,
+        MAX_DISCOVERY_VISITS,
         &|path: &Path| is_candidate(&root.client, path),
         &mut entries,
     )
@@ -1055,11 +1065,13 @@ mod tests {
         }
         let mut listed = Vec::new();
         assert!(
-            collect_candidate_files(dir.path(), 1, 2, &|_: &Path| true, &mut listed).expect("walk")
+            collect_candidate_files(dir.path(), 1, 2, usize::MAX, &|_: &Path| true, &mut listed)
+                .expect("walk")
         );
         let mut all = Vec::new();
         assert!(
-            !collect_candidate_files(dir.path(), 1, 10, &|_: &Path| true, &mut all).expect("walk")
+            !collect_candidate_files(dir.path(), 1, 10, usize::MAX, &|_: &Path| true, &mut all)
+                .expect("walk")
         );
         assert_eq!(all.len(), 3);
     }
@@ -1076,11 +1088,35 @@ mod tests {
             dir.path(),
             1,
             2,
+            usize::MAX,
             &|path: &Path| is_candidate("pi", path),
             &mut listed,
         )
         .expect("walk");
         assert!(!truncated, "five unsupported files must not stop the walk");
         assert_eq!(listed, vec![dir.path().join("session.jsonl")]);
+    }
+
+    #[test]
+    fn the_visit_bound_limits_the_walk_even_when_nothing_is_a_candidate() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for index in 0..5 {
+            std::fs::write(dir.path().join(format!("cache-{index}.bin")), "x").expect("write");
+        }
+        let mut listed = Vec::new();
+        let truncated = collect_candidate_files(
+            dir.path(),
+            1,
+            usize::MAX,
+            3,
+            &|path: &Path| is_candidate("pi", path),
+            &mut listed,
+        )
+        .expect("walk");
+        assert!(
+            truncated,
+            "a walk over the visit bound must report truncation"
+        );
+        assert!(listed.is_empty());
     }
 }

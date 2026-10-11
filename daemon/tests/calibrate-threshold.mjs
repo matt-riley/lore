@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { chooseThreshold, passesCalibrationGates } from "./semantic-metrics.mjs";
 
 const args = process.argv.slice(2);
 function option(name, fallback) {
@@ -46,11 +47,7 @@ const rows = [];
 for (const threshold of THRESHOLDS) {
   const v2 = run("v2", threshold);
   const v1 = run("v1-semantic", threshold);
-  const passes =
-    v2.canaryHits === 0 &&
-    v2.recallAt6 >= v1.recallAt6 &&
-    v2.mrrAt6 >= v1.mrrAt6 &&
-    v2.irrelevantRate <= v1.irrelevantRate;
+  const passes = passesCalibrationGates(v1, v2);
   rows.push({
     threshold,
     passes,
@@ -71,12 +68,7 @@ for (const threshold of THRESHOLDS) {
   );
 }
 
-const eligible = rows.filter((row) => row.passes);
-eligible.sort(
-  (left, right) =>
-    right.v2.recallAt6 - left.v2.recallAt6 || right.threshold - left.threshold,
-);
-const chosen = eligible.length > 0 ? eligible[0].threshold : null;
+const chosen = chooseThreshold(rows);
 const summary = {
   split: "calibration",
   rule: "v2 semantic >= v1 semantic on recall@6, MRR@6 and irrelevant rate; canary never returns; ties to the stricter threshold",
@@ -86,4 +78,10 @@ const summary = {
 console.log(JSON.stringify(summary, null, 2));
 if (REPORT) {
   writeFileSync(path.resolve(REPO_ROOT, REPORT), `${JSON.stringify(summary, null, 2)}\n`);
+}
+if (chosen === null) {
+  // The report above still records every threshold, but automation must not read an
+  // uncalibrated run as a pass: validation.md says G3 fails and held-out is blocked.
+  console.error("no threshold met the calibration gates; G3 fails");
+  process.exitCode = 1;
 }

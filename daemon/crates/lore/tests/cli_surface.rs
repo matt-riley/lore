@@ -438,5 +438,8 @@ fn prompt_hook_answers_neutrally_when_the_daemon_never_replies() {
     );
     assert_eq!(code, 0, "{stderr}");
     assert_eq!(stdout.trim(), "{}", "neutral output: {stdout}");
-    assert!(started.elapsed() < std::time::Duration::from_secs(2), "bounded by the hook budget");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "bounded by the hook budget"
+    );
 }

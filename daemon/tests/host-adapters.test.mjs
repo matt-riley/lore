@@ -21,6 +21,8 @@ import { argsFromRest, retriesResponse } from "../clients/pi/register.mjs";
 import { createInjection, wrapLoreContext } from "../clients/js/injection.mjs";
 import { createLoreClient } from "../clients/js/lore-adapter.mjs";
 import { createUncertainJournal } from "../clients/js/uncertain-journal.mjs";
+import { spawn } from "node:child_process";
+import { utimesSync } from "node:fs";
 import {
   canonicalRemoteIdentity,
   resolveRepositoryIdentity,
@@ -643,6 +645,45 @@ test("prompt injection fails open within its deadline when the daemon never answ
   } finally {
     for (const connection of held) connection.destroy();
     await new Promise((resolve) => server.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the uncertain-write journal waits out a live lock, recovers a stale one, and keeps concurrent writes", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-lock-"));
+  try {
+    const journalPath = path.join(dir, "uncertain-writes.json");
+    const entry = (key) => ({ key, clientId: "t", operation: "lore_retain", route: "/v2/retain", params: { content: key }, storeId: "s", createdAt: 1 });
+
+    // A live lock makes the update fail fast and say why, before dispatch.
+    const journal = createUncertainJournal(journalPath, { lockWaitMs: 40 });
+    writeFileSync(`${journalPath}.lock`, "held");
+    assert.throws(() => journal.record(entry("blocked")), (error) => error.reason === "JOURNAL_BUSY");
+    rmSync(`${journalPath}.lock`, { force: true });
+
+    // A lock left by a dead process is recovered.
+    writeFileSync(`${journalPath}.lock`, "stale");
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(`${journalPath}.lock`, old, old);
+    journal.record(entry("after-stale"));
+    assert.ok(journal.entry("after-stale"));
+
+    // Two processes writing at once must not drop each other's entries.
+    const writer = (name) => `
+      import { createUncertainJournal } from ${JSON.stringify(new URL("../clients/js/uncertain-journal.mjs", import.meta.url).href)};
+      const j = createUncertainJournal(${JSON.stringify(journalPath)}, { capacity: 1000 });
+      for (let i = 0; i < 40; i++) j.record({ key: "${name}-" + i, clientId: "t", operation: "lore_retain", route: "/v2/retain", params: {}, storeId: "s", createdAt: i });
+    `;
+    const run = (name) => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ["--input-type=module", "-e", writer(name)], { stdio: "pipe" });
+      let stderr = "";
+      child.stderr.on("data", (chunk) => { stderr += chunk; });
+      child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(stderr))));
+    });
+    await Promise.all([run("a"), run("b")]);
+    const stored = JSON.parse(readFileSync(journalPath, "utf8")).entries;
+    assert.equal(Object.keys(stored).length, 1 + 80, "the stale-lock entry and all 80 concurrent entries are kept; the blocked write is not");
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

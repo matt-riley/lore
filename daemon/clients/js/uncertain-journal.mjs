@@ -6,11 +6,15 @@
 // its payload dropped. Connection failures leave the payload for an explicit
 // retry with the identical key.
 
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const DEFAULT_CAPACITY = 100;
+// Every journal update holds this lock for a few milliseconds. A lock older
+// than STALE_LOCK_MS belongs to a process that died mid-update.
+const LOCK_WAIT_MS = 2_000;
+const STALE_LOCK_MS = 10_000;
 
 function journalError(reason, message) {
   const error = new Error(message);
@@ -30,7 +34,50 @@ function syncDirectory(directory) {
   }
 }
 
-export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY } = {}) {
+function sleepBriefly(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Run one journal update while holding a cross-process lock. The default
+ * journal is shared by every host adapter for a user, and each update is a
+ * read-modify-write, so unlocked updates could lose another process's entry.
+ */
+function withLock(lockPath, waitMs, fn) {
+  const deadline = Date.now() + waitMs;
+  let fd;
+  for (;;) {
+    try {
+      fd = openSync(lockPath, "wx");
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lockPath).mtimeMs > STALE_LOCK_MS) rmSync(lockPath, { force: true });
+      } catch {
+        // The holder released it between the check and the stat; retry.
+      }
+      if (Date.now() > deadline) {
+        throw journalError("JOURNAL_BUSY", "uncertain-write journal is locked by another process; retry");
+      }
+      sleepBriefly(5);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    closeSync(fd);
+    rmSync(lockPath, { force: true });
+  }
+}
+
+export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY, lockWaitMs = LOCK_WAIT_MS } = {}) {
+  const lockPath = `${path}.lock`;
+  const locked = (fn) => (...args) => {
+    mkdirSync(dirname(path), { recursive: true });
+    return withLock(lockPath, lockWaitMs, () => fn(...args));
+  };
+
   function load() {
     let raw;
     try {
@@ -70,7 +117,7 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY } = {
   return {
     path,
     capacity,
-    record(entry) {
+    record: locked((entry) => {
       const state = load();
       const existing = state.entries[entry.key];
       // Overwriting an unresolved payload would lose the only record of a write
@@ -96,8 +143,8 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY } = {
         resolved: false,
       };
       persist(state);
-    },
-    complete(key) {
+    }),
+    complete: locked((key) => {
       const state = load();
       const entry = state.entries[key];
       if (!entry) return false;
@@ -106,13 +153,13 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY } = {
       entry.resolvedAt = Date.now();
       persist(state);
       return true;
-    },
+    }),
     /**
      * Resolve an entry without a commit: the daemon rejected the write
      * outright, or an operator decided not to retry it. Returns false when
      * there is no unresolved entry under this key.
      */
-    discard(key) {
+    discard: locked((key) => {
       const state = load();
       const entry = state.entries[key];
       if (!entry || entry.resolved) return false;
@@ -122,7 +169,7 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY } = {
       entry.outcome = "discarded";
       persist(state);
       return true;
-    },
+    }),
     list() {
       const state = load();
       return Object.values(state.entries)

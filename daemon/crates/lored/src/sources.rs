@@ -405,42 +405,74 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
     let store = Arc::clone(&state.store);
     let params = envelope.params.clone();
     let now = now_ms();
+    // The registration, its receipt and the key lease share one blocking closure, so a
+    // client that disconnects cannot leave the work done without its receipt.
+    let slot = match crate::blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => slot,
+        Err(response) => return response,
+    };
     let outcome =
         tokio::task::spawn_blocking(move || -> Result<(&'static str, SourceRow), CoreError> {
-            let root = root_for(&config.sources, &params.root_id, &params.client)?;
-            let canonical = match params.path.as_deref() {
-                Some(path) => Some(resolve_hinted_path(
-                    &config,
-                    &params.client,
-                    &params.root_id,
-                    path,
-                )?),
-                None => None,
-            };
-            match canonical {
-                Some(path) => register_hinted_source(
-                    &store,
-                    root,
-                    &path,
-                    params.native_session_id.as_deref(),
-                    params.repository.as_deref(),
-                    now,
-                )
-                .map(|row| ("eligible", row)),
-                None => {
-                    let Some(native) = params.native_session_id.as_deref() else {
-                        return Err(CoreError::invalid(
+            let _slot = slot;
+            let _key_lease = _key_lease;
+            let outcome: Result<(&'static str, SourceRow), CoreError> = (|| {
+                let root = root_for(&config.sources, &params.root_id, &params.client)?;
+                let canonical = match params.path.as_deref() {
+                    Some(path) => Some(resolve_hinted_path(
+                        &config,
+                        &params.client,
+                        &params.root_id,
+                        path,
+                    )?),
+                    None => None,
+                };
+                match canonical {
+                    Some(path) => register_hinted_source(
+                        &store,
+                        root,
+                        &path,
+                        params.native_session_id.as_deref(),
+                        params.repository.as_deref(),
+                        now,
+                    )
+                    .map(|row| ("eligible", row)),
+                    None => {
+                        let Some(native) = params.native_session_id.as_deref() else {
+                            return Err(CoreError::invalid(
+                                "SOURCE_ARGUMENT_INVALID",
+                                "path or nativeSessionId is required",
+                            ));
+                        };
+                        let _ = native;
+                        Err(CoreError::invalid(
                             "SOURCE_ARGUMENT_INVALID",
-                            "path or nativeSessionId is required",
-                        ));
-                    };
-                    let _ = native;
-                    Err(CoreError::invalid(
-                        "SOURCE_ARGUMENT_INVALID",
-                        "path is required for source registration",
-                    ))
+                            "path is required for source registration",
+                        ))
+                    }
+                }
+            })();
+            if let Ok((_, row)) = &outcome {
+                let result = SourceRegisterResult {
+                    source_id: row.source_id.clone(),
+                    state: "queued".into(),
+                    accepted: true,
+                    coalesced: false,
+                    generation: row.generation.clone(),
+                };
+                if let Ok(response) = serde_json::to_string(&result)
+                    && let Err(error) = store.store_receipt_json(
+                        &client_id,
+                        "sources.register",
+                        &key,
+                        &hash,
+                        &response,
+                        now,
+                    )
+                {
+                    eprintln!("[lored] sources.register receipt not stored: {error}");
                 }
             }
+            outcome
         })
         .await;
     let (_, row) = match outcome {
@@ -464,16 +496,6 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
         coalesced: false,
         generation: row.generation.clone(),
     };
-    if let Ok(response) = serde_json::to_string(&result) {
-        let _ = state.store.store_receipt_json(
-            &client_id,
-            "sources.register",
-            &key,
-            &hash,
-            &response,
-            now,
-        );
-    }
     let _ =
         state
             .store

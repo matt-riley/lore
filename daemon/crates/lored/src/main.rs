@@ -1398,8 +1398,23 @@ async fn handle_admin(
     let runtime = tokio::runtime::Handle::current();
     let max_context_bytes = state.config.limits.max_context_bytes;
     let now = now_ms();
+    // The operation, its receipt and the key lease all live inside the blocking
+    // closure. If the client disconnects, hyper drops this future, but the work
+    // keeps running; holding the lease and writing the receipt in the closure keeps
+    // a retry from running the operation again.
+    let slot = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => slot,
+        Err(response) => return response,
+    };
+    let client_guard = match acquire_client(&client_id, state) {
+        Ok(guard) => guard,
+        Err(response) => return response,
+    };
     let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, CoreError> {
-        match operation.as_str() {
+        let _slot = slot;
+        let _client = client_guard;
+        let _key_lease = _key_lease;
+        let outcome: Result<serde_json::Value, CoreError> = match operation.as_str() {
             "search" => {
                 let query = lore_core::store::require_query(params.query.as_deref())?;
                 store.admin_search(
@@ -1891,33 +1906,33 @@ async fn handle_admin(
                 "ADMIN_UNKNOWN",
                 "unknown admin operation",
             )),
+        };
+        if let (Ok(value), Some((key, receipt_operation, hash))) = (&outcome, &receipt)
+            && let Ok(response) = serde_json::to_string(value)
+            && let Err(error) = store.store_receipt_json(
+                &client_id,
+                receipt_operation,
+                key,
+                hash,
+                &response,
+                now_ms(),
+            )
+        {
+            eprintln!("[lored] receipt for {receipt_operation} not stored: {error}");
         }
+        outcome
     })
     .await;
     match result {
-        Ok(Ok(value)) => {
-            if let Some((key, receipt_operation, hash)) = &receipt
-                && let Ok(response) = serde_json::to_string(&value)
-            {
-                let _ = state.store.store_receipt_json(
-                    &client_id,
-                    receipt_operation,
-                    key,
-                    hash,
-                    &response,
-                    now_ms(),
-                );
-            }
-            json(
-                StatusCode::OK,
-                &OkEnvelope {
-                    ok: true,
-                    request_id,
-                    store_id,
-                    result: value,
-                },
-            )
-        }
+        Ok(Ok(value)) => json(
+            StatusCode::OK,
+            &OkEnvelope {
+                ok: true,
+                request_id,
+                store_id,
+                result: value,
+            },
+        ),
         Ok(Err(error)) => core_response(error, &request_id, &store_id),
         Err(_) => fail_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1956,7 +1971,14 @@ async fn handle_view(
     }
     let params = envelope.params.clone();
     let store = Arc::clone(&state.store);
+    // A view abandoned by its client keeps its blocking work until it finishes, so
+    // the work holds its slot until then.
+    let slot = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => slot,
+        Err(response) => return response,
+    };
     let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, CoreError> {
+        let _slot = slot;
         match view.as_str() {
             "overview" => store.view_overview(params.repository.as_deref()),
             "health" => store.view_health(),
@@ -2680,7 +2702,13 @@ fn build_analysis_prompt(
     prompt.push_str(repository.unwrap_or("global"));
     prompt.push_str("\nQuery: ");
     prompt.push_str(query);
-    prompt.truncate(64 * 1024);
+    // Cut at a character boundary: byte 64 KiB can fall inside a multibyte character,
+    // and truncating there would panic.
+    let mut cut = (64 * 1024).min(prompt.len());
+    while !prompt.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    prompt.truncate(cut);
     prompt
 }
 
@@ -3006,6 +3034,15 @@ async fn apply_rerank(
 mod tests {
     use super::*;
     use hyper::body::Body;
+
+    #[test]
+    fn analysis_prompts_are_cut_on_a_character_boundary() {
+        // Multibyte characters put byte 64 KiB inside one of them.
+        let query = "é".repeat(40 * 1024);
+        let prompt = build_analysis_prompt("query-expansion", &query, None, &[]);
+        assert!(prompt.len() <= 64 * 1024);
+        assert!(prompt.is_char_boundary(prompt.len()));
+    }
 
     #[tokio::test]
     async fn deadline_rejects_slow_work() {

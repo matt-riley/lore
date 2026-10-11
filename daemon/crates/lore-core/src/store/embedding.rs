@@ -530,7 +530,7 @@ impl Store {
         now_ms: i64,
     ) -> CoreResult<Vec<StoredVector>> {
         let mut sql = String::from(
-            "SELECT v.memory_id, v.vector FROM memory_vectors v JOIN memories m ON m.id = v.memory_id \
+            "SELECT v.memory_id, v.vector, v.norm FROM memory_vectors v JOIN memories m ON m.id = v.memory_id \
              WHERE v.model_identity = ?1 AND v.revision = m.revision AND v.content_hash = m.content_hash \
              AND m.forgotten = 0 AND m.superseded_by IS NULL \
              AND (m.expires_at_ms IS NULL OR m.expires_at_ms > ?2) AND m.id > ?3",
@@ -554,19 +554,19 @@ impl Store {
         sql.push_str(" ORDER BY m.id ASC LIMIT ?");
         values.push(Value::Integer(limit as i64));
 
-        let mut statement = connection.prepare(&sql)?;
+        let mut statement = connection.prepare_cached(&sql)?;
         let rows = statement.query_map(params_from_iter(values.iter()), |row| {
             let blob: Vec<u8> = row.get(1)?;
-            Ok((row.get::<_, String>(0)?, blob))
+            Ok((row.get::<_, String>(0)?, blob, row.get::<_, f64>(2)?))
         })?;
         let mut vectors = Vec::new();
         for row in rows {
-            let (memory_id, blob) = row?;
+            let (memory_id, blob, norm) = row?;
             if let Some(vector) = blob_to_vector(&blob) {
                 vectors.push(StoredVector {
                     memory_id,
                     vector,
-                    norm: 0.0,
+                    norm,
                 });
             }
         }

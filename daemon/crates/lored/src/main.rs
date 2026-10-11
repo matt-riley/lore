@@ -1180,18 +1180,11 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     let lexical_params = params.clone();
     // Bounded by the request budget. Under blocking-pool pressure the snapshot
     // is skipped rather than queued behind the request's own deadline.
-    let speculative = match blocking_slot(state, Some(&request_id)) {
-        Ok(slot) => {
-            let work = tokio::task::spawn_blocking(move || {
-                let _slot = slot;
-                lexical_store.lexical_snapshot(&lexical_params, now, Some(deadline))
-            });
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            match tokio::time::timeout(remaining, work).await {
-                Ok(Ok(Ok(snapshot))) => Some(snapshot),
-                _ => None,
-            }
-        }
+    let speculative_work = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => Some(tokio::task::spawn_blocking(move || {
+            let _slot = slot;
+            lexical_store.lexical_snapshot(&lexical_params, now, Some(deadline))
+        })),
         Err(_) => None,
     };
 
@@ -1220,6 +1213,17 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
             .semantics
             .query_vector(&key, &params.query, allowance)
             .await
+    };
+
+    let speculative = match speculative_work {
+        Some(work) => {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match tokio::time::timeout(remaining, work).await {
+                Ok(Ok(Ok(snapshot))) => Some(snapshot),
+                _ => None,
+            }
+        }
+        None => None,
     };
 
     let identity = state.semantics.identity().unwrap_or_default();

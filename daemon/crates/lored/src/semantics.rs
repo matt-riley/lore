@@ -257,10 +257,7 @@ impl Semantics {
     fn cache_get(&self, key: &str) -> Option<Vec<f32>> {
         let now = now_ms();
         let mut cache = self.cache.lock().expect("cache");
-        let (vector, created_ms) = {
-            let entry = cache.entries.get(key)?;
-            (entry.vector.clone(), entry.created_ms)
-        };
+        let created_ms = cache.entries.get(key)?.created_ms;
         if now - created_ms > CACHE_TTL_MS {
             let entry = cache.entries.remove(key).expect("entry");
             cache.order.retain(|existing| existing != key);
@@ -269,7 +266,7 @@ impl Semantics {
         }
         cache.order.retain(|existing| existing != key);
         cache.order.push_back(key.to_string());
-        Some(vector)
+        cache.entries.get(key).map(|entry| entry.vector.clone())
     }
 
     fn cache_put(&self, key: &str, vector: Vec<f32>) {

@@ -102,14 +102,15 @@ fn read_quantum(
 ) -> CoreResult<(Vec<Vec<u8>>, i64, bool)> {
     file.seek(SeekFrom::Start(offset as u64))?;
     let mut buffer: Vec<u8> = Vec::new();
+    let mut chunk = vec![0u8; quantum.max(1)];
     loop {
-        let mut chunk = vec![0u8; quantum.max(1)];
         let read = file.read(&mut chunk)?;
         if read == 0 {
             break;
         }
         buffer.extend_from_slice(&chunk[..read]);
-        if buffer.contains(&b'\n') || buffer.len() > max_record {
+        // Only the new bytes can introduce a newline.
+        if chunk[..read].contains(&b'\n') || buffer.len() > max_record {
             break;
         }
     }
@@ -459,7 +460,7 @@ fn session_turn_page(
     if unindexed > 0 {
         return Ok(None);
     }
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT turn_index, user_message, assistant_response, timestamp FROM turns \
          WHERE session_id = ?1 AND turn_index > ?2 ORDER BY turn_index ASC LIMIT ?3",
     )?;
@@ -598,7 +599,9 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
         let more = page.len() == MAX_SQLITE_PAGE;
         let last_turn = page.last().map_or(after, |turn| turn.0);
         for (turn_index, user, assistant, _timestamp) in page {
-            if !user.trim().is_empty() {
+            let user_empty = user.trim().is_empty();
+            let assistant_empty = assistant.trim().is_empty();
+            if !user_empty {
                 records.push(SourceRecord {
                     evidence_key: format!("copilot:{session_id}:turn:{turn_index}:user"),
                     kind: "user_turn".into(),
@@ -606,12 +609,12 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
                     turn_index: Some(turn_index),
                     parent_key: None,
                     branch: Some(session_id.clone()),
-                    text: user.clone(),
+                    text: user,
                     completeness: "complete".into(),
                     revision: 1,
                 });
             }
-            if !assistant.trim().is_empty() {
+            if !assistant_empty {
                 records.push(SourceRecord {
                     evidence_key: format!("copilot:{session_id}:turn:{turn_index}:assistant"),
                     kind: "assistant_turn".into(),
@@ -619,12 +622,12 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
                     turn_index: Some(turn_index),
                     parent_key: None,
                     branch: Some(session_id.clone()),
-                    text: assistant.clone(),
+                    text: assistant,
                     completeness: "complete".into(),
                     revision: 1,
                 });
             }
-            if user.trim().is_empty() && assistant.trim().is_empty() {
+            if user_empty && assistant_empty {
                 skipped += 1;
             }
         }

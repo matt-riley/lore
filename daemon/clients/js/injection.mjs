@@ -16,6 +16,12 @@ export const LORE_CONTEXT_BOUNDARY =
 /** Prompt-time injection fails open after this long, as the hooks do. */
 const RECALL_BUDGET_MS = 200;
 const REPOSITORY_LOOKUP_MS = 80;
+// How long a resolved (or missing) repository identity is reused per cwd.
+const REPOSITORY_CACHE_MS = 30_000;
+
+function defaultRepositoryFor(ctx) {
+  return resolveRepositoryIdentity(ctx?.cwd ?? process.cwd(), { timeoutMs: REPOSITORY_LOOKUP_MS });
+}
 
 /**
  * Wrapper names that recalled text must not be able to open or close. This
@@ -77,10 +83,23 @@ export function createInjection({
   // short and still worth the model's attention.
   minChars = 1,
   // Git lookups share the recall deadline, so they get a short fixed budget.
-  repositoryFor = (ctx) => resolveRepositoryIdentity(ctx?.cwd ?? process.cwd(), { timeoutMs: REPOSITORY_LOOKUP_MS }),
+  repositoryFor = defaultRepositoryFor,
   now = () => Date.now(),
 } = {}) {
   const lastPromptBySession = new Map();
+  // The identity is stable per cwd, but it needs two synchronous git spawns on
+  // the prompt path. Memoize briefly, misses included.
+  const repositoryCache = new Map();
+  const lookupRepository = (ctx) => {
+    if (repositoryFor !== defaultRepositoryFor) return repositoryFor(ctx);
+    const cwd = ctx?.cwd ?? process.cwd();
+    const at = now();
+    const hit = repositoryCache.get(cwd);
+    if (hit && at - hit.at < REPOSITORY_CACHE_MS) return hit.value;
+    const value = repositoryFor(ctx);
+    repositoryCache.set(cwd, { value, at });
+    return value;
+  };
 
   /**
    * Ask the daemon for context. `reached` is false only when the daemon could
@@ -91,7 +110,7 @@ export function createInjection({
     // One deadline covers repository lookup and the daemon round trips, so a
     // slow or wedged daemon cannot hold the host's prompt path.
     const signal = AbortSignal.timeout(recallBudgetMs);
-    const repository = repositoryFor(ctx);
+    const repository = lookupRepository(ctx);
     const args = query ? { query } : { query: "session start" };
     if (repository) args.repository = repository;
     let result;

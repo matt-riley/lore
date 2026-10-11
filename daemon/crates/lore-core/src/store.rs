@@ -1512,7 +1512,7 @@ impl Store {
                             vector,
                             query_norm,
                             &stored.vector,
-                            embedding::vector_norm(&stored.vector),
+                            stored.norm,
                         );
                         if score >= semantic.min_similarity {
                             vector_rank.push((stored.memory_id, score));
@@ -1798,7 +1798,7 @@ impl Store {
         sql.push_str(" ORDER BY rank ASC, m.id ASC LIMIT ?");
         values.push(Value::Integer(self.limits.candidate_pool as i64));
 
-        let mut statement = connection.prepare(&sql)?;
+        let mut statement = connection.prepare_cached(&sql)?;
         let rows = statement.query_map(params_from_iter(values.iter()), |row| {
             let tags_json: String = row.get(11)?;
             let scope: String = row.get(3)?;
@@ -1828,12 +1828,16 @@ impl Store {
 fn collapse_duplicates(records: Vec<MemoryRecord>) -> Vec<MemoryRecord> {
     let mut seen_ids = std::collections::HashSet::new();
     let mut seen_bodies = std::collections::HashSet::new();
+    let mut keep = records
+        .iter()
+        .map(|record| {
+            seen_ids.insert(record.id.as_str()) && seen_bodies.insert(record.content.trim())
+        })
+        .collect::<Vec<bool>>()
+        .into_iter();
     records
         .into_iter()
-        .filter(|record| {
-            seen_ids.insert(record.id.clone())
-                && seen_bodies.insert(record.content.trim().to_string())
-        })
+        .filter(|_| keep.next().unwrap_or(true))
         .collect()
 }
 

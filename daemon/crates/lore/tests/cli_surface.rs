@@ -52,7 +52,11 @@ fn fake_daemon(bodies: Vec<String>) -> (PathBuf, tempfile::TempDir, std::thread:
             let started = Instant::now();
             let mut stream = loop {
                 match listener.accept() {
-                    Ok((stream, _)) => break stream,
+                    Ok((stream, _)) => {
+                        // macOS hands accepted sockets the listener's non-blocking mode.
+                        stream.set_nonblocking(false).expect("blocking stream");
+                        break stream;
+                    }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         if started.elapsed() > Duration::from_secs(5) {
                             return;
@@ -106,7 +110,11 @@ fn fake_daemon_capturing(
             let started = Instant::now();
             let mut stream = loop {
                 match listener.accept() {
-                    Ok((stream, _)) => break stream,
+                    Ok((stream, _)) => {
+                        // macOS hands accepted sockets the listener's non-blocking mode.
+                        stream.set_nonblocking(false).expect("blocking stream");
+                        break stream;
+                    }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         if started.elapsed() > Duration::from_secs(5) {
                             return;

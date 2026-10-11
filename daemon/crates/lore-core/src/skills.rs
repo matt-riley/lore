@@ -126,9 +126,18 @@ pub fn validate(paths: &[String]) -> SkillValidation {
             continue;
         }
         let mut stack = vec![(root.clone(), 0usize)];
+        // Limits that stopped this walk before every directory was read. They are
+        // reported as a failure so a partial pass never reads as a clean one.
+        let mut too_deep = false;
+        let mut too_many = false;
         while let Some((directory, depth)) = stack.pop() {
-            if depth > MAX_DEPTH || scanned >= MAX_SKILL_FILES {
+            if depth > MAX_DEPTH {
+                too_deep = true;
                 continue;
+            }
+            if scanned >= MAX_SKILL_FILES {
+                too_many = true;
+                break;
             }
             let entries = match fs::read_dir(&directory) {
                 Ok(entries) => entries,
@@ -151,6 +160,7 @@ pub fn validate(paths: &[String]) -> SkillValidation {
                     continue;
                 }
                 if scanned >= MAX_SKILL_FILES {
+                    too_many = true;
                     break;
                 }
                 scanned += 1;
@@ -167,6 +177,25 @@ pub fn validate(paths: &[String]) -> SkillValidation {
                 }
                 skills.push(report);
             }
+        }
+        let mut limits = Vec::new();
+        if too_many {
+            limits.push(format!(
+                "more than {MAX_SKILL_FILES} skill files; the rest were not validated"
+            ));
+        }
+        if too_deep {
+            limits.push(format!(
+                "directories deeper than {MAX_DEPTH} levels were not read"
+            ));
+        }
+        if !limits.is_empty() {
+            skills.push(SkillReport {
+                path: root.display().to_string(),
+                name: None,
+                ok: false,
+                issues: vec![format!("traversal incomplete: {}", limits.join("; "))],
+            });
         }
     }
     let ok = skills.iter().all(|skill| skill.ok);

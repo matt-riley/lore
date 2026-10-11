@@ -1,6 +1,6 @@
 # Slice 5B: migration, backup and recovery
 
-Status: planned. Depends on G4 policy/extraction evidence. Exit contributes to G5.
+Status: stage-5B core implemented 2026-10-07 — evidence in [evidence/g5-migration.md](evidence/g5-migration.md); supported set, explicit exclusions and gaps are recorded there. Depends on G4 policy/extraction evidence. Exit contributes to G5.
 References: `lib/db/schema.mjs`, `lib/db/db-snapshot-lifecycle.mjs`, `lib/maintenance/recovery.mjs`, `tests/fixtures/released-upgrades/`, `tests/unit/snapshot-manual-suppression.test.mjs`.
 
 ## Safety model and command surface
@@ -86,7 +86,7 @@ Merge current durable ID tombstones, canonical/evidence suppression, retired ide
 
 Proposition-level suppression does not erase a later deliberate manual re-save; exact ID tombstones still do. Preserve deletion and explicit replacement lineage so correction and fresh-manual-save fixtures survive restore. Suppression is never removed solely because the backup predates Forget.
 
-Revalidate all derived aggregates against the merged ledger, rebuild indexes and invalidate stale vectors. Validate integrity and ID/reference consistency, fsync stage, rename current target to rescue, rename validated stage into place, fsync directory and reopen before reporting success. On any failed reopen, restore the rescue where possible and preserve all artifacts with explicit paths in local output.
+Revalidate all derived aggregates against the merged ledger, rebuild indexes and invalidate stale vectors. Validate integrity and ID/reference consistency, fsync stage, move the live database and its -wal and -shm files aside to `<target>.replaced-<ms>`, rename validated stage into place, fsync directory and reopen before reporting success. A failed swap moves the live files back. On any failed reopen, restore the rescue where possible and preserve all artifacts with explicit paths in local output. The rescue and the `.replaced-<ms>` files both hold the pre-restore data, so both are sensitive and stay in place for the operator to remove.
 
 If the latest suppression/receipt state is unavailable, corrupt or from an incompatible store, refuse automatic restoration. A chosen historical backup alone cannot prove it includes later deletions. Do not offer an unsafe restore option disguised as normal recovery.
 

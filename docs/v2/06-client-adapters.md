@@ -1,6 +1,6 @@
 # Slice 6A: thin clients and compatible commands
 
-Status: planned. Depends on G4 and migration/recovery implementation for real-data trials. Exit contributes to G5.
+Status: stage-6B adapter cores implemented 2026-10-07 — evidence in [evidence/g6-clients-admin.md](evidence/g6-clients-admin.md). Synthetic-host tests cover registration, dispatch, capability refusal, cancellation, retries and the uncertain-write journal; real-host evidence remains open. Depends on G4 and migration/recovery implementation for real-data trials. Exit contributes to G5.
 References: `extension.mjs`, `lore-pi.ts`, `lib/clients/setup.mjs`, `lib/clients/cli-runtime.mjs`, `lib/runtime/slash-dispatch.mjs`, `lib/capabilities/capability-manifest.mjs`.
 
 ## Outcome and rollout order
@@ -60,7 +60,7 @@ Send only completed submitted prompts. Never send partial keystrokes. Transcript
 
 ## Durable uncertain-write journal
 
-Before sending a mutation, assign the stable client namespace, canonical operation and random key. Persist the exact normalized semantic payload, target store ID and key in a private bounded journal using atomic write/fsync. The journal is sensitive because explicit manual write content is needed for recovery; it contains no ambient recall queries.
+Before sending a mutation, assign the stable client namespace, canonical operation and random key. Persist the exact normalized semantic payload, target store ID and key in a private bounded journal using atomic write/fsync. The journal is sensitive because explicit manual write content is needed for recovery; it contains no ambient recall queries. Every host adapter uses a per-user journal by default (`~/.lore/uncertain-writes-v2.json`), and `LORE_V2_JOURNAL` overrides it; durable recovery is not opt-in.
 
 After receiving a committed acknowledgement, atomically mark the entry resolved, then remove its payload. If the connection fails or a deadline expires, preserve it as uncertain. A later reconnect retries the identical operation/key only against the same store. Automatic retries are at most one per interaction within its deadline; an explicit `lore retries list|resolve` handles remaining entries. Never change clientId/key, regenerate timestamps or reroute to v1.
 

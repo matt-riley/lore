@@ -1,0 +1,4 @@
+{"type":"session_meta","payload":{"id":"cx-golden-1","cwd":"/work/project"}}
+{"type":"response_item","timestamp":"2026-01-01T00:00:01.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Which table stores extraction intent?"}]}}
+{"type":"response_item","timestamp":"2026-01-01T00:00:02.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"extraction_intents, keyed by source and generation."}]}}
+{"type":"response_item","timestamp":"2026-01-01T00:00:03.000Z","payload":{"type":"message","role":"assistant","channel":"analysis","content":[{"type":"output_text","text":"internal reasoning that must not be captured"}]}}

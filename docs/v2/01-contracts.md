@@ -1,6 +1,6 @@
 # Slice 1: protocol and compatibility contracts
 
-Status: planned. Depends on the [decisions](architecture-decisions.md), [limits/storage](configuration-storage.md) and [validation](validation.md). Exit: G1.
+Status: G1 passed 2026-10-07 at `2e8bff4` — evidence in [evidence/g1.md](evidence/g1.md); the proof scaffold lives in [`daemon/`](../../daemon/README.md). Depends on the [decisions](architecture-decisions.md), [limits/storage](configuration-storage.md) and [validation](validation.md). Exit: G1.
 
 ## Deliverables and first executable proof
 
@@ -125,7 +125,7 @@ Rendering has its own contextBytes cap. Required context sections precede topica
 | 400 | INVALID_ARGUMENT | INVALID_JSON, INVALID_SCOPE, INVALID_REPOSITORY, UNKNOWN_FIELD, INVALID_DEADLINE; correct input |
 | 404 | NOT_FOUND | MEMORY_NOT_FOUND or RUN_NOT_FOUND |
 | 405 / 415 | INVALID_ARGUMENT | METHOD_NOT_ALLOWED / UNSUPPORTED_MEDIA_TYPE |
-| 409 | ALREADY_EXISTS | IDEMPOTENCY_CONFLICT; do not change the key to hide a conflict |
+| 409 | ALREADY_EXISTS | IDEMPOTENCY_CONFLICT; do not change the key to hide a conflict. IDEMPOTENCY_OUTCOME_UNKNOWN: an earlier attempt with this key stopped before it settled, so inspect state before any new key. Every keyed admin operation is marked, read-only ones included |
 | 412 | FAILED_PRECONDITION | API_MAJOR_MISMATCH, STORE_MISMATCH, CAPABILITY_REQUIRED, SCHEMA_UNSUPPORTED, PREVIEW_STALE |
 | 413 | RESOURCE_EXHAUSTED | REQUEST_BYTES; reduce input, never blindly retry |
 | 429 | RESOURCE_EXHAUSTED | REQUEST_CAPACITY, CLIENT_CAPACITY, STORE_QUOTA, JOURNAL_FULL |

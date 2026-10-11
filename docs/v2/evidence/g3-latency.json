@@ -1,0 +1,112 @@
+{
+  "generatedAt": "2026-10-07T12:15:35.585Z",
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "node": "v26.9.0"
+  },
+  "queriesPerScenario": 40,
+  "concurrency": 4,
+  "backlogPerScenario": 300,
+  "scenarios": [
+    {
+      "scenario": "healthy",
+      "endpoint": "http://127.0.0.1:**/v1",
+      "recallMs": {
+        "count": 40,
+        "p50Ms": 2.86,
+        "p95Ms": 35.17,
+        "p99Ms": 49.56,
+        "maxMs": 49.56
+      },
+      "fallbackCounts": {
+        "QUERY_CAPACITY": 31,
+        "NONE": 9
+      },
+      "backlogRecallMs": {
+        "count": 20,
+        "p50Ms": 29.73,
+        "p95Ms": 33.41,
+        "p99Ms": 34.52,
+        "maxMs": 34.52
+      },
+      "retainMs": {
+        "count": 50,
+        "p50Ms": 10.28,
+        "p95Ms": 18.44,
+        "p99Ms": 18.95,
+        "maxMs": 18.95
+      },
+      "databaseBytes": 901120,
+      "walBytes": 4206552,
+      "rssBytes": 13959168,
+      "memoriesLoaded": 40
+    },
+    {
+      "scenario": "sleeping",
+      "endpoint": "http://127.0.0.1:**/v1",
+      "recallMs": {
+        "count": 40,
+        "p50Ms": 6.26,
+        "p95Ms": 107.91,
+        "p99Ms": 108.98,
+        "maxMs": 108.98
+      },
+      "fallbackCounts": {
+        "QUERY_CAPACITY": 20,
+        "QUERY_TIMEOUT": 20
+      },
+      "backlogRecallMs": {
+        "count": 20,
+        "p50Ms": 107.05,
+        "p95Ms": 110.5,
+        "p99Ms": 111.59,
+        "maxMs": 111.59
+      },
+      "retainMs": {
+        "count": 50,
+        "p50Ms": 0.64,
+        "p95Ms": 1.21,
+        "p99Ms": 2.04,
+        "maxMs": 2.04
+      },
+      "databaseBytes": 749568,
+      "walBytes": 4190072,
+      "rssBytes": 12795904,
+      "memoriesLoaded": 40
+    },
+    {
+      "scenario": "offline",
+      "endpoint": "http://127.0.0.1:**/v1",
+      "recallMs": {
+        "count": 40,
+        "p50Ms": 4.71,
+        "p95Ms": 6.86,
+        "p99Ms": 7.07,
+        "maxMs": 7.07
+      },
+      "fallbackCounts": {
+        "QUERY_CAPACITY": 4,
+        "PROVIDER_OFFLINE": 36
+      },
+      "backlogRecallMs": {
+        "count": 20,
+        "p50Ms": 1.3,
+        "p95Ms": 1.73,
+        "p99Ms": 1.78,
+        "maxMs": 1.78
+      },
+      "retainMs": {
+        "count": 50,
+        "p50Ms": 0.25,
+        "p95Ms": 0.37,
+        "p99Ms": 0.5,
+        "maxMs": 0.5
+      },
+      "databaseBytes": 528384,
+      "walBytes": 4742152,
+      "rssBytes": 13287424,
+      "memoriesLoaded": 40
+    }
+  ]
+}

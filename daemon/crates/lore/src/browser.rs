@@ -1,0 +1,1143 @@
+//! `lore browser` — a foreground loopback gateway for the dashboard.
+//!
+//! Serves the checked-in browser assets and translates `/api/<view>` requests
+//! into read-only daemon view calls. It has no SQL, never proxies mutations,
+//! never binds beyond loopback, and dies with the foreground process.
+
+use std::convert::Infallible;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use bytes::Bytes;
+use http_body_util::Full;
+use hyper::body::Incoming;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
+use protocol::{RequestMeta, ViewParams};
+use serde_json::{Value, json};
+use tokio::net::TcpListener;
+
+const INDEX: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../browser/index.html"
+));
+const APP_JS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../browser/app.js"
+));
+const STYLES: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../browser/styles.css"
+));
+
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const GATEWAY_BUDGET_MS: u64 = 5_000;
+
+const VIEWS: &[&str] = &[
+    "overview",
+    "memories",
+    "memories/filters",
+    "maintenance",
+    "episodes",
+    "drilldown",
+    "health",
+];
+
+/// Shared gateway state: the daemon socket and the negotiated store id.
+struct GatewayState {
+    socket: PathBuf,
+    store_id: tokio::sync::Mutex<Option<String>>,
+    /// Per-process secret. Any local account can reach a loopback port, so the
+    /// gateway serves only a browser that presented this token once.
+    token: String,
+    /// Cookie name for this gateway's token, scoped to its port.
+    cookie_name: String,
+}
+
+/// Name of the cookie that carries the token after the first visit. Cookies are not
+/// isolated by port, so the port is part of the name: two gateways on one host
+/// keep separate tokens. HttpOnly and SameSite=Strict keep it away from scripts and
+/// from cross-site requests.
+fn token_cookie_name(port: u16) -> String {
+    format!("lore_browser_{port}")
+}
+
+fn new_token() -> String {
+    // Two v4 UUIDs: about 244 bits from the operating system's random source.
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+/// The token presented in the query string, if any.
+fn query_token(query: Option<&str>) -> Option<String> {
+    query_pairs(query)
+        .into_iter()
+        .find(|(key, _)| key == "token")
+        .map(|(_, value)| value)
+}
+
+/// The token presented in the cookie header, if any.
+fn cookie_token(request: &Request<Incoming>, name: &str) -> Option<String> {
+    request
+        .headers()
+        .get_all(hyper::header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find(|(cookie, _)| *cookie == name)
+        .map(|(_, value)| value.to_string())
+}
+
+/// Constant-time comparison, so a guess is not checked byte by byte.
+fn token_matches(presented: &str, expected: &str) -> bool {
+    presented.len() == expected.len()
+        && presented
+            .bytes()
+            .zip(expected.bytes())
+            .fold(0u8, |difference, (a, b)| difference | (a ^ b))
+            == 0
+}
+
+/// Serve the dashboard until the process is stopped.
+pub async fn run(socket: &Path, port: u16, open: bool) -> Result<(), String> {
+    let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
+        .await
+        .map_err(|error| format!("bind 127.0.0.1:{port}: {error}"))?;
+    let bound = listener.local_addr().map_err(|error| error.to_string())?;
+    let token = new_token();
+    let url = format!("http://127.0.0.1:{}/?token={token}", bound.port());
+    println!("{url}");
+    if open {
+        let _ = std::process::Command::new("open").arg(&url).spawn();
+    }
+    let state: Arc<GatewayState> = Arc::new(GatewayState {
+        socket: socket.to_path_buf(),
+        store_id: tokio::sync::Mutex::new(None),
+        token,
+        cookie_name: token_cookie_name(bound.port()),
+    });
+    loop {
+        let (stream, remote) = match listener.accept().await {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if !remote.ip().is_loopback() {
+            continue;
+        }
+        let state = Arc::clone(&state);
+        tokio::spawn(async move {
+            let service = service_fn(move |request| {
+                let state = Arc::clone(&state);
+                async move { Ok::<_, Infallible>(handle(request, state).await) }
+            });
+            let _ = http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .await;
+        });
+    }
+}
+
+fn host_allowed(host: &str) -> bool {
+    let without_port = if host.starts_with('[') {
+        host.split(']')
+            .next()
+            .map(|value| format!("{value}]"))
+            .unwrap_or_default()
+    } else {
+        host.split(':').next().unwrap_or("").to_string()
+    };
+    matches!(without_port.as_str(), "127.0.0.1" | "localhost" | "[::1]")
+}
+
+fn secure(builder: hyper::http::response::Builder) -> hyper::http::response::Builder {
+    builder
+        .header("content-security-policy", CSP)
+        .header("x-content-type-options", "nosniff")
+        .header("referrer-policy", "no-referrer")
+        .header("x-frame-options", "DENY")
+        .header("cache-control", "no-store")
+}
+
+fn body(status: StatusCode, content_type: &str, bytes: Bytes) -> Response<Full<Bytes>> {
+    secure(Response::builder().status(status))
+        .header("content-type", content_type)
+        .body(Full::new(bytes))
+        .unwrap_or_else(|_| Response::new(Full::new(Bytes::new())))
+}
+
+/// JSON response body. A payload that cannot be encoded becomes a static error
+/// body with the same status and content type, never an empty response.
+fn json_body(status: StatusCode, value: &Value) -> Response<Full<Bytes>> {
+    match serde_json::to_vec(value) {
+        Ok(bytes) => body(
+            status,
+            "application/json; charset=utf-8",
+            Bytes::from(bytes),
+        ),
+        Err(_) => body(
+            status,
+            "application/json; charset=utf-8",
+            Bytes::from_static(br#"{"error":{"reason":"ENCODE_FAILED"}}"#),
+        ),
+    }
+}
+
+fn message(status: StatusCode, text: &str) -> Response<Full<Bytes>> {
+    body(
+        status,
+        "text/plain; charset=utf-8",
+        Bytes::from(text.to_string()),
+    )
+}
+
+async fn handle(request: Request<Incoming>, state: Arc<GatewayState>) -> Response<Full<Bytes>> {
+    let method = request.method().clone();
+    if method != Method::GET && method != Method::HEAD {
+        return message(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
+    }
+    let host_ok = request
+        .headers()
+        .get(hyper::header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(host_allowed);
+    if !host_ok {
+        eprintln!(
+            "[lore browser] rejected host: {:?}",
+            request
+                .headers()
+                .get(hyper::header::HOST)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("<missing>")
+        );
+        return message(StatusCode::FORBIDDEN, "host not allowed");
+    }
+    // Cross-origin requests are refused, but same-origin ones carry an
+    // Origin header too: compare its authority with the Host we were asked
+    // for instead of rejecting the header outright.
+    if let Some(origin) = request
+        .headers()
+        .get(hyper::header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    {
+        let origin_authority = origin
+            .split_once("://")
+            .map(|(_, rest)| rest.trim_end_matches('/'))
+            .unwrap_or(origin);
+        let host = request
+            .headers()
+            .get(hyper::header::HOST)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        if !origin_authority.eq_ignore_ascii_case(host) {
+            eprintln!(
+                "[lore browser] rejected cross-origin request: host={host:?} origin={origin:?} path={:?}",
+                request.uri().path()
+            );
+            return message(StatusCode::FORBIDDEN, "cross-origin request rejected");
+        }
+    }
+    let path = request.uri().path().to_string();
+    let query = request.uri().query().map(str::to_string);
+    // Access requires the token. The first visit presents it in the URL; the
+    // gateway answers with a cookie and redirects to the clean path, so the token
+    // leaves the address bar. Every later request must present the cookie.
+    if let Some(presented) = query_token(query.as_deref())
+        && token_matches(&presented, &state.token)
+    {
+        let cookie = format!(
+            "{}={}; HttpOnly; SameSite=Strict; Path=/",
+            state.cookie_name, state.token
+        );
+        return secure(Response::builder())
+            .status(StatusCode::SEE_OTHER)
+            .header(hyper::header::LOCATION, "/")
+            .header(hyper::header::SET_COOKIE, cookie)
+            .body(Full::new(Bytes::new()))
+            .unwrap_or_else(|_| message(StatusCode::INTERNAL_SERVER_ERROR, "internal"));
+    }
+    let authorized = cookie_token(&request, &state.cookie_name)
+        .is_some_and(|presented| token_matches(&presented, &state.token));
+    if !authorized {
+        return message(
+            StatusCode::FORBIDDEN,
+            "open the address printed by `lore browser` to start a session",
+        );
+    }
+    let response = match path.as_str() {
+        "/" | "/index.html" => body(
+            StatusCode::OK,
+            "text/html; charset=utf-8",
+            Bytes::from_static(INDEX.as_bytes()),
+        ),
+        "/app.js" => body(
+            StatusCode::OK,
+            "text/javascript; charset=utf-8",
+            Bytes::from_static(APP_JS.as_bytes()),
+        ),
+        "/styles.css" => body(
+            StatusCode::OK,
+            "text/css; charset=utf-8",
+            Bytes::from_static(STYLES.as_bytes()),
+        ),
+        _ if path.starts_with("/api/") => {
+            api(&path["/api/".len()..], query.as_deref(), &state).await
+        }
+        // Browsers always ask; answering "no favicon" keeps the console clean.
+        "/favicon.ico" => secure(Response::builder())
+            .status(StatusCode::NO_CONTENT)
+            .body(Full::new(Bytes::new()))
+            .unwrap_or_else(|_| message(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
+        _ => message(StatusCode::NOT_FOUND, "not found"),
+    };
+    if method == Method::HEAD {
+        let (parts, _) = response.into_parts();
+        return Response::from_parts(parts, Full::new(Bytes::new()));
+    }
+    response
+}
+
+fn params_from_query(query: Option<&str>) -> ViewParams {
+    let mut params = ViewParams::default();
+    let Some(query) = query else {
+        return params;
+    };
+    for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+        match key.as_ref() {
+            "limit" => params.limit = value.parse().ok(),
+            "pageSize" => params.page_size = value.parse().ok(),
+            "cursor" => params.cursor = Some(value.to_string()),
+            "repository" => params.repository = Some(value.to_string()),
+            "kind" | "type" => params.kind = Some(value.to_string()),
+            "scope" => params.scope = Some(value.to_string()),
+            "query" | "q" => params.query = Some(value.to_string()),
+            "id" => params.id = Some(value.to_string()),
+            "includeForgotten" => params.include_forgotten = value == "true" || value == "1",
+            _ => {}
+        }
+    }
+    params
+}
+
+/// Following the cursor to page N costs N daemon round trips, so the memories
+/// dashboard stops at this page. Later pages are refused, not served as this one.
+const MEMORY_PAGE_LIMIT: u32 = 40;
+
+fn requested_page(query: Option<&str>) -> u64 {
+    query_value(&query_pairs(query), "page")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(1)
+        .max(1)
+}
+
+async fn api(name: &str, query: Option<&str>, state: &GatewayState) -> Response<Full<Bytes>> {
+    if name.contains("..") || !VIEWS.contains(&name) {
+        return message(StatusCode::NOT_FOUND, "unknown view");
+    }
+    let mut params = params_from_query(query);
+    adjust_params(name, query, &mut params);
+    let route = format!("/v2/views/{name}");
+    let params_json = serde_json::to_value(&params).unwrap_or_default();
+    let store_id = match gateway_store_id(state).await {
+        Ok(store_id) => store_id,
+        Err(response) => return response,
+    };
+    if name == "memories" {
+        if requested_page(query) > u64::from(MEMORY_PAGE_LIMIT) {
+            return message(
+                StatusCode::BAD_REQUEST,
+                "PAGE_BEYOND_LIMIT: the memories dashboard reaches the first 40 pages; narrow the state filter to see older memories",
+            );
+        }
+        let page_result = match memories_page(state, query, &params).await {
+            Ok(result) => result,
+            Err(response) => return response,
+        };
+        let translated = translate_view(name, query, &page_result);
+        return json_body(StatusCode::OK, &json!({ "data": translated }));
+    }
+    let mut outcome = view_request(state, &route, &params_json, &store_id).await;
+    // The daemon may have been replaced by one serving a different store;
+    // refresh the identity once and retry rather than serving a mismatch.
+    if let Ok((_, body)) = &outcome {
+        let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        if parsed["error"]["reason"] == "STORE_MISMATCH" {
+            let refreshed = match gateway_store_id_refresh(state).await {
+                Ok(store_id) => store_id,
+                Err(response) => return response,
+            };
+            outcome = view_request(state, &route, &params_json, &refreshed).await;
+        }
+    }
+    match outcome {
+        Ok((success, raw_body)) => {
+            let parsed: Value =
+                serde_json::from_str(&raw_body).unwrap_or_else(|_| json!({ "ok": false }));
+            if success && parsed["ok"] == true {
+                // The gateway serves the v1 dashboard assets, so the read-only
+                // view payloads are translated into the field names those
+                // assets consume. Unknown shapes pass through unchanged.
+                let translated = translate_view(name, query, &parsed["result"]);
+                let value = json!({ "data": translated });
+                json_body(StatusCode::OK, &value)
+            } else {
+                downstream_error(&parsed)
+            }
+        }
+        Err(_) => daemon_unavailable(),
+    }
+}
+
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the gateway response returned as-is; boxing it would allocate per request"
+)]
+async fn gateway_store_id(state: &GatewayState) -> Result<String, Response<Full<Bytes>>> {
+    if let Some(store_id) = state.store_id.lock().await.clone() {
+        return Ok(store_id);
+    }
+    gateway_store_id_refresh(state).await
+}
+
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the gateway response returned as-is; boxing it would allocate per request"
+)]
+async fn gateway_store_id_refresh(state: &GatewayState) -> Result<String, Response<Full<Bytes>>> {
+    let meta = browser_meta();
+    match lore::request(&state.socket, "/v2/status", meta, json!({})).await {
+        Ok(outcome) => {
+            let parsed: Value =
+                serde_json::from_str(&outcome.body).unwrap_or_else(|_| json!({ "ok": false }));
+            match (outcome.is_success() && parsed["ok"] == true)
+                .then(|| parsed["storeId"].as_str().map(str::to_string))
+                .flatten()
+            {
+                Some(store_id) => {
+                    *state.store_id.lock().await = Some(store_id.clone());
+                    Ok(store_id)
+                }
+                None => Err(downstream_error(&parsed)),
+            }
+        }
+        Err(_) => Err(daemon_unavailable()),
+    }
+}
+
+async fn view_request(
+    state: &GatewayState,
+    route: &str,
+    params: &Value,
+    store_id: &str,
+) -> Result<(bool, String), ()> {
+    let mut meta = browser_meta();
+    meta.expected_store_id = Some(store_id.to_string());
+    match lore::request(&state.socket, route, meta, params.clone()).await {
+        Ok(outcome) => Ok((outcome.is_success(), outcome.body)),
+        Err(_) => Err(()),
+    }
+}
+
+fn browser_meta() -> RequestMeta {
+    RequestMeta {
+        client_id: "browser".to_string(),
+        request_id: format!("browser-{}-{}", std::process::id(), lore_core::now_nanos()),
+        session_id: None,
+        expected_store_id: None,
+        timeout_ms: Some(GATEWAY_BUDGET_MS),
+        required_capabilities: Vec::new(),
+    }
+}
+
+fn downstream_error(parsed: &Value) -> Response<Full<Bytes>> {
+    let error = parsed
+        .get("error")
+        .cloned()
+        .unwrap_or_else(|| json!({ "reason": "GATEWAY_ERROR" }));
+    json_body(StatusCode::BAD_GATEWAY, &json!({ "error": error }))
+}
+
+fn daemon_unavailable() -> Response<Full<Bytes>> {
+    json_body(
+        StatusCode::BAD_GATEWAY,
+        &json!({ "error": { "reason": "DAEMON_UNAVAILABLE" } }),
+    )
+}
+
+fn query_pairs(query: Option<&str>) -> Vec<(String, String)> {
+    query
+        .map(|query| {
+            url::form_urlencoded::parse(query.as_bytes())
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn query_value(pairs: &[(String, String)], key: &str) -> Option<String> {
+    pairs
+        .iter()
+        .find(|(name, _)| name == key)
+        .map(|(_, value)| value.clone())
+}
+
+/// The v1 dashboard pages by offset; the v2 view pages by keyset. Translate
+/// the offset request into a bounded fetch and mark how many were skipped.
+fn adjust_params(name: &str, query: Option<&str>, params: &mut ViewParams) {
+    let pairs = query_pairs(query);
+    if name == "memories" {
+        let page_size = query_value(&pairs, "pageSize")
+            .or_else(|| query_value(&pairs, "limit"))
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(25)
+            .clamp(1, 200);
+        params.page_size = Some(page_size);
+        params.limit = None;
+        params.cursor = None;
+        params.include_forgotten = false;
+        params.state = Some(match query_value(&pairs, "state").as_deref() {
+            Some(state @ ("superseded" | "forgotten" | "all")) => state.to_string(),
+            _ => "active".to_string(),
+        });
+    }
+}
+
+/// One memories page. The daemon pages by keyset cursor, so reaching page N means
+/// following the cursor N-1 times; each step is bounded by the page size.
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the gateway response returned as-is; boxing it would allocate per request"
+)]
+async fn memories_page(
+    state: &GatewayState,
+    query: Option<&str>,
+    params: &ViewParams,
+) -> Result<Value, Response<Full<Bytes>>> {
+    let page = requested_page(query);
+    let mut step_params = serde_json::to_value(params).unwrap_or_default();
+    let mut cursor: Option<String> = None;
+    for index in 1..=page {
+        step_params["cursor"] = cursor.clone().map_or(Value::Null, Value::String);
+        let result = fetch_view(state, "/v2/views/memories", &step_params).await?;
+        let next = result["nextCursor"].as_str().map(str::to_string);
+        if index == page {
+            return Ok(result);
+        }
+        match next {
+            Some(next) => cursor = Some(next),
+            None => return Ok(json!({ "items": [], "nextCursor": null })),
+        }
+    }
+    Ok(json!({ "items": [], "nextCursor": null }))
+}
+
+/// One read-only view request with the gateway's store-identity refresh and error
+/// mapping, returning the result payload.
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the gateway response returned as-is; boxing it would allocate per request"
+)]
+async fn fetch_view(
+    state: &GatewayState,
+    route: &str,
+    params: &Value,
+) -> Result<Value, Response<Full<Bytes>>> {
+    let store_id = gateway_store_id(state).await?;
+    let mut outcome = view_request(state, route, params, &store_id).await;
+    if let Ok((_, body)) = &outcome {
+        let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        if parsed["error"]["reason"] == "STORE_MISMATCH" {
+            let refreshed = gateway_store_id_refresh(state).await?;
+            outcome = view_request(state, route, params, &refreshed).await;
+        }
+    }
+    match outcome {
+        Ok((success, raw_body)) => {
+            let parsed: Value =
+                serde_json::from_str(&raw_body).unwrap_or_else(|_| json!({ "ok": false }));
+            if success && parsed["ok"] == true {
+                Ok(parsed["result"].clone())
+            } else {
+                Err(downstream_error(&parsed))
+            }
+        }
+        Err(_) => Err(daemon_unavailable()),
+    }
+}
+
+fn translate_memories(query: Option<&str>, result: &Value) -> Value {
+    let pairs = query_pairs(query);
+    let page = requested_page(query).min(u64::from(MEMORY_PAGE_LIMIT));
+    let page_size = query_value(&pairs, "pageSize")
+        .or_else(|| query_value(&pairs, "limit"))
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(25)
+        .clamp(1, 200);
+    // `result` already holds exactly the requested page.
+    let items: Vec<Value> = result["items"].as_array().cloned().unwrap_or_default();
+    let skip = ((page - 1).saturating_mul(page_size)) as usize;
+    // A page past the walk limit is refused, so the last reachable page must not
+    // advertise another one, or the pager would send the browser into that error.
+    let more = result["nextCursor"].is_string() && page < u64::from(MEMORY_PAGE_LIMIT);
+    let rows: Vec<Value> = items
+        .iter()
+        .map(|item| {
+            json!({
+                "id": item["id"],
+                "type": item["kind"],
+                "content": item["content"],
+                "confidence": item["confidence"],
+                "sourceSessionId": item["sourceSessionId"],
+                "sourceTurnIndex": null,
+                "scope": item["scope"],
+                "scopeSource": item["authority"],
+                "repository": item["repository"],
+                "tags": item["tags"],
+                "createdAt": item["createdMs"],
+                "updatedAt": item["updatedMs"],
+                "supersededBy": item["supersededBy"],
+                "forgotten": item["forgotten"],
+                "canonicalKey": null,
+                "reinforcementCount": null,
+                "lastSeenAt": null,
+                "expiresAt": item["expiresAtMs"],
+                "metadata": {},
+            })
+        })
+        .collect();
+    let total = if more {
+        (page * page_size + 1) as i64
+    } else {
+        (skip as u64 + rows.len() as u64) as i64
+    };
+    json!({
+        "page": page,
+        "pageSize": page_size,
+        "total": total,
+        "rows": rows,
+    })
+}
+
+fn translate_filters(result: &Value) -> Value {
+    let kinds: Vec<Value> = result["kinds"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| json!({ "type": row["kind"], "count": row["count"] }))
+        .collect();
+    let scopes: Vec<Value> = result["scopes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| json!({ "scope": row["scope"], "count": row["count"] }))
+        .collect();
+    let repositories: Vec<Value> = result["repositories"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| json!({ "repository": row["repository"], "count": row["count"] }))
+        .collect();
+    json!({
+        "types": kinds,
+        "scopes": scopes,
+        "repositories": repositories,
+        "canonicalKeys": [],
+    })
+}
+
+fn translate_maintenance(result: &Value) -> Value {
+    // Real persisted task state wins; the count-derived rows remain for
+    // older payload shapes.
+    if let Some(states) = result["taskStates"].as_array()
+        && !states.is_empty()
+    {
+        let task_states: Vec<Value> = states
+            .iter()
+            .map(|row| {
+                json!({
+                    "task_name": row["task"],
+                    "last_status": row["lastState"],
+                    "total_runs": row["runs"],
+                    "total_failures": row["failures"],
+                    "total_needs_attention": row["needsAttention"],
+                    "last_completed_at": row["lastRunMs"],
+                })
+            })
+            .collect();
+        return json!({
+            "runs": result["runs"],
+            "taskStates": task_states,
+            "deferred": [],
+            "doctorReports": [],
+            "trajectory": [],
+            "maintenancePlan": {
+                "dueTasks": result["dueTasks"],
+                "selectedTasks": [],
+                "skippedDueToCap": [],
+            },
+            "recentTraceSamples": [],
+            "embeddingJobs": result["embeddingJobs"],
+            "extraction": result["extraction"],
+            "sources": result["sources"],
+        });
+    }
+    let mut task_states: Vec<Value> = Vec::new();
+    for (key, name) in [
+        ("embeddingJobs", "embedding_jobs"),
+        ("extraction", "extraction"),
+        ("sources", "sources"),
+    ] {
+        for row in result[key].as_array().cloned().unwrap_or_default() {
+            task_states.push(json!({
+                "task_name": format!("{name}:{}", row["state"].as_str().unwrap_or("unknown")),
+                "last_status": row["state"],
+                "total_runs": row["count"],
+                "total_failures": 0,
+                "total_needs_attention": 0,
+                "last_completed_at": null,
+            }));
+        }
+    }
+    json!({
+        "runs": [],
+        "taskStates": task_states,
+        "deferred": [],
+        "doctorReports": [],
+        "trajectory": [],
+        "maintenancePlan": {
+            "dueTasks": [],
+            "selectedTasks": [],
+            "skippedDueToCap": [],
+        },
+        "recentTraceSamples": [],
+        "embeddingJobs": result["embeddingJobs"],
+        "extraction": result["extraction"],
+        "sources": result["sources"],
+    })
+}
+
+fn translate_overview(result: &Value) -> Value {
+    let kind_count = |kind: &str| -> i64 {
+        result["kinds"]
+            .as_array()
+            .and_then(|rows| {
+                rows.iter()
+                    .find(|row| row["kind"] == kind)
+                    .and_then(|row| row["count"].as_i64())
+            })
+            .unwrap_or(0)
+    };
+    json!({
+        "stats": {
+            "semanticCount": result["activeMemories"],
+            "episodeCount": kind_count("episode_digest"),
+            "daySummaryCount": kind_count("day_summary"),
+            "retrievalTraceSampleCount": 0,
+            "forgottenCount": result["forgottenMemories"],
+        },
+        "latencyTrend": { "recentAverageMs": null, "trend": "no_samples" },
+        "activity": [],
+        "activeWorkstreams": [],
+        "maintenance": {
+            "dueTasks": [],
+            "selectedTasks": [],
+            "recentRuns": [],
+            "skippedDueToCap": [],
+        },
+        "captureHealth": translate_capture_health(result),
+        "indexing": {
+            "enabled": true,
+            "coveragePercent": null,
+            "totalActive": result["activeMemories"],
+            "fallbackDiagnostics": [],
+        },
+        "storeId": result["storeId"],
+        "repositories": result["repositories"],
+        "kinds": result["kinds"],
+        "sources": result["sources"],
+        "pendingExtraction": result["pendingExtraction"],
+    })
+}
+
+fn translate_capture_health(result: &Value) -> Value {
+    let rows: Vec<Value> = result["captureHealth"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            let state = row["state"].as_str().unwrap_or("unknown");
+            let pending_bytes = row["pendingBytes"].as_i64().unwrap_or(0);
+            let status = match state {
+                "caught_up" => "healthy",
+                "growing" => "pending",
+                "unavailable" => "unavailable",
+                "failed" => "failed",
+                _ => "pending",
+            };
+            json!({
+                "client": row["client"],
+                "sessionId": row["sessionId"],
+                "repository": row["repository"],
+                "originLabel": row["repository"],
+                "lastSuccessAt": row["lastProgressMs"],
+                "pendingBytes": pending_bytes,
+                "status": status,
+                "failureCode": row["lastError"],
+                "offset": row["offset"],
+                "pendingWork": null,
+            })
+        })
+        .collect();
+    json!(rows)
+}
+
+fn translate_drilldown(result: &Value) -> Value {
+    if result["found"] != true {
+        return json!({
+            "found": false,
+            "entityType": "memory",
+            "focus": null,
+            "canonicalCluster": Value::Null,
+            "linkedImprovements": [],
+            "provenance": [],
+            "sections": [],
+            "graph": { "nodes": [], "edges": [] },
+        });
+    }
+    let memory = &result["memory"];
+    let entity_type = result["entityType"].as_str().unwrap_or("memory");
+    let lineage = result["lineage"].clone();
+    let graph = if result["graph"].is_object() {
+        result["graph"].clone()
+    } else {
+        json!({ "nodes": [], "edges": [] })
+    };
+    let canonical = result["canonicalCluster"].clone();
+    let linked = result["linkedImprovements"].clone();
+    json!({
+        "found": true,
+        "entityType": entity_type,
+        "focus": {
+            "id": memory["id"],
+            "type": memory["kind"],
+            "content": memory["content"],
+            "scope": memory["scope"],
+            "scopeSource": memory["authority"],
+            "repository": memory["repository"],
+            "confidence": memory["confidence"],
+            "authority": memory["authority"],
+            "tags": memory["tags"],
+            "createdAt": memory["createdMs"],
+            "updatedAt": memory["updatedMs"],
+            "expiresAt": memory["expiresAtMs"],
+            "revision": memory["revision"],
+            "supersededBy": memory["supersededBy"],
+            "canonicalKey": memory["topicKey"],
+        },
+        "lifecycle": {
+            "forgotten": memory["forgotten"],
+            "suppressed": result["suppressed"],
+        },
+        "lineage": {
+            "supersedes": lineage["supersedes"],
+            "supersededBy": lineage["supersededBy"],
+            "successorCount": lineage["successorCount"],
+            "predecessors": lineage["predecessors"],
+        },
+        "canonicalCluster": canonical,
+        "linkedImprovements": linked,
+        "provenance": result["evidence"],
+        "sections": [],
+        "graph": graph,
+    })
+}
+
+fn translate_view(name: &str, query: Option<&str>, result: &Value) -> Value {
+    match name {
+        "overview" => translate_overview(result),
+        "memories" => translate_memories(query, result),
+        "memories/filters" => translate_filters(result),
+        "maintenance" => translate_maintenance(result),
+        "drilldown" => translate_drilldown(result),
+        "health" => json!({
+            "ok": true,
+            "loreCliPath": null,
+            "schemaVersion": result["schemaVersion"],
+            "ftsHealthy": result["ftsHealthy"],
+            "ftsRows": result["ftsRows"],
+            "migrationState": result["migrationState"],
+            "ready": result["ready"],
+        }),
+        _ => result.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn memory(id: &str) -> Value {
+        json!({
+            "id": id,
+            "kind": "note",
+            "content": format!("content {id}"),
+            "scope": "global",
+            "repository": null,
+            "authority": "manual",
+            "confidence": 1.0,
+            "createdMs": 1,
+            "updatedMs": 2,
+            "expiresAtMs": null,
+            "sourceSessionId": null,
+            "tags": [],
+        })
+    }
+
+    #[test]
+    fn memories_translation_maps_one_daemon_page_into_v1_field_names() {
+        // The gateway follows the keyset cursor, so `result` is already the requested page.
+        let page = json!({
+            "items": [memory("a"), memory("b")],
+            "nextCursor": "b",
+            "pageSize": 2,
+        });
+        let translated = translate_memories(Some("page=2&pageSize=2"), &page);
+        assert_eq!(translated["page"], 2);
+        assert_eq!(translated["pageSize"], 2);
+        assert_eq!(translated["rows"].as_array().expect("rows").len(), 2);
+        assert_eq!(translated["rows"][0]["type"], "note");
+        assert_eq!(translated["rows"][0]["updatedAt"], 2);
+        assert_eq!(translated["rows"][0]["canonicalKey"], Value::Null);
+        assert_eq!(translated["total"], 5, "a further page exists");
+
+        let last = json!({ "items": [memory("c")], "nextCursor": null, "pageSize": 2 });
+        let translated = translate_memories(Some("page=3&pageSize=2"), &last);
+        assert_eq!(translated["rows"].as_array().expect("rows").len(), 1);
+        assert_eq!(
+            translated["total"], 5,
+            "the total is the rows up to this page"
+        );
+        assert_eq!(translated["rows"][0]["supersededBy"], Value::Null);
+    }
+
+    #[test]
+    fn offset_request_is_bounded_before_dispatch() {
+        let mut params = ViewParams::default();
+        adjust_params(
+            "memories",
+            Some("page=3&pageSize=10&state=all"),
+            &mut params,
+        );
+        // The page size is the page size; the requested page is reached by cursor.
+        assert_eq!(params.page_size, Some(10));
+        assert_eq!(params.limit, None);
+        assert_eq!(params.state.as_deref(), Some("all"));
+
+        let mut params = ViewParams::default();
+        adjust_params("memories", Some("state=active"), &mut params);
+        assert_eq!(params.page_size, Some(25));
+        assert_eq!(params.limit, None);
+        assert_eq!(params.state.as_deref(), Some("active"));
+
+        let mut params = ViewParams::default();
+        adjust_params("memories", Some("state=superseded"), &mut params);
+        assert_eq!(params.state.as_deref(), Some("superseded"));
+    }
+
+    #[test]
+    fn overview_stats_use_dashboard_names_without_inventing_history() {
+        let overview = translate_overview(&json!({
+            "storeId": "s",
+            "activeMemories": 4,
+            "forgottenMemories": 1,
+            "repositories": [],
+            "kinds": [
+                { "kind": "episode_digest", "count": 2 },
+                { "kind": "day_summary", "count": 1 },
+            ],
+            "sources": { "total": 0, "caughtUp": 0 },
+            "captureHealth": [
+                {
+                    "client": "pi",
+                    "sessionId": "s-1",
+                    "repository": "acme/app",
+                    "state": "growing",
+                    "offset": 10,
+                    "observedSize": 52,
+                    "pendingBytes": 42,
+                    "lastProgressMs": 5,
+                    "lastError": null,
+                },
+                {
+                    "client": "codex",
+                    "sessionId": "s-2",
+                    "repository": null,
+                    "state": "failed",
+                    "offset": 0,
+                    "observedSize": 0,
+                    "pendingBytes": 0,
+                    "lastProgressMs": null,
+                    "lastError": "PARSER_STATE_INVALID",
+                }
+            ],
+            "pendingExtraction": 0,
+        }));
+        assert_eq!(overview["stats"]["semanticCount"], 4);
+        assert_eq!(overview["stats"]["episodeCount"], 2);
+        assert_eq!(overview["stats"]["daySummaryCount"], 1);
+        assert_eq!(overview["indexing"]["totalActive"], 4);
+        assert_eq!(overview["latencyTrend"]["trend"], "no_samples");
+        let health = overview["captureHealth"].as_array().expect("health");
+        assert_eq!(health.len(), 2);
+        assert_eq!(health[0]["status"], "pending");
+        assert_eq!(health[0]["pendingBytes"], 42);
+        assert_eq!(health[0]["lastSuccessAt"], 5);
+        assert_eq!(health[1]["status"], "failed");
+        assert_eq!(health[1]["failureCode"], "PARSER_STATE_INVALID");
+    }
+
+    #[test]
+    fn filters_and_maintenance_keep_v1_keys() {
+        let filters = translate_filters(&json!({
+            "kinds": [{"kind": "note", "count": 2}],
+            "scopes": [{"scope": "global", "count": 2}],
+            "repositories": [{"repository": "acme/app", "count": 1}],
+        }));
+        assert_eq!(filters["types"][0]["type"], "note");
+        assert_eq!(filters["types"][0]["count"], 2);
+        assert_eq!(filters["scopes"][0]["scope"], "global");
+        assert_eq!(filters["repositories"][0]["repository"], "acme/app");
+        assert!(
+            filters["canonicalKeys"]
+                .as_array()
+                .expect("keys")
+                .is_empty()
+        );
+
+        let maintenance = translate_maintenance(&json!({
+            "embeddingJobs": [{"state": "queued", "count": 3}],
+            "extraction": [],
+            "sources": [{"state": "caught_up", "count": 1}],
+        }));
+        assert_eq!(
+            maintenance["taskStates"][0]["task_name"],
+            "embedding_jobs:queued"
+        );
+        assert_eq!(maintenance["taskStates"][0]["total_runs"], 3);
+        assert!(maintenance["runs"].as_array().expect("runs").is_empty());
+        assert!(
+            maintenance["maintenancePlan"]["dueTasks"]
+                .as_array()
+                .expect("due")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn drilldown_translation_shapes_focus_and_graph() {
+        let translated = translate_drilldown(&json!({
+            "found": true,
+            "memory": {
+                "id": "mem-1",
+                "kind": "note",
+                "content": "Parity row.",
+                "scope": "global",
+                "repository": null,
+                "authority": "manual",
+                "confidence": 1.0,
+                "createdMs": 1,
+                "updatedMs": 2,
+                "forgotten": false,
+                "supersededBy": null,
+            },
+            "evidence": [{
+                "sourceId": "src-1",
+                "generation": "g1",
+                "evidenceKey": "e1",
+                "role": "user",
+                "createdMs": 3,
+                "retiredMs": null,
+            }],
+            "suppressed": false,
+        }));
+        assert_eq!(translated["entityType"], "memory");
+        assert_eq!(translated["focus"]["id"], "mem-1");
+        assert_eq!(translated["provenance"][0]["sourceId"], "src-1");
+        assert_eq!(
+            translated["graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .len(),
+            0
+        );
+        assert_eq!(translated["lifecycle"]["suppressed"], false);
+
+        // Real drill-down payloads pass lineage, cluster and graph through.
+        let rich = translate_drilldown(&json!({
+            "found": true,
+            "entityType": "memory",
+            "memory": {
+                "id": "mem-2", "kind": "note", "content": "Rich.", "scope": "global",
+                "repository": null, "authority": "manual", "confidence": 1.0,
+                "createdMs": 1, "updatedMs": 2, "forgotten": false, "supersededBy": null,
+                "revision": 3, "expiresAtMs": null, "topicKey": "topic-a",
+            },
+            "evidence": [],
+            "suppressed": false,
+            "lineage": { "supersedes": null, "supersededBy": null, "successorCount": 0, "predecessors": [] },
+            "canonicalCluster": { "key": "topic-a", "members": [{ "id": "mem-2", "active": true }] },
+            "linkedImprovements": [],
+            "graph": {
+                "nodes": [
+                    { "id": "mem-2", "type": "memory", "label": "note", "active": true },
+                    { "id": "mem-3", "type": "canonical_sibling", "label": "same topic", "active": true }
+                ],
+                "edges": [{ "source": "mem-2", "target": "mem-3", "kind": "canonical" }]
+            },
+        }));
+        assert_eq!(rich["canonicalCluster"]["key"], "topic-a");
+        assert_eq!(rich["graph"]["nodes"].as_array().expect("nodes").len(), 2);
+        assert_eq!(rich["graph"]["edges"][0]["kind"], "canonical");
+        assert_eq!(rich["lineage"]["successorCount"], 0);
+
+        let missing = translate_drilldown(&json!({ "found": false }));
+        assert_eq!(missing["found"], false);
+        assert_eq!(missing["entityType"], "memory");
+    }
+}
+
+#[cfg(test)]
+mod last_page_tests {
+    use super::*;
+
+    fn page_of(rows: usize) -> Value {
+        let items: Vec<Value> = (0..rows).map(|index| json!({ "id": index })).collect();
+        json!({ "items": items, "nextCursor": "more" })
+    }
+
+    #[test]
+    fn the_last_reachable_page_advertises_no_next_page() {
+        // Page 40 of 25-row pages: 975 rows before it and no further page to offer.
+        let last = translate_memories(Some("page=40&pageSize=25"), &page_of(25));
+        assert_eq!(last["total"], 1_000, "{last}");
+        // An earlier page still advertises the next one.
+        let earlier = translate_memories(Some("page=39&pageSize=25"), &page_of(25));
+        assert_eq!(earlier["total"], 976, "{earlier}");
+    }
+
+    #[test]
+    fn a_page_number_past_u32_is_read_not_defaulted() {
+        // Read as page 1 it would be served; it must parse so the handler refuses it.
+        assert_eq!(requested_page(Some("page=5000000000")), 5_000_000_000);
+    }
+}

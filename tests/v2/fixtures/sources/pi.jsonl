@@ -1,0 +1,4 @@
+{"type":"session","id":"pi-golden-1","cwd":"/work/project","timestamp":"2026-01-01T00:00:00.000Z"}
+{"type":"message","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"How do we bound capture quantum reads?"}]}}
+{"type":"message","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Read one quantum, commit under a checkpoint compare-and-swap."},{"type":"toolCall","name":"edit","arguments":{"path":"lib/capture.mjs"}}]}}
+{"type":"compaction","summary":"Summary: capture commits are atomic per quantum.","timestamp":"2026-01-01T00:00:03.000Z"}

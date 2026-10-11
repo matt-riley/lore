@@ -1,0 +1,112 @@
+{
+  "split": "calibration",
+  "rule": "v2 semantic >= v1 semantic on recall@6, MRR@6 and irrelevant rate; canary never returns; ties to the stricter threshold",
+  "thresholds": [
+    {
+      "threshold": 0.4,
+      "passes": false,
+      "v2": {
+        "recallAt6": 1,
+        "mrrAt6": 0.7371794871794871,
+        "irrelevantRate": 0.8770685579196218,
+        "canaryHits": 0
+      },
+      "v1": {
+        "recallAt6": 1,
+        "mrrAt6": 0.7371794871794871,
+        "irrelevantRate": 0.8767772511848341
+      }
+    },
+    {
+      "threshold": 0.45,
+      "passes": true,
+      "v2": {
+        "recallAt6": 1,
+        "mrrAt6": 0.7371794871794871,
+        "irrelevantRate": 0.8505747126436781,
+        "canaryHits": 0
+      },
+      "v1": {
+        "recallAt6": 1,
+        "mrrAt6": 0.7371794871794871,
+        "irrelevantRate": 0.8505747126436781
+      }
+    },
+    {
+      "threshold": 0.5,
+      "passes": false,
+      "v2": {
+        "recallAt6": 1,
+        "mrrAt6": 0.7371794871794871,
+        "irrelevantRate": 0.8354430379746836,
+        "canaryHits": 0
+      },
+      "v1": {
+        "recallAt6": 1,
+        "mrrAt6": 0.7371794871794871,
+        "irrelevantRate": 0.834920634920635
+      }
+    },
+    {
+      "threshold": 0.55,
+      "passes": false,
+      "v2": {
+        "recallAt6": 0.9807692307692307,
+        "mrrAt6": 0.7275641025641024,
+        "irrelevantRate": 0.826530612244898,
+        "canaryHits": 0
+      },
+      "v1": {
+        "recallAt6": 0.9807692307692307,
+        "mrrAt6": 0.7275641025641024,
+        "irrelevantRate": 0.8253424657534246
+      }
+    },
+    {
+      "threshold": 0.6,
+      "passes": false,
+      "v2": {
+        "recallAt6": 0.9423076923076923,
+        "mrrAt6": 0.7163461538461539,
+        "irrelevantRate": 0.7792792792792793,
+        "canaryHits": 0
+      },
+      "v1": {
+        "recallAt6": 0.9423076923076923,
+        "mrrAt6": 0.7163461538461539,
+        "irrelevantRate": 0.7379679144385026
+      }
+    },
+    {
+      "threshold": 0.65,
+      "passes": false,
+      "v2": {
+        "recallAt6": 0.9230769230769231,
+        "mrrAt6": 0.6971153846153846,
+        "irrelevantRate": 0.7611940298507462,
+        "canaryHits": 0
+      },
+      "v1": {
+        "recallAt6": 0.8269230769230769,
+        "mrrAt6": 0.6201923076923077,
+        "irrelevantRate": 0.6906474820143885
+      }
+    },
+    {
+      "threshold": 0.7,
+      "passes": false,
+      "v2": {
+        "recallAt6": 0.9038461538461539,
+        "mrrAt6": 0.6592948717948718,
+        "irrelevantRate": 0.7614213197969543,
+        "canaryHits": 0
+      },
+      "v1": {
+        "recallAt6": 0.5384615384615384,
+        "mrrAt6": 0.4166666666666667,
+        "irrelevantRate": 0.631578947368421
+      }
+    }
+  ],
+  "chosen": 0.45
+}

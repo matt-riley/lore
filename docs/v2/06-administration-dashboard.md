@@ -1,6 +1,6 @@
 # Slice 6B: administration, optional capabilities and dashboard
 
-Status: planned. Depends on G4, stage 5B backup/recovery and stage 6A dispatch contracts. Exit contributes to G5.
+Status: stage-6B view routes and loopback gateway implemented 2026-10-07 — evidence in [evidence/g6-clients-admin.md](evidence/g6-clients-admin.md); most canonical operations and full dashboard parity remain open. Depends on G4, stage 5B backup/recovery and stage 6A dispatch contracts. Exit contributes to G5.
 Inventory: [capability parity](capability-parity.md).
 
 ## One dispatch and run model
@@ -55,9 +55,16 @@ Analysis occupies the single optional chat lane, defaults to a 5-second deadline
 
 The OKF visualizer remains an explicit CLI export of a standalone inspectable artifact; it consumes approved bundles, never starts model inference, and shares escaping/content tests with the current implementation.
 
+Status (2026-10-07): the read-only gateway serves the v1 dashboard assets and
+translates every view into the field names those assets consume; five
+translation unit tests and the gateway security/translation integration tests
+pass. Episode digests, day summaries, capture-health and maintenance run
+rows are produced from live data; activity rows and trace samples stay empty
+because v2 does not persist retrieval queries.
+
 ## Dashboard architecture and boundaries
 
-`lore browser` starts a separate foreground Rust loopback HTTP gateway serving the current browser HTML/CSS/JS. Default bind is 127.0.0.1 and a free local port, reported to the operator; explicit localhost/::1 remain allowed. No 0.0.0.0, remote binding, automatic service launch, or arbitrary operation proxy. Closing the gateway does not stop lored.
+`lore browser` starts a separate foreground Rust loopback HTTP gateway serving the current browser HTML/CSS/JS. Default bind is 127.0.0.1 and a free local port, reported to the operator; explicit localhost/::1 remain allowed. The printed address carries a per-process token: the first visit trades it for an HttpOnly, SameSite=Strict cookie, and every other request must carry that cookie, so other local accounts cannot read the dashboard. No 0.0.0.0, remote binding, automatic service launch, or arbitrary operation proxy. Closing the gateway does not stop lored.
 
 The gateway reads daemon view routes: overview, memories, memory filters, maintenance, episodes, drilldown and health. Add corresponding `/v2/views/<name>` read-only routes and capability IDs. View pagination is keyset-based, default 50/max 200 rows and 1 MiB encoded cap; cursors bind filters/store/revision and expire after five minutes, with explicit stale-cursor restart. Never create a long SQLite snapshot between browser pages.
 

@@ -1,0 +1,15 @@
+{
+  "split": "held-out",
+  "threshold": null,
+  "corpusHash": "5c86e0cca502556e2e3d15a103cf676f3192bae64d96f48aaeb099d659a7b7f7",
+  "families": 94,
+  "mode": "v1-lexical",
+  "positiveQueries": 188,
+  "recallAt6": 0.44680851063829785,
+  "mrrAt6": 0.20895390070921974,
+  "irrelevantRate": 0.9027777777777778,
+  "canaryHits": 0,
+  "negativeQueries": 20,
+  "negativeReturned": 6,
+  "fallbackCounts": {}
+}

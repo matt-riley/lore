@@ -22,17 +22,25 @@ At this baseline, `lib/memory/semantic-search.mjs` uses a 10,000 ms default sema
 | Stage | Deliverable | Implementation plan | Exit evidence |
 | --- | --- | --- | --- |
 | Foundation | Decisions, configuration, parity inventory, evaluation rules | [Decisions](architecture-decisions.md), [configuration/storage](configuration-storage.md), [parity](capability-parity.md), [validation](validation.md) | Requirements and fixtures frozen before handlers |
-| 1 | HTTP/JSON contract and minimal Rust/Node/Bun socket proof | [Contracts](01-contracts.md) | Wire, host-loading, cold-process, identity and deadline tests |
-| 2 | Durable Status, Retain, Forget and lexical Recall | [Daemon core](02-daemon-core.md) | Two clients, safety fixtures, crash/retry proof, lexical baseline |
-| 3 | Background memory embeddings and bounded query inference | [Embeddings](03-background-embeddings.md) | Cold-query quality, degraded retrieval, resource and backlog report |
-| 4 | Background source discovery and checkpointed capture | [Ingestion](04-ingestion.md) | Every client format; replacement, compaction and restart evidence |
-| 5A | Rust extraction and complete context assembly | [Extraction](05-extraction.md) | Reliability, mandatory-context and provenance gates |
-| 5B | Explicit v1 migration, backup and suppression-safe recovery | [Migration/recovery](05-migration-recovery.md) | Released-schema accounting and recovery rehearsal |
-| 6A | Thin adapters and compatible human/script interfaces | [Client adapters](06-client-adapters.md) | Pi, Copilot, Codex, Claude Code, Antigravity host evidence |
-| 6B | Administration, optional operations and dashboard parity | [Administration/dashboard](06-administration-dashboard.md) | All parity rows implemented, bounded and verified |
-| 7 | Packaging, service management, cutover, soak and retirement | [Rollout](07-rollout.md) | Install/upgrade/recovery drills and client soak |
+| 1 | HTTP/JSON contract and minimal Rust/Node/Bun socket proof | [Contracts](01-contracts.md) | [G1 evidence](evidence/g1.md): wire, host-loading, cold-process, identity and deadline tests |
+| 2 | Durable Status, Retain, Forget and lexical Recall | [Daemon core](02-daemon-core.md) | [G2 evidence](evidence/g2.md): two clients, safety fixtures, crash/retry proof, lexical baseline |
+| 3 | Background memory embeddings and bounded query inference | [Embeddings](03-background-embeddings.md) | [G3 evidence](evidence/g3.md): cold-query quality, degraded retrieval, resource and backlog report |
+| 4 | Background source discovery and checkpointed capture | [Ingestion](04-ingestion.md) | [G4 capture evidence](evidence/g4.md): every client format; replacement, compaction and restart evidence |
+| 5A | Rust extraction and complete context assembly | [Extraction](05-extraction.md) | [G4 extraction evidence](evidence/g4-extraction.md): reliability, mandatory-context and provenance gates |
+| 5B | Explicit v1 migration, backup and suppression-safe recovery | [Migration/recovery](05-migration-recovery.md) | [G5 migration evidence](evidence/g5-migration.md): released-schema accounting and recovery rehearsal |
+| 6A | Thin adapters and compatible human/script interfaces | [Client adapters](06-client-adapters.md) | [G6 evidence](evidence/g6-clients-admin.md): catalog, hooks, journal and adapter core; host evidence open |
+| 6B | Administration, optional operations and dashboard parity | [Administration/dashboard](06-administration-dashboard.md) | [G6 evidence](evidence/g6-clients-admin.md): view routes, gateway, all 27 canonical operations; dashboard parity open |
+| 7 | Packaging, service management, cutover, soak and retirement | [Rollout](07-rollout.md) | [G7 evidence](evidence/g7-rollout.md): packaging proofs, service/mode commands, cutover drill, bounded soak; signing and the 14-day cohort open |
 
 The [former later-slices document](04-later-slices.md) remains a navigation bridge for existing links. Stage numbers are stable identifiers; 5A/5B and 6A/6B split the old broad slices without dropping scope.
+
+## Runbooks
+
+- [Local usage](local-usage.md) — build, configure, run and drive v2 side by side with v1.
+- [Migration guide](migration-guide.md) — preview, apply, verify, cut over and roll back.
+- [Signing and notarization](signing-notarization.md) — Apple credentials, CI secrets and artifact verification.
+- [v1 deprecation notice](deprecation-notice.md) — draft, published at cutover.
+- [G6 gate sign-off](evidence/g6-signoff.md) — criterion-by-criterion status; unsigned today.
 
 ## Architecture
 
@@ -71,15 +79,15 @@ Production ownership is one selected store and service per OS user. Explicit add
 
 ## Milestones and decisions to continue
 
-Gate G1 (stage 1): practical HTTP/JSON interoperability, cold CLI cost, JSON validation, and repository identity work on macOS/Linux. Build the smallest executable boundary first; no second Node daemon implementation.
+Gate G1 (stage 1): practical HTTP/JSON interoperability, cold CLI cost, JSON validation, and repository identity work on macOS/Linux. Build the smallest executable boundary first; no second Node daemon implementation. Passed 2026-10-07 ([evidence](evidence/g1.md)).
 
-Gate G2 (stage 2): acknowledged writes survive process failure; retries and Forget work through the actual API; scope fixtures have zero leaks; lexical recall meets its measured baseline gate.
+Gate G2 (stage 2): acknowledged writes survive process failure; retries and Forget work through the actual API; scope fixtures have zero leaks; lexical recall meets its measured baseline gate. Passed 2026-10-07 ([evidence](evidence/g2.md)).
 
-Gate G3 (stage 3): first-seen query quality, fallback quality, memory coverage, latency, RSS, write contention, and recovery all meet [validation](validation.md). Publish the report and record an explicit go/no-go before starting the large extraction port. A failed gate blocks expansion; it does not authorize a silent threshold change or language switch.
+Gate G3 (stage 3): first-seen query quality, fallback quality, memory coverage, latency, RSS, write contention, and recovery all meet [validation](validation.md). Publish the report and record an explicit go/no-go before starting the large extraction port. A failed gate blocks expansion; it does not authorize a silent threshold change or language switch. Passed 2026-10-07 ([evidence](evidence/g3.md)).
 
-Gate G4 (stages 4-5A): source capture is accounted for and the independent reliability corpus passes. Empty queues cannot establish capture completeness.
+Gate G4 (stages 4-5A): source capture is accounted for and the independent reliability corpus passes. Empty queues cannot establish capture completeness. Stage-4 capture passed 2026-10-07 ([evidence](evidence/g4.md)); stage-5A extraction passed its reliability and mandatory-context gates 2026-10-07 ([evidence](evidence/g4-extraction.md)), with the remaining section-parity gaps recorded there.
 
-Gate G5 (stages 5B-6B): migration and recovery are rehearsed, all capability rows are implemented, and each host has real integration evidence. Pi may enter an explicitly partial experimental cohort earlier on synthetic data; full replacement claims wait for G5.
+Gate G5 (stages 5B-6B): migration and recovery are rehearsed, all capability rows are implemented, and each host has real integration evidence. Stage-5B migration/recovery passed 2026-10-07 ([evidence](evidence/g5-migration.md)); stage-6A/6B cores are recorded 2026-10-07 ([evidence](evidence/g6-clients-admin.md)), with host adapter evidence, the remaining 13 canonical operations and full dashboard parity still open. Pi may enter an explicitly partial experimental cohort earlier on synthetic data; full replacement claims wait for G5.
 
 Gate G6 (stage 7): release artifacts, service lifecycle and cutover pass, and all clients finish the documented soak. Only then schedule v1 retirement with a deprecation notice and migration guide.
 

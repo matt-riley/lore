@@ -1,6 +1,6 @@
 # Slice 3: background embeddings and bounded semantic recall
 
-Status: planned. Depends on G2. Exit: G3. Decision: [ADR-004/005/006](architecture-decisions.md).
+Status: G3 result under re-run — the 2026-10-07 evidence in [evidence/g3.md](evidence/g3.md) predates the corrected calibration split and is void until regenerated. Depends on G2. Exit: G3. Decision: [ADR-004/005/006](architecture-decisions.md).
 
 ## Objective
 

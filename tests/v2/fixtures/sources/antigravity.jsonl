@@ -1,0 +1,3 @@
+{"step_index":1,"type":"USER_INPUT","source":"USER","content":"Move the capture cursor forward.","timestamp":"2026-01-01T00:00:01.000Z"}
+{"step_index":2,"type":"PLANNER_RESPONSE","source":"MODEL","content":"Advance only after commit.","timestamp":"2026-01-01T00:00:02.000Z"}
+{"step_index":2,"type":"PLANNER_RESPONSE","source":"MODEL","content":"Advance only after the transaction commits.","timestamp":"2026-01-01T00:00:03.000Z"}

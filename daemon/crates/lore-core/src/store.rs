@@ -1023,26 +1023,19 @@ impl Store {
         let done = Arc::new(AtomicBool::new(false));
         let expired = Arc::new(AtomicBool::new(false));
         let watchdog = deadline.map(|deadline_at| {
-            let done = Arc::clone(&done);
-            let expired = Arc::clone(&expired);
-            let handle = connection.get_interrupt_handle();
-            std::thread::spawn(move || {
-                loop {
-                    let now = Instant::now();
-                    if now >= deadline_at {
-                        break;
-                    }
-                    std::thread::sleep((deadline_at - now).min(Duration::from_millis(5)));
-                }
-                if !done.load(Ordering::Acquire) {
-                    expired.store(true, Ordering::Release);
-                    handle.interrupt();
-                }
-            })
+            start_watchdog(
+                connection.get_interrupt_handle(),
+                deadline_at,
+                Arc::clone(&done),
+                Arc::clone(&expired),
+            )
         });
         let result = self.recall_on(&connection, params, now_ms, limit, context_bytes, deadline);
         done.store(true, Ordering::Release);
-        drop(watchdog);
+        if let Some(watchdog) = watchdog {
+            // The watchdog returns within one poll of `done`, so this join is brief.
+            let _ = watchdog.join();
+        }
         if expired.load(Ordering::Acquire) {
             return Err(CoreError::deadline("recall deadline exceeded"));
         }
@@ -1398,22 +1391,12 @@ impl Store {
         let done = Arc::new(AtomicBool::new(false));
         let expired = Arc::new(AtomicBool::new(false));
         let watchdog = deadline.map(|deadline_at| {
-            let done = Arc::clone(&done);
-            let expired = Arc::clone(&expired);
-            let handle = connection.get_interrupt_handle();
-            std::thread::spawn(move || {
-                loop {
-                    let now = Instant::now();
-                    if now >= deadline_at {
-                        break;
-                    }
-                    std::thread::sleep((deadline_at - now).min(Duration::from_millis(5)));
-                }
-                if !done.load(Ordering::Acquire) {
-                    expired.store(true, Ordering::Release);
-                    handle.interrupt();
-                }
-            })
+            start_watchdog(
+                connection.get_interrupt_handle(),
+                deadline_at,
+                Arc::clone(&done),
+                Arc::clone(&expired),
+            )
         });
         let result = self.recall_fused_on(
             &connection,
@@ -1426,7 +1409,10 @@ impl Store {
             deadline,
         );
         done.store(true, Ordering::Release);
-        drop(watchdog);
+        if let Some(watchdog) = watchdog {
+            // The watchdog returns within one poll of `done`, so this join is brief.
+            let _ = watchdog.join();
+        }
         if expired.load(Ordering::Acquire) {
             return Err(CoreError::deadline("recall deadline exceeded"));
         }
@@ -1839,6 +1825,33 @@ fn collapse_duplicates(records: Vec<MemoryRecord>) -> Vec<MemoryRecord> {
         .collect()
 }
 
+/// Interrupt a query that is still running at its deadline. The watchdog returns
+/// as soon as `done` is set, so a fast query never leaves a thread polling until
+/// the deadline, and the caller joins it once the query finishes.
+fn start_watchdog(
+    handle: rusqlite::InterruptHandle,
+    deadline_at: Instant,
+    done: Arc<AtomicBool>,
+    expired: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        loop {
+            if done.load(Ordering::Acquire) {
+                return;
+            }
+            let now = Instant::now();
+            if now >= deadline_at {
+                break;
+            }
+            std::thread::sleep((deadline_at - now).min(Duration::from_millis(5)));
+        }
+        if !done.load(Ordering::Acquire) {
+            expired.store(true, Ordering::Release);
+            handle.interrupt();
+        }
+    })
+}
+
 fn ensure_within(deadline: Option<Instant>) -> CoreResult<()> {
     match deadline {
         Some(limit) if Instant::now() >= limit => {
@@ -2036,4 +2049,45 @@ fn store_receipt(
         params![client_id, operation, key, request_hash, response_json, now_ms],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watchdog_returns_at_once_when_the_query_finishes_first() {
+        let connection = Connection::open_in_memory().expect("open");
+        let done = Arc::new(AtomicBool::new(false));
+        let expired = Arc::new(AtomicBool::new(false));
+        let started = Instant::now();
+        let watchdog = start_watchdog(
+            connection.get_interrupt_handle(),
+            started + Duration::from_secs(60),
+            Arc::clone(&done),
+            Arc::clone(&expired),
+        );
+        done.store(true, Ordering::Release);
+        watchdog.join().expect("watchdog thread");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "a finished query must not wait for its deadline"
+        );
+        assert!(!expired.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn watchdog_marks_expiry_when_the_deadline_passes_first() {
+        let connection = Connection::open_in_memory().expect("open");
+        let done = Arc::new(AtomicBool::new(false));
+        let expired = Arc::new(AtomicBool::new(false));
+        let watchdog = start_watchdog(
+            connection.get_interrupt_handle(),
+            Instant::now() + Duration::from_millis(20),
+            Arc::clone(&done),
+            Arc::clone(&expired),
+        );
+        watchdog.join().expect("watchdog thread");
+        assert!(expired.load(Ordering::Acquire));
+    }
 }

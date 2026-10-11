@@ -349,3 +349,59 @@ async fn discovery_finds_approved_files_without_registration() {
     assert_eq!(source["state"], "caught_up");
     assert!(source["generation"].as_str().is_some());
 }
+
+#[tokio::test]
+async fn a_hint_replays_its_acknowledgement_for_the_same_key() {
+    let daemon = Daemon::start();
+    let session = daemon.sources_dir().join("replay.jsonl");
+    std::fs::write(
+        &session,
+        concat!(
+            "{\"type\":\"session\",\"id\":\"pi-replay-1\",\"cwd\":\"/work\"}\n",
+            "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"Replay evidence.\"}}\n"
+        ),
+    )
+    .expect("fixture");
+    let (status, body) = call(
+        &daemon.socket,
+        "/v2/sources/register",
+        json!({
+            "idempotencyKey": "register-replay",
+            "client": "pi",
+            "rootId": "pi-root",
+            "path": session.to_str().expect("utf8"),
+            "nativeSessionId": "pi-replay-1"
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "body: {body}");
+    let source_id = body["result"]["sourceId"]
+        .as_str()
+        .expect("source")
+        .to_string();
+
+    let hint = |event: &str| {
+        json!({
+            "idempotencyKey": "hint-replay",
+            "sourceId": source_id,
+            "eventId": event,
+            "event": "append"
+        })
+    };
+    let (status, first) = call(&daemon.socket, "/v2/sources/hint", hint("event-1")).await;
+    assert_eq!(status, 200, "body: {first}");
+    assert_eq!(first["result"]["coalesced"], false);
+
+    // The retry is the stored acknowledgement, not a fresh (coalesced) delivery.
+    let (status, repeat) = call(&daemon.socket, "/v2/sources/hint", hint("event-1")).await;
+    assert_eq!(status, 200, "body: {repeat}");
+    assert_eq!(repeat["result"], first["result"], "{repeat}");
+
+    // A reused key with different parameters never performs a second mutation.
+    let (status, conflict) = call(&daemon.socket, "/v2/sources/hint", hint("event-2")).await;
+    assert_eq!(status, 409, "body: {conflict}");
+    assert_eq!(
+        conflict["error"]["reason"], "IDEMPOTENCY_CONFLICT",
+        "{conflict}"
+    );
+}

@@ -541,6 +541,22 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
         Ok(hash) => hash,
         Err(error) => return core_response(error, &request_id, &store_id),
     };
+    // One hint per key at a time: without the lease, two concurrent requests
+    // carrying the same key but different sources could both mark state.
+    let _key_lease =
+        match crate::KeyLease::acquire(state, format!("{client_id}\nsources.hint\n{key}")) {
+            Some(lease) => lease,
+            None => {
+                return fail_response(
+                    StatusCode::CONFLICT,
+                    "ALREADY_EXISTS",
+                    "IDEMPOTENCY_IN_PROGRESS",
+                    true,
+                    Some(&request_id),
+                    Some(&store_id),
+                );
+            }
+        };
     match state
         .store
         .lookup_receipt_json(&client_id, "sources.hint", &key)

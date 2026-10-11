@@ -238,7 +238,7 @@ impl EmbeddingProvider {
         let work = async {
             let host = self.endpoint.host_str().unwrap_or("127.0.0.1");
             let port = self.endpoint.port_or_known_default().unwrap_or(80);
-            let stream = TcpStream::connect((host, port))
+            let stream = TcpStream::connect((socket_host(host), port))
                 .await
                 .map_err(|error| ProviderError::Transient(error.to_string()))?;
             let (mut sender, connection) =
@@ -267,6 +267,14 @@ impl EmbeddingProvider {
             .await
             .map_err(|_| ProviderError::Transient("provider request timed out".to_string()))?
     }
+}
+
+/// The address to hand to `TcpStream::connect`. A URL keeps the brackets around an IPv6
+/// literal, but the socket layer takes the bare address; the HTTP authority keeps them.
+fn socket_host(host: &str) -> &str {
+    host.strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+        .unwrap_or(host)
 }
 
 fn classify_status(status: u16, body: &[u8]) -> Result<(), ProviderError> {
@@ -439,7 +447,7 @@ impl ChatProvider {
             .map_err(|error| ProviderError::Malformed(error.to_string()))?;
         let work = async {
             let port = self.endpoint.port_or_known_default().unwrap_or(80);
-            let stream = TcpStream::connect((host, port))
+            let stream = TcpStream::connect((socket_host(host), port))
                 .await
                 .map_err(|error| ProviderError::Transient(error.to_string()))?;
             let (mut sender, connection) =
@@ -517,6 +525,13 @@ mod tests {
         let endpoint = "http://[::1]:12434/v1";
         let provider = provider(endpoint);
         assert_eq!(provider.request_uri(), "http://[::1]:12434/v1/embeddings");
+    }
+
+    #[test]
+    fn socket_host_strips_only_the_ipv6_brackets() {
+        assert_eq!(socket_host("[::1]"), "::1");
+        assert_eq!(socket_host("127.0.0.1"), "127.0.0.1");
+        assert_eq!(socket_host("localhost"), "localhost");
     }
 
     fn provider(endpoint: &str) -> EmbeddingProvider {

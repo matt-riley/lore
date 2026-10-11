@@ -179,7 +179,7 @@ jobs:
         run: node --test tests/packaging.test.mjs
 
       - name: Validation tooling proofs
-        run: node --test daemon/tests/semantic-corpus.test.mjs daemon/tests/semantic-metrics.test.mjs
+        run: node --test tests/semantic-corpus.test.mjs tests/semantic-metrics.test.mjs
 
       - name: Bounded soak proof
         run: LORED_BIN="$PWD/target/debug/lored" SOAK_SECONDS=15 node tests/soak.mjs

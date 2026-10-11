@@ -277,6 +277,64 @@ fn retries_exhaust_then_explicit_retry_resets() {
 }
 
 #[test]
+fn selective_retry_leaves_other_memories_failed_intents_failed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(&config(dir.path())).expect("open");
+    store
+        .retain("client", &retain("k1", "first selective fact"), 1_000)
+        .expect("retain");
+    store
+        .retain("client", &retain("k2", "second selective fact"), 1_000)
+        .expect("retain");
+    store
+        .reconcile_page(IDENTITY, None, 256, 1_000)
+        .expect("reconcile");
+
+    // Drive every job to a terminal failure, remembering which memories failed.
+    let mut failed_memories = std::collections::BTreeSet::new();
+    while let Some(job) = store.claim_job("owner", 1_000, 60_000).expect("claim") {
+        failed_memories.insert(job.memory_id.clone());
+        store
+            .fail_job(
+                &job.job_id,
+                &job.lease_token,
+                "owner",
+                "PROVIDER_OFFLINE",
+                true,
+                Some(0),
+                1_000,
+            )
+            .expect("fail");
+    }
+    assert_eq!(
+        failed_memories.len(),
+        2,
+        "both memories reached a terminal failure"
+    );
+    assert_eq!(
+        store
+            .embedding_counts(IDENTITY, 1_000)
+            .expect("counts")
+            .failed,
+        2
+    );
+
+    let selected = failed_memories.iter().next().expect("one memory").clone();
+    let reset = store
+        .retry_failed_jobs(Some(IDENTITY), Some(std::slice::from_ref(&selected)), 2_000)
+        .expect("retry");
+    assert_eq!(reset, 1, "only the selected memory's job is reset");
+    assert_eq!(
+        store
+            .embedding_counts(IDENTITY, 2_000)
+            .expect("counts")
+            .failed,
+        1,
+        "the other memory's intent stays failed"
+    );
+}
+
+#[test]
 fn reconciliation_is_bounded_and_idempotent() {
     let dir = tempfile::tempdir().expect("tempdir");
     let store = Store::open(&config(dir.path())).expect("open");

@@ -233,3 +233,35 @@ fn okf_export_cannot_target_the_data_directory_or_bundles_itself() {
     }
     assert!(keep.exists(), "data directory contents are untouched");
 }
+
+#[test]
+fn an_okf_import_that_would_pass_the_memory_cap_is_refused_whole() {
+    let source_dir = tempfile::tempdir().expect("source dir");
+    let source = Store::open(&config(source_dir.path())).expect("open source");
+    let now = 5_000_000i64;
+    approved_item(&source, "Port the exporter", now);
+    approved_item(&source, "Add a dashboard panel", now);
+    let okf = source.bundle_export("okf", None, now).expect("okf export");
+    let okf_dir = PathBuf::from(okf["path"].as_str().expect("path"));
+
+    // A destination with room for one memory cannot take the two concepts.
+    let target_dir = tempfile::tempdir().expect("target dir");
+    let mut target_config = config(target_dir.path());
+    target_config.limits.max_memories = 1;
+    let target = Store::open(&target_config).expect("open target");
+    // Imports read from inside the destination's own data directory.
+    let copied = target_dir.path().join("bundles").join("okf-copy");
+    std::fs::create_dir_all(&copied).expect("copy dir");
+    for entry in std::fs::read_dir(&okf_dir).expect("read bundle").flatten() {
+        std::fs::copy(entry.path(), copied.join(entry.file_name())).expect("copy file");
+    }
+    let error = target
+        .bundle_import_okf(copied.to_str().expect("utf8"), now)
+        .expect_err("import past the cap is refused");
+    assert_eq!(error.reason, "STORE_QUOTA");
+    assert_eq!(
+        target.status().expect("status").active_memories,
+        0,
+        "the partial import is rolled back"
+    );
+}

@@ -35,9 +35,11 @@ fn data_dir(store: &Store) -> CoreResult<PathBuf> {
         .ok_or_else(|| CoreError::internal("BUNDLE_PATH_INVALID", "store has no parent directory"))
 }
 
-/// Resolve an operator-supplied path and require it to live under
-/// `<dataDir>/bundles`, rejecting traversal and symlinked roots.
-fn approved_path(root: &Path, candidate: Option<&str>) -> CoreResult<PathBuf> {
+/// Resolve an operator-supplied path inside the data directory, rejecting
+/// traversal and symlinked roots. Exports must sit strictly under
+/// `<dataDir>/bundles`, since an OKF export replaces its target. Imports only
+/// read, so they keep the wider data-directory rule.
+fn approved_path(root: &Path, candidate: Option<&str>, export: bool) -> CoreResult<PathBuf> {
     let bundles = root.join("bundles");
     let resolved = match candidate {
         Some(candidate) => {
@@ -59,20 +61,26 @@ fn approved_path(root: &Path, candidate: Option<&str>) -> CoreResult<PathBuf> {
             "bundle paths may not contain ..",
         ));
     }
-    // Exports live strictly inside <dataDir>/bundles. The bundles directory
-    // itself is not a valid target: an OKF export replaces its target, so
-    // naming the directory would remove everything in it.
-    if candidate.is_some() && (resolved == bundles || !resolved.starts_with(&bundles)) {
+    // The bundles directory itself is not a valid export target: an OKF export
+    // replaces its target, so naming the directory would remove everything in it.
+    if export && candidate.is_some() && (resolved == bundles || !resolved.starts_with(&bundles)) {
         return Err(CoreError::invalid(
             "BUNDLE_PATH_INVALID",
             "bundle paths must be inside <dataDir>/bundles",
         ));
     }
-    fs::create_dir_all(&bundles).map_err(|_| {
-        CoreError::invalid("BUNDLE_PATH_INVALID", "bundles directory is not writable")
-    })?;
-    let canonical_bundles = fs::canonicalize(&bundles).map_err(|_| {
-        CoreError::invalid("BUNDLE_PATH_INVALID", "bundles directory is not readable")
+    let confine = if export {
+        bundles.clone()
+    } else {
+        root.to_path_buf()
+    };
+    if export {
+        fs::create_dir_all(&bundles).map_err(|_| {
+            CoreError::invalid("BUNDLE_PATH_INVALID", "bundles directory is not writable")
+        })?;
+    }
+    let canonical_confine = fs::canonicalize(&confine).map_err(|_| {
+        CoreError::invalid("BUNDLE_PATH_INVALID", "bundle directory is not readable")
     })?;
     // The path may not exist yet; canonicalize its nearest existing ancestor.
     let mut existing = resolved.clone();
@@ -84,7 +92,7 @@ fn approved_path(root: &Path, candidate: Option<&str>) -> CoreResult<PathBuf> {
     }
     let canonical_existing = fs::canonicalize(&existing)
         .map_err(|_| CoreError::invalid("BUNDLE_PATH_INVALID", "bundle path is not readable"))?;
-    if !canonical_existing.starts_with(&canonical_bundles) {
+    if !canonical_existing.starts_with(&canonical_confine) {
         return Err(CoreError::invalid(
             "BUNDLE_PATH_INVALID",
             "bundle paths must be inside <dataDir>/bundles",
@@ -173,7 +181,7 @@ impl Store {
         } else {
             format!("export-{now_ms}")
         };
-        let resolved = approved_path(&root, path)?;
+        let resolved = approved_path(&root, path, true)?;
         let artifacts = {
             let connection = self.reader().lock().expect("reader lock");
             approved_artifacts(&connection)?
@@ -286,7 +294,7 @@ impl Store {
     /// Import an OKF v0.1 bundle directory staged under the data directory.
     pub fn bundle_import_okf(&self, path: &str, now_ms: i64) -> CoreResult<Value> {
         let root = data_dir(self)?;
-        let resolved = approved_path(&root, Some(path))?;
+        let resolved = approved_path(&root, Some(path), false)?;
         let metadata = fs::symlink_metadata(&resolved).map_err(|error| {
             CoreError::invalid(
                 "BUNDLE_PATH_INVALID",
@@ -373,6 +381,10 @@ impl Store {
         let mut imported = 0i64;
         let mut skipped = 0i64;
         let mut counts = BTreeMap::new();
+        // Imports count against the same cap as every other write. An import that
+        // would pass it is refused whole: the transaction rolls back on the error.
+        let mut total: i64 =
+            transaction.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
         for (file_name, body) in &files {
             let (frontmatter, content) = split_frontmatter(body);
             let concept_id = frontmatter
@@ -407,6 +419,13 @@ impl Store {
                 .unwrap_or_else(|| concept_id.clone());
             let text = format!("# {title}\n\n{trimmed}");
             let content_hash = crate::policy::sha256_hex(text.as_bytes());
+            if total >= self.limits.max_memories {
+                return Err(CoreError::quota(
+                    "STORE_QUOTA",
+                    "authoritative memory cap reached; the import was refused",
+                ));
+            }
+            total += 1;
             revision += 1;
             let memory_id = uuid::Uuid::new_v4().to_string();
             let (scope, repository_value) = match &repository {

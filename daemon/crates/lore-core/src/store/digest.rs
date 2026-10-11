@@ -8,6 +8,7 @@
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::atomic::Ordering;
 
 use crate::error::CoreResult;
 use crate::store::Store;
@@ -22,6 +23,8 @@ const MAX_CONTENT_BYTES: usize = 4 * 1024;
 pub struct DigestReport {
     pub episodes: usize,
     pub day_summaries: usize,
+    /// New derived memories left unwritten because the memory cap is reached.
+    pub capped: usize,
 }
 
 struct GenerationCandidate {
@@ -81,35 +84,55 @@ impl Store {
     /// refresh the day summaries they feed. Idempotent: a second pass finds
     /// the episodes already present and only refreshes touched days.
     pub fn build_digests(&self, limit: usize, now_ms: i64) -> CoreResult<DigestReport> {
-        let candidates: Vec<GenerationCandidate> = {
-            let connection = self.reader();
-            let connection = connection.lock().expect("reader lock");
-            let mut statement = connection.prepare(
-                "SELECT g.source_id, g.generation, s.client, s.repository, s.native_session_id, g.started_ms \
-                 FROM source_generations g JOIN sources s ON s.source_id = g.source_id \
-                 WHERE g.retired_ms IS NULL \
-                 AND EXISTS (SELECT 1 FROM source_records r WHERE r.source_id = g.source_id AND r.generation = g.generation) \
-                 AND NOT EXISTS (SELECT 1 FROM extraction_intents i \
-                    WHERE i.source_id = g.source_id AND i.generation = g.generation \
-                    AND i.state IN ('pending', 'running', 'retry_wait')) \
-                 ORDER BY g.started_ms ASC LIMIT ?1",
-            )?;
-            let rows = statement.query_map(params![limit.clamp(1, 32) as i64], |row| {
-                Ok(GenerationCandidate {
-                    source_id: row.get(0)?,
-                    generation: row.get(1)?,
-                    client: row.get(2)?,
-                    repository: row.get(3)?,
-                    native_session_id: row.get(4)?,
-                    started_ms: row.get(5)?,
-                })
-            })?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        };
+        let limit = limit.clamp(1, 32) as i64;
+        // A pass resumes after the last generation it examined. Unchanged
+        // digests are skipped without being refreshed, so always taking the
+        // oldest rows would starve every generation behind them.
+        let after = self.digest_cursor.load(Ordering::Relaxed);
+        let mut candidates = self.digest_candidates(after, limit)?;
+        if candidates.is_empty() && after > 0 {
+            candidates = self.digest_candidates(0, limit)?;
+        }
+        if let Some(last) = candidates.last() {
+            self.digest_cursor.store(last.started_ms, Ordering::Relaxed);
+        }
         if candidates.is_empty() {
             return Ok(DigestReport::default());
         }
+        self.apply_digest_candidates(&candidates, now_ms)
+    }
 
+    fn digest_candidates(&self, after_ms: i64, limit: i64) -> CoreResult<Vec<GenerationCandidate>> {
+        let connection = self.reader();
+        let connection = connection.lock().expect("reader lock");
+        let mut statement = connection.prepare(
+            "SELECT g.source_id, g.generation, s.client, s.repository, s.native_session_id, g.started_ms \
+             FROM source_generations g JOIN sources s ON s.source_id = g.source_id \
+             WHERE g.retired_ms IS NULL AND g.started_ms > ?2 \
+             AND EXISTS (SELECT 1 FROM source_records r WHERE r.source_id = g.source_id AND r.generation = g.generation) \
+             AND NOT EXISTS (SELECT 1 FROM extraction_intents i \
+                WHERE i.source_id = g.source_id AND i.generation = g.generation \
+                AND i.state IN ('pending', 'running', 'retry_wait')) \
+             ORDER BY g.started_ms ASC LIMIT ?1",
+        )?;
+        let rows = statement.query_map(params![limit, after_ms], |row| {
+            Ok(GenerationCandidate {
+                source_id: row.get(0)?,
+                generation: row.get(1)?,
+                client: row.get(2)?,
+                repository: row.get(3)?,
+                native_session_id: row.get(4)?,
+                started_ms: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    fn apply_digest_candidates(
+        &self,
+        candidates: &[GenerationCandidate],
+        now_ms: i64,
+    ) -> CoreResult<DigestReport> {
         let mut report = DigestReport::default();
         let mut touched_days: Vec<(Option<String>, String)> = Vec::new();
         let mut connection = self.writer.lock().expect("writer lock");
@@ -120,8 +143,11 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
+        // Derived memories count against the same cap as manual and extracted ones.
+        let mut total: i64 =
+            transaction.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
 
-        for candidate in &candidates {
+        for candidate in candidates {
             // Read through the open transaction: taking a reader here would
             // invert the lock order (writer held, reader wanted) and can wedge
             // the daemon behind a busy reader.
@@ -261,6 +287,11 @@ impl Store {
                 }
                 continue;
             }
+            if total >= self.limits.max_memories {
+                report.capped += 1;
+                continue;
+            }
+            total += 1;
             revision += 1;
             let memory_id = uuid::Uuid::new_v4().to_string();
             transaction.execute(
@@ -421,6 +452,11 @@ impl Store {
                     )?;
                 }
                 None => {
+                    if total >= self.limits.max_memories {
+                        report.capped += 1;
+                        continue;
+                    }
+                    total += 1;
                     revision += 1;
                     let memory_id = uuid::Uuid::new_v4().to_string();
                     let (scope, repository_value) = match repository {

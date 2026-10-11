@@ -753,3 +753,29 @@ fn upgrade_refuses_a_launcher_link_that_climbs_out_of_the_versions_directory() {
         climbing
     );
 }
+
+#[test]
+fn setup_refuses_a_symlinked_managed_file_without_touching_its_target() {
+    let home = tempfile::tempdir().expect("home");
+    let target_dir = tempfile::tempdir().expect("target");
+    let target = target_dir.path().join("unrelated.json");
+    let managed = home.path().join(".lore/integrations");
+    std::fs::create_dir_all(&managed).expect("integrations dir");
+    std::os::unix::fs::symlink(&target, managed.join("pi.json")).expect("symlink");
+
+    let (code, _, stderr) = run(
+        home.path(),
+        &["setup", "--clients", "pi", "--apply", "--output", "json"],
+    );
+    assert_ne!(
+        code, 0,
+        "setup must fail rather than follow the link: {stderr}"
+    );
+    assert!(!target.exists(), "the symlink target must not be created");
+    assert!(
+        std::fs::symlink_metadata(managed.join("pi.json"))
+            .expect("link still present")
+            .file_type()
+            .is_symlink()
+    );
+}

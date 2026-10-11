@@ -46,6 +46,15 @@ pub(crate) fn read_json(path: &Path) -> Option<Value> {
 }
 
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    // Managed files are published, never followed: writing through a symlink would
+    // modify a target outside the managed tree, and rollback would remove only the
+    // link. A dangling link reads as absent, so refuse on the link itself.
+    if std::fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(format!("refuse to write through symlink {path:?}"));
+    }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| format!("create {parent:?}: {error}"))?;
     }
@@ -95,7 +104,8 @@ fn expand_selection(clients: &[String]) -> Result<Vec<String>, String> {
 }
 
 /// Put back files a failed setup had already changed. `None` means the file did
-/// not exist before, so it is removed again.
+/// not exist before, so it is removed again; a symlink is never ours to remove,
+/// because it reads as absent while still being the user's path.
 fn restore_files(touched: &[(PathBuf, Option<Vec<u8>>)]) {
     for (path, previous) in touched.iter().rev() {
         match previous {
@@ -103,7 +113,12 @@ fn restore_files(touched: &[(PathBuf, Option<Vec<u8>>)]) {
                 let _ = write_private(path, bytes);
             }
             None => {
-                let _ = std::fs::remove_file(path);
+                let is_symlink = std::fs::symlink_metadata(path)
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if !is_symlink {
+                    let _ = std::fs::remove_file(path);
+                }
             }
         }
     }

@@ -22,6 +22,7 @@ import {
   waitForLiveStatus,
 } from "./harness.mjs";
 import { CORPUS_PATH, corpusHash, splitFamilies } from "./semantic-corpus.mjs";
+import { addNegative, addPositive, newAccumulator, summarize } from "./semantic-metrics.mjs";
 
 const args = process.argv.slice(2);
 function option(name, fallback) {
@@ -36,56 +37,6 @@ const LIMIT = Number(option("--limit", "6"));
 
 const corpus = JSON.parse(readFileSync(CORPUS_PATH, "utf8"));
 const families = splitFamilies(corpus, SPLIT);
-
-function newAccumulator() {
-  return {
-    positive: 0,
-    hits: 0,
-    reciprocal: 0,
-    returned: 0,
-    nonGold: 0,
-    canaryHits: 0,
-    negativeQueries: 0,
-    negativeReturned: 0,
-    fallbackCounts: {},
-  };
-}
-
-function addPositive(accumulator, records, goldId, canaryId) {
-  accumulator.positive += 1;
-  accumulator.returned += records.length;
-  const ids = records.map((record) => record.id);
-  const rank = ids.indexOf(goldId);
-  if (rank >= 0) {
-    accumulator.hits += 1;
-    accumulator.reciprocal += 1 / (rank + 1);
-  }
-  accumulator.nonGold += ids.filter((id) => id !== goldId).length;
-  if (ids.includes(canaryId)) {
-    accumulator.canaryHits += 1;
-  }
-}
-
-function addNegative(accumulator, records) {
-  accumulator.negativeQueries += 1;
-  accumulator.negativeReturned += records.length;
-  accumulator.returned += records.length;
-  accumulator.nonGold += records.length;
-}
-
-function summarize(accumulator) {
-  return {
-    positiveQueries: accumulator.positive,
-    recallAt6: accumulator.positive === 0 ? 0 : accumulator.hits / accumulator.positive,
-    mrrAt6: accumulator.positive === 0 ? 0 : accumulator.reciprocal / accumulator.positive,
-    irrelevantRate:
-      accumulator.returned === 0 ? 0 : accumulator.nonGold / accumulator.returned,
-    canaryHits: accumulator.canaryHits,
-    negativeQueries: accumulator.negativeQueries,
-    negativeReturned: accumulator.negativeReturned,
-    fallbackCounts: accumulator.fallbackCounts,
-  };
-}
 
 async function runV2() {
   const embedding = { ...localEmbeddingConfig(), minSimilarity: THRESHOLD };

@@ -422,13 +422,40 @@ fn path_identity(row: &SourceRow, path: &Path) -> String {
 /// One turn of a Copilot session: (turn index, user, assistant, timestamp).
 type SessionTurn = (i64, String, String, String);
 
-/// Read every turn of a session in pages keyed by turn index, so a session of any
-/// length is captured in full and no single query holds an unbounded result. A
-/// session with a turn that has no index is refused (None) and counted as a gap,
-/// because paging by index would otherwise drop that turn silently.
-fn session_turns(
+/// A session as capture reads it: (id, updated stamp, cwd, repository).
+type SessionHeader = (String, String, Option<String>, Option<String>);
+
+/// Records one Copilot capture quantum gathers before it commits. A session that
+/// does not fit waits for the next quantum, so a long history is never held in
+/// memory, or in one write transaction, all at once.
+const RECORDS_PER_QUANTUM: usize = 2_048;
+
+fn session_header_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionHeader> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+}
+
+/// One session's header by id, or None when the session no longer exists.
+fn session_header(
     connection: &rusqlite::Connection,
     session_id: &str,
+) -> rusqlite::Result<Option<SessionHeader>> {
+    let mut statement = connection.prepare(
+        "SELECT id, COALESCE(updated_at, created_at, ''), cwd, repository FROM sessions WHERE id = ?1",
+    )?;
+    match statement.query_row(rusqlite::params![session_id], session_header_row) {
+        Ok(header) => Ok(Some(header)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// One page of a session's turns after `after`. None when the session has a turn
+/// with no index: paging by index would drop that turn silently, so the session
+/// is refused and counted as a gap.
+fn session_turn_page(
+    connection: &rusqlite::Connection,
+    session_id: &str,
+    after: i64,
 ) -> rusqlite::Result<Option<Vec<SessionTurn>>> {
     let unindexed: i64 = connection.query_row(
         "SELECT COUNT(*) FROM turns WHERE session_id = ?1 AND turn_index IS NULL",
@@ -438,39 +465,29 @@ fn session_turns(
     if unindexed > 0 {
         return Ok(None);
     }
-    let mut turns = Vec::new();
-    let mut after = i64::MIN;
-    loop {
-        let mut statement = connection.prepare(
-            "SELECT turn_index, user_message, assistant_response, timestamp FROM turns \
-             WHERE session_id = ?1 AND turn_index > ?2 ORDER BY turn_index ASC LIMIT ?3",
-        )?;
-        let page = statement
-            .query_map(
-                rusqlite::params![session_id, after, MAX_SQLITE_PAGE as i64],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                    ))
-                },
-            )?
-            .collect::<Result<Vec<_>, _>>()?;
-        let Some(last) = page.last() else { break };
-        after = last.0;
-        let full = page.len() == MAX_SQLITE_PAGE;
-        turns.extend(page);
-        if !full {
-            break;
-        }
-    }
-    Ok(Some(turns))
+    let mut statement = connection.prepare(
+        "SELECT turn_index, user_message, assistant_response, timestamp FROM turns \
+         WHERE session_id = ?1 AND turn_index > ?2 ORDER BY turn_index ASC LIMIT ?3",
+    )?;
+    let page = statement
+        .query_map(
+            rusqlite::params![session_id, after, MAX_SQLITE_PAGE as i64],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(page))
 }
 
 /// Read changed rows from a Copilot-style session store. Host databases are
-/// opened read-only and are never migrated or written.
+/// opened read-only and are never migrated or written. Each call captures one
+/// bounded quantum; a session that does not fit resumes at its last turn.
 fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> CaptureReport {
     let mut report = CaptureReport {
         source_id: row.source_id.clone(),
@@ -513,11 +530,11 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
         report.reason = Some("SOURCE_UNKNOWN_SCHEMA".into());
         return report;
     }
-    let cursor = parser_state(row, store).cursor.clone().unwrap_or_default();
-    let mut statement = match connection.prepare(
+    let mut state = parser_state(row, store);
+    let mut next = match connection.prepare(
         "SELECT id, COALESCE(updated_at, created_at, ''), cwd, repository FROM sessions \
          WHERE COALESCE(updated_at, created_at, '') > ?1 OR (COALESCE(updated_at, created_at, '') = ?1 AND id > ?2) \
-         ORDER BY COALESCE(updated_at, created_at, '') ASC, id ASC LIMIT ?3",
+         ORDER BY COALESCE(updated_at, created_at, '') ASC, id ASC LIMIT 1",
     ) {
         Ok(statement) => statement,
         Err(_) => {
@@ -526,45 +543,61 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
             return report;
         }
     };
-    let (cursor_time, cursor_id) = cursor
-        .split_once('\u{1}')
-        .map(|(time, id)| (time.to_string(), id.to_string()))
-        .unwrap_or_default();
-    let sessions = statement
-        .query_map(
-            rusqlite::params![cursor_time, cursor_id, MAX_SQLITE_PAGE as i64],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                ))
-            },
-        )
-        .map(|rows| rows.collect::<Result<Vec<_>, _>>())
-        .unwrap_or_else(|_| Ok(Vec::new()));
-    let sessions = match sessions {
-        Ok(sessions) => sessions,
-        Err(_) => {
-            report.state = "failed".into();
-            report.reason = Some("SOURCE_UNREADABLE".into());
-            return report;
-        }
-    };
+    let mut cursor = state.cursor.clone();
+    // A session that an earlier quantum left part-way through its turns resumes first.
+    let mut resume = state.turn_cursor.take();
     let mut records: Vec<SourceRecord> = Vec::new();
     let mut skipped = 0i64;
-    let mut last: Option<(String, String)> = None;
-    for (session_id, updated_at, cwd, repository) in &sessions {
-        last = Some((updated_at.clone(), session_id.clone()));
-        let turns = match session_turns(&connection, session_id) {
-            Ok(Some(turns)) => turns,
+    let mut completed = 0i64;
+    let mut complete = false;
+    while records.len() < RECORDS_PER_QUANTUM {
+        let (session, after) = match resume.take() {
+            Some((session_id, after)) => match session_header(&connection, &session_id) {
+                Ok(Some(session)) => (session, after),
+                // Deleted since the last quantum, so there is nothing left to resume.
+                Ok(None) => continue,
+                Err(_) => {
+                    report.state = "failed".into();
+                    report.reason = Some("SOURCE_UNREADABLE".into());
+                    return report;
+                }
+            },
+            None => {
+                let (cursor_time, cursor_id) = cursor
+                    .as_deref()
+                    .and_then(|value| value.split_once('\u{1}'))
+                    .map(|(time, id)| (time.to_string(), id.to_string()))
+                    .unwrap_or_default();
+                match next.query_row(
+                    rusqlite::params![cursor_time, cursor_id],
+                    session_header_row,
+                ) {
+                    Ok(session) => (session, i64::MIN),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => {
+                        complete = true;
+                        break;
+                    }
+                    Err(_) => {
+                        report.state = "failed".into();
+                        report.reason = Some("SOURCE_UNREADABLE".into());
+                        return report;
+                    }
+                }
+            }
+        };
+        let (session_id, updated_at, cwd, repository) = &session;
+        let page = match session_turn_page(&connection, session_id, after) {
+            Ok(Some(page)) => page,
             Ok(None) | Err(_) => {
                 skipped += 1;
+                completed += 1;
+                cursor = Some(format!("{updated_at}\u{1}{session_id}"));
                 continue;
             }
         };
-        for (turn_index, user, assistant, timestamp) in turns {
+        let more = page.len() == MAX_SQLITE_PAGE;
+        let last_turn = page.last().map_or(after, |turn| turn.0);
+        for (turn_index, user, assistant, _timestamp) in page {
             if !user.trim().is_empty() {
                 records.push(SourceRecord {
                     evidence_key: format!("copilot:{session_id}:turn:{turn_index}:user"),
@@ -594,7 +627,12 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
             if user.trim().is_empty() && assistant.trim().is_empty() {
                 skipped += 1;
             }
-            let _ = timestamp;
+        }
+        if more {
+            // More turns follow. The loop reads them while the quantum has room;
+            // otherwise the cursor below carries this turn into the next quantum.
+            resume = Some((session_id.clone(), last_turn));
+            continue;
         }
         records.push(SourceRecord {
             evidence_key: format!("copilot:{session_id}:session"),
@@ -610,24 +648,21 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
             completeness: "complete".into(),
             revision: 1,
         });
+        completed += 1;
+        cursor = Some(format!("{updated_at}\u{1}{session_id}"));
     }
-    let next_cursor = last
-        .as_ref()
-        .map(|(time, id)| format!("{time}\u{1}{id}"))
-        .unwrap_or_default();
-    let complete = sessions.len() < MAX_SQLITE_PAGE;
-    let mut parser_state = parser_state(row, store);
+    state.turn_cursor = resume;
     // A completed pass resets the cursor so updates to already-seen sessions
     // are reconciled on the next sweep; revisions are rechecked before commit.
-    parser_state.cursor = (!complete).then_some(next_cursor);
+    state.cursor = (!complete).then(|| cursor.unwrap_or_default());
     let commit = CaptureCommit {
         source_id: row.source_id.clone(),
         expected_generation: row.generation.clone(),
         expected_offset: row.offset,
         generation: row.generation.clone(),
         generation_seq: row.generation_seq,
-        observed_size: row.offset + sessions.len() as i64,
-        offset: row.offset + sessions.len() as i64,
+        observed_size: row.offset + completed,
+        offset: row.offset + completed,
         prefix_hash: None,
         boundary_hash: None,
         parser_version: "1".into(),
@@ -642,7 +677,7 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
         records,
         retire: None,
         now_ms,
-        parser_state: serde_json::to_string(&parser_state).unwrap_or_default(),
+        parser_state: serde_json::to_string(&state).unwrap_or_default(),
         corrections: HashMap::new(),
     };
     match store.commit_capture(&commit) {

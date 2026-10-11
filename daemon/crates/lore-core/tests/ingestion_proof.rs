@@ -643,11 +643,28 @@ fn copilot_session_over_the_old_turn_cap_is_captured_in_full() {
             )
             .expect("turns");
     }
-    let row = register(&store, &config, &path, None);
-    let report = capture(&store, &config, &row, 2_000);
-    assert_ne!(report.state, "failed", "{report:?}");
-    assert_eq!(report.skipped, 0, "{report:?}");
-    assert!(report.reason.is_none(), "{report:?}");
+    let mut row = register(&store, &config, &path, None);
+    // Each capture is one bounded quantum; the pass is complete once the source
+    // reports caught_up, and the long session has to span several of them.
+    let mut quanta = 0;
+    let report = loop {
+        let report = capture(&store, &config, &row, 2_000);
+        assert_ne!(report.state, "failed", "{report:?}");
+        assert_eq!(report.skipped, 0, "{report:?}");
+        assert!(report.reason.is_none(), "{report:?}");
+        // A quantum commits at most its record budget plus one turn page and session.
+        assert!(report.records <= 2_048 + 512 + 1, "{report:?}");
+        quanta += 1;
+        row = store
+            .source_by_id(&row.source_id)
+            .expect("row")
+            .expect("row present");
+        if report.state == "caught_up" {
+            break report;
+        }
+        assert!(quanta < 1_000, "capture never settled: {report:?}");
+    };
+    assert!(quanta > 1, "the long session spans several quanta");
     assert_eq!(
         store
             .source_record_count(&row.source_id, &report.generation)

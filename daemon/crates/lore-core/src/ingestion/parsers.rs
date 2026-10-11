@@ -25,6 +25,9 @@ pub struct ParserState {
     pub branch_leaf: Option<String>,
     #[serde(default)]
     pub cursor: Option<String>,
+    /// The session and turn a capture quantum stopped inside, to resume from.
+    #[serde(default)]
+    pub turn_cursor: Option<(String, i64)>,
     #[serde(default)]
     pub nodes: BTreeMap<String, NodeState>,
     #[serde(default)]

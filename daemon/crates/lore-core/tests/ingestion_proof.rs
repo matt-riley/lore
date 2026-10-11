@@ -644,26 +644,7 @@ fn copilot_session_over_the_old_turn_cap_is_captured_in_full() {
             .expect("turns");
     }
     let mut row = register(&store, &config, &path, None);
-    // Each capture is one bounded quantum; the pass is complete once the source
-    // reports caught_up, and the long session has to span several of them.
-    let mut quanta = 0;
-    let report = loop {
-        let report = capture(&store, &config, &row, 2_000);
-        assert_ne!(report.state, "failed", "{report:?}");
-        assert_eq!(report.skipped, 0, "{report:?}");
-        assert!(report.reason.is_none(), "{report:?}");
-        // A quantum commits at most its record budget plus one turn page and session.
-        assert!(report.records <= 2_048 + 512 + 1, "{report:?}");
-        quanta += 1;
-        row = store
-            .source_by_id(&row.source_id)
-            .expect("row")
-            .expect("row present");
-        if report.state == "caught_up" {
-            break report;
-        }
-        assert!(quanta < 1_000, "capture never settled: {report:?}");
-    };
+    let (report, quanta) = capture_until_caught_up(&store, &config, &mut row);
     assert!(quanta > 1, "the long session spans several quanta");
     assert_eq!(
         store
@@ -673,5 +654,93 @@ fn copilot_session_over_the_old_turn_cap_is_captured_in_full() {
         // session's question, answer and session record.
         20_003 + 3,
         "every turn of the long session is captured, and so is the short session"
+    );
+}
+
+/// Capture one quantum after another until the pass reports caught_up, returning
+/// the final report and how many quanta it took. Each quantum is bounded, so a
+/// record count above the budget means a quantum overgrew.
+fn capture_until_caught_up(
+    store: &Store,
+    config: &ResolvedConfig,
+    row: &mut lore_core::store::SourceRow,
+) -> (lore_core::ingestion::CaptureReport, usize) {
+    let mut quanta = 0;
+    loop {
+        let report = capture(store, config, row, 2_000);
+        assert_ne!(report.state, "failed", "{report:?}");
+        assert_eq!(report.skipped, 0, "{report:?}");
+        assert!(report.reason.is_none(), "{report:?}");
+        // A quantum commits at most its record budget plus one turn page and session.
+        assert!(report.records <= 2_048 + 512 + 1, "{report:?}");
+        quanta += 1;
+        *row = store
+            .source_by_id(&row.source_id)
+            .expect("row")
+            .expect("row present");
+        if report.state == "caught_up" {
+            return (report, quanta);
+        }
+        assert!(quanta < 1_000, "capture never settled: {report:?}");
+    }
+}
+
+#[test]
+fn copilot_session_updated_between_quanta_does_not_skip_later_sessions() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config(dir.path(), "copilot", None);
+    let store = Store::open(&config).expect("open");
+    let path = sources_dir(dir.path()).join("session-store.db");
+    {
+        let connection = rusqlite::Connection::open(&path).expect("open db");
+        connection
+            .execute_batch(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT, repository TEXT, branch TEXT, \
+                 summary TEXT, created_at TEXT, updated_at TEXT); \
+                 CREATE TABLE turns (session_id TEXT, turn_index INTEGER, user_message TEXT, \
+                 assistant_response TEXT, timestamp TEXT); \
+                 INSERT INTO sessions VALUES ('long', '/work', 'owner/name', 'main', '', \
+                 '2026-01-01T00:00:00Z', '2026-01-01T00:00:05Z'); \
+                 INSERT INTO sessions VALUES ('short', '/work', 'owner/name', 'main', '', \
+                 '2026-01-01T00:00:00Z', '2026-01-01T00:00:06Z'); \
+                 INSERT INTO turns VALUES ('short', 1, 'Still captured?', 'Yes.', \
+                 '2026-01-01T00:00:06Z');",
+            )
+            .expect("schema");
+        connection
+            .execute(
+                "WITH RECURSIVE turn(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM turn WHERE n < 10001) \
+                 INSERT INTO turns SELECT 'long', n, 'question ' || n, 'answer ' || n, \
+                 '2026-01-01T00:00:05Z' FROM turn",
+                [],
+            )
+            .expect("turns");
+    }
+    let mut row = register(&store, &config, &path, None);
+    // The first quantum reads part of the long session and completes no session.
+    let first = capture(&store, &config, &row, 2_000);
+    assert_eq!(first.state, "growing", "{first:?}");
+    // The long session gains activity while the pass is part-way through it. Its
+    // stamp now sorts after the short session, which the pass must still reach.
+    rusqlite::Connection::open(&path)
+        .expect("reopen db")
+        .execute(
+            "UPDATE sessions SET updated_at = '2026-01-01T00:00:09Z' WHERE id = 'long'",
+            [],
+        )
+        .expect("touch long session");
+    row = store
+        .source_by_id(&row.source_id)
+        .expect("row")
+        .expect("row present");
+    let (report, _) = capture_until_caught_up(&store, &config, &mut row);
+    assert_eq!(
+        store
+            .source_record_count(&row.source_id, &report.generation)
+            .expect("count"),
+        // The long session's 10,001 turns and its session record, then the short
+        // session's question, answer and session record.
+        20_003 + 3,
+        "the short session is captured even though the long session moved past it"
     );
 }

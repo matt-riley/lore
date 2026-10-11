@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::config::{ResolvedSourceRoot, ResolvedSources};
 use crate::error::{CoreError, CoreResult};
 use crate::store::{CaptureCommit, SourceRecord, SourceRow, Store, open_readonly};
-use parsers::{LineParser, ParserState, matches_client};
+use parsers::{LineParser, ParserState, TurnCursor, matches_client};
 
 const ANCHOR_BYTES: usize = 4 * 1024;
 /// Sources captured per root per sweep before yielding to the next sweep.
@@ -552,8 +552,14 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
     let mut complete = false;
     while records.len() < RECORDS_PER_QUANTUM {
         let (session, after) = match resume.take() {
-            Some((session_id, after)) => match session_header(&connection, &session_id) {
-                Ok(Some(session)) => (session, after),
+            Some(TurnCursor {
+                session_id,
+                after,
+                stamp,
+            }) => match session_header(&connection, &session_id) {
+                // Keep the stamp the pass ordered this session by, not the current
+                // one: advancing the cursor by a newer stamp would skip sessions.
+                Ok(Some((id, _current, cwd, repository))) => ((id, stamp, cwd, repository), after),
                 // Deleted since the last quantum, so there is nothing left to resume.
                 Ok(None) => continue,
                 Err(_) => {
@@ -631,7 +637,11 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
         if more {
             // More turns follow. The loop reads them while the quantum has room;
             // otherwise the cursor below carries this turn into the next quantum.
-            resume = Some((session_id.clone(), last_turn));
+            resume = Some(TurnCursor {
+                session_id: session_id.clone(),
+                after: last_turn,
+                stamp: updated_at.clone(),
+            });
             continue;
         }
         records.push(SourceRecord {

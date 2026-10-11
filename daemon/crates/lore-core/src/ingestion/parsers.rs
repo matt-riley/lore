@@ -25,13 +25,23 @@ pub struct ParserState {
     pub branch_leaf: Option<String>,
     #[serde(default)]
     pub cursor: Option<String>,
-    /// The session and turn a capture quantum stopped inside, to resume from.
+    /// Where a capture quantum stopped inside a session, to resume from.
     #[serde(default)]
-    pub turn_cursor: Option<(String, i64)>,
+    pub turn_cursor: Option<TurnCursor>,
     #[serde(default)]
     pub nodes: BTreeMap<String, NodeState>,
     #[serde(default)]
     pub steps: BTreeMap<i64, StepState>,
+}
+
+/// A session a capture quantum stopped inside: the session, the last turn read,
+/// and the update stamp the pass ordered the session by. The stamp is kept so a
+/// session updated mid-pass still advances the pass cursor from where it was read.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TurnCursor {
+    pub session_id: String,
+    pub after: i64,
+    pub stamp: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

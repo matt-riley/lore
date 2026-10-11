@@ -164,6 +164,10 @@ impl Journal {
 /// treats a lock older than `STALE_LOCK` as left by a process that died.
 struct LockGuard {
     path: PathBuf,
+    /// Inode of the lock file this guard created. Release removes the path only
+    /// while it still names this file, so a lock taken over by someone else is left alone.
+    #[cfg(unix)]
+    ino: u64,
 }
 
 const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
@@ -178,9 +182,14 @@ impl LockGuard {
                 .create_new(true)
                 .open(path)
             {
-                Ok(_) => {
+                Ok(file) => {
                     return Ok(Self {
                         path: path.to_path_buf(),
+                        #[cfg(unix)]
+                        ino: file
+                            .metadata()
+                            .map(|m| std::os::unix::fs::MetadataExt::ino(&m))
+                            .unwrap_or(0),
                     });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -190,7 +199,7 @@ impl LockGuard {
                         .and_then(|modified| modified.elapsed().ok())
                         .is_some_and(|age| age > STALE_LOCK);
                     if stale {
-                        let _ = std::fs::remove_file(path);
+                        take_over_stale_lock(path);
                         continue;
                     }
                     if std::time::Instant::now() >= deadline {
@@ -207,9 +216,58 @@ impl LockGuard {
     }
 }
 
+/// Remove a lock left by a dead process. The stale file is moved aside under a
+/// unique name, then checked by inode: if it is still the file that was judged stale
+/// it is deleted; if a live holder's lock was moved by mistake it is put back.
+fn take_over_stale_lock(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(observed) = std::fs::metadata(path) else {
+            return;
+        };
+        let aside = PathBuf::from(format!(
+            "{}.stale-{}-{}",
+            path.display(),
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or(0)
+        ));
+        if std::fs::rename(path, &aside).is_err() {
+            return;
+        }
+        let moved_ino = std::fs::metadata(&aside).map(|m| m.ino()).ok();
+        if moved_ino != Some(observed.ino()) {
+            // A live lock was moved aside: restore it if nothing has taken the path.
+            let _ = std::fs::hard_link(&aside, path);
+        }
+        let _ = std::fs::remove_file(&aside);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 impl Drop for LockGuard {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            // Remove the path only while it is still this guard's lock file.
+            let ours = std::fs::metadata(&self.path)
+                .map(|metadata| metadata.ino() == self.ino)
+                .unwrap_or(false);
+            if ours {
+                let _ = std::fs::remove_file(&self.path);
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -324,5 +382,31 @@ mod tests {
         );
         journal.resolve("reused").expect("resolve");
         journal.record(other).expect("a resolved key may be reused");
+    }
+
+    #[test]
+    fn a_stale_lock_is_taken_over_and_a_fresh_one_is_respected() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let lock = dir.path().join("uncertain-writes.json.lock");
+        let mut journal = Journal::open(dir.path()).expect("open");
+
+        // A lock from a dead process is old: the update proceeds.
+        std::fs::write(&lock, "dead").expect("stale lock");
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        std::fs::File::options()
+            .write(true)
+            .open(&lock)
+            .expect("open lock")
+            .set_modified(old)
+            .expect("age lock");
+        journal
+            .record(entry("after-stale"))
+            .expect("stale lock is taken over");
+        assert!(!lock.exists(), "no lock is left behind");
+
+        // A live holder's lock is respected: the update is refused.
+        std::fs::write(&lock, "live").expect("live lock");
+        assert!(journal.record(entry("blocked")).is_err());
+        std::fs::remove_file(&lock).expect("release live lock");
     }
 }

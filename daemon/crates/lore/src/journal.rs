@@ -59,25 +59,61 @@ impl Journal {
     /// Persist an entry before dispatch. Capacity or persistence failure must
     /// reject the write rather than dispatching it.
     pub fn record(&mut self, entry: JournalEntry) -> Result<(), String> {
-        if !self.file.entries.contains_key(&entry.key) && self.file.entries.len() >= CAPACITY {
-            return Err(
-                "uncertain-write journal is full; resolve entries with `lore retries resolve`"
-                    .to_string(),
-            );
-        }
-        self.file.entries.insert(entry.key.clone(), entry);
-        self.flush()
+        let key = entry.key.clone();
+        self.update(move |file| {
+            if !file.entries.contains_key(&key)
+                && file
+                    .entries
+                    .values()
+                    .filter(|item| item.state != "resolved")
+                    .count()
+                    >= CAPACITY
+            {
+                return Err(
+                    "uncertain-write journal is full; resolve entries with `lore retries resolve`"
+                        .to_string(),
+                );
+            }
+            file.entries.insert(key, entry);
+            Ok(())
+        })
     }
 
     /// Mark a key resolved and drop its payload.
     pub fn resolve(&mut self, key: &str) -> Result<bool, String> {
-        let Some(entry) = self.file.entries.get_mut(key) else {
-            return Ok(false);
+        let key = key.to_string();
+        self.update(move |file| {
+            let Some(entry) = file.entries.get_mut(&key) else {
+                return Ok(false);
+            };
+            entry.state = "resolved".to_string();
+            entry.payload = None;
+            Ok(true)
+        })
+    }
+
+    /// Apply one change to the latest journal contents, under a cross-process
+    /// lock. Another `lore` process may have written since this one opened the
+    /// journal, so the change is made on a fresh read, never on a stale snapshot.
+    fn update<T>(
+        &mut self,
+        change: impl FnOnce(&mut JournalFile) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let lock = self.path.with_extension("json.lock");
+        let _guard = LockGuard::acquire(&lock)?;
+        let latest = match std::fs::read(&self.path) {
+            Ok(bytes) => serde_json::from_slice(&bytes)
+                .map_err(|error| format!("uncertain-write journal is corrupt: {error}"))?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => JournalFile {
+                version: 1,
+                entries: BTreeMap::new(),
+            },
+            Err(error) => return Err(format!("cannot read journal: {error}")),
         };
-        entry.state = "resolved".to_string();
-        entry.payload = None;
+        self.file = latest;
+        let outcome = change(&mut self.file)?;
         self.flush()?;
-        Ok(true)
+        Ok(outcome)
     }
 
     fn flush(&self) -> Result<(), String> {
@@ -110,6 +146,59 @@ impl Journal {
             let _ = handle.sync_all();
         }
         Ok(())
+    }
+}
+
+/// Holds the journal lock for one update. Waits briefly for a live holder and
+/// treats a lock older than `STALE_LOCK` as left by a process that died.
+struct LockGuard {
+    path: PathBuf,
+}
+
+const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+const STALE_LOCK: std::time::Duration = std::time::Duration::from_secs(10);
+
+impl LockGuard {
+    fn acquire(path: &Path) -> Result<Self, String> {
+        let deadline = std::time::Instant::now() + LOCK_WAIT;
+        loop {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+            {
+                Ok(_) => {
+                    return Ok(Self {
+                        path: path.to_path_buf(),
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let stale = std::fs::metadata(path)
+                        .and_then(|metadata| metadata.modified())
+                        .ok()
+                        .and_then(|modified| modified.elapsed().ok())
+                        .is_some_and(|age| age > STALE_LOCK);
+                    if stale {
+                        let _ = std::fs::remove_file(path);
+                        continue;
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return Err(
+                            "uncertain-write journal is locked by another process; retry"
+                                .to_string(),
+                        );
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(error) => return Err(format!("journal lock: {error}")),
+            }
+        }
+    }
+}
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 
@@ -172,5 +261,36 @@ mod tests {
         }
         let error = journal.record(entry("overflow")).expect_err("capacity");
         assert!(error.contains("full"), "{error}");
+    }
+
+    #[test]
+    fn resolved_entries_do_not_consume_capacity() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut journal = Journal::open(dir.path()).expect("open");
+        for index in 0..super::CAPACITY {
+            journal
+                .record(entry(&format!("key-{index}")))
+                .expect("record");
+            journal.resolve(&format!("key-{index}")).expect("resolve");
+        }
+        journal
+            .record(entry("after-resolved"))
+            .expect("resolved history does not fill the journal");
+    }
+
+    #[test]
+    fn a_stale_snapshot_does_not_drop_another_process_entry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut first = Journal::open(dir.path()).expect("first");
+        let mut second = Journal::open(dir.path()).expect("second");
+        first.record(entry("from-first")).expect("first record");
+        // `second` opened before `first` wrote; its update must keep that entry.
+        second.record(entry("from-second")).expect("second record");
+        let reopened = Journal::open(dir.path()).expect("reopen");
+        let keys: Vec<&str> = reopened.entries().map(|item| item.key.as_str()).collect();
+        assert!(
+            keys.contains(&"from-first") && keys.contains(&"from-second"),
+            "{keys:?}"
+        );
     }
 }

@@ -573,6 +573,15 @@ fn fsync_dir(path: &Path) -> CoreResult<()> {
 
 /// Parse the ISO-8601 timestamps v1 stores into UTC epoch milliseconds.
 /// Naive and ambiguous forms return `None` and are counted as unresolved.
+fn days_in_month(year: i64, month: i64) -> i64 {
+    match month {
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
 pub fn parse_iso_ms(text: &str) -> Option<i64> {
     let bytes = text.as_bytes();
     if bytes.len() < 20 {
@@ -586,7 +595,7 @@ pub fn parse_iso_ms(text: &str) -> Option<i64> {
     let year: i64 = date.get(0..4)?.parse().ok()?;
     let month: i64 = date.get(5..7)?.parse().ok()?;
     let day: i64 = date.get(8..10)?.parse().ok()?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    if !(1..=12).contains(&month) || !(1..=days_in_month(year, month)).contains(&day) {
         return None;
     }
     let hour: i64 = text.get(11..13)?.parse().ok()?;

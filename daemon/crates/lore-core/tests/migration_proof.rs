@@ -1014,3 +1014,17 @@ fn restore_keeps_the_consistent_rescue_when_the_wal_is_uncheckpointed() {
         "the live WAL was moved aside"
     );
 }
+
+#[test]
+fn impossible_calendar_dates_are_not_timestamps() {
+    use lore_core::migration::parse_iso_ms;
+    // A date that does not exist must not be moved into the next month.
+    assert_eq!(parse_iso_ms("2026-02-31T00:00:00Z"), None);
+    assert_eq!(parse_iso_ms("2026-04-31T00:00:00Z"), None);
+    assert_eq!(parse_iso_ms("2026-02-29T00:00:00Z"), None);
+    assert!(
+        parse_iso_ms("2028-02-29T00:00:00Z").is_some(),
+        "2028 is a leap year"
+    );
+    assert!(parse_iso_ms("2026-02-28T00:00:00Z").is_some());
+}

@@ -50,6 +50,10 @@ fn discovery_cursor(row: &lore_core::store::SourceRootRow) -> Option<String> {
     }
 }
 
+/// Records one extraction pass reads for a generation. Larger generations fail
+/// explicitly instead of being completed with part of their content unread.
+const EXTRACTION_RECORD_LIMIT: usize = 100_000;
+
 /// Serializes sweeps across the scheduler thread and admin backfill, so two
 /// concurrent sweeps cannot discover and register the same file twice.
 static SWEEP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -123,7 +127,18 @@ pub fn extract_pending(store: &Store, limit: usize, now: i64) -> ExtractionSweep
                 continue;
             }
         };
-        let records = match store.source_records(&claim.source_id, &claim.generation, 100_000) {
+        // One record past the limit is fetched so an oversized generation is seen
+        // as oversized. It fails explicitly; completing it would leave the tail unread.
+        let records = match store.source_records(
+            &claim.source_id,
+            &claim.generation,
+            EXTRACTION_RECORD_LIMIT + 1,
+        ) {
+            Ok(records) if records.len() > EXTRACTION_RECORD_LIMIT => {
+                let _ = store.fail_extraction(&claim, "GENERATION_TOO_LARGE", now);
+                report.failed += 1;
+                continue;
+            }
             Ok(records) => records,
             Err(_) => {
                 let _ = store.fail_extraction(&claim, "SOURCE_UNREADABLE", now);
@@ -251,9 +266,10 @@ fn run_sweep_locked(store: &Store, config: &ResolvedConfig, now: i64) -> SweepRe
             match discover_page(store, root, cursor.as_deref(), sources.page_entries, now) {
                 Ok(value) => value,
                 Err(error) => {
-                    if error.code == "SOURCE_ROOT_UNAVAILABLE" {
-                        report.unavailable += 1;
-                    }
+                    // Unreadable and oversized roots both leave their sessions unseen,
+                    // so both count as unavailable rather than passing as quiet.
+                    eprintln!("[lored] source root {}: {}", root.root_id, error.message);
+                    report.unavailable += 1;
                     continue;
                 }
             };

@@ -708,9 +708,19 @@ pub fn discover_page(
         };
         registered.push(row);
     }
-    // A truncated listing is never complete: the sessions it left out would
-    // otherwise be skipped by every later sweep.
-    let complete = !truncated && start + page.len() >= entries.len();
+    // A listing cut short by the cap is an error, not a partial success. Paging
+    // cannot reach past the cap, so the sessions beyond it would be skipped by every
+    // later sweep without anyone being told.
+    if truncated {
+        return Err(CoreError::precondition(
+            "SOURCE_ROOT_TOO_LARGE",
+            format!(
+                "source root {} holds more than {MAX_DISCOVERY_ENTRIES} candidate files",
+                root.root_id
+            ),
+        ));
+    }
+    let complete = start + page.len() >= entries.len();
     let next_cursor = page
         .last()
         .map(|path| path.to_string_lossy().to_string())

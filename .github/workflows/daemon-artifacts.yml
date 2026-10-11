@@ -27,7 +27,6 @@ jobs:
       LORE_CODESIGN_IDENTITY: ${{ secrets.LORE_CODESIGN_IDENTITY }}
       LORE_NOTARY_KEY_ID: ${{ secrets.LORE_NOTARY_KEY_ID }}
       LORE_NOTARY_ISSUER: ${{ secrets.LORE_NOTARY_ISSUER }}
-      LORE_NOTARY_KEY: ${{ runner.temp }}/lore-notary-key.p8
 
     steps:
       - name: Checkout
@@ -81,12 +80,16 @@ jobs:
           LORE_NOTARY_KEY_BASE64: ${{ secrets.LORE_NOTARY_KEY }}
         run: |
           set -eo pipefail
+          # Export the path before any early exit: the package step tests the file
+          # under `set -u`, so the variable must exist even when no key is written.
+          key="$RUNNER_TEMP/lore-notary-key.p8"
+          echo "LORE_NOTARY_KEY=$key" >> "$GITHUB_ENV"
           if [ -z "${LORE_NOTARY_KEY_BASE64:-}" ]; then
             echo "Notary API key secret is absent; the package step will skip notarization" >&2
             exit 0
           fi
-          printf '%s' "$LORE_NOTARY_KEY_BASE64" | base64 --decode > "$LORE_NOTARY_KEY"
-          chmod 600 "$LORE_NOTARY_KEY"
+          printf '%s' "$LORE_NOTARY_KEY_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
 
       - name: Package with checksums, manifest and SBOM
         if: runner.os != 'macOS' || env.LORE_CODESIGN_IDENTITY == ''

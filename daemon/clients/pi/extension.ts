@@ -16,7 +16,7 @@ interface PiApi {
 }
 
 export function resolveSocketPath(env: Record<string, string | undefined> = process.env): string | null {
-  return resolveEndpoint(env);
+  return resolveEndpoint(env, "pi");
 }
 
 export function resolveJournalPath(

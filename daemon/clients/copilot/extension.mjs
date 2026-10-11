@@ -33,7 +33,7 @@ const USAGE =
 export function createCopilotLore(options = {}) {
   const env = options.env ?? process.env;
   return createHostSession({
-    socketPath: options.socketPath ?? resolveSocketPath(env),
+    socketPath: options.socketPath ?? resolveSocketPath(env, "copilot"),
     clientId: options.clientId ?? "copilot",
     journalPath: options.journalPath ?? resolveJournalPath(env),
     notify: options.notify,
@@ -108,7 +108,7 @@ export function buildCopilotHooks(session, { injection = null } = {}) {
 
 export default function createLoreV2Extension(options = {}) {
   const env = options.env ?? process.env;
-  if (!(options.socketPath ?? resolveSocketPath(env))) {
+  if (!(options.socketPath ?? resolveSocketPath(env, "copilot"))) {
     // No socket: register nothing rather than dialing a guessed endpoint, as the Pi entrypoint does.
     return { tools: [], hooks: {}, session: null };
   }

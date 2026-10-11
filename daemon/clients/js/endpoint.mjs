@@ -11,13 +11,26 @@ import { dirname, isAbsolute, resolve } from "node:path";
 
 /**
  * @param {Record<string, string | undefined>} [env]
+ * @param {string} [client] host whose installer document names the socket
  * @returns {string | null}
  */
-export function resolveSocketPath(env = process.env) {
+export function resolveSocketPath(env = process.env, client = null) {
   const explicit = env.LORE_V2_SOCKET ?? env.LORE_SOCKET;
   if (explicit) return explicit;
   const home = env.HOME;
   if (!home) return null;
+  // `lore setup` records the socket it installed for each client. That is the
+  // endpoint the daemon actually serves when setup used a custom config.
+  if (client) {
+    try {
+      const document = JSON.parse(readFileSync(`${home}/.lore/integrations/${client}.json`, "utf8"));
+      if (typeof document?.socketPath === "string" && document.socketPath) {
+        return document.socketPath.replace(/^~/, home);
+      }
+    } catch {
+      // No installer document for this host: fall through to the shared config.
+    }
+  }
   try {
     const configPath = `${home}/.lore/lore.json`;
     const parsed = JSON.parse(readFileSync(configPath, "utf8"));

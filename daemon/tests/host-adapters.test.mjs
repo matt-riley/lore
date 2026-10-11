@@ -2,7 +2,7 @@
 // refusal, cancellation and the uncertain-write journal.
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -605,5 +605,23 @@ test("/lore retries lists pending writes and discards one on request", async () 
   assert.equal(retriesResponse(session, `discard ${pending.key}`), `lore: no unresolved uncertain write ${pending.key}.`);
   assert.match(retriesResponse(session, "purge"), /usage/);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("an adapter uses the socket its installer document recorded for its host", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "lore-endpoint-"));
+  try {
+    mkdirSync(path.join(home, ".lore/integrations"), { recursive: true });
+    writeFileSync(path.join(home, ".lore/lore.json"), JSON.stringify({ socketPath: "/shared/lore.sock" }));
+    writeFileSync(
+      path.join(home, ".lore/integrations/pi.json"),
+      JSON.stringify({ client: "pi", socketPath: "/custom/config/lored.sock" }),
+    );
+    assert.equal(resolveSocketPath({ HOME: home }, "pi"), "/custom/config/lored.sock");
+    assert.equal(resolveSocketPath({ HOME: home }, "copilot"), "/shared/lore.sock", "other hosts keep the shared config");
+    assert.equal(resolveSocketPath({ HOME: home }), "/shared/lore.sock", "no host falls back to the shared config");
+    assert.equal(resolveSocketPath({ HOME: home, LORE_V2_SOCKET: "/env.sock" }, "pi"), "/env.sock", "the environment still wins");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 

@@ -799,3 +799,55 @@ fn automatic_extraction_respects_the_memory_cap() {
     assert_eq!(report.capped, 2);
     assert_eq!(store.status().expect("status").active_memories, 1);
 }
+
+#[test]
+fn memory_view_pages_close_on_the_byte_budget_and_still_reach_every_memory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config_with(
+        dir.path(),
+        Limits {
+            max_content_bytes: 64 * 1024,
+            ..Limits::default()
+        },
+    );
+    let store = Store::open(&config).expect("open");
+    for index in 0..12 {
+        store
+            .retain(
+                "client-a",
+                &retain(
+                    &format!("big-{index}"),
+                    &format!("{index:03}{}", "x".repeat(60_000)),
+                    Scope::Global,
+                    None,
+                ),
+                1_000 + index,
+            )
+            .expect("retain large memory");
+    }
+    let mut seen = 0usize;
+    let mut cursor: Option<String> = None;
+    let mut pages = 0usize;
+    loop {
+        let page = store
+            .view_memories(None, None, None, None, false, cursor.as_deref(), 50)
+            .expect("page");
+        let items = page["items"].as_array().expect("items");
+        let encoded = serde_json::to_vec(&page).expect("encode").len();
+        assert!(
+            encoded <= 1024 * 1024,
+            "a page fits the response limit ({encoded} bytes)"
+        );
+        seen += items.len();
+        pages += 1;
+        match page["nextCursor"].as_str() {
+            Some(next) => cursor = Some(next.to_string()),
+            None => break,
+        }
+    }
+    assert_eq!(seen, 12, "every memory is reachable");
+    assert!(
+        pages >= 2,
+        "the byte budget split the memories across pages"
+    );
+}

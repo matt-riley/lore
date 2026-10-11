@@ -11,6 +11,10 @@ use crate::store::Store;
 pub const VIEW_PAGE_DEFAULT: u32 = 50;
 pub const VIEW_PAGE_MAX: u32 = 200;
 
+/// Serialized-size budget for one memory page. Responses above 1 MiB are refused,
+/// and a memory can hold 64 KiB of content.
+const VIEW_PAGE_BYTES: usize = 512 * 1024;
+
 impl Store {
     /// Overview: store readiness, counts and source/extraction summaries.
     pub fn view_overview(&self, repository: Option<&str>) -> CoreResult<Value> {
@@ -193,9 +197,24 @@ impl Store {
                 "tags": serde_json::from_str::<Value>(&tags_json).unwrap_or(json!([])),
             }))
         })?;
-        let mut items: Vec<Value> = rows.collect::<Result<_, _>>()?;
-        let next_cursor = if items.len() > limit as usize {
-            items.truncate(limit as usize);
+        // A page closes at the row limit or the byte budget, whichever comes first, so
+        // a page of large memories still fits inside one response.
+        let mut items: Vec<Value> = Vec::new();
+        let mut bytes = 0usize;
+        let mut more = false;
+        for row in rows {
+            let item = row?;
+            let size = serde_json::to_vec(&item)?.len();
+            if items.len() == limit as usize
+                || (!items.is_empty() && bytes + size > VIEW_PAGE_BYTES)
+            {
+                more = true;
+                break;
+            }
+            bytes += size;
+            items.push(item);
+        }
+        let next_cursor = if more {
             items
                 .last()
                 .and_then(|item| item["id"].as_str())

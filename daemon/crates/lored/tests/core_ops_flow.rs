@@ -341,3 +341,58 @@ async fn deferred_process_and_backfill_are_bounded_noops_without_sources() {
     assert_eq!(backfill["result"]["roots"], 0);
     assert_eq!(backfill["result"]["discovered"], 0);
 }
+
+#[tokio::test]
+async fn keyed_admin_writes_are_replayed_and_conflicting_reuse_is_refused() {
+    let daemon = Daemon::start();
+    let store_id = store_id(&daemon).await;
+    retain(
+        &daemon.socket,
+        &store_id,
+        "receipt-source",
+        "note",
+        "Retries of admin writes must not duplicate records.",
+    )
+    .await;
+
+    let params = json!({ "limit": 10, "persist": true, "idempotencyKey": "reflect-once" });
+    let (code, first) = call(
+        &daemon.socket,
+        "/v2/admin/reflect",
+        params.clone(),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(code, 200, "{first}");
+    let persisted = first["result"]["persisted"].clone();
+    assert!(persisted.is_string(), "{first}");
+
+    // The same request after a lost response returns the stored result and writes nothing new.
+    let (code, replay) = call(&daemon.socket, "/v2/admin/reflect", params, Some(&store_id)).await;
+    assert_eq!(code, 200, "{replay}");
+    assert_eq!(
+        replay["result"]["persisted"], persisted,
+        "replay returns the first result"
+    );
+    let (_, status) = call(&daemon.socket, "/v2/status", json!({}), Some(&store_id)).await;
+    let memories = status["result"]["counts"]["activeMemories"]
+        .as_str()
+        .expect("count");
+
+    // The same key with different parameters is a conflict, not a second write.
+    let (code, conflict) = call(
+        &daemon.socket,
+        "/v2/admin/reflect",
+        json!({ "limit": 3, "persist": true, "idempotencyKey": "reflect-once" }),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(code, 409, "{conflict}");
+    let (_, after) = call(&daemon.socket, "/v2/status", json!({}), Some(&store_id)).await;
+    assert_eq!(
+        after["result"]["counts"]["activeMemories"]
+            .as_str()
+            .expect("count"),
+        memories
+    );
+}

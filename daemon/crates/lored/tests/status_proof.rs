@@ -504,3 +504,50 @@ async fn required_capabilities_the_daemon_lacks_are_refused_before_routing() {
     .expect("request");
     assert_eq!(accepted.status_code, 200, "{}", accepted.body);
 }
+
+#[tokio::test]
+async fn a_reload_cannot_switch_embeddings_on_for_a_store_opened_without_them() {
+    let daemon = Daemon::start();
+    wait_for_socket(daemon.socket()).await;
+    let config_path = daemon._dir.path().join("lore.json");
+    let mut config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).expect("read config"))
+            .expect("parse config");
+    config["providers"] = serde_json::json!({
+        "embeddings": {
+            "enabled": true,
+            "endpoint": "http://127.0.0.1:9/v1",
+            "model": "test-model",
+            "dimensions": 4,
+            "generation": 1,
+            "timeoutMs": 1000,
+            "minSimilarity": 0.5
+        }
+    });
+    std::fs::write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("encode"),
+    )
+    .expect("write config");
+
+    let status = lore::request(daemon.socket(), "/v2/status", meta(), serde_json::json!({}))
+        .await
+        .expect("status");
+    let store_id =
+        serde_json::from_str::<serde_json::Value>(&status.body).expect("json")["storeId"]
+            .as_str()
+            .expect("store id")
+            .to_string();
+    let mut request = meta();
+    request.expected_store_id = Some(store_id);
+    let reload = lore::request(
+        daemon.socket(),
+        "/v2/config/reload",
+        request,
+        serde_json::json!({ "idempotencyKey": "enable-embeddings" }),
+    )
+    .await
+    .expect("reload");
+    assert_eq!(reload.status_code, 412, "{}", reload.body);
+    assert_eq!(reason(&reload.body), "EMBEDDING_RESTART_REQUIRED");
+}

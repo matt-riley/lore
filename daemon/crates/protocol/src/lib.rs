@@ -390,6 +390,10 @@ pub struct AnalysisParams {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminParams {
+    /// Client-chosen key for an operation that writes. A retried request with the
+    /// same key and parameters returns the stored result instead of writing again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

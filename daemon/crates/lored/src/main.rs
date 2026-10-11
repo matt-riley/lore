@@ -93,6 +93,9 @@ struct State {
     store_id: String,
     enabled: bool,
     config: ResolvedConfig,
+    /// Embedding settings the daemon is serving now. Starts as the startup config
+    /// and follows successful reloads, so status reports what queries actually use.
+    live_embedding: Mutex<Option<lore_core::config::ResolvedEmbedding>>,
     process_instance_id: String,
     started: Instant,
     inflight: Arc<Semaphore>,
@@ -219,6 +222,7 @@ async fn main() -> Result<()> {
         store_id: initial.store_id,
         enabled: config.enabled,
         config: config.clone(),
+        live_embedding: Mutex::new(config.embedding.clone()),
         process_instance_id: Uuid::new_v4().to_string(),
         started: Instant::now(),
         inflight: Arc::new(Semaphore::new(max_inflight)),
@@ -851,6 +855,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
         ),
         Ok(Ok(Err(error))) => core_response(error, &request_id, &store_id),
         Ok(Ok(Ok((status, counts)))) => {
+            let live_embedding = state.live_embedding.lock().expect("live embedding").clone();
             let capabilities = advertised_capabilities(state);
             json(
                 StatusCode::OK,
@@ -891,19 +896,15 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                             running: counts.running.to_string(),
                         },
                         embedding: EmbeddingStatus {
-                            provider: state
-                                .config
-                                .embedding
+                            provider: live_embedding
                                 .as_ref()
                                 .map(|embedding| embedding.display.clone()),
-                            state: if state.config.embedding.is_none() {
+                            state: if live_embedding.is_none() {
                                 "disabled".to_string()
                             } else {
                                 state.worker_state.status()
                             },
-                            dimensions: state
-                                .config
-                                .embedding
+                            dimensions: live_embedding
                                 .as_ref()
                                 .map(|embedding| embedding.dimensions as u64)
                                 .unwrap_or(0),
@@ -1292,6 +1293,51 @@ async fn handle_admin(
                 .as_deref()
                 .unwrap_or("CONFIG_DISABLED"),
         );
+    }
+    // A keyed admin request is replayed from its receipt when the same operation
+    // with the same parameters was already applied. A reused key with different
+    // parameters is a conflict, so a lost response can be retried safely.
+    let client_id = envelope.meta.client_id.clone();
+    let receipt = envelope.params.idempotency_key.clone().map(|key| {
+        let receipt_operation = format!("admin.{operation}");
+        let mut canonical = envelope.params.clone();
+        canonical.idempotency_key = None;
+        let mut bytes = operation.as_bytes().to_vec();
+        bytes.push(b'\n');
+        bytes.extend(serde_json::to_vec(&canonical).unwrap_or_default());
+        (key, receipt_operation, policy::sha256_hex(&bytes))
+    });
+    if let Some((key, receipt_operation, hash)) = &receipt {
+        match state
+            .store
+            .lookup_receipt_json(&client_id, receipt_operation, key)
+        {
+            Ok(Some((stored_hash, response))) => {
+                if stored_hash != *hash {
+                    return fail_response(
+                        StatusCode::CONFLICT,
+                        "ALREADY_EXISTS",
+                        "IDEMPOTENCY_CONFLICT",
+                        false,
+                        Some(&request_id),
+                        Some(&store_id),
+                    );
+                }
+                if let Ok(value) = serde_json::from_str::<Value>(&response) {
+                    return json(
+                        StatusCode::OK,
+                        &OkEnvelope {
+                            ok: true,
+                            request_id,
+                            store_id,
+                            result: value,
+                        },
+                    );
+                }
+            }
+            Ok(None) => {}
+            Err(error) => return core_response(error, &request_id, &store_id),
+        }
     }
     let params = envelope.params.clone();
     let store = Arc::clone(&state.store);
@@ -1788,15 +1834,29 @@ async fn handle_admin(
     })
     .await;
     match result {
-        Ok(Ok(value)) => json(
-            StatusCode::OK,
-            &OkEnvelope {
-                ok: true,
-                request_id,
-                store_id,
-                result: value,
-            },
-        ),
+        Ok(Ok(value)) => {
+            if let Some((key, receipt_operation, hash)) = &receipt
+                && let Ok(response) = serde_json::to_string(&value)
+            {
+                let _ = state.store.store_receipt_json(
+                    &client_id,
+                    receipt_operation,
+                    key,
+                    hash,
+                    &response,
+                    now_ms(),
+                );
+            }
+            json(
+                StatusCode::OK,
+                &OkEnvelope {
+                    ok: true,
+                    request_id,
+                    store_id,
+                    result: value,
+                },
+            )
+        }
         Ok(Err(error)) => core_response(error, &request_id, &store_id),
         Err(_) => fail_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -2176,6 +2236,18 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
     let identity_unchanged = next_identity == state.semantics.identity();
     let settings_unchanged = next_similarity == state.semantics.min_similarity()
         && next_timeout == state.semantics.timeout_ms();
+    if state.config.embedding_identity.is_none() && next_identity.is_some() {
+        // The store was opened without embeddings, so new writes queue no intents
+        // and no worker exists. Turning them on needs a restart, not a reload.
+        return fail_response(
+            StatusCode::PRECONDITION_FAILED,
+            code::FAILED_PRECONDITION,
+            "EMBEDDING_RESTART_REQUIRED",
+            false,
+            Some(&request_id),
+            Some(&store_id),
+        );
+    }
     if identity_unchanged && settings_unchanged {
         return json(
             StatusCode::OK,
@@ -2208,6 +2280,7 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
         .semantics
         .replace(provider, next_identity, min_similarity, next_timeout);
     state.generation.store(generation, Ordering::Relaxed);
+    *state.live_embedding.lock().expect("live embedding") = fresh.embedding.clone();
     state.worker_state.request_resume();
     state.notify.notify_one();
     let reason = if identity_unchanged {

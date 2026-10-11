@@ -217,3 +217,19 @@ fn scope_override_records_a_ledger_entry() {
         .expect("ledger");
     assert_eq!(ledger["entries"][0]["actor"], "tester");
 }
+
+#[test]
+fn okf_export_cannot_target_the_data_directory_or_bundles_itself() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config(dir.path());
+    let store = Store::open(&config).expect("open");
+    let keep = dir.path().join("keep.txt");
+    std::fs::write(&keep, "live data").expect("sentinel");
+    for path in [".", "bundles", "../escape"] {
+        let error = store
+            .bundle_export("okf", Some(path), 1_000)
+            .expect_err("export outside bundles is refused");
+        assert_eq!(error.reason, "BUNDLE_PATH_INVALID", "{path}");
+    }
+    assert!(keep.exists(), "data directory contents are untouched");
+}

@@ -59,8 +59,21 @@ fn approved_path(root: &Path, candidate: Option<&str>) -> CoreResult<PathBuf> {
             "bundle paths may not contain ..",
         ));
     }
-    let canonical_root = fs::canonicalize(root)
-        .map_err(|_| CoreError::invalid("BUNDLE_PATH_INVALID", "data directory is not readable"))?;
+    // Exports live strictly inside <dataDir>/bundles. The bundles directory
+    // itself is not a valid target: an OKF export replaces its target, so
+    // naming the directory would remove everything in it.
+    if candidate.is_some() && (resolved == bundles || !resolved.starts_with(&bundles)) {
+        return Err(CoreError::invalid(
+            "BUNDLE_PATH_INVALID",
+            "bundle paths must be inside <dataDir>/bundles",
+        ));
+    }
+    fs::create_dir_all(&bundles).map_err(|_| {
+        CoreError::invalid("BUNDLE_PATH_INVALID", "bundles directory is not writable")
+    })?;
+    let canonical_bundles = fs::canonicalize(&bundles).map_err(|_| {
+        CoreError::invalid("BUNDLE_PATH_INVALID", "bundles directory is not readable")
+    })?;
     // The path may not exist yet; canonicalize its nearest existing ancestor.
     let mut existing = resolved.clone();
     while !existing.exists() {
@@ -71,10 +84,10 @@ fn approved_path(root: &Path, candidate: Option<&str>) -> CoreResult<PathBuf> {
     }
     let canonical_existing = fs::canonicalize(&existing)
         .map_err(|_| CoreError::invalid("BUNDLE_PATH_INVALID", "bundle path is not readable"))?;
-    if !canonical_existing.starts_with(&canonical_root) {
+    if !canonical_existing.starts_with(&canonical_bundles) {
         return Err(CoreError::invalid(
             "BUNDLE_PATH_INVALID",
-            "bundle paths must stay inside the data directory",
+            "bundle paths must be inside <dataDir>/bundles",
         ));
     }
     Ok(resolved)

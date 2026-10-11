@@ -1008,3 +1008,172 @@ fn the_memories_view_filters_by_lifecycle_state_and_reports_each_rows_state() {
         "an unknown state is refused"
     );
 }
+
+#[test]
+fn forgetting_a_superseded_memory_keeps_the_active_count_honest() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(&config_with(dir.path(), Limits::default())).expect("open");
+    let proposal = |content: &str, retires: Vec<String>| lore_core::extraction::Proposal {
+        kind: "user_preference".to_string(),
+        content: content.to_string(),
+        scope: "global".to_string(),
+        repository: None,
+        confidence: 0.9,
+        evidence_key: format!("evidence-{content}"),
+        turn_index: 1,
+        source_role: "user".to_string(),
+        rule_version: "test".to_string(),
+        topic_key: content.to_lowercase(),
+        retires,
+        correction: true,
+    };
+    store
+        .apply_proposals(
+            "source-1",
+            "generation-1",
+            &[proposal("Prefer tabs.", Vec::new())],
+            1_000,
+        )
+        .expect("A");
+    store
+        .apply_proposals(
+            "source-1",
+            "generation-2",
+            &[proposal("Prefer spaces.", vec!["prefer tabs.".to_string()])],
+            2_000,
+        )
+        .expect("B");
+    let superseded = store
+        .view_memories_in_state(None, None, None, None, "superseded", None, 50)
+        .expect("view")["items"][0]["id"]
+        .as_str()
+        .expect("superseded id")
+        .to_string();
+    store
+        .forget(
+            "client",
+            &ForgetParams {
+                idempotency_key: "forget-superseded".to_string(),
+                memory_id: superseded,
+                reason: None,
+            },
+            3_000,
+        )
+        .expect("forget the superseded row");
+    let status = store.status().expect("status");
+    assert_eq!(status.active_memories, 1, "only the live row is active");
+    assert_eq!(status.forgotten_memories, 1);
+}
+
+#[test]
+fn admin_search_pages_close_on_the_byte_budget_and_reach_every_match() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config_with(
+        dir.path(),
+        Limits {
+            max_content_bytes: 64 * 1024,
+            ..Limits::default()
+        },
+    );
+    let store = Store::open(&config).expect("open");
+    for index in 0..12 {
+        store
+            .retain(
+                "client-a",
+                &retain(
+                    &format!("needle-{index}"),
+                    &format!("needle {index:03}{}", "x".repeat(60_000)),
+                    Scope::Global,
+                    None,
+                ),
+                1_000 + index,
+            )
+            .expect("retain large memory");
+    }
+    let mut seen = 0usize;
+    let mut cursor: Option<String> = None;
+    let mut pages = 0usize;
+    loop {
+        let page = store
+            .admin_search("needle", None, false, cursor.as_deref(), 50, 5_000)
+            .expect("search page");
+        let encoded = serde_json::to_vec(&page).expect("encode").len();
+        assert!(
+            encoded <= 1024 * 1024,
+            "a page fits the response limit ({encoded} bytes)"
+        );
+        seen += page["items"].as_array().expect("items").len();
+        pages += 1;
+        match page["nextCursor"].as_str() {
+            Some(next) => cursor = Some(next.to_string()),
+            None => break,
+        }
+    }
+    assert_eq!(seen, 12, "every match is reachable");
+    assert!(pages >= 2, "the byte budget split the matches across pages");
+}
+
+#[test]
+fn memory_view_text_search_matches_percent_and_underscore_literally() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(&config_with(dir.path(), Limits::default())).expect("open");
+    remember(&store, "budget", "The budget is 50% this quarter.");
+    remember(&store, "other", "The budget is 500 this quarter.");
+    remember(&store, "snake", "Use snake_case names.");
+    remember(&store, "camel", "Use snakexcase names.");
+    let matches = |query: &str| {
+        store
+            .view_memories_in_state(None, None, None, Some(query), "all", None, 50)
+            .expect("view")["items"]
+            .as_array()
+            .expect("items")
+            .len()
+    };
+    assert_eq!(matches("50%"), 1, "% is literal, not a wildcard");
+    assert_eq!(matches("snake_case"), 1, "_ is literal, not a wildcard");
+}
+
+#[test]
+fn a_correction_preview_cannot_be_applied_after_the_memory_changed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(&config_with(dir.path(), Limits::default())).expect("open");
+    let id = remember(&store, "target", "Original wording.");
+    let stale = store
+        .correct_preview(&id, Some("Corrected wording."), None, None, None, None)
+        .expect("preview")["fingerprint"]
+        .as_str()
+        .expect("fingerprint")
+        .to_string();
+    store
+        .forget(
+            "client",
+            &ForgetParams {
+                idempotency_key: "forget-after-preview".to_string(),
+                memory_id: id.clone(),
+                reason: None,
+            },
+            2_000,
+        )
+        .expect("forget");
+    let error = store
+        .correct_apply(
+            &id,
+            Some("Corrected wording."),
+            None,
+            None,
+            None,
+            None,
+            &stale,
+            None,
+            None,
+            3_000,
+        )
+        .expect_err("a stale preview is refused");
+    // The forgotten memory is refused by the check made under the writer lock.
+    assert_eq!(error.reason, "MEMORY_NOT_ACTIVE");
+    assert_eq!(
+        store.status().expect("status").active_memories,
+        0,
+        "nothing was written"
+    );
+}

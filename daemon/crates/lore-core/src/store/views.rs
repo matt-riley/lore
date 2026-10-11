@@ -13,7 +13,7 @@ pub const VIEW_PAGE_MAX: u32 = 200;
 
 /// Serialized-size budget for one memory page. Responses above 1 MiB are refused,
 /// and a memory can hold 64 KiB of content.
-const VIEW_PAGE_BYTES: usize = 512 * 1024;
+pub(crate) const VIEW_PAGE_BYTES: usize = 512 * 1024;
 
 impl Store {
     /// Overview: store readiness, counts and source/extraction summaries.
@@ -197,8 +197,13 @@ impl Store {
             values.push(scope.to_string().into());
         }
         if let Some(query) = query.filter(|value| !value.trim().is_empty()) {
-            sql.push_str(" AND content LIKE ?");
-            values.push(format!("%{}%", query.replace('%', "\\%")).into());
+            // Escape the LIKE metacharacters themselves, and name the escape character.
+            let escaped = query
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            sql.push_str(" AND content LIKE ? ESCAPE '\\'");
+            values.push(format!("%{escaped}%").into());
         }
         if let Some(cursor) = cursor {
             sql.push_str(" AND id > ?");

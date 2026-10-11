@@ -284,84 +284,15 @@ impl Store {
     ) -> CoreResult<Value> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
-        let store_id: String = connection.query_row(
-            "SELECT store_id FROM store_metadata WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )?;
-        let Some(current) = load_memory(&connection, memory_id)? else {
-            return Ok(json!({ "found": false }));
-        };
-        if current.forgotten || current.superseded_by.is_some() {
-            return Err(CoreError::precondition(
-                "MEMORY_NOT_ACTIVE",
-                "only an active memory can be corrected",
-            ));
-        }
-        let proposed_scope = scope.unwrap_or(&current.scope).to_string();
-        let proposed_repository = if scope.is_some() || repository.is_some() {
-            repository.map(str::to_string)
-        } else {
-            current.repository.clone()
-        };
-        if proposed_scope != "global" && proposed_repository.is_none() {
-            return Err(CoreError::invalid(
-                "ADMIN_ARGUMENT_INVALID",
-                "repository-scoped corrections need a repository",
-            ));
-        }
-        let proposed_content = content.unwrap_or(&current.content).to_string();
-        let proposed_kind = kind.unwrap_or(&current.kind).to_string();
-        let fingerprint = fingerprint(
-            "memory.correct",
-            &store_id,
-            &[
-                memory_id.to_string(),
-                current.revision.to_string(),
-                current.content_hash.clone(),
-                proposed_content.clone(),
-                proposed_kind.clone(),
-                format!(
-                    "{proposed_scope}\u{1}{}",
-                    proposed_repository.clone().unwrap_or_default()
-                ),
-                expires_at_ms
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ],
-        );
-        let suppressed: i64 = connection.query_row(
-            "SELECT COUNT(*) FROM suppressions WHERE scope = ?1 \
-             AND COALESCE(repository, '') = COALESCE(?2, '') AND fingerprint = ?3",
-            params![
-                proposed_scope,
-                proposed_repository,
-                crate::store::content_hash(&proposed_content)
-            ],
-            |row| row.get(0),
-        )?;
-        Ok(json!({
-            "found": true,
-            "fingerprint": fingerprint,
-            "current": {
-                "kind": current.kind,
-                "content": current.content,
-                "scope": current.scope,
-                "repository": current.repository,
-                "authority": current.authority,
-                "revision": current.revision,
-                "expiresAtMs": current.expires_at_ms,
-            },
-            "proposed": {
-                "kind": proposed_kind,
-                "content": proposed_content,
-                "scope": proposed_scope,
-                "repository": proposed_repository,
-                "expiresAtMs": expires_at_ms.or(current.expires_at_ms),
-                "authority": "manual",
-            },
-            "suppressed": suppressed > 0,
-        }))
+        correct_preview_on(
+            &connection,
+            memory_id,
+            content,
+            kind,
+            scope,
+            repository,
+            expires_at_ms,
+        )
     }
 
     /// Apply a previewed correction: a manual replacement is created, the
@@ -381,8 +312,22 @@ impl Store {
         reason: Option<&str>,
         now_ms: i64,
     ) -> CoreResult<CorrectOutcome> {
-        let preview =
-            self.correct_preview(memory_id, content, kind, scope, repository, expires_at_ms)?;
+        let snapshot = self.snapshot_now(now_ms)?;
+        let mut connection = self.writer.lock().expect("writer lock");
+        let transaction =
+            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // The plan is recomputed here, under the writer lock, so the fingerprint it
+        // checks describes the state this transaction writes against. A preview made
+        // earlier, or a forget that committed since, is refused rather than applied.
+        let preview = correct_preview_on(
+            &transaction,
+            memory_id,
+            content,
+            kind,
+            scope,
+            repository,
+            expires_at_ms,
+        )?;
         if preview["found"] != true {
             return Err(CoreError::not_found(
                 "MEMORY_NOT_FOUND",
@@ -395,17 +340,12 @@ impl Store {
                 "the preview no longer matches store state; preview again",
             ));
         }
-        let snapshot = self.snapshot_now(now_ms)?;
         let proposed = &preview["proposed"];
         let proposed_content = proposed["content"].as_str().unwrap_or("").to_string();
         let proposed_kind = proposed["kind"].as_str().unwrap_or("note").to_string();
         let proposed_scope = proposed["scope"].as_str().unwrap_or("repo").to_string();
         let proposed_repository = proposed["repository"].as_str().map(str::to_string);
         let proposed_expires = proposed["expiresAtMs"].as_i64();
-
-        let mut connection = self.writer.lock().expect("writer lock");
-        let transaction =
-            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let Some(current) = load_memory(&transaction, memory_id)? else {
             return Err(CoreError::not_found(
                 "MEMORY_NOT_FOUND",
@@ -1625,4 +1565,97 @@ impl Store {
             committed_revision: revision,
         })
     }
+}
+
+/// The correction plan for one memory against the given connection. Apply runs
+/// it again inside its write transaction, so the fingerprint it checks describes
+/// the state it writes against.
+#[allow(clippy::too_many_arguments)]
+fn correct_preview_on(
+    connection: &rusqlite::Connection,
+    memory_id: &str,
+    content: Option<&str>,
+    kind: Option<&str>,
+    scope: Option<&str>,
+    repository: Option<&str>,
+    expires_at_ms: Option<i64>,
+) -> CoreResult<Value> {
+    let store_id: String = connection.query_row(
+        "SELECT store_id FROM store_metadata WHERE id = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    let Some(current) = load_memory(connection, memory_id)? else {
+        return Ok(json!({ "found": false }));
+    };
+    if current.forgotten || current.superseded_by.is_some() {
+        return Err(CoreError::precondition(
+            "MEMORY_NOT_ACTIVE",
+            "only an active memory can be corrected",
+        ));
+    }
+    let proposed_scope = scope.unwrap_or(&current.scope).to_string();
+    let proposed_repository = if scope.is_some() || repository.is_some() {
+        repository.map(str::to_string)
+    } else {
+        current.repository.clone()
+    };
+    if proposed_scope != "global" && proposed_repository.is_none() {
+        return Err(CoreError::invalid(
+            "ADMIN_ARGUMENT_INVALID",
+            "repository-scoped corrections need a repository",
+        ));
+    }
+    let proposed_content = content.unwrap_or(&current.content).to_string();
+    let proposed_kind = kind.unwrap_or(&current.kind).to_string();
+    let fingerprint = fingerprint(
+        "memory.correct",
+        &store_id,
+        &[
+            memory_id.to_string(),
+            current.revision.to_string(),
+            current.content_hash.clone(),
+            proposed_content.clone(),
+            proposed_kind.clone(),
+            format!(
+                "{proposed_scope}\u{1}{}",
+                proposed_repository.clone().unwrap_or_default()
+            ),
+            expires_at_ms
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ],
+    );
+    let suppressed: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM suppressions WHERE scope = ?1 \
+         AND COALESCE(repository, '') = COALESCE(?2, '') AND fingerprint = ?3",
+        params![
+            proposed_scope,
+            proposed_repository,
+            crate::store::content_hash(&proposed_content)
+        ],
+        |row| row.get(0),
+    )?;
+    Ok(json!({
+        "found": true,
+        "fingerprint": fingerprint,
+        "current": {
+            "kind": current.kind,
+            "content": current.content,
+            "scope": current.scope,
+            "repository": current.repository,
+            "authority": current.authority,
+            "revision": current.revision,
+            "expiresAtMs": current.expires_at_ms,
+        },
+        "proposed": {
+            "kind": proposed_kind,
+            "content": proposed_content,
+            "scope": proposed_scope,
+            "repository": proposed_repository,
+            "expiresAtMs": expires_at_ms.or(current.expires_at_ms),
+            "authority": "manual",
+        },
+        "suppressed": suppressed > 0,
+    }))
 }

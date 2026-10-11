@@ -77,9 +77,24 @@ impl Store {
                 "rank": row.get::<_, f64>(8)?,
             }))
         })?;
-        let mut items: Vec<Value> = rows.collect::<Result<_, _>>()?;
-        let next_cursor = if items.len() > limit as usize {
-            items.truncate(limit as usize);
+        // A page closes at the row limit or the byte budget, so a page of large
+        // memories still fits inside one response.
+        let mut items: Vec<Value> = Vec::new();
+        let mut bytes = 0usize;
+        let mut more = false;
+        for row in rows {
+            let item = row?;
+            let size = serde_json::to_vec(&item)?.len();
+            if items.len() == limit as usize
+                || (!items.is_empty() && bytes + size > super::views::VIEW_PAGE_BYTES)
+            {
+                more = true;
+                break;
+            }
+            bytes += size;
+            items.push(item);
+        }
+        let next_cursor = if more {
             items
                 .last()
                 .and_then(|item| item["id"].as_str())

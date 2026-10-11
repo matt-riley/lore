@@ -836,14 +836,24 @@ impl Store {
             return Ok(serde_json::from_str(&response)?);
         }
 
-        let row: Option<(i64, String, String, Option<String>)> = transaction
+        // (forgotten, content hash, scope, repository, superseded-by)
+        type ForgetTarget = (i64, String, String, Option<String>, Option<String>);
+        let row: Option<ForgetTarget> = transaction
             .query_row(
-                "SELECT forgotten, content_hash, scope, repository FROM memories WHERE id = ?1",
+                "SELECT forgotten, content_hash, scope, repository, superseded_by FROM memories WHERE id = ?1",
                 params![params.memory_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .optional()?;
-        let Some((forgotten, content_hash, scope, repository)) = row else {
+        let Some((forgotten, content_hash, scope, repository, superseded_by)) = row else {
             return Err(CoreError::not_found(
                 "MEMORY_NOT_FOUND",
                 "no memory exists with that ID",
@@ -899,10 +909,13 @@ impl Store {
                     now_ms
                 ],
             )?;
+            // Only a row that was counted as active leaves the active count; a
+            // superseded row was already excluded from it.
+            let active_delta = i64::from(superseded_by.is_none());
             transaction.execute(
                 "UPDATE store_metadata SET memory_revision = ?1, \
-                 active_memories = active_memories - 1, forgotten_memories = forgotten_memories + 1 WHERE id = 1",
-                params![next_revision],
+                 active_memories = active_memories - ?2, forgotten_memories = forgotten_memories + 1 WHERE id = 1",
+                params![next_revision, active_delta],
             )?;
             ForgetResult {
                 memory_id: params.memory_id.clone(),

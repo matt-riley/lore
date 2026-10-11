@@ -91,15 +91,24 @@ impl Store {
             // A target that an earlier correction superseded comes back to life when a
             // later correction points at it again. Otherwise the predecessor below
             // would retire it, and the two would retire each other.
-            let superseded_target: Option<(String, String)> = transaction
+            // Only a correction that retires the superseding automatic row brings the
+            // target back. Anything else, including a manual correction or a repeat of
+            // the same proposition, keeps the old "duplicate" behaviour.
+            let superseded_target: Option<(String, String, String, String)> = transaction
                 .query_row(
-                    "SELECT content, kind FROM memories WHERE id = ?1 AND forgotten = 0 \
-                     AND superseded_by IS NOT NULL",
+                    "SELECT m.content, m.kind, by_row.topic_key, by_row.authority \
+                     FROM memories m JOIN memories by_row ON by_row.id = m.superseded_by \
+                     WHERE m.id = ?1 AND m.forgotten = 0 AND m.superseded_by IS NOT NULL",
                     params![memory_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .optional()?;
-            if let Some((content, kind)) = superseded_target {
+            let reactivate = superseded_target.filter(|(_, _, by_topic, by_authority)| {
+                proposal.correction
+                    && by_authority == "auto"
+                    && proposal.retires.iter().any(|retired| retired == by_topic)
+            });
+            if let Some((content, kind, _, _)) = reactivate {
                 revision += 1;
                 transaction.execute(
                     "UPDATE memories SET superseded_by = NULL, revision = ?2, updated_ms = ?3 WHERE id = ?1",

@@ -122,7 +122,11 @@ pub fn run_task(
                     return TaskOutcome::failed(&error.to_string());
                 }
                 let path = dir.join(format!("doctor-snapshot-{run_id}.json"));
-                match std::fs::write(&path, serde_json::to_vec_pretty(&value).unwrap_or_default()) {
+                let encoded = match serde_json::to_vec_pretty(&value) {
+                    Ok(encoded) => encoded,
+                    Err(error) => return TaskOutcome::failed(&error.to_string()),
+                };
+                match std::fs::write(&path, encoded) {
                     Ok(()) => TaskOutcome::ok(1, 0, json!({ "path": path.display().to_string() })),
                     Err(error) => TaskOutcome::failed(&error.to_string()),
                 }

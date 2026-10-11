@@ -315,7 +315,9 @@ impl Store {
         }
 
         let mut files: Vec<(String, String)> = Vec::new();
-        for entry in fs::read_dir(&resolved)?.take(MAX_BUNDLE_FILES + 1) {
+        // Filter first, then cap: metadata files and symlinks must not use up the
+        // concept budget. `files` is bounded below, so the listing itself is streamed.
+        for entry in fs::read_dir(&resolved)? {
             let entry = entry?;
             let file_type = entry.file_type()?;
             if file_type.is_symlink() || !file_type.is_file() {

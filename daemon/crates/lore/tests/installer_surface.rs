@@ -314,3 +314,110 @@ fn upgrade_refuses_a_broken_package_and_keeps_the_launcher() {
     assert_ne!(code, 0);
     assert!(stderr.contains("not an unpacked package"), "{stderr}");
 }
+
+#[test]
+fn upgrade_refuses_a_version_that_escapes_the_versions_directory() {
+    let home = tempfile::tempdir().expect("home");
+    let package_dir = tempfile::tempdir().expect("packages");
+    let package = fake_package(package_dir.path(), "9.9.20", true);
+    std::fs::write(
+        package.join("VERSION.json"),
+        "{\"version\":\"../../victim\",\"target\":\"test-target\"}\n",
+    )
+    .expect("hostile version file");
+    let victim = home.path().join(".lore/victim");
+    std::fs::create_dir_all(&victim).expect("victim dir");
+    std::fs::write(victim.join("keep.txt"), "keep").expect("victim file");
+
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            package.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_ne!(code, 0, "traversal version is refused");
+    assert!(stderr.contains("not a plain version string"), "{stderr}");
+    assert!(
+        victim.join("keep.txt").exists(),
+        "nothing outside versions/ was removed"
+    );
+}
+
+#[test]
+fn reapplying_the_same_version_leaves_no_staging_directories() {
+    let home = tempfile::tempdir().expect("home");
+    let package_dir = tempfile::tempdir().expect("packages");
+    let package = fake_package(package_dir.path(), "9.9.21", true);
+    let args = [
+        "upgrade",
+        "--from",
+        package.to_str().expect("utf8"),
+        "--apply",
+        "--output",
+        "json",
+    ];
+    let (code, _, stderr) = run(home.path(), &args);
+    assert_eq!(code, 0, "{stderr}");
+    let (code, _, stderr) = run(home.path(), &args);
+    assert_eq!(code, 0, "{stderr}");
+    let entries: Vec<String> = std::fs::read_dir(home.path().join(".lore/versions"))
+        .expect("versions")
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+        .collect();
+    assert_eq!(
+        entries,
+        vec!["9.9.21".to_string()],
+        "no staging or previous directories remain"
+    );
+}
+
+#[test]
+fn a_failed_same_version_upgrade_keeps_the_live_version_runnable() {
+    let home = tempfile::tempdir().expect("home");
+    let package_dir = tempfile::tempdir().expect("packages");
+    let good = fake_package(package_dir.path(), "9.9.22", true);
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            good.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_eq!(code, 0, "{stderr}");
+
+    // A broken package claiming the same version must not replace the live copy.
+    let broken = fake_package(package_dir.path(), "9.9.22-broken", false);
+    std::fs::write(
+        broken.join("VERSION.json"),
+        "{\"version\":\"9.9.22\",\"target\":\"test-target\"}\n",
+    )
+    .expect("version file");
+    let (code, _, _) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            broken.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_ne!(code, 0, "the broken package is refused");
+    let live = home.path().join(".lore/versions/9.9.22/bin/lore");
+    let output = std::process::Command::new(&live)
+        .arg("--version")
+        .output()
+        .expect("live binary runs");
+    assert!(output.status.success(), "the live version still runs");
+}

@@ -278,6 +278,11 @@ pub fn upgrade_preview(home: &Path, from: &Path) -> Result<Value, String> {
                 from.display()
             )
         })?;
+    if !is_safe_version(&version) {
+        return Err(format!(
+            "package version {version:?} is not a plain version string"
+        ));
+    }
     for binary in ["lore", "lored"] {
         if !from.join("bin").join(binary).is_file() {
             return Err(format!("{} is missing bin/{binary}", from.display()));
@@ -343,6 +348,47 @@ fn switch_launcher(_home: &Path, _version: &str) -> Result<(), String> {
 }
 
 /// Apply an upgrade: stage, validate, switch, keep the previous version.
+/// A version names a single directory under `versions/`. Anything that could
+/// step out of it (separators, `.`, `..`, leading dots, control characters) is
+/// refused before any path is built from it.
+fn is_safe_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 64
+        && !version.starts_with('.')
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_'))
+}
+
+/// Replace `target` with `staging`. The previous directory is kept until the new
+/// one is in place, and restored if the rename fails.
+fn swap_version_dir(staging: &Path, target: &Path, pid: u32) -> Result<(), String> {
+    let previous = target.with_file_name(format!(
+        ".previous-{}-{pid}",
+        target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("version")
+    ));
+    let _ = std::fs::remove_dir_all(&previous);
+    let had_previous = target.exists();
+    if had_previous {
+        std::fs::rename(target, &previous)
+            .map_err(|error| format!("set aside {target:?}: {error}"))?;
+    }
+    if let Err(error) = std::fs::rename(staging, target) {
+        if had_previous {
+            let _ = std::fs::rename(&previous, target);
+        }
+        let _ = std::fs::remove_dir_all(staging);
+        return Err(format!("install {target:?}: {error}"));
+    }
+    if had_previous {
+        let _ = std::fs::remove_dir_all(&previous);
+    }
+    Ok(())
+}
+
 pub fn upgrade_apply(home: &Path, from: &Path) -> Result<Value, String> {
     let mut plan = upgrade_preview(home, from)?;
     let version = plan["version"]
@@ -350,29 +396,31 @@ pub fn upgrade_apply(home: &Path, from: &Path) -> Result<Value, String> {
         .ok_or_else(|| "missing version".to_string())?
         .to_string();
     let target = versions_root(home).join(&version);
-    if target.exists() {
-        std::fs::remove_dir_all(&target).map_err(|error| format!("replace {target:?}: {error}"))?;
-    }
-    copy_tree(from, &target)?;
+    // Stage beside the live version, so a failed copy or validation never touches
+    // the directory the launchers point at.
+    let pid = std::process::id();
+    let staging = versions_root(home).join(format!(".staging-{version}-{pid}"));
+    let _ = std::fs::remove_dir_all(&staging);
+    copy_tree(from, &staging)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         for binary in ["lore", "lored"] {
-            let path = target.join("bin").join(binary);
+            let path = staging.join("bin").join(binary);
             let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
         }
     }
 
-    // Validate the staged binary before the launcher moves.
-    let staged = target.join("bin/lore");
-    let output = Command::new(&staged)
+    // Validate the staged binary before anything is swapped.
+    let output = Command::new(staging.join("bin/lore"))
         .arg("--version")
-        .output()
-        .map_err(|error| format!("staged binary did not run: {error}"))?;
-    if !output.status.success() {
-        let _ = std::fs::remove_dir_all(&target);
-        return Err("staged binary failed --version; upgrade aborted".to_string());
+        .output();
+    let validated = matches!(&output, Ok(output) if output.status.success());
+    if !validated {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err("staged binary did not run or failed --version; upgrade aborted".to_string());
     }
+    swap_version_dir(&staging, &target, pid)?;
     switch_launcher(home, &version)?;
 
     let mut manifest = read_json(&crate::service::mode_path(home)).unwrap_or_else(|| json!({}));
@@ -395,6 +443,8 @@ pub fn upgrade_apply(home: &Path, from: &Path) -> Result<Value, String> {
             entries
                 .flatten()
                 .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+                // Hidden entries are in-flight staging or swap directories.
+                .filter(|name| !name.starts_with('.'))
                 .collect()
         })
         .unwrap_or_default();

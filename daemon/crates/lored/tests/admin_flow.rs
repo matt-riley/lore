@@ -52,6 +52,17 @@ impl Daemon {
 
 impl Drop for Daemon {
     fn drop(&mut self) {
+        // SIGTERM lets the daemon exit cleanly, so coverage counters are written.
+        // SIGKILL would discard them and leave the admin handler reported as unrun.
+        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
+        // Wait for a clean exit, then fall back to SIGKILL so a stuck daemon cannot hang the test.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -507,5 +518,30 @@ async fn doctor_reports_install_health_without_mutating() {
     assert_eq!(
         after["result"]["memoryRevision"],
         status["result"]["memoryRevision"]
+    );
+}
+
+#[tokio::test]
+async fn a_keyed_admin_call_that_fails_early_is_not_left_pending() {
+    let daemon = Daemon::start();
+    let (_, status) = call(&daemon.socket, "/v2/status", json!({}), None).await;
+    let store_id = status["storeId"].as_str().expect("store id").to_string();
+    // A search without a query fails before any work, through an early return.
+    let params = json!({ "idempotencyKey": "admin-fail-1" });
+    let (first_status, first) = call(
+        &daemon.socket,
+        "/v2/admin/search",
+        params.clone(),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(first_status, 400, "{first}");
+    // The retry gets the same answer, not a burned key.
+    let (second_status, second) =
+        call(&daemon.socket, "/v2/admin/search", params, Some(&store_id)).await;
+    assert_eq!(second_status, 400, "{second}");
+    assert_ne!(
+        second["error"]["reason"], "IDEMPOTENCY_OUTCOME_UNKNOWN",
+        "{second}"
     );
 }

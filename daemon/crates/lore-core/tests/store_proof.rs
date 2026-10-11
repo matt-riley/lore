@@ -1177,3 +1177,57 @@ fn a_correction_preview_cannot_be_applied_after_the_memory_changed() {
         "nothing was written"
     );
 }
+
+#[test]
+fn a_pending_receipt_marks_an_operation_that_never_settled() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = open(dir.path());
+    let hash = "a".repeat(64);
+    let key = "admin-pending-1";
+
+    // A marker is written before the operation runs.
+    store
+        .begin_receipt_json("client-a", "admin.onboard", key, &hash, 1_000)
+        .expect("begin");
+    let (stored_hash, response) = store
+        .lookup_receipt_json("client-a", "admin.onboard", key)
+        .expect("lookup")
+        .expect("marker present");
+    assert_eq!(stored_hash, hash);
+    assert_eq!(response, lore_core::store::RECEIPT_PENDING);
+
+    // Settling replaces the marker with the response.
+    store
+        .finish_receipt_json("client-a", "admin.onboard", key, r#"{"ok":true}"#)
+        .expect("finish");
+    let (_, response) = store
+        .lookup_receipt_json("client-a", "admin.onboard", key)
+        .expect("lookup")
+        .expect("receipt present");
+    assert_eq!(response, r#"{"ok":true}"#);
+
+    // A failed operation's marker is removed, so the key can be tried again.
+    let failed = "admin-pending-2";
+    store
+        .begin_receipt_json("client-a", "admin.onboard", failed, &hash, 1_000)
+        .expect("begin");
+    store
+        .discard_receipt_json("client-a", "admin.onboard", failed)
+        .expect("discard");
+    assert!(
+        store
+            .lookup_receipt_json("client-a", "admin.onboard", failed)
+            .expect("lookup")
+            .is_none()
+    );
+
+    // A settled receipt is never overwritten by a late finish.
+    store
+        .finish_receipt_json("client-a", "admin.onboard", key, r#"{"ok":false}"#)
+        .expect_err("a settled receipt is not pending");
+    let (_, response) = store
+        .lookup_receipt_json("client-a", "admin.onboard", key)
+        .expect("lookup")
+        .expect("receipt present");
+    assert_eq!(response, r#"{"ok":true}"#);
+}

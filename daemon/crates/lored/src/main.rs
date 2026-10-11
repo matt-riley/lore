@@ -1376,6 +1376,18 @@ async fn handle_admin(
                         Some(&store_id),
                     );
                 }
+                // A marker left by an operation that never settled. Its effects may
+                // be committed, so running it again could duplicate them.
+                if response == lore_core::store::RECEIPT_PENDING {
+                    return fail_response(
+                        StatusCode::CONFLICT,
+                        "ALREADY_EXISTS",
+                        "IDEMPOTENCY_OUTCOME_UNKNOWN",
+                        false,
+                        Some(&request_id),
+                        Some(&store_id),
+                    );
+                }
                 if let Ok(value) = serde_json::from_str::<Value>(&response) {
                     return json(
                         StatusCode::OK,
@@ -1414,511 +1426,599 @@ async fn handle_admin(
         let _slot = slot;
         let _client = client_guard;
         let _key_lease = _key_lease;
-        let outcome: Result<serde_json::Value, CoreError> = match operation.as_str() {
-            "search" => {
-                let query = lore_core::store::require_query(params.query.as_deref())?;
-                store.admin_search(
-                    &query,
-                    params.repository.as_deref(),
-                    params.include_other_repositories,
-                    params.cursor.as_deref(),
-                    params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
-                    now,
-                )
-            }
-            "explain" => {
-                let query = lore_core::store::require_query(params.query.as_deref())?;
-                let context_bytes = params.context_bytes.unwrap_or(8 * 1024);
-                if context_bytes == 0 || context_bytes > max_context_bytes {
-                    return Err(CoreError::invalid(
-                        "INVALID_CONTEXT_BYTES",
-                        format!("contextBytes must be 1-{max_context_bytes}"),
-                    ));
-                }
-                store.admin_explain(
-                    &query,
-                    params.repository.as_deref(),
-                    params.include_other_repositories,
-                    params.limit.unwrap_or(6),
-                    context_bytes,
-                    now,
-                )
-            }
-            "validate" => store.admin_validate(params.deep),
-            "correct" => {
-                let memory_id = params.id.clone().ok_or_else(|| {
-                    CoreError::invalid("ADMIN_ARGUMENT_INVALID", "correct requires id")
-                })?;
-                let provider_action = params.action.as_deref().unwrap_or("preview");
-                if provider_action == "apply" || params.plan_fingerprint.is_some() {
-                    let plan = params.plan_fingerprint.clone().ok_or_else(|| {
-                        CoreError::invalid(
-                            "ADMIN_ARGUMENT_INVALID",
-                            "applying a correction requires planFingerprint",
+        // The marker is written before the operation runs. If the daemon stops
+        // part-way, a retry finds it and is refused, not run a second time.
+        if let Some((key, receipt_operation, hash)) = &receipt {
+            store.begin_receipt_json(&client_id, receipt_operation, key, hash, now_ms())?;
+        }
+        // The operation runs in an inner closure, so an early `?` still reaches the
+        // settle step below. A failed operation never strands its pending marker.
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || -> Result<serde_json::Value, CoreError> {
+                match operation.as_str() {
+                    "search" => {
+                        let query = lore_core::store::require_query(params.query.as_deref())?;
+                        store.admin_search(
+                            &query,
+                            params.repository.as_deref(),
+                            params.include_other_repositories,
+                            params.cursor.as_deref(),
+                            params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                            now,
                         )
-                    })?;
-                    let outcome = store.correct_apply(
-                        &memory_id,
-                        params.content.as_deref(),
-                        params.kind.as_deref(),
-                        params.scope.as_deref(),
-                        params.repository.as_deref(),
-                        params.expires_at_ms,
-                        &plan,
-                        params.actor.as_deref(),
-                        params.reason.as_deref(),
-                        now,
-                    )?;
-                    serde_json::to_value(outcome)
-                        .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
-                } else {
-                    store.correct_preview(
-                        &memory_id,
-                        params.content.as_deref(),
-                        params.kind.as_deref(),
-                        params.scope.as_deref(),
-                        params.repository.as_deref(),
-                        params.expires_at_ms,
-                    )
-                }
-            }
-            "purge" => {
-                let provider_action = params.action.as_deref().unwrap_or("preview");
-                if provider_action == "apply" || params.plan_fingerprint.is_some() {
-                    let plan = params.plan_fingerprint.clone().ok_or_else(|| {
-                        CoreError::invalid(
-                            "ADMIN_ARGUMENT_INVALID",
-                            "applying a purge requires planFingerprint",
-                        )
-                    })?;
-                    let outcome = store.purge_apply(
-                        &params.memory_ids,
-                        params.repository.as_deref(),
-                        params.global,
-                        params.limit,
-                        params.include_dependent_aggregates,
-                        &plan,
-                        params.actor.as_deref(),
-                        params.reason.as_deref(),
-                        now,
-                    )?;
-                    serde_json::to_value(outcome)
-                        .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
-                } else {
-                    store.purge_preview(
-                        &params.memory_ids,
-                        params.repository.as_deref(),
-                        params.global,
-                        params.limit,
-                        params.include_dependent_aggregates,
-                    )
-                }
-            }
-            "scope-override" => {
-                let provider_action = params.action.as_deref().unwrap_or("preview");
-                let clear = params.clear || provider_action == "clear";
-                if provider_action == "apply" || params.plan_fingerprint.is_some() {
-                    let plan = params.plan_fingerprint.clone().ok_or_else(|| {
-                        CoreError::invalid(
-                            "ADMIN_ARGUMENT_INVALID",
-                            "applying a scope override requires planFingerprint",
-                        )
-                    })?;
-                    let actor = params.actor.clone().ok_or_else(|| {
-                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "scope override needs actor")
-                    })?;
-                    let reason = params.reason.clone().ok_or_else(|| {
-                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "scope override needs reason")
-                    })?;
-                    let outcome = store.scope_override_apply(
-                        &params.memory_ids,
-                        params.scope.as_deref(),
-                        params.repository.as_deref(),
-                        clear,
-                        &plan,
-                        &actor,
-                        &reason,
-                        now,
-                    )?;
-                    serde_json::to_value(outcome)
-                        .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
-                } else {
-                    store.scope_override_preview(
-                        &params.memory_ids,
-                        params.scope.as_deref(),
-                        params.repository.as_deref(),
-                        clear,
-                    )
-                }
-            }
-            "scope-audit" => store.scope_audit(
-                params
-                    .cursor
-                    .as_deref()
-                    .and_then(|value| value.parse().ok()),
-                params.limit.unwrap_or(50),
-            ),
-            "run-status" => {
-                let run_id = params.run_id.clone().ok_or_else(|| {
-                    CoreError::invalid("ADMIN_ARGUMENT_INVALID", "run-status requires runId")
-                })?;
-                store.run_status(&run_id, None, params.limit.unwrap_or(50))
-            }
-            "onboard" => {
-                let input = OnboardInput {
-                    user_name: params.user_name.clone(),
-                    assistant_name: params.assistant_name.clone(),
-                    voice: params.voice.clone(),
-                    warmth: params.warmth.clone(),
-                    humor: params.humor.clone(),
-                    humor_frequency: params.humor_frequency.clone(),
-                    collaborative: params.collaborative,
-                    use_name_naturally: params.use_name_naturally,
-                };
-                let outcome = store.onboard_apply(&input, now)?;
-                serde_json::to_value(outcome)
-                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
-            }
-            "maintenance" => {
-                let scope = params
-                    .scope
-                    .clone()
-                    .unwrap_or_else(|| lore_core::store::DEFAULT_MAINTENANCE_SCOPE.to_string());
-                match params.action.as_deref() {
-                    Some("run") => {
-                        let task = params.task.clone().ok_or_else(|| {
-                            CoreError::invalid(
-                                "ADMIN_ARGUMENT_INVALID",
-                                "running a maintenance task needs a task name",
-                            )
-                        })?;
-                        if !lore_core::store::MAINTENANCE_TASK_NAMES.contains(&task.as_str()) {
+                    }
+                    "explain" => {
+                        let query = lore_core::store::require_query(params.query.as_deref())?;
+                        let context_bytes = params.context_bytes.unwrap_or(8 * 1024);
+                        if context_bytes == 0 || context_bytes > max_context_bytes {
                             return Err(CoreError::invalid(
-                                "ADMIN_ARGUMENT_INVALID",
-                                format!("unknown maintenance task: {task}"),
+                                "INVALID_CONTEXT_BYTES",
+                                format!("contextBytes must be 1-{max_context_bytes}"),
                             ));
                         }
-                        store.maintenance_sync(&shared.maintenance, &scope, now)?;
-                        let dry_run = params.dry_run;
-                        let run_id = store
-                            .maintenance_claim(
-                                &task,
-                                &scope,
-                                if dry_run { "manual-dry-run" } else { "manual" },
-                                dry_run,
-                                now,
-                            )?
-                            .ok_or_else(|| {
-                                CoreError::conflict(
-                                    "MAINTENANCE_ALREADY_RUNNING",
-                                    "that task already has an active run",
+                        store.admin_explain(
+                            &query,
+                            params.repository.as_deref(),
+                            params.include_other_repositories,
+                            params.limit.unwrap_or(6),
+                            context_bytes,
+                            now,
+                        )
+                    }
+                    "validate" => store.admin_validate(params.deep),
+                    "correct" => {
+                        let memory_id = params.id.clone().ok_or_else(|| {
+                            CoreError::invalid("ADMIN_ARGUMENT_INVALID", "correct requires id")
+                        })?;
+                        let provider_action = params.action.as_deref().unwrap_or("preview");
+                        if provider_action == "apply" || params.plan_fingerprint.is_some() {
+                            let plan = params.plan_fingerprint.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "applying a correction requires planFingerprint",
                                 )
                             })?;
-                        let outcome = maintenance::run_task(&store, &run_id, &task, dry_run, now);
-                        store.maintenance_finish(
-                            &run_id,
-                            outcome.state,
-                            outcome.completed,
-                            outcome.failed,
-                            outcome.needs_attention,
-                            Some(outcome.detail.clone()),
-                            now,
-                        )?;
-                        Ok(serde_json::json!({
-                            "runId": run_id,
-                            "task": task,
-                            "scope": scope,
-                            "dryRun": dry_run,
-                            "state": outcome.state,
-                            "counts": {
-                                "completed": outcome.completed,
-                                "failed": outcome.failed,
-                                "needsAttention": outcome.needs_attention,
-                            },
-                            "detail": outcome.detail,
-                        }))
-                    }
-                    Some("rollback") => {
-                        let run_id = params.run_id.clone().ok_or_else(|| {
-                            CoreError::invalid("ADMIN_ARGUMENT_INVALID", "rollback needs a runId")
-                        })?;
-                        let restored = maintenance::rollback_hygiene(&store, &run_id)
-                            .map_err(|reason| CoreError::invalid("MAINTENANCE_ROLLBACK", reason))?;
-                        Ok(serde_json::json!({ "runId": run_id, "restored": restored }))
-                    }
-                    _ => {
-                        store.maintenance_sync(&shared.maintenance, &scope, now)?;
-                        let report = lore_core::store::maintenance_report(
-                            &store,
-                            std::slice::from_ref(&scope),
-                            params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
-                        )?;
-                        Ok(report)
-                    }
-                }
-            }
-            "migration-unscoped" => {
-                let source = params.source.clone().ok_or_else(|| {
-                    CoreError::invalid(
-                        "ADMIN_ARGUMENT_INVALID",
-                        "an unscoped import needs the v1 database path as `source`",
-                    )
-                })?;
-                let apply = params.action.as_deref() == Some("apply");
-                let outcome =
-                    store.import_unscoped_as_global(std::path::Path::new(&source), apply, now)?;
-                if apply {
-                    shared.worker_state.request_resume();
-                    shared.notify.notify_one();
-                }
-                Ok(outcome)
-            }
-            "reflect" => {
-                let query = params.query.as_deref();
-                let repository = params.repository.as_deref();
-                let limit = params.limit.unwrap_or(20);
-                let deterministic = store.reflect(query, repository, limit, false, now)?;
-                let mut value = serde_json::to_value(&deterministic)
-                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))?;
-                let mut synthesis = "deterministic";
-                let mut fallback_reason: Option<String> = None;
-                let mut chosen_text = deterministic.text.clone();
-                if params.mode.as_deref() == Some("chat") && !deterministic.memory_ids.is_empty() {
-                    // The provider call is async; this closure is a blocking
-                    // task, so drive it with the captured runtime handle.
-                    match runtime.block_on(analysis_synthesis(
-                        &shared,
-                        query.unwrap_or(""),
-                        &deterministic.text,
-                        &deterministic.memory_ids,
-                    )) {
-                        Ok(text) => {
-                            synthesis = "chat";
-                            chosen_text = text;
-                        }
-                        Err(reason) => {
-                            fallback_reason = Some(reason);
+                            let outcome = store.correct_apply(
+                                &memory_id,
+                                params.content.as_deref(),
+                                params.kind.as_deref(),
+                                params.scope.as_deref(),
+                                params.repository.as_deref(),
+                                params.expires_at_ms,
+                                &plan,
+                                params.actor.as_deref(),
+                                params.reason.as_deref(),
+                                now,
+                            )?;
+                            serde_json::to_value(outcome)
+                                .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                        } else {
+                            store.correct_preview(
+                                &memory_id,
+                                params.content.as_deref(),
+                                params.kind.as_deref(),
+                                params.scope.as_deref(),
+                                params.repository.as_deref(),
+                                params.expires_at_ms,
+                            )
                         }
                     }
-                }
-                if params.persist {
-                    let persisted = store.reflect_with_text(
-                        query,
-                        repository,
-                        limit,
-                        true,
-                        Some(&chosen_text),
-                        now,
-                    )?;
-                    value["persisted"] =
-                        serde_json::to_value(persisted.persisted).unwrap_or(Value::Null);
-                    value["committedRevision"] =
-                        serde_json::to_value(persisted.committed_revision).unwrap_or(Value::Null);
-                }
-                value["text"] = Value::String(chosen_text);
-                value["synthesis"] = Value::String(synthesis.to_string());
-                value["fallbackReason"] = fallback_reason.map(Value::String).unwrap_or(Value::Null);
-                Ok(value)
-            }
-            "deferred-process" => {
-                let limit = params.limit.unwrap_or(16).min(64) as usize;
-                let report = crate::sources::extract_pending(&store, limit, now);
-                serde_json::to_value(report)
-                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
-            }
-            "backfill" => {
-                let report = crate::sources::run_sweep(&store, &shared.config, now);
-                serde_json::to_value(report)
-                    .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
-            }
-            "backlog" => match params.action.as_deref().unwrap_or("list") {
-                "add" => {
-                    let title = params.title.clone().ok_or_else(|| {
-                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "backlog add needs a title")
-                    })?;
-                    store.backlog_add(
-                        params.id.as_deref(),
-                        params.kind.as_deref().unwrap_or("improvement"),
-                        &title,
-                        params.detail.as_deref(),
-                        params.source.as_deref().unwrap_or("manual"),
-                        params.run_id.as_deref(),
-                        params.linked_memory_id.as_deref(),
-                        now,
-                    )
-                }
-                "link" => {
-                    let id = params.id.clone().ok_or_else(|| {
-                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "backlog link needs an id")
-                    })?;
-                    store.backlog_link(
-                        &id,
-                        params.linked_memory_id.as_deref(),
-                        params.actor.as_deref(),
-                        now,
-                    )
-                }
-                "update" => {
-                    let id = params.id.clone().ok_or_else(|| {
-                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "backlog update needs an id")
-                    })?;
-                    let state = params.state.clone().ok_or_else(|| {
-                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "backlog update needs a state")
-                    })?;
-                    store.backlog_update(&id, &state, params.actor.as_deref(), now)
-                }
-                _ => store.backlog_list(
-                    params.cursor.as_deref(),
-                    params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
-                    params.state.as_deref(),
-                ),
-            },
-            "ledger" => {
-                if params.action.as_deref() == Some("append") {
-                    let detail = params.detail.clone().ok_or_else(|| {
-                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "ledger append needs detail")
-                    })?;
-                    store.ledger_append(
-                        params.entry_type.as_deref().unwrap_or("note"),
-                        params.subject.as_deref(),
-                        &detail,
-                        params.actor.as_deref(),
-                        now,
-                    )
-                } else {
-                    store.ledger_page(
+                    "purge" => {
+                        let provider_action = params.action.as_deref().unwrap_or("preview");
+                        if provider_action == "apply" || params.plan_fingerprint.is_some() {
+                            let plan = params.plan_fingerprint.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "applying a purge requires planFingerprint",
+                                )
+                            })?;
+                            let outcome = store.purge_apply(
+                                &params.memory_ids,
+                                params.repository.as_deref(),
+                                params.global,
+                                params.limit,
+                                params.include_dependent_aggregates,
+                                &plan,
+                                params.actor.as_deref(),
+                                params.reason.as_deref(),
+                                now,
+                            )?;
+                            serde_json::to_value(outcome)
+                                .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                        } else {
+                            store.purge_preview(
+                                &params.memory_ids,
+                                params.repository.as_deref(),
+                                params.global,
+                                params.limit,
+                                params.include_dependent_aggregates,
+                            )
+                        }
+                    }
+                    "scope-override" => {
+                        let provider_action = params.action.as_deref().unwrap_or("preview");
+                        let clear = params.clear || provider_action == "clear";
+                        if provider_action == "apply" || params.plan_fingerprint.is_some() {
+                            let plan = params.plan_fingerprint.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "applying a scope override requires planFingerprint",
+                                )
+                            })?;
+                            let actor = params.actor.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "scope override needs actor",
+                                )
+                            })?;
+                            let reason = params.reason.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "scope override needs reason",
+                                )
+                            })?;
+                            let outcome = store.scope_override_apply(
+                                &params.memory_ids,
+                                params.scope.as_deref(),
+                                params.repository.as_deref(),
+                                clear,
+                                &plan,
+                                &actor,
+                                &reason,
+                                now,
+                            )?;
+                            serde_json::to_value(outcome)
+                                .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                        } else {
+                            store.scope_override_preview(
+                                &params.memory_ids,
+                                params.scope.as_deref(),
+                                params.repository.as_deref(),
+                                clear,
+                            )
+                        }
+                    }
+                    "scope-audit" => store.scope_audit(
                         params
                             .cursor
                             .as_deref()
                             .and_then(|value| value.parse().ok()),
-                        params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
-                        params.entry_type.as_deref(),
-                    )
-                }
-            }
-            "journal" => match params.action.as_deref().unwrap_or("list") {
-                "add" | "update" => store.journal_write(
-                    params.id.as_deref(),
-                    params.intent.as_deref(),
-                    params.state.as_deref().unwrap_or("open"),
-                    params.note.as_deref(),
-                    now,
-                ),
-                _ => store.journal_list(
-                    params.cursor.as_deref(),
-                    params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
-                    params.state.as_deref(),
-                ),
-            },
-            "review-gate" => {
-                if params.action.as_deref() == Some("decide") {
-                    let id = params.id.clone().ok_or_else(|| {
-                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "decide needs an id")
-                    })?;
-                    let state = params
-                        .state
-                        .clone()
-                        .unwrap_or_else(|| "accepted".to_string());
-                    store.backlog_update(&id, &state, params.actor.as_deref(), now)
-                } else {
-                    store.review_gate(now)
-                }
-            }
-            "bundle" => match params.action.as_deref().unwrap_or("export") {
-                "import" => {
-                    if params.format.as_deref() == Some("json") {
-                        return Err(CoreError::invalid(
-                            "ADMIN_ARGUMENT_INVALID",
-                            "JSON bundle import is not supported",
-                        ));
+                        params.limit.unwrap_or(50),
+                    ),
+                    "run-status" => {
+                        let run_id = params.run_id.clone().ok_or_else(|| {
+                            CoreError::invalid(
+                                "ADMIN_ARGUMENT_INVALID",
+                                "run-status requires runId",
+                            )
+                        })?;
+                        store.run_status(&run_id, None, params.limit.unwrap_or(50))
                     }
-                    let path = params.path.clone().ok_or_else(|| {
-                        CoreError::invalid("ADMIN_ARGUMENT_INVALID", "bundle import needs a path")
-                    })?;
-                    store.bundle_import_okf(&path, now)
-                }
-                "export" => store.bundle_export(
-                    params.format.as_deref().unwrap_or("json"),
-                    params.path.as_deref(),
-                    now,
-                ),
-                other => Err(CoreError::invalid(
-                    "ADMIN_ARGUMENT_INVALID",
-                    format!("unknown bundle action: {other}"),
-                )),
-            },
-            "skill-validate" => {
-                let paths = if params.paths.is_empty() {
-                    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-                    lore_core::skills::default_roots(home.as_deref(), Some(&shared.config.data_dir))
-                } else {
-                    params.paths.clone()
-                };
-                let validation = lore_core::skills::validate(&paths);
-                Ok(lore_core::skills::to_value(&validation))
-            }
-            "repair" => {
-                let source_limit = params
-                    .source_limit_bytes
-                    .unwrap_or(lore_core::store::REPAIR_SOURCE_LIMIT_BYTES);
-                let provider_action = params.action.as_deref().unwrap_or("preview");
-                if provider_action == "apply" || params.plan_fingerprint.is_some() {
-                    let plan = params.plan_fingerprint.clone().ok_or_else(|| {
-                        CoreError::invalid(
+                    "onboard" => {
+                        let input = OnboardInput {
+                            user_name: params.user_name.clone(),
+                            assistant_name: params.assistant_name.clone(),
+                            voice: params.voice.clone(),
+                            warmth: params.warmth.clone(),
+                            humor: params.humor.clone(),
+                            humor_frequency: params.humor_frequency.clone(),
+                            collaborative: params.collaborative,
+                            use_name_naturally: params.use_name_naturally,
+                        };
+                        let outcome = store.onboard_apply(&input, now)?;
+                        serde_json::to_value(outcome)
+                            .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                    }
+                    "maintenance" => {
+                        let scope = params.scope.clone().unwrap_or_else(|| {
+                            lore_core::store::DEFAULT_MAINTENANCE_SCOPE.to_string()
+                        });
+                        match params.action.as_deref() {
+                            Some("run") => {
+                                let task = params.task.clone().ok_or_else(|| {
+                                    CoreError::invalid(
+                                        "ADMIN_ARGUMENT_INVALID",
+                                        "running a maintenance task needs a task name",
+                                    )
+                                })?;
+                                if !lore_core::store::MAINTENANCE_TASK_NAMES
+                                    .contains(&task.as_str())
+                                {
+                                    return Err(CoreError::invalid(
+                                        "ADMIN_ARGUMENT_INVALID",
+                                        format!("unknown maintenance task: {task}"),
+                                    ));
+                                }
+                                store.maintenance_sync(&shared.maintenance, &scope, now)?;
+                                let dry_run = params.dry_run;
+                                let run_id = store
+                                    .maintenance_claim(
+                                        &task,
+                                        &scope,
+                                        if dry_run { "manual-dry-run" } else { "manual" },
+                                        dry_run,
+                                        now,
+                                    )?
+                                    .ok_or_else(|| {
+                                        CoreError::conflict(
+                                            "MAINTENANCE_ALREADY_RUNNING",
+                                            "that task already has an active run",
+                                        )
+                                    })?;
+                                let outcome =
+                                    maintenance::run_task(&store, &run_id, &task, dry_run, now);
+                                store.maintenance_finish(
+                                    &run_id,
+                                    outcome.state,
+                                    outcome.completed,
+                                    outcome.failed,
+                                    outcome.needs_attention,
+                                    Some(outcome.detail.clone()),
+                                    now,
+                                )?;
+                                Ok(serde_json::json!({
+                                    "runId": run_id,
+                                    "task": task,
+                                    "scope": scope,
+                                    "dryRun": dry_run,
+                                    "state": outcome.state,
+                                    "counts": {
+                                        "completed": outcome.completed,
+                                        "failed": outcome.failed,
+                                        "needsAttention": outcome.needs_attention,
+                                    },
+                                    "detail": outcome.detail,
+                                }))
+                            }
+                            Some("rollback") => {
+                                let run_id = params.run_id.clone().ok_or_else(|| {
+                                    CoreError::invalid(
+                                        "ADMIN_ARGUMENT_INVALID",
+                                        "rollback needs a runId",
+                                    )
+                                })?;
+                                let restored = maintenance::rollback_hygiene(&store, &run_id)
+                                    .map_err(|reason| {
+                                        CoreError::invalid("MAINTENANCE_ROLLBACK", reason)
+                                    })?;
+                                Ok(serde_json::json!({ "runId": run_id, "restored": restored }))
+                            }
+                            _ => {
+                                store.maintenance_sync(&shared.maintenance, &scope, now)?;
+                                let report = lore_core::store::maintenance_report(
+                                    &store,
+                                    std::slice::from_ref(&scope),
+                                    params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                                )?;
+                                Ok(report)
+                            }
+                        }
+                    }
+                    "migration-unscoped" => {
+                        let source = params.source.clone().ok_or_else(|| {
+                            CoreError::invalid(
+                                "ADMIN_ARGUMENT_INVALID",
+                                "an unscoped import needs the v1 database path as `source`",
+                            )
+                        })?;
+                        let apply = params.action.as_deref() == Some("apply");
+                        let outcome = store.import_unscoped_as_global(
+                            std::path::Path::new(&source),
+                            apply,
+                            now,
+                        )?;
+                        if apply {
+                            shared.worker_state.request_resume();
+                            shared.notify.notify_one();
+                        }
+                        Ok(outcome)
+                    }
+                    "reflect" => {
+                        let query = params.query.as_deref();
+                        let repository = params.repository.as_deref();
+                        let limit = params.limit.unwrap_or(20);
+                        let deterministic = store.reflect(query, repository, limit, false, now)?;
+                        let mut value = serde_json::to_value(&deterministic)
+                            .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))?;
+                        let mut synthesis = "deterministic";
+                        let mut fallback_reason: Option<String> = None;
+                        let mut chosen_text = deterministic.text.clone();
+                        if params.mode.as_deref() == Some("chat")
+                            && !deterministic.memory_ids.is_empty()
+                        {
+                            // The provider call is async; this closure is a blocking
+                            // task, so drive it with the captured runtime handle.
+                            match runtime.block_on(analysis_synthesis(
+                                &shared,
+                                query.unwrap_or(""),
+                                &deterministic.text,
+                                &deterministic.memory_ids,
+                            )) {
+                                Ok(text) => {
+                                    synthesis = "chat";
+                                    chosen_text = text;
+                                }
+                                Err(reason) => {
+                                    fallback_reason = Some(reason);
+                                }
+                            }
+                        }
+                        if params.persist {
+                            let persisted = store.reflect_with_text(
+                                query,
+                                repository,
+                                limit,
+                                true,
+                                Some(&chosen_text),
+                                now,
+                            )?;
+                            value["persisted"] =
+                                serde_json::to_value(persisted.persisted).unwrap_or(Value::Null);
+                            value["committedRevision"] =
+                                serde_json::to_value(persisted.committed_revision)
+                                    .unwrap_or(Value::Null);
+                        }
+                        value["text"] = Value::String(chosen_text);
+                        value["synthesis"] = Value::String(synthesis.to_string());
+                        value["fallbackReason"] =
+                            fallback_reason.map(Value::String).unwrap_or(Value::Null);
+                        Ok(value)
+                    }
+                    "deferred-process" => {
+                        let limit = params.limit.unwrap_or(16).min(64) as usize;
+                        let report = crate::sources::extract_pending(&store, limit, now);
+                        serde_json::to_value(report)
+                            .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                    }
+                    "backfill" => {
+                        let report = crate::sources::run_sweep(&store, &shared.config, now);
+                        serde_json::to_value(report)
+                            .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+                    }
+                    "backlog" => match params.action.as_deref().unwrap_or("list") {
+                        "add" => {
+                            let title = params.title.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "backlog add needs a title",
+                                )
+                            })?;
+                            store.backlog_add(
+                                params.id.as_deref(),
+                                params.kind.as_deref().unwrap_or("improvement"),
+                                &title,
+                                params.detail.as_deref(),
+                                params.source.as_deref().unwrap_or("manual"),
+                                params.run_id.as_deref(),
+                                params.linked_memory_id.as_deref(),
+                                now,
+                            )
+                        }
+                        "link" => {
+                            let id = params.id.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "backlog link needs an id",
+                                )
+                            })?;
+                            store.backlog_link(
+                                &id,
+                                params.linked_memory_id.as_deref(),
+                                params.actor.as_deref(),
+                                now,
+                            )
+                        }
+                        "update" => {
+                            let id = params.id.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "backlog update needs an id",
+                                )
+                            })?;
+                            let state = params.state.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "backlog update needs a state",
+                                )
+                            })?;
+                            store.backlog_update(&id, &state, params.actor.as_deref(), now)
+                        }
+                        _ => store.backlog_list(
+                            params.cursor.as_deref(),
+                            params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                            params.state.as_deref(),
+                        ),
+                    },
+                    "ledger" => {
+                        if params.action.as_deref() == Some("append") {
+                            let detail = params.detail.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "ledger append needs detail",
+                                )
+                            })?;
+                            store.ledger_append(
+                                params.entry_type.as_deref().unwrap_or("note"),
+                                params.subject.as_deref(),
+                                &detail,
+                                params.actor.as_deref(),
+                                now,
+                            )
+                        } else {
+                            store.ledger_page(
+                                params
+                                    .cursor
+                                    .as_deref()
+                                    .and_then(|value| value.parse().ok()),
+                                params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                                params.entry_type.as_deref(),
+                            )
+                        }
+                    }
+                    "journal" => match params.action.as_deref().unwrap_or("list") {
+                        "add" | "update" => store.journal_write(
+                            params.id.as_deref(),
+                            params.intent.as_deref(),
+                            params.state.as_deref().unwrap_or("open"),
+                            params.note.as_deref(),
+                            now,
+                        ),
+                        _ => store.journal_list(
+                            params.cursor.as_deref(),
+                            params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                            params.state.as_deref(),
+                        ),
+                    },
+                    "review-gate" => {
+                        if params.action.as_deref() == Some("decide") {
+                            let id = params.id.clone().ok_or_else(|| {
+                                CoreError::invalid("ADMIN_ARGUMENT_INVALID", "decide needs an id")
+                            })?;
+                            let state = params
+                                .state
+                                .clone()
+                                .unwrap_or_else(|| "accepted".to_string());
+                            store.backlog_update(&id, &state, params.actor.as_deref(), now)
+                        } else {
+                            store.review_gate(now)
+                        }
+                    }
+                    "bundle" => match params.action.as_deref().unwrap_or("export") {
+                        "import" => {
+                            if params.format.as_deref() == Some("json") {
+                                return Err(CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "JSON bundle import is not supported",
+                                ));
+                            }
+                            let path = params.path.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "bundle import needs a path",
+                                )
+                            })?;
+                            store.bundle_import_okf(&path, now)
+                        }
+                        "export" => store.bundle_export(
+                            params.format.as_deref().unwrap_or("json"),
+                            params.path.as_deref(),
+                            now,
+                        ),
+                        other => Err(CoreError::invalid(
                             "ADMIN_ARGUMENT_INVALID",
-                            "applying a repair requires planFingerprint",
-                        )
-                    })?;
-                    store.repair_apply(
-                        &plan,
-                        &params.selected_candidate_ids,
-                        source_limit,
-                        params.actor.as_deref(),
-                        now,
-                    )
-                } else {
-                    store.repair_preview(source_limit)
+                            format!("unknown bundle action: {other}"),
+                        )),
+                    },
+                    "skill-validate" => {
+                        let paths = if params.paths.is_empty() {
+                            let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+                            lore_core::skills::default_roots(
+                                home.as_deref(),
+                                Some(&shared.config.data_dir),
+                            )
+                        } else {
+                            params.paths.clone()
+                        };
+                        let validation = lore_core::skills::validate(&paths);
+                        Ok(lore_core::skills::to_value(&validation))
+                    }
+                    "repair" => {
+                        let source_limit = params
+                            .source_limit_bytes
+                            .unwrap_or(lore_core::store::REPAIR_SOURCE_LIMIT_BYTES);
+                        let provider_action = params.action.as_deref().unwrap_or("preview");
+                        if provider_action == "apply" || params.plan_fingerprint.is_some() {
+                            let plan = params.plan_fingerprint.clone().ok_or_else(|| {
+                                CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "applying a repair requires planFingerprint",
+                                )
+                            })?;
+                            store.repair_apply(
+                                &plan,
+                                &params.selected_candidate_ids,
+                                source_limit,
+                                params.actor.as_deref(),
+                                now,
+                            )
+                        } else {
+                            store.repair_preview(source_limit)
+                        }
+                    }
+                    "replay" => {
+                        store.replay_run(params.limit.unwrap_or(50), params.family.as_deref())
+                    }
+                    "doctor" => store.admin_doctor(
+                        params.dry_run,
+                        params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
+                    ),
+                    "audit/extractions" => {
+                        match (params.action.as_deref(), params.run_id.as_deref()) {
+                            (Some("apply"), Some(run_id)) => {
+                                store.admin_revalidate_extraction(run_id, true, now)
+                            }
+                            (Some("rollback"), Some(run_id)) => {
+                                store.admin_revalidate_extraction(run_id, false, now)
+                            }
+                            (None, _) | (Some("report"), _) => store.admin_audit_extractions(),
+                            (Some("apply"), None) | (Some("rollback"), None) => {
+                                Err(CoreError::invalid(
+                                    "ADMIN_ARGUMENT_INVALID",
+                                    "apply and rollback need a runId",
+                                ))
+                            }
+                            (Some(other), _) => Err(CoreError::invalid(
+                                "ADMIN_ARGUMENT_INVALID",
+                                format!("unknown audit action: {other} (report, apply, rollback)"),
+                            )),
+                        }
+                    }
+                    _ => Err(CoreError::invalid(
+                        "ADMIN_UNKNOWN",
+                        "unknown admin operation",
+                    )),
                 }
-            }
-            "replay" => store.replay_run(params.limit.unwrap_or(50), params.family.as_deref()),
-            "doctor" => store.admin_doctor(
-                params.dry_run,
-                params.limit.unwrap_or(lore_core::store::ADMIN_PAGE_DEFAULT),
-            ),
-            "audit/extractions" => match (params.action.as_deref(), params.run_id.as_deref()) {
-                (Some("apply"), Some(run_id)) => {
-                    store.admin_revalidate_extraction(run_id, true, now)
-                }
-                (Some("rollback"), Some(run_id)) => {
-                    store.admin_revalidate_extraction(run_id, false, now)
-                }
-                (None, _) | (Some("report"), _) => store.admin_audit_extractions(),
-                (Some("apply"), None) | (Some("rollback"), None) => Err(CoreError::invalid(
-                    "ADMIN_ARGUMENT_INVALID",
-                    "apply and rollback need a runId",
-                )),
-                (Some(other), _) => Err(CoreError::invalid(
-                    "ADMIN_ARGUMENT_INVALID",
-                    format!("unknown audit action: {other} (report, apply, rollback)"),
-                )),
             },
-            _ => Err(CoreError::invalid(
-                "ADMIN_UNKNOWN",
-                "unknown admin operation",
-            )),
+        ));
+        let outcome = match caught {
+            Ok(outcome) => outcome,
+            // A panic is not settled. The operation may have committed before it
+            // panicked, so the marker stays pending and a retry is refused, not run again.
+            Err(_) => {
+                return Err(CoreError::internal(
+                    "OPERATION_PANICKED",
+                    "the operation panicked; its outcome is unknown",
+                ));
+            }
         };
-        if let (Ok(value), Some((key, receipt_operation, hash))) = (&outcome, &receipt)
-            && let Ok(response) = serde_json::to_string(value)
-            && let Err(error) = store.store_receipt_json(
-                &client_id,
-                receipt_operation,
-                key,
-                hash,
-                &response,
-                now_ms(),
-            )
-        {
-            eprintln!("[lored] receipt for {receipt_operation} not stored: {error}");
+        // Success replaces the marker with the response. A failure removes it, so
+        // the key can be tried again.
+        if let Some((key, receipt_operation, _)) = &receipt {
+            let settled = match &outcome {
+                Ok(value) => serde_json::to_string(value)
+                    .map_err(|error| error.to_string())
+                    .and_then(|response| {
+                        // The operation already ran, so a transient failure to settle is
+                        // retried rather than left to strand the marker.
+                        let settle = || {
+                            store.finish_receipt_json(&client_id, receipt_operation, key, &response)
+                        };
+                        let mut attempt = settle();
+                        for _ in 1..3 {
+                            if attempt.is_ok() {
+                                break;
+                            }
+                            attempt = settle();
+                        }
+                        attempt.map_err(|error| error.to_string())
+                    }),
+                Err(_) => store
+                    .discard_receipt_json(&client_id, receipt_operation, key)
+                    .map_err(|error| error.to_string()),
+            };
+            if let Err(error) = settled {
+                eprintln!("[lored] receipt for {receipt_operation} not settled: {error}");
+            }
         }
         outcome
     })

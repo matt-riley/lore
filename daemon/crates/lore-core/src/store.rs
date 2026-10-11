@@ -625,6 +625,66 @@ impl Store {
         )
     }
 
+    /// Mark a keyed operation as possibly in flight, before it runs.
+    pub fn begin_receipt_json(
+        &self,
+        client_id: &str,
+        operation: &str,
+        key: &str,
+        request_hash: &str,
+        now_ms: i64,
+    ) -> CoreResult<()> {
+        self.store_receipt_json(
+            client_id,
+            operation,
+            key,
+            request_hash,
+            RECEIPT_PENDING,
+            now_ms,
+        )
+    }
+
+    /// Replace a pending marker with the operation's response. Only a pending
+    /// marker is replaced, so a settled receipt is never overwritten.
+    pub fn finish_receipt_json(
+        &self,
+        client_id: &str,
+        operation: &str,
+        key: &str,
+        response_json: &str,
+    ) -> CoreResult<()> {
+        let connection = self.writer.lock().expect("writer lock");
+        let settled = connection.execute(
+            "UPDATE idempotency_receipts SET response_json = ?1 \
+             WHERE client_id = ?2 AND operation = ?3 AND idempotency_key = ?4 AND response_json = ?5",
+            params![response_json, client_id, operation, key, RECEIPT_PENDING],
+        )?;
+        if settled != 1 {
+            return Err(CoreError::internal(
+                "RECEIPT_NOT_PENDING",
+                "no pending receipt matched this operation",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Remove a pending marker whose operation failed. A failed operation is
+    /// taken to have committed nothing, so the key can be tried again.
+    pub fn discard_receipt_json(
+        &self,
+        client_id: &str,
+        operation: &str,
+        key: &str,
+    ) -> CoreResult<()> {
+        let connection = self.writer.lock().expect("writer lock");
+        connection.execute(
+            "DELETE FROM idempotency_receipts \
+             WHERE client_id = ?1 AND operation = ?2 AND idempotency_key = ?3 AND response_json = ?4",
+            params![client_id, operation, key, RECEIPT_PENDING],
+        )?;
+        Ok(())
+    }
+
     /// Limits in effect for this store.
     pub fn limits(&self) -> &Limits {
         &self.limits
@@ -1955,6 +2015,10 @@ fn lookup_receipt(
         )
         .optional()?)
 }
+
+/// Stored before a keyed operation runs. A retry that finds it cannot tell whether
+/// the operation committed, so it is refused rather than run again.
+pub const RECEIPT_PENDING: &str = "pending";
 
 #[allow(clippy::too_many_arguments)]
 fn store_receipt(

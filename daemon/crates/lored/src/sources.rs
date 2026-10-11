@@ -362,6 +362,9 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
                 );
             }
         };
+    // Unlike admin operations, a registration is not marked pending before it runs.
+    // A retry after a crash runs it again, which is safe: registration upserts the
+    // source by path, so the retry coalesces rather than duplicating.
     match state
         .store
         .lookup_receipt_json(&client_id, "sources.register", &key)

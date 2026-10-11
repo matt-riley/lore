@@ -130,6 +130,7 @@ pub fn validate(paths: &[String]) -> SkillValidation {
         // reported as a failure so a partial pass never reads as a clean one.
         let mut too_deep = false;
         let mut too_many = false;
+        let mut unreadable = false;
         while let Some((directory, depth)) = stack.pop() {
             if depth > MAX_DEPTH {
                 too_deep = true;
@@ -141,7 +142,10 @@ pub fn validate(paths: &[String]) -> SkillValidation {
             }
             let entries = match fs::read_dir(&directory) {
                 Ok(entries) => entries,
-                Err(_) => continue,
+                Err(_) => {
+                    unreadable = true;
+                    continue;
+                }
             };
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -188,6 +192,9 @@ pub fn validate(paths: &[String]) -> SkillValidation {
             limits.push(format!(
                 "directories deeper than {MAX_DEPTH} levels were not read"
             ));
+        }
+        if unreadable {
+            limits.push("a directory could not be read; skills under it were not validated".into());
         }
         if !limits.is_empty() {
             skills.push(SkillReport {

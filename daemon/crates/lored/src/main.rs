@@ -2131,7 +2131,7 @@ async fn handle_view(
         Ok(slot) => slot,
         Err(response) => return response,
     };
-    let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, CoreError> {
+    let work = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, CoreError> {
         let _slot = slot;
         match view.as_str() {
             "overview" => store.view_overview(params.repository.as_deref()),
@@ -2167,8 +2167,25 @@ async fn handle_view(
             },
             _ => Err(CoreError::invalid("VIEW_UNKNOWN", "unknown view")),
         }
-    })
-    .await;
+    });
+    let result = match tokio::time::timeout(
+        effective_deadline(&envelope.meta, MAX_TIMEOUT_MS),
+        work,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            return fail_response(
+                StatusCode::GATEWAY_TIMEOUT,
+                code::DEADLINE_EXCEEDED,
+                reason::REQUEST_DEADLINE,
+                true,
+                Some(&request_id),
+                Some(&store_id),
+            );
+        }
+    };
     match result {
         Ok(Ok(value)) => json(
             StatusCode::OK,

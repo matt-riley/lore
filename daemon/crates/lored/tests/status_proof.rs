@@ -473,3 +473,34 @@ async fn a_second_daemon_refuses_a_live_socket() {
         .expect("status");
     assert_eq!(outcome.status_code, 200);
 }
+
+#[tokio::test]
+async fn required_capabilities_the_daemon_lacks_are_refused_before_routing() {
+    let daemon = Daemon::start();
+    wait_for_socket(daemon.socket()).await;
+    let mut request = meta();
+    request.required_capabilities = vec!["recall.semantic.bounded".to_string()];
+    // Embeddings are disabled in this daemon, so the semantic capability is not advertised.
+    let refused = lore::request(
+        daemon.socket(),
+        "/v2/status",
+        request,
+        serde_json::json!({}),
+    )
+    .await
+    .expect("request");
+    assert_eq!(refused.status_code, 412, "{}", refused.body);
+    assert_eq!(reason(&refused.body), "CAPABILITY_REQUIRED");
+
+    let mut satisfied = meta();
+    satisfied.required_capabilities = vec!["status.basic".to_string()];
+    let accepted = lore::request(
+        daemon.socket(),
+        "/v2/status",
+        satisfied,
+        serde_json::json!({}),
+    )
+    .await
+    .expect("request");
+    assert_eq!(accepted.status_code, 200, "{}", accepted.body);
+}

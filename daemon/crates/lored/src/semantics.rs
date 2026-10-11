@@ -54,6 +54,9 @@ pub struct Semantics {
     provider: Mutex<Option<Arc<EmbeddingProvider>>>,
     identity: Mutex<Option<String>>,
     min_similarity: Mutex<f64>,
+    /// Provider timeout the running provider was built with. Recorded so a
+    /// reload can tell a settings change from an unchanged configuration.
+    timeout_ms: Mutex<u64>,
     cache: Mutex<Cache>,
     slots: Semaphore,
     inflight: Mutex<HashMap<String, Slot>>,
@@ -64,11 +67,13 @@ impl Semantics {
         provider: Option<Arc<EmbeddingProvider>>,
         identity: Option<String>,
         min_similarity: f64,
+        timeout_ms: u64,
     ) -> Self {
         Self {
             provider: Mutex::new(provider),
             identity: Mutex::new(identity),
             min_similarity: Mutex::new(min_similarity),
+            timeout_ms: Mutex::new(timeout_ms),
             cache: Mutex::new(Cache::default()),
             slots: Semaphore::new(QUERY_SLOTS),
             inflight: Mutex::new(HashMap::new()),
@@ -87,16 +92,22 @@ impl Semantics {
         *self.min_similarity.lock().expect("similarity")
     }
 
+    pub fn timeout_ms(&self) -> u64 {
+        *self.timeout_ms.lock().expect("timeout")
+    }
+
     /// Swap the provider after a validated configuration reload.
     pub fn replace(
         &self,
         provider: Option<Arc<EmbeddingProvider>>,
         identity: Option<String>,
         min_similarity: f64,
+        timeout_ms: u64,
     ) {
         *self.provider.lock().expect("provider") = provider;
         *self.identity.lock().expect("identity") = identity;
         *self.min_similarity.lock().expect("similarity") = min_similarity;
+        *self.timeout_ms.lock().expect("timeout") = timeout_ms;
         self.cache.lock().expect("cache").entries.clear();
         self.cache.lock().expect("cache").order.clear();
         self.cache.lock().expect("cache").bytes = 0;
@@ -316,7 +327,7 @@ mod tests {
 
     #[test]
     fn cache_key_covers_query_repository_consent_and_identity() {
-        let semantics = Semantics::new(None, Some("model-a".to_string()), 0.5);
+        let semantics = Semantics::new(None, Some("model-a".to_string()), 0.5, 0);
         let base = semantics.cache_key("query", None, false);
         assert_eq!(base, semantics.cache_key("query", None, false));
         assert_ne!(
@@ -329,7 +340,7 @@ mod tests {
 
     #[test]
     fn cache_reports_size_and_missing_keys() {
-        let semantics = Semantics::new(None, Some("model-a".to_string()), 0.5);
+        let semantics = Semantics::new(None, Some("model-a".to_string()), 0.5, 0);
         semantics.cache_put("key-a", vec![1.0, 0.0]);
         semantics.cache_put("key-b", vec![0.0, 1.0]);
         assert_eq!(semantics.cache_len(), 2);

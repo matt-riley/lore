@@ -162,10 +162,16 @@ async fn main() -> Result<()> {
         .as_ref()
         .map(|embedding| embedding.min_similarity)
         .unwrap_or(0.0);
+    let timeout_ms = config
+        .embedding
+        .as_ref()
+        .map(|embedding| embedding.timeout_ms)
+        .unwrap_or(0);
     let semantics = Arc::new(Semantics::new(
         provider,
         config.embedding_identity.clone(),
         min_similarity,
+        timeout_ms,
     ));
     // A disabled or migrating store serves Status only, so no worker that
     // captures, extracts or writes may start for it.
@@ -536,6 +542,29 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
         );
     }
 
+    // A caller that requires a capability this daemon does not advertise gets an
+    // explicit refusal, not a silent fallback to a weaker answer.
+    let advertised = advertised_capabilities(&state);
+    let required = value
+        .pointer("/meta/requiredCapabilities")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let unmet = required
+        .iter()
+        .filter_map(Value::as_str)
+        .any(|name| !advertised.iter().any(|offered| offered == name));
+    if unmet {
+        return fail_response(
+            StatusCode::PRECONDITION_FAILED,
+            code::FAILED_PRECONDITION,
+            "CAPABILITY_REQUIRED",
+            false,
+            request_id.as_deref(),
+            Some(&state.store_id),
+        );
+    }
+
     match path.as_str() {
         _ if view.is_some() => handle_view(&raw, &state, request_id, view.unwrap()).await,
         _ if admin.is_some() => handle_admin(&raw, &state, request_id, admin.unwrap()).await,
@@ -690,6 +719,63 @@ fn acquire_client(client_id: &str, state: &Arc<State>) -> Result<ClientGuard, Re
     })
 }
 
+/// The capabilities this daemon advertises right now. Status reports them and
+/// the dispatcher checks a request's required set against them.
+fn advertised_capabilities(state: &Arc<State>) -> Vec<String> {
+    let mut capabilities = vec![
+        "status.basic".to_string(),
+        "memory.retain.manual".to_string(),
+        "memory.forget".to_string(),
+        "recall.lexical".to_string(),
+    ];
+    if state.semantics.identity().is_some() {
+        capabilities.push("recall.semantic.bounded".to_string());
+        capabilities.push("embedding.status".to_string());
+        capabilities.push("embedding.retry".to_string());
+        capabilities.push("config.reload".to_string());
+    }
+    // Source, extraction and view capabilities exist regardless of
+    // configured roots; views are always read-only.
+    capabilities.push("sources.register".to_string());
+    capabilities.push("sources.hint".to_string());
+    capabilities.push("sources.status".to_string());
+    capabilities.push("extraction.retry".to_string());
+    capabilities.push("views.read".to_string());
+    capabilities.push("search.browse".to_string());
+    capabilities.push("explain.context".to_string());
+    capabilities.push("validate.read".to_string());
+    capabilities.push("doctor.read".to_string());
+    capabilities.push("audit.read".to_string());
+    capabilities.push("memory.correct".to_string());
+    capabilities.push("memory.purge".to_string());
+    capabilities.push("memory.scope.override".to_string());
+    capabilities.push("memory.scope.audit".to_string());
+    capabilities.push("operations.runs".to_string());
+    capabilities.push("memory.onboard".to_string());
+    capabilities.push("memory.maintenance".to_string());
+    capabilities.push("memory.reflect".to_string());
+    capabilities.push("memory.deferred.process".to_string());
+    capabilities.push("memory.backfill".to_string());
+    capabilities.push("memory.backlog".to_string());
+    capabilities.push("memory.ledger".to_string());
+    capabilities.push("memory.journal".to_string());
+    capabilities.push("memory.review.gate".to_string());
+    capabilities.push("memory.bundle".to_string());
+    capabilities.push("memory.skill.validate".to_string());
+    capabilities.push("memory.repair".to_string());
+    capabilities.push("memory.replay".to_string());
+    if state.analysis.is_some() {
+        capabilities.push("analysis.chat".to_string());
+    }
+    if matches!(&*state.analysis, Some(analysis) if analysis.rerank) {
+        capabilities.push("recall.rerank".to_string());
+    }
+    if !state.enabled || unavailable_reason(state).is_some() {
+        capabilities = vec!["status.basic".to_string()];
+    }
+    capabilities
+}
+
 async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<String>) -> Resp {
     let envelope = match parse_route::<StatusParams>(raw, fallback_id.as_deref(), &state.store_id) {
         Ok(envelope) => envelope,
@@ -765,57 +851,7 @@ async fn handle_status(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
         ),
         Ok(Ok(Err(error))) => core_response(error, &request_id, &store_id),
         Ok(Ok(Ok((status, counts)))) => {
-            let mut capabilities = vec![
-                "status.basic".to_string(),
-                "memory.retain.manual".to_string(),
-                "memory.forget".to_string(),
-                "recall.lexical".to_string(),
-            ];
-            if state.semantics.identity().is_some() {
-                capabilities.push("recall.semantic.bounded".to_string());
-                capabilities.push("embedding.status".to_string());
-                capabilities.push("embedding.retry".to_string());
-                capabilities.push("config.reload".to_string());
-            }
-            // Source, extraction and view capabilities exist regardless of
-            // configured roots; views are always read-only.
-            capabilities.push("sources.register".to_string());
-            capabilities.push("sources.hint".to_string());
-            capabilities.push("sources.status".to_string());
-            capabilities.push("extraction.retry".to_string());
-            capabilities.push("views.read".to_string());
-            capabilities.push("search.browse".to_string());
-            capabilities.push("explain.context".to_string());
-            capabilities.push("validate.read".to_string());
-            capabilities.push("doctor.read".to_string());
-            capabilities.push("audit.read".to_string());
-            capabilities.push("memory.correct".to_string());
-            capabilities.push("memory.purge".to_string());
-            capabilities.push("memory.scope.override".to_string());
-            capabilities.push("memory.scope.audit".to_string());
-            capabilities.push("operations.runs".to_string());
-            capabilities.push("memory.onboard".to_string());
-            capabilities.push("memory.maintenance".to_string());
-            capabilities.push("memory.reflect".to_string());
-            capabilities.push("memory.deferred.process".to_string());
-            capabilities.push("memory.backfill".to_string());
-            capabilities.push("memory.backlog".to_string());
-            capabilities.push("memory.ledger".to_string());
-            capabilities.push("memory.journal".to_string());
-            capabilities.push("memory.review.gate".to_string());
-            capabilities.push("memory.bundle".to_string());
-            capabilities.push("memory.skill.validate".to_string());
-            capabilities.push("memory.repair".to_string());
-            capabilities.push("memory.replay".to_string());
-            if state.analysis.is_some() {
-                capabilities.push("analysis.chat".to_string());
-            }
-            if matches!(&*state.analysis, Some(analysis) if analysis.rerank) {
-                capabilities.push("recall.rerank".to_string());
-            }
-            if !state.enabled || unavailable_reason(state).is_some() {
-                capabilities = vec!["status.basic".to_string()];
-            }
+            let capabilities = advertised_capabilities(state);
             json(
                 StatusCode::OK,
                 &OkEnvelope {
@@ -1114,13 +1150,21 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
     // Speculative lexical snapshot runs while inference is attempted.
     let lexical_store = Arc::clone(&store);
     let lexical_params = params.clone();
-    let speculative = tokio::task::spawn_blocking(move || {
-        lexical_store.lexical_snapshot(&lexical_params, now, Some(deadline))
-    })
-    .await;
-    let speculative = match speculative {
-        Ok(Ok(snapshot)) => Some(snapshot),
-        _ => None,
+    // Bounded by the request budget. Under blocking-pool pressure the snapshot
+    // is skipped rather than queued behind the request's own deadline.
+    let speculative = match blocking_slot(state, Some(&request_id)) {
+        Ok(slot) => {
+            let work = tokio::task::spawn_blocking(move || {
+                let _slot = slot;
+                lexical_store.lexical_snapshot(&lexical_params, now, Some(deadline))
+            });
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match tokio::time::timeout(remaining, work).await {
+                Ok(Ok(Ok(snapshot))) => Some(snapshot),
+                _ => None,
+            }
+        }
+        Err(_) => None,
     };
 
     // Bounded query inference: exact cache first, then one provider call.
@@ -1210,7 +1254,8 @@ async fn handle_recall(raw: &[u8], state: &Arc<State>, fallback_id: Option<Strin
                     );
                 }
             };
-            let value = apply_rerank(state, &params.query, value).await;
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let value = apply_rerank(state, &params.query, value, remaining).await;
             json(
                 StatusCode::OK,
                 &OkEnvelope {
@@ -2118,7 +2163,20 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
         );
     }
     let next_identity = fresh.embedding_identity.clone();
-    if next_identity == state.semantics.identity() {
+    let next_similarity = fresh
+        .embedding
+        .as_ref()
+        .map(|embedding| embedding.min_similarity)
+        .unwrap_or(0.0);
+    let next_timeout = fresh
+        .embedding
+        .as_ref()
+        .map(|embedding| embedding.timeout_ms)
+        .unwrap_or(0);
+    let identity_unchanged = next_identity == state.semantics.identity();
+    let settings_unchanged = next_similarity == state.semantics.min_similarity()
+        && next_timeout == state.semantics.timeout_ms();
+    if identity_unchanged && settings_unchanged {
         return json(
             StatusCode::OK,
             &OkEnvelope {
@@ -2140,11 +2198,7 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
         },
         None => None,
     };
-    let min_similarity = fresh
-        .embedding
-        .as_ref()
-        .map(|embedding| embedding.min_similarity)
-        .unwrap_or(0.0);
+    let min_similarity = next_similarity;
     let generation = fresh
         .embedding
         .as_ref()
@@ -2152,10 +2206,15 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
         .unwrap_or(0);
     state
         .semantics
-        .replace(provider, next_identity, min_similarity);
+        .replace(provider, next_identity, min_similarity, next_timeout);
     state.generation.store(generation, Ordering::Relaxed);
     state.worker_state.request_resume();
     state.notify.notify_one();
+    let reason = if identity_unchanged {
+        "SETTINGS_APPLIED"
+    } else {
+        "PROVIDER_GENERATION_CHANGED"
+    };
     json(
         StatusCode::OK,
         &OkEnvelope {
@@ -2165,7 +2224,7 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
             result: ConfigReloadResult {
                 reloaded: true,
                 generation,
-                reason: "PROVIDER_GENERATION_CHANGED".to_string(),
+                reason: reason.to_string(),
             },
         },
     )
@@ -2227,6 +2286,15 @@ async fn handle_analysis(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
     let request_id = envelope.meta.request_id.clone();
     if let Some(response) = require_store(&envelope.meta, &state.store_id, true) {
         return response;
+    }
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &state.store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     let Some(config) = state.analysis.as_ref() else {
         return fail_response(
@@ -2600,7 +2668,17 @@ async fn analysis_synthesis(
 /// Optional fail-open rerank of the topical recall section. Any provider
 /// failure, invalid output or structural surprise leaves the fused order
 /// untouched and records why.
-async fn apply_rerank(state: &Arc<State>, query: &str, mut value: Value) -> Value {
+async fn apply_rerank(
+    state: &Arc<State>,
+    query: &str,
+    mut value: Value,
+    budget: std::time::Duration,
+) -> Value {
+    if budget.is_zero() {
+        value["diagnostics"]["rerank"] =
+            serde_json::json!({ "applied": false, "reason": "BUDGET_EXHAUSTED" });
+        return value;
+    }
     let Some(config) = (*state.analysis)
         .as_ref()
         .filter(|analysis| analysis.rerank)
@@ -2661,7 +2739,7 @@ async fn apply_rerank(state: &Arc<State>, query: &str, mut value: Value) -> Valu
         &config.endpoint,
         &config.model,
         config.api_key.clone(),
-        std::time::Duration::from_millis(config.default_deadline_ms),
+        budget,
     ) {
         Ok(provider) => provider,
         Err(_) => {
@@ -2687,11 +2765,7 @@ async fn apply_rerank(state: &Arc<State>, query: &str, mut value: Value) -> Valu
     }
     prompt.push_str("\n\nQuery: ");
     prompt.push_str(query);
-    let completion = tokio::time::timeout(
-        std::time::Duration::from_millis(config.default_deadline_ms + 250),
-        provider.complete(&prompt),
-    )
-    .await;
+    let completion = tokio::time::timeout(budget, provider.complete(&prompt)).await;
     let text = match completion {
         Ok(Ok(text)) => text,
         _ => {

@@ -94,16 +94,23 @@ export function buildCorpus() {
   };
 }
 
-function splitOf(family) {
-  const digest = createHash("sha256").update(family.id).digest("hex");
-  return Number.parseInt(digest.slice(0, 2), 16) < Math.floor(0.2 * 256)
-    ? "calibration"
-    : "held-out";
-}
+const digestOf = (family) => createHash("sha256").update(family.id).digest("hex");
 
-/** Families for a split, with their queries. */
+/**
+ * Families for a split, with their queries. The first 20% of family IDs sorted by
+ * SHA-256 are the calibration split and the rest are held out (validation.md).
+ * Families are never divided: all paraphrases of one family share a split.
+ */
 export function splitFamilies(corpus, split) {
-  return corpus.families.filter((family) => splitOf(family) === split);
+  const sorted = [...corpus.families].sort((left, right) =>
+    digestOf(left) < digestOf(right) ? -1 : 1,
+  );
+  const calibration = new Set(
+    sorted.slice(0, Math.floor(0.2 * sorted.length)).map((family) => family.id),
+  );
+  return corpus.families.filter(
+    (family) => (calibration.has(family.id) ? "calibration" : "held-out") === split,
+  );
 }
 
 export function corpusHash() {

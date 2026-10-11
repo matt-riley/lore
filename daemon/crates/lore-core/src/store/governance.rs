@@ -49,6 +49,30 @@ pub(super) fn ledger_insert(
     Ok(())
 }
 
+/// Parse a list cursor into the update stamp and id of the last row read. A bare
+/// stamp, from before ids were part of the cursor, still pages the same way it
+/// always did.
+fn parse_list_cursor(cursor: Option<&str>) -> CoreResult<(i64, String)> {
+    let invalid = || CoreError::invalid("ADMIN_ARGUMENT_INVALID", "cursor must be a decimal id");
+    match cursor {
+        None => Ok((i64::MAX, String::new())),
+        Some(raw) => match raw.split_once(':') {
+            Some((stamp, id)) => Ok((stamp.parse().map_err(|_| invalid())?, id.to_string())),
+            None => Ok((raw.parse().map_err(|_| invalid())?, String::new())),
+        },
+    }
+}
+
+/// The cursor that resumes after `row`: its update stamp and id, so rows that
+/// share a stamp are not skipped at a page boundary.
+fn list_cursor(row: &Value) -> Option<String> {
+    Some(format!(
+        "{}:{}",
+        row["updatedMs"].as_i64()?,
+        row["id"].as_str()?
+    ))
+}
+
 fn page_bounds(limit: u32) -> i64 {
     limit.clamp(1, 200) as i64
 }
@@ -81,19 +105,16 @@ impl Store {
                 format!("unknown backlog state: {state}"),
             ));
         }
-        let start = cursor.unwrap_or(i64::MAX.to_string().as_str()).to_string();
-        let start: i64 = start.parse().map_err(|_| {
-            CoreError::invalid("ADMIN_ARGUMENT_INVALID", "cursor must be a decimal id")
-        })?;
+        let (start, start_id) = parse_list_cursor(cursor)?;
         let limit = page_bounds(limit);
         let connection = self.reader().lock().expect("reader lock");
         let mut statement = connection.prepare(
             "SELECT id, kind, title, detail, state, source, evidence_json, run_id, created_ms, updated_ms \
-             FROM improvement_backlog WHERE updated_ms < ?1 AND updated_ms <= ?1 AND (?2 IS NULL OR state = ?2) \
-             ORDER BY updated_ms DESC, id DESC LIMIT ?3",
+             FROM improvement_backlog WHERE (updated_ms < ?1 OR (updated_ms = ?1 AND id < ?2)) \
+             AND (?3 IS NULL OR state = ?3) ORDER BY updated_ms DESC, id DESC LIMIT ?4",
         )?;
         let rows = statement
-            .query_map(params![start, state, limit], |row| {
+            .query_map(params![start, start_id, state, limit], |row| {
                 Ok(json!({
                     "id": row.get::<_, String>(0)?,
                     "kind": row.get::<_, String>(1)?,
@@ -111,9 +132,7 @@ impl Store {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         let next_cursor = if rows.len() as i64 == limit {
-            rows.last()
-                .and_then(|row| row["updatedMs"].as_i64())
-                .map(|value| value.to_string())
+            rows.last().and_then(list_cursor)
         } else {
             None
         };
@@ -442,18 +461,16 @@ impl Store {
                 format!("unknown journal state: {state}"),
             ));
         }
-        let start = cursor.unwrap_or(i64::MAX.to_string().as_str()).to_string();
-        let start: i64 = start.parse().map_err(|_| {
-            CoreError::invalid("ADMIN_ARGUMENT_INVALID", "cursor must be a decimal id")
-        })?;
+        let (start, start_id) = parse_list_cursor(cursor)?;
         let limit = page_bounds(limit);
         let connection = self.reader().lock().expect("reader lock");
         let mut statement = connection.prepare(
             "SELECT id, intent, state, note, created_ms, updated_ms FROM intent_journal \
-             WHERE updated_ms < ?1 AND (?2 IS NULL OR state = ?2) ORDER BY updated_ms DESC, id DESC LIMIT ?3",
+             WHERE (updated_ms < ?1 OR (updated_ms = ?1 AND id < ?2)) AND (?3 IS NULL OR state = ?3) \
+             ORDER BY updated_ms DESC, id DESC LIMIT ?4",
         )?;
         let rows = statement
-            .query_map(params![start, state, limit], |row| {
+            .query_map(params![start, start_id, state, limit], |row| {
                 Ok(json!({
                     "id": row.get::<_, String>(0)?,
                     "intent": row.get::<_, String>(1)?,
@@ -465,9 +482,7 @@ impl Store {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         let next_cursor = if rows.len() as i64 == limit {
-            rows.last()
-                .and_then(|row| row["updatedMs"].as_i64())
-                .map(|value| value.to_string())
+            rows.last().and_then(list_cursor)
         } else {
             None
         };

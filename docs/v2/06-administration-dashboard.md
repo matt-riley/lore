@@ -64,7 +64,7 @@ because v2 does not persist retrieval queries.
 
 ## Dashboard architecture and boundaries
 
-`lore browser` starts a separate foreground Rust loopback HTTP gateway serving the current browser HTML/CSS/JS. Default bind is 127.0.0.1 and a free local port, reported to the operator; explicit localhost/::1 remain allowed. No 0.0.0.0, remote binding, automatic service launch, or arbitrary operation proxy. Closing the gateway does not stop lored.
+`lore browser` starts a separate foreground Rust loopback HTTP gateway serving the current browser HTML/CSS/JS. Default bind is 127.0.0.1 and a free local port, reported to the operator; explicit localhost/::1 remain allowed. The printed address carries a per-process token: the first visit trades it for an HttpOnly, SameSite=Strict cookie, and every other request must carry that cookie, so other local accounts cannot read the dashboard. No 0.0.0.0, remote binding, automatic service launch, or arbitrary operation proxy. Closing the gateway does not stop lored.
 
 The gateway reads daemon view routes: overview, memories, memory filters, maintenance, episodes, drilldown and health. Add corresponding `/v2/views/<name>` read-only routes and capability IDs. View pagination is keyset-based, default 50/max 200 rows and 1 MiB encoded cap; cursors bind filters/store/revision and expire after five minutes, with explicit stale-cursor restart. Never create a long SQLite snapshot between browser pages.
 

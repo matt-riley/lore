@@ -178,7 +178,7 @@ impl Store {
                 [],
             )?;
         }
-        remap_supersessions(self, run_id)?;
+        remap_supersessions(self, &mut counts)?;
         rebuild_metadata(self, now_ms)?;
         self.write_migration_state(&cursor, &counts, "importing", now_ms)?;
         Ok(())
@@ -274,12 +274,15 @@ fn import_suppressions(
                 .or_else(|| value_str(row, "evidence_fingerprint"))
                 .unwrap_or_default();
             let reason = value_str(row, "reason").unwrap_or_else(|| "migrated_v1".to_string());
-            // An absent creation time is the import moment; a malformed one is quarantined.
-            let Ok(created) = optional_ms(row, "created_at") else {
-                resolve(counts, "memory_suppression", "invalid_created_at");
-                continue;
+            // An absent creation time is the import moment. A malformed one is counted, but the
+            // suppression still applies: dropping it would leave the memory it hides live.
+            let created = match optional_ms(row, "created_at") {
+                Ok(created) => created.unwrap_or(now_ms),
+                Err(()) => {
+                    resolve(counts, "memory_suppression", "invalid_created_at");
+                    now_ms
+                }
             };
-            let created = created.unwrap_or(now_ms);
             transaction.execute(
                 "INSERT INTO suppressions (memory_id, scope, repository, fingerprint, reason, revision, created_ms, state) \
                  VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, 'active') \
@@ -500,9 +503,11 @@ fn import_evidence(
                 continue;
             };
             let linked = linked.unwrap_or(now_ms);
-            let retired = value_str(row, "retired_at")
-                .filter(|value| !value.is_empty())
-                .and_then(|value| parse_iso_ms(&value));
+            // A malformed retirement is quarantined: read as absent, the link would be live.
+            let Ok(retired) = optional_ms(row, "retired_at") else {
+                resolve(counts, "memory_evidence", "invalid_retired_at");
+                continue;
+            };
             transaction.execute(
                 "INSERT INTO memory_evidence (memory_id, source_id, generation, evidence_key, role, \
                  created_ms, retired_ms) VALUES (?1, 'v1-import', ?2, ?3, NULL, ?4, ?5) \
@@ -584,9 +589,16 @@ fn import_repository_mappings(
     Ok(())
 }
 
-fn remap_supersessions(store: &Store, _run_id: &str) -> CoreResult<()> {
-    let connection = store.writer.lock().expect("writer lock");
-    connection.execute(
+/// The v2 ids of migrated memories whose superseding v1 row was not imported.
+const ORPHANED_SUPERSESSION: &str = "SELECT source.v2_id FROM migration_supersession supersession \
+     JOIN migration_id_map source ON source.v1_id = supersession.v1_id \
+     WHERE NOT EXISTS (SELECT 1 FROM migration_id_map target \
+       WHERE target.v1_id = supersession.superseded_by_v1)";
+
+fn remap_supersessions(store: &Store, counts: &mut MigrateCounts) -> CoreResult<()> {
+    let mut connection = store.writer.lock().expect("writer lock");
+    let transaction = connection.transaction()?;
+    transaction.execute(
         "UPDATE memories SET superseded_by = ( \
            SELECT target.v2_id FROM migration_supersession supersession \
            JOIN migration_id_map target ON target.v1_id = supersession.superseded_by_v1 \
@@ -597,6 +609,27 @@ fn remap_supersessions(store: &Store, _run_id: &str) -> CoreResult<()> {
            JOIN migration_id_map source ON source.v1_id = supersession.v1_id)",
         [],
     )?;
+    // Nothing points at a memory whose superseding row was quarantined, so it would
+    // resurface as current. It stays hidden with its content cleared, and the gap is counted.
+    transaction.execute(
+        &format!("DELETE FROM memory_fts WHERE memory_id IN ({ORPHANED_SUPERSESSION})"),
+        [],
+    )?;
+    let orphaned = transaction.execute(
+        &format!(
+            "UPDATE memories SET forgotten = 1, content = '' \
+             WHERE superseded_by IS NULL AND id IN ({ORPHANED_SUPERSESSION})"
+        ),
+        [],
+    )?;
+    transaction.commit()?;
+    // Recomputed on every pass, so a resumed import does not count the gap twice.
+    let key = "memory_supersession:unresolved_target".to_string();
+    if orphaned > 0 {
+        counts.unresolved.insert(key, orphaned as i64);
+    } else {
+        counts.unresolved.remove(&key);
+    }
     Ok(())
 }
 

@@ -420,6 +420,104 @@ fn import_revision_never_falls_below_a_row_revision() {
 }
 
 #[test]
+fn suppression_with_a_malformed_created_at_still_hides_its_memory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let source = build_v1(dir.path(), V20);
+    {
+        let connection = rusqlite::Connection::open(&source).expect("open v1");
+        connection
+            .execute("DELETE FROM semantic_memory WHERE id <> 'mem-a'", [])
+            .expect("keep one row");
+        connection
+            .execute(
+                "INSERT INTO memory_suppression (suppression_key, memory_id, canonical_fingerprint, scope, repository, actor, reason, created_at) \
+                 VALUES ('sup-bad-time', 'mem-a', 'fingerprint-a', 'repo', 'acme/app', 'user', 'forgotten', 'not-a-date')",
+                [],
+            )
+            .expect("suppress mem-a with a malformed time");
+    }
+    let destination = dir.path().join("v2");
+    let preview = migration::preview(&source, &destination).expect("preview");
+    let status =
+        migration::apply(&source, &destination, &preview.fingerprint, true, 1_000).expect("apply");
+    assert_eq!(status.state, "validated");
+    let connection =
+        rusqlite::Connection::open(destination.join("lore-v2.db")).expect("open published");
+    let live: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE forgotten = 0 AND superseded_by IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("live count");
+    assert_eq!(live, 0, "a suppressed memory must not become live");
+    assert_eq!(
+        status
+            .counts
+            .unresolved
+            .get("memory_suppression:invalid_created_at"),
+        Some(&1),
+        "{:?}",
+        status.counts
+    );
+}
+
+#[test]
+fn memory_whose_superseding_row_is_quarantined_stays_hidden() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let source = build_v1(dir.path(), V20);
+    {
+        // mem-a is superseded by mem-b; mem-b's updated_at is malformed, so mem-b is
+        // quarantined and mem-a has no imported successor.
+        let connection = rusqlite::Connection::open(&source).expect("open v1");
+        connection
+            .execute("DELETE FROM semantic_memory WHERE id <> 'mem-a'", [])
+            .expect("keep one row");
+        connection
+            .execute(
+                "INSERT INTO semantic_memory (id, type, content, confidence, scope, repository, tags, created_at, updated_at, metadata_json, canonical_key) \
+                 SELECT 'mem-b', type, content, confidence, scope, repository, tags, created_at, 'not-a-date', metadata_json, canonical_key \
+                 FROM semantic_memory WHERE id = 'mem-a'",
+                [],
+            )
+            .expect("successor row");
+        connection
+            .execute(
+                "UPDATE semantic_memory SET superseded_by = 'mem-b' WHERE id = 'mem-a'",
+                [],
+            )
+            .expect("supersede mem-a");
+    }
+    let destination = dir.path().join("v2");
+    let preview = migration::preview(&source, &destination).expect("preview");
+    let status =
+        migration::apply(&source, &destination, &preview.fingerprint, true, 1_000).expect("apply");
+    assert_eq!(status.state, "validated");
+    let connection =
+        rusqlite::Connection::open(destination.join("lore-v2.db")).expect("open published");
+    let live: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE forgotten = 0 AND superseded_by IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("live count");
+    assert_eq!(
+        live, 0,
+        "the superseded memory must not resurface as current"
+    );
+    assert_eq!(
+        status
+            .counts
+            .unresolved
+            .get("memory_supersession:unresolved_target"),
+        Some(&1),
+        "{:?}",
+        status.counts
+    );
+}
+
+#[test]
 fn backup_and_restore_preserve_later_deletions() {
     let dir = tempfile::tempdir().expect("tempdir");
     let config = config(dir.path());

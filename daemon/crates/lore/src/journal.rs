@@ -61,6 +61,17 @@ impl Journal {
     pub fn record(&mut self, entry: JournalEntry) -> Result<(), String> {
         let key = entry.key.clone();
         self.update(move |file| {
+            // An unresolved payload may be the only copy of a write that committed,
+            // so reusing its key for a different request is refused.
+            if file
+                .entries
+                .get(&key)
+                .is_some_and(|existing| existing.state != "resolved")
+            {
+                return Err(
+                    "an unresolved uncertain write already uses this idempotency key".to_string(),
+                );
+            }
             if !file.entries.contains_key(&key)
                 && file
                     .entries
@@ -292,5 +303,26 @@ mod tests {
             keys.contains(&"from-first") && keys.contains(&"from-second"),
             "{keys:?}"
         );
+    }
+
+    #[test]
+    fn an_unresolved_key_cannot_be_overwritten_but_a_resolved_one_can_be_reused() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut journal = Journal::open(dir.path()).expect("open");
+        journal.record(entry("reused")).expect("first record");
+        let mut other = entry("reused");
+        other.payload = Some(serde_json::json!({"content": "different"}));
+        assert!(
+            journal.record(other.clone()).is_err(),
+            "unresolved payload is kept"
+        );
+        let stored = Journal::open(dir.path()).expect("reopen");
+        assert_eq!(
+            stored.entries().next().expect("entry").payload,
+            Some(serde_json::json!({"content": "secret"})),
+            "the original payload survives the refused reuse"
+        );
+        journal.resolve("reused").expect("resolve");
+        journal.record(other).expect("a resolved key may be reused");
     }
 }

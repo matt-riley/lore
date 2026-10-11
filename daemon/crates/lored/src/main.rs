@@ -167,9 +167,16 @@ async fn main() -> Result<()> {
         config.embedding_identity.clone(),
         min_similarity,
     ));
+    // A disabled or migrating store serves Status only, so no worker that
+    // captures, extracts or writes may start for it.
+    let unavailable_reason = match store.migration_state().map_err(to_anyhow)?.as_deref() {
+        Some("validated") | Some("complete") | None => None,
+        Some(_) => Some("MIGRATION_INCOMPLETE".to_string()),
+    };
+    let background = config.enabled && unavailable_reason.is_none();
     let worker_state = Arc::new(WorkerState::new());
     let notify = Arc::new(Notify::new());
-    let worker_handle = if config.embedding.is_some() {
+    let worker_handle = if background && config.embedding.is_some() {
         let handle = spawn_worker(
             Arc::clone(&semantics),
             Arc::clone(&store),
@@ -186,7 +193,7 @@ async fn main() -> Result<()> {
         .as_ref()
         .map(|embedding| embedding.generation)
         .unwrap_or(0);
-    let scheduler = sources::spawn(Arc::clone(&store), config.clone());
+    let scheduler = sources::spawn(Arc::clone(&store), config.clone(), background);
     scheduler.wake();
     // A wedged store must not leave a daemon that answers nothing.
     watchdog::spawn(Arc::clone(&store));
@@ -194,18 +201,13 @@ async fn main() -> Result<()> {
         ResolvedMaintenance::load(config.config_path.as_deref()).map_err(to_anyhow)?;
     let analysis_config =
         ResolvedAnalysis::load(config.config_path.as_deref()).map_err(to_anyhow)?;
-    if config.enabled {
-        // Disabled stores serve Status only and never run background work.
+    if background {
         maintenance::spawn(
             Arc::clone(&store),
             maintenance_config.clone(),
             lore_core::store::DEFAULT_MAINTENANCE_SCOPE.to_string(),
         );
     }
-    let unavailable_reason = match store.migration_state().map_err(to_anyhow)?.as_deref() {
-        Some("validated") | Some("complete") | None => None,
-        Some(_) => Some("MIGRATION_INCOMPLETE".to_string()),
-    };
     let state = Arc::new(State {
         store,
         store_id: initial.store_id,
@@ -1237,6 +1239,15 @@ async fn handle_admin(
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
     }
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
+    }
     let params = envelope.params.clone();
     let store = Arc::clone(&state.store);
     let shared = Arc::clone(state);
@@ -1767,6 +1778,15 @@ async fn handle_view(
     let store_id = state.store_id.clone();
     if let Some(response) = require_store(&envelope.meta, &store_id, true) {
         return response;
+    }
+    if !state.enabled || unavailable_reason(state).is_some() {
+        return disabled_response(
+            &envelope.meta,
+            &store_id,
+            unavailable_reason(state)
+                .as_deref()
+                .unwrap_or("CONFIG_DISABLED"),
+        );
     }
     let params = envelope.params.clone();
     let store = Arc::clone(&state.store);

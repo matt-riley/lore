@@ -38,14 +38,31 @@ impl Scheduler {
     }
 }
 
+/// Where the next discovery sweep for a root starts. A cursor only resumes an
+/// interrupted scan: once a scan has completed, the next sweep starts from the
+/// beginning, so sessions created later under names that sort before the old
+/// cursor are still found.
+fn discovery_cursor(row: &lore_core::store::SourceRootRow) -> Option<String> {
+    if row.complete {
+        None
+    } else {
+        row.cursor.clone()
+    }
+}
+
 /// Serializes sweeps across the scheduler thread and admin backfill, so two
 /// concurrent sweeps cannot discover and register the same file twice.
 static SWEEP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Spawn the capture scheduler. Sweeps run on a dedicated thread so capture
-/// never contends with the async request runtime.
-pub fn spawn(store: Arc<Store>, config: ResolvedConfig) -> Scheduler {
+/// never contends with the async request runtime. When `active` is false no
+/// thread starts, and wake requests are dropped.
+pub fn spawn(store: Arc<Store>, config: ResolvedConfig, active: bool) -> Scheduler {
     let (sender, receiver) = channel::<()>();
+    if !active {
+        drop(receiver);
+        return Scheduler { sender };
+    }
     let sweep = Duration::from_secs(config.sources.sweep_seconds);
     std::thread::Builder::new()
         .name("lore-sources".into())
@@ -227,7 +244,7 @@ fn run_sweep_locked(store: &Store, config: &ResolvedConfig, now: i64) -> SweepRe
             Ok(roots) => roots
                 .into_iter()
                 .find(|row| row.root_id == root.root_id)
-                .and_then(|row| row.cursor),
+                .and_then(|row| discovery_cursor(&row)),
             Err(_) => None,
         };
         let (registered, next_cursor, complete) =
@@ -823,4 +840,34 @@ fn source_counts(store: &Store) -> Result<SourceStatusCounts, CoreError> {
 /// Status handler used by `/v2/status` for a compact source summary.
 pub fn source_summary(store: &Store) -> Result<SourceStatusCounts, CoreError> {
     source_counts(store)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn root_row(complete: bool, cursor: Option<&str>) -> lore_core::store::SourceRootRow {
+        lore_core::store::SourceRootRow {
+            root_id: "claude".to_string(),
+            client: "claude".to_string(),
+            path: "/roots/claude".to_string(),
+            repository: None,
+            cursor: cursor.map(str::to_string),
+            complete,
+            updated_ms: 0,
+        }
+    }
+
+    #[test]
+    fn an_interrupted_scan_resumes_from_its_cursor() {
+        assert_eq!(
+            discovery_cursor(&root_row(false, Some("m.jsonl"))),
+            Some("m.jsonl".to_string())
+        );
+    }
+
+    #[test]
+    fn a_completed_scan_restarts_so_late_sessions_are_found() {
+        assert_eq!(discovery_cursor(&root_row(true, Some("z.jsonl"))), None);
+    }
 }

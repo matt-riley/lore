@@ -756,3 +756,46 @@ fn auto_extracted_global_directives_stay_out_of_standing_context() {
         "auto global directive is not standing"
     );
 }
+
+#[test]
+fn automatic_extraction_respects_the_memory_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = ResolvedConfig {
+        limits: Limits {
+            max_memories: 1,
+            ..Limits::default()
+        },
+        ..config_with(dir.path(), Limits::default())
+    };
+    let store = Store::open(&config).expect("open");
+    remember(&store, "manual", "The one memory allowed by the cap.");
+
+    let proposal = |content: &str| lore_core::extraction::Proposal {
+        kind: "user_preference".to_string(),
+        content: content.to_string(),
+        scope: "global".to_string(),
+        repository: None,
+        confidence: 0.9,
+        evidence_key: format!("evidence-{content}"),
+        turn_index: 1,
+        source_role: "user".to_string(),
+        rule_version: "test".to_string(),
+        topic_key: content.to_lowercase(),
+        retires: Vec::new(),
+        correction: false,
+    };
+    let report = store
+        .apply_proposals(
+            "source-1",
+            "generation-1",
+            &[proposal("Prefer tabs."), proposal("Prefer spaces.")],
+            2_000,
+        )
+        .expect("apply");
+    assert_eq!(
+        report.applied, 0,
+        "no automatic memory is written past the cap"
+    );
+    assert_eq!(report.capped, 2);
+    assert_eq!(store.status().expect("status").active_memories, 1);
+}

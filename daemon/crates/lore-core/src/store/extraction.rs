@@ -16,6 +16,8 @@ pub struct ApplyReport {
     pub retired: usize,
     pub suppressed: usize,
     pub unresolved: usize,
+    /// New propositions left unwritten because the memory cap is reached.
+    pub capped: usize,
 }
 
 /// A claimed extraction intent.
@@ -49,6 +51,10 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
+        // Automatic capture is bounded by the same cap as manual retain, so a
+        // continuously captured source cannot outgrow the operator's limit.
+        let mut total: i64 =
+            transaction.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
 
         for proposal in proposals {
             if proposal.scope == "unresolved"
@@ -70,6 +76,15 @@ impl Store {
                 .optional()?;
             if suppressed.is_some() {
                 report.suppressed += 1;
+                continue;
+            }
+            let already_stored: i64 = transaction.query_row(
+                "SELECT COUNT(*) FROM memories WHERE id = ?1",
+                params![memory_id],
+                |row| row.get(0),
+            )?;
+            if already_stored == 0 && total >= self.limits.max_memories {
+                report.capped += 1;
                 continue;
             }
 
@@ -130,6 +145,7 @@ impl Store {
             )?;
             if inserted > 0 {
                 report.applied += 1;
+                total += 1;
                 revision += 1;
                 transaction.execute(
                     "INSERT INTO memory_fts (content, kind, tags, memory_id) VALUES (?1, ?2, ?3, ?4)",

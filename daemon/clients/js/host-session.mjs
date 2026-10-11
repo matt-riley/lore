@@ -155,6 +155,26 @@ export function createHostSession({
     discardRetry(key) {
       return journal ? journal.discard(key) : false;
     },
+    /**
+     * Dispatch an unresolved write again with its original route and key. The
+     * daemon replays the original acknowledgement when it committed, so the
+     * entry is only cleared after a response arrives.
+     */
+    async retryUncertain(key) {
+      const entry = journal?.entry(key);
+      if (!entry || entry.resolved || entry.params === null) return null;
+      let result;
+      try {
+        result = await client.call(entry.route, entry.params, {});
+      } catch (error) {
+        // A definitive rejection committed nothing, so the entry is no longer
+        // needed; anything else may have committed and stays for another retry.
+        if (error?.retryable === false) journal.discard(key);
+        throw error;
+      }
+      journal.complete(key);
+      return { operation: entry.operation, result };
+    },
   };
 }
 

@@ -4,7 +4,7 @@
 // resolved socket path, and gets back tool registrations, the /lore command
 // and lifecycle hooks. All behavior lives in host-session.mjs.
 
-import { MODEL_TOOLS } from "../js/model-tools.mjs";
+import { MODEL_TOOLS, toolByName } from "../js/model-tools.mjs";
 import { createHostSession, renderToolCall } from "../js/host-session.mjs";
 import { createInjection } from "../js/injection.mjs";
 
@@ -33,17 +33,32 @@ function sessionIdOf(ctx) {
 }
 
 /**
- * Answer `/lore retries` and `/lore retries discard <key>`. Shared by the Pi
- * and Copilot adapters so both hosts list and discard the same way.
+ * Answer `/lore retries`, `/lore retries retry <key>` and
+ * `/lore retries discard <key>`. Shared by the Pi and Copilot adapters so both
+ * hosts list, replay and discard the same way.
  */
-export function retriesResponse(session, rest) {
+export async function retriesResponse(session, rest) {
+  const retry = /^retry\s+(\S+)$/u.exec(rest);
+  if (retry) {
+    const key = retry[1];
+    let replay;
+    try {
+      replay = await session.retryUncertain(key);
+    } catch (error) {
+      return `lore: replay of ${key} is still uncertain: ${error.message}`;
+    }
+    if (!replay) return `lore: no unresolved uncertain write ${key}.`;
+    const tool = toolByName(replay.operation);
+    const rendered = tool ? tool.present(replay.result) : JSON.stringify(replay.result);
+    return `lore: replayed ${key}.\n${rendered}`;
+  }
   const discard = /^discard\s+(\S+)$/u.exec(rest);
   if (discard) {
     return session.discardRetry(discard[1])
       ? `lore: discarded uncertain write ${discard[1]}.`
       : `lore: no unresolved uncertain write ${discard[1]}.`;
   }
-  if (rest !== "") return "lore: usage: /lore retries [discard <key>]";
+  if (rest !== "") return "lore: usage: /lore retries [retry <key> | discard <key>]";
   const entries = session.retries();
   if (entries.length === 0) return "lore: no uncertain writes pending.";
   return entries

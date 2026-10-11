@@ -252,6 +252,46 @@ test("a non-transport failure keeps the journal payload for explicit retry", asy
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("an uncertain write is replayed from the journal before it is cleared", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-"));
+  const journalPath = path.join(dir, "uncertain-writes.json");
+  const calls = [];
+  const fakeClient = {
+    negotiated: async () => ({ storeId: "store-test", capabilities: [] }),
+    requireCapability: async () => {},
+    call: async (route, params) => {
+      calls.push({ route, params });
+      if (calls.length === 1) {
+        const error = new Error("daemon did not answer");
+        error.reason = "REQUEST_DEADLINE";
+        throw error;
+      }
+      return { memoryId: "mem-replayed" };
+    },
+  };
+  const session = createHostSession({
+    socketPath: "/tmp/unused.sock",
+    createClient: () => fakeClient,
+    journalPath,
+  });
+  await assert.rejects(
+    () => session.invokeTool("lore_retain", { content: "Uncertain." }, { sessionId: "s" }),
+    /did not answer/,
+  );
+  const [pending] = session.retries();
+  assert.equal(pending.operation, "lore_retain");
+  const response = await retriesResponse(session, `retry ${pending.key}`);
+  assert.match(response, /replayed/);
+  assert.deepEqual(session.retries(), []);
+  const entry = session.journal.entry(pending.key);
+  assert.equal(entry.resolved, true);
+  assert.equal(entry.params, null);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].route, calls[0].route);
+  assert.equal(calls[1].params.idempotencyKey, calls[0].params.idempotencyKey);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("journal capacity rejects a write before dispatch", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-"));
   const journalPath = path.join(dir, "uncertain-writes.json");
@@ -602,11 +642,17 @@ test("/lore retries lists pending writes and discards one on request", async () 
   const session = createHostSession({ socketPath: "/tmp/unused.sock", createClient: () => fakeClient, journalPath });
   await assert.rejects(() => session.invokeTool("lore_retain", { content: "Pending." }, { sessionId: "s" }));
   const [pending] = session.retries();
-  assert.match(retriesResponse(session, ""), new RegExp(`lore_retain ${pending.key}`));
-  assert.equal(retriesResponse(session, `discard ${pending.key}`), `lore: discarded uncertain write ${pending.key}.`);
-  assert.equal(retriesResponse(session, ""), "lore: no uncertain writes pending.");
-  assert.equal(retriesResponse(session, `discard ${pending.key}`), `lore: no unresolved uncertain write ${pending.key}.`);
-  assert.match(retriesResponse(session, "purge"), /usage/);
+  assert.match(await retriesResponse(session, ""), new RegExp(`lore_retain ${pending.key}`));
+  assert.equal(
+    await retriesResponse(session, `discard ${pending.key}`),
+    `lore: discarded uncertain write ${pending.key}.`,
+  );
+  assert.equal(await retriesResponse(session, ""), "lore: no uncertain writes pending.");
+  assert.equal(
+    await retriesResponse(session, `discard ${pending.key}`),
+    `lore: no unresolved uncertain write ${pending.key}.`,
+  );
+  assert.match(await retriesResponse(session, "purge"), /usage/);
   rmSync(dir, { recursive: true, force: true });
 });
 

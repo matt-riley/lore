@@ -85,7 +85,7 @@ export function buildCopilotHooks(session, { injection = null } = {}) {
       }
       const { verb, rest } = parseSlashArgs(prompt.replace(/^\/lore\s*/, ""));
       const sessionId = invocation?.sessionId ?? "session";
-      if (verb === "retries") return { response: retriesResponse(session, rest) };
+      if (verb === "retries") return { response: await retriesResponse(session, rest) };
       const tool = VERB_TO_TOOL.get(verb);
       if (!tool) return { response: USAGE };
       let args;

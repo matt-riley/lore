@@ -896,11 +896,12 @@ impl Store {
             return Ok(serde_json::from_str(&response)?);
         }
 
-        // (forgotten, content hash, scope, repository, superseded-by)
-        type ForgetTarget = (i64, String, String, Option<String>, Option<String>);
+        // (forgotten, content hash, scope, repository, superseded-by, content length)
+        type ForgetTarget = (i64, String, String, Option<String>, Option<String>, i64);
         let row: Option<ForgetTarget> = transaction
             .query_row(
-                "SELECT forgotten, content_hash, scope, repository, superseded_by FROM memories WHERE id = ?1",
+                "SELECT forgotten, content_hash, scope, repository, superseded_by, length(content) \
+                 FROM memories WHERE id = ?1",
                 params![params.memory_id],
                 |row| {
                     Ok((
@@ -909,11 +910,13 @@ impl Store {
                         row.get(2)?,
                         row.get(3)?,
                         row.get(4)?,
+                        row.get(5)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((forgotten, content_hash, scope, repository, superseded_by)) = row else {
+        let Some((forgotten, content_hash, scope, repository, superseded_by, content_length)) = row
+        else {
             return Err(CoreError::not_found(
                 "MEMORY_NOT_FOUND",
                 "no memory exists with that ID",
@@ -926,7 +929,11 @@ impl Store {
             |row| row.get::<_, i64>(0),
         )?;
 
-        let result = if forgotten != 0 {
+        // Hygiene holds a forgotten memory with its content and index rows, and has
+        // already taken it out of the active count. An explicit forget retires it for
+        // good, so a later hygiene rollback cannot restore it.
+        let held_by_hygiene = forgotten != 0 && content_length > 0;
+        let result = if forgotten != 0 && !held_by_hygiene {
             ForgetResult {
                 memory_id: params.memory_id.clone(),
                 committed_revision: revision.to_string(),
@@ -957,8 +964,11 @@ impl Store {
                 params![now_ms, params.memory_id],
             )?;
             transaction.execute(
-                "INSERT INTO suppressions (memory_id, scope, repository, fingerprint, reason, revision, created_ms) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO suppressions (memory_id, scope, repository, fingerprint, reason, revision, created_ms, state) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active') \
+                 ON CONFLICT (memory_id, scope, COALESCE(repository, ''), fingerprint) DO UPDATE SET \
+                 reason = excluded.reason, revision = excluded.revision, created_ms = excluded.created_ms, \
+                 state = 'active'",
                 params![
                     params.memory_id,
                     scope,
@@ -971,11 +981,17 @@ impl Store {
             )?;
             // Only a row that was counted as active leaves the active count; a
             // superseded row was already excluded from it.
-            let active_delta = i64::from(superseded_by.is_none());
+            // A held memory already left both counts when hygiene marked it.
+            let active_delta = if held_by_hygiene {
+                0
+            } else {
+                i64::from(superseded_by.is_none())
+            };
+            let forgotten_delta = i64::from(!held_by_hygiene);
             transaction.execute(
                 "UPDATE store_metadata SET memory_revision = ?1, \
-                 active_memories = active_memories - ?2, forgotten_memories = forgotten_memories + 1 WHERE id = 1",
-                params![next_revision, active_delta],
+                 active_memories = active_memories - ?2, forgotten_memories = forgotten_memories + ?3 WHERE id = 1",
+                params![next_revision, active_delta, forgotten_delta],
             )?;
             ForgetResult {
                 memory_id: params.memory_id.clone(),

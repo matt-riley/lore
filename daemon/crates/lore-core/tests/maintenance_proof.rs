@@ -4,7 +4,7 @@ use std::path::Path;
 
 use lore_core::config::{Limits, ResolvedConfig, ResolvedMaintenance, ResolvedSources};
 use lore_core::store::Store;
-use protocol::{RecallParams, RetainParams, Scope};
+use protocol::{ForgetParams, RecallParams, RetainParams, Scope};
 
 fn config(dir: &Path) -> ResolvedConfig {
     ResolvedConfig {
@@ -201,4 +201,70 @@ fn hygiene_reports_candidates_and_rolls_back_exactly() {
         .expect("hygiene");
     assert_eq!(hygiene.runs, 1);
     assert!(hygiene.due_ms >= now + 60 * 1000);
+}
+
+#[test]
+fn explicit_forget_of_a_held_memory_survives_hygiene_rollback() {
+    let dir = tempfile::tempdir().expect("dir");
+    let store = Store::open(&config(dir.path())).expect("open");
+    let now = 2_000_000i64;
+    let expired = retain(
+        &store,
+        "hyg-held",
+        "Held note body the user later forgets.",
+        Some(now - 1),
+        now - 100,
+    );
+    let candidates = store.hygiene_candidates(now, 10).expect("candidates");
+    let maintenance = ResolvedMaintenance::default();
+    store
+        .maintenance_sync(&maintenance, "global", now)
+        .expect("sync");
+    let run_id = store
+        .maintenance_claim("memoryHygiene", "global", "manual", false, now)
+        .expect("claim")
+        .expect("claimed");
+    let marker = format!("hygiene-auto:{run_id}");
+    store
+        .hygiene_apply(&candidates, &marker, now)
+        .expect("apply");
+    store
+        .maintenance_finish(
+            &run_id,
+            "complete",
+            1,
+            0,
+            0,
+            Some(serde_json::json!({ "marker": marker, "applied": candidates })),
+            now,
+        )
+        .expect("finish");
+
+    // The user now forgets the held row explicitly.
+    let forget = store
+        .forget(
+            "client-a",
+            &ForgetParams {
+                idempotency_key: "forget-held".to_string(),
+                memory_id: expired.clone(),
+                reason: Some("user request".to_string()),
+            },
+            now,
+        )
+        .expect("forget");
+    assert_eq!(forget.write_result, "forgotten");
+
+    // Rolling back hygiene must not undo the explicit deletion.
+    let restored = store.hygiene_rollback(&run_id).expect("rollback");
+    assert_eq!(restored, 0, "an explicit forget is not undone by rollback");
+    assert_eq!(forgotten_flag(dir.path(), &expired), 1);
+    let connection = rusqlite::Connection::open(config(dir.path()).store_path).expect("db");
+    let content: String = connection
+        .query_row(
+            "SELECT content FROM memories WHERE id = ?1",
+            rusqlite::params![expired],
+            |row| row.get(0),
+        )
+        .expect("content");
+    assert_eq!(content, "", "the explicitly forgotten content is cleared");
 }

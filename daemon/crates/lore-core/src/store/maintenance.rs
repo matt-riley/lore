@@ -522,9 +522,12 @@ impl Store {
             )? as i64;
             let _ = marker_revisions;
             revision += 1;
+            // A suppression that outlives the marker means an explicit forget: the row
+            // stays forgotten.
             let changed = transaction.execute(
                 "UPDATE memories SET forgotten = 0, revision = ?2, updated_ms = ?3 \
-                 WHERE id = ?1 AND forgotten = 1",
+                 WHERE id = ?1 AND forgotten = 1 \
+                 AND NOT EXISTS (SELECT 1 FROM suppressions WHERE memory_id = ?1)",
                 params![id, revision, crate::store::ops::now_ms()],
             )?;
             if changed > 0 {

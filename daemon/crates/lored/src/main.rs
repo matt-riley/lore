@@ -96,6 +96,8 @@ struct State {
     /// Embedding settings the daemon is serving now. Starts as the startup config
     /// and follows successful reloads, so status reports what queries actually use.
     live_embedding: Mutex<Option<lore_core::config::ResolvedEmbedding>>,
+    /// Keyed admin requests currently running, so a key runs once at a time.
+    keyed_admin: Mutex<std::collections::HashSet<String>>,
     process_instance_id: String,
     started: Instant,
     inflight: Arc<Semaphore>,
@@ -223,6 +225,7 @@ async fn main() -> Result<()> {
         enabled: config.enabled,
         config: config.clone(),
         live_embedding: Mutex::new(config.embedding.clone()),
+        keyed_admin: Mutex::new(std::collections::HashSet::new()),
         process_instance_id: Uuid::new_v4().to_string(),
         started: Instant::now(),
         inflight: Arc::new(Semaphore::new(max_inflight)),
@@ -686,6 +689,36 @@ impl Drop for ClientGuard {
 /// Admission for one blocking store call. The returned permit must move into
 /// the closure: a deadline drops the awaiting future, but the closure keeps
 /// running, and its capacity must stay accounted for until it actually exits.
+/// Holds one keyed admin request for its duration. The key is released when the
+/// request returns, however it returns.
+struct KeyLease {
+    state: Arc<State>,
+    key: String,
+}
+
+impl KeyLease {
+    fn acquire(state: &Arc<State>, key: String) -> Option<Self> {
+        let mut active = state.keyed_admin.lock().expect("keyed admin");
+        if !active.insert(key.clone()) {
+            return None;
+        }
+        Some(Self {
+            state: Arc::clone(state),
+            key,
+        })
+    }
+}
+
+impl Drop for KeyLease {
+    fn drop(&mut self) {
+        self.state
+            .keyed_admin
+            .lock()
+            .expect("keyed admin")
+            .remove(&self.key);
+    }
+}
+
 #[allow(clippy::result_large_err)]
 fn blocking_slot(state: &State, request_id: Option<&str>) -> Result<OwnedSemaphorePermit, Resp> {
     Arc::clone(&state.blocking)
@@ -1307,6 +1340,26 @@ async fn handle_admin(
         bytes.extend(serde_json::to_vec(&canonical).unwrap_or_default());
         (key, receipt_operation, policy::sha256_hex(&bytes))
     });
+    // Only one request per key runs at a time. Without this, two concurrent
+    // requests could both miss the receipt and both perform the operation.
+    let _key_lease = match &receipt {
+        Some((key, receipt_operation, _)) => {
+            match KeyLease::acquire(state, format!("{client_id}\n{receipt_operation}\n{key}")) {
+                Some(lease) => Some(lease),
+                None => {
+                    return fail_response(
+                        StatusCode::CONFLICT,
+                        "ALREADY_EXISTS",
+                        "IDEMPOTENCY_IN_PROGRESS",
+                        true,
+                        Some(&request_id),
+                        Some(&store_id),
+                    );
+                }
+            }
+        }
+        None => None,
+    };
     if let Some((key, receipt_operation, hash)) = &receipt {
         match state
             .store
@@ -1343,6 +1396,7 @@ async fn handle_admin(
     let store = Arc::clone(&state.store);
     let shared = Arc::clone(state);
     let runtime = tokio::runtime::Handle::current();
+    let max_context_bytes = state.config.limits.max_context_bytes;
     let now = now_ms();
     let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, CoreError> {
         match operation.as_str() {
@@ -1359,12 +1413,19 @@ async fn handle_admin(
             }
             "explain" => {
                 let query = lore_core::store::require_query(params.query.as_deref())?;
+                let context_bytes = params.context_bytes.unwrap_or(8 * 1024);
+                if context_bytes == 0 || context_bytes > max_context_bytes {
+                    return Err(CoreError::invalid(
+                        "INVALID_CONTEXT_BYTES",
+                        format!("contextBytes must be 1-{max_context_bytes}"),
+                    ));
+                }
                 store.admin_explain(
                     &query,
                     params.repository.as_deref(),
                     params.include_other_repositories,
                     params.limit.unwrap_or(6),
-                    params.context_bytes.unwrap_or(8 * 1024),
+                    context_bytes,
                     now,
                 )
             }
@@ -2236,9 +2297,10 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
     let identity_unchanged = next_identity == state.semantics.identity();
     let settings_unchanged = next_similarity == state.semantics.min_similarity()
         && next_timeout == state.semantics.timeout_ms();
-    if state.config.embedding_identity.is_none() && next_identity.is_some() {
-        // The store was opened without embeddings, so new writes queue no intents
-        // and no worker exists. Turning them on needs a restart, not a reload.
+    if state.config.embedding_identity.is_some() != next_identity.is_some() {
+        // The store was opened with or without embeddings, which fixes whether new
+        // writes queue intents and whether a worker exists. Switching either way
+        // needs a restart, not a reload.
         return fail_response(
             StatusCode::PRECONDITION_FAILED,
             code::FAILED_PRECONDITION,

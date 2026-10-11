@@ -396,3 +396,18 @@ async fn keyed_admin_writes_are_replayed_and_conflicting_reuse_is_refused() {
         memories
     );
 }
+
+#[tokio::test]
+async fn explain_refuses_a_context_budget_beyond_the_configured_maximum() {
+    let daemon = Daemon::start();
+    let store_id = store_id(&daemon).await;
+    let (code, body) = call(
+        &daemon.socket,
+        "/v2/admin/explain",
+        json!({ "query": "anything", "contextBytes": 100_000_000u64 }),
+        Some(&store_id),
+    )
+    .await;
+    assert_eq!(code, 400, "{body}");
+    assert_eq!(body["error"]["reason"], "INVALID_CONTEXT_BYTES");
+}

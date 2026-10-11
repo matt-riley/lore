@@ -172,6 +172,23 @@ fn body(status: StatusCode, content_type: &str, bytes: Bytes) -> Response<Full<B
         .unwrap_or_else(|_| Response::new(Full::new(Bytes::new())))
 }
 
+/// JSON response body. A payload that cannot be encoded becomes a static error
+/// body with the same status and content type, never an empty response.
+fn json_body(status: StatusCode, value: &Value) -> Response<Full<Bytes>> {
+    match serde_json::to_vec(value) {
+        Ok(bytes) => body(
+            status,
+            "application/json; charset=utf-8",
+            Bytes::from(bytes),
+        ),
+        Err(_) => body(
+            status,
+            "application/json; charset=utf-8",
+            Bytes::from_static(br#"{"error":{"reason":"ENCODE_FAILED"}}"#),
+        ),
+    }
+}
+
 fn message(status: StatusCode, text: &str) -> Response<Full<Bytes>> {
     body(
         status,
@@ -343,11 +360,7 @@ async fn api(name: &str, query: Option<&str>, state: &GatewayState) -> Response<
             Err(response) => return response,
         };
         let translated = translate_view(name, query, &page_result);
-        return body(
-            StatusCode::OK,
-            "application/json; charset=utf-8",
-            Bytes::from(serde_json::to_vec(&json!({ "data": translated })).unwrap_or_default()),
-        );
+        return json_body(StatusCode::OK, &json!({ "data": translated }));
     }
     let mut outcome = view_request(state, &route, &params_json, &store_id).await;
     // The daemon may have been replaced by one serving a different store;
@@ -372,11 +385,7 @@ async fn api(name: &str, query: Option<&str>, state: &GatewayState) -> Response<
                 // assets consume. Unknown shapes pass through unchanged.
                 let translated = translate_view(name, query, &parsed["result"]);
                 let value = json!({ "data": translated });
-                body(
-                    StatusCode::OK,
-                    "application/json; charset=utf-8",
-                    Bytes::from(serde_json::to_vec(&value).unwrap_or_default()),
-                )
+                json_body(StatusCode::OK, &value)
             } else {
                 downstream_error(&parsed)
             }
@@ -445,21 +454,13 @@ fn downstream_error(parsed: &Value) -> Response<Full<Bytes>> {
         .get("error")
         .cloned()
         .unwrap_or_else(|| json!({ "reason": "GATEWAY_ERROR" }));
-    body(
-        StatusCode::BAD_GATEWAY,
-        "application/json; charset=utf-8",
-        Bytes::from(serde_json::to_vec(&json!({ "error": error })).unwrap_or_default()),
-    )
+    json_body(StatusCode::BAD_GATEWAY, &json!({ "error": error }))
 }
 
 fn daemon_unavailable() -> Response<Full<Bytes>> {
-    body(
+    json_body(
         StatusCode::BAD_GATEWAY,
-        "application/json; charset=utf-8",
-        Bytes::from(
-            serde_json::to_vec(&json!({ "error": { "reason": "DAEMON_UNAVAILABLE" } }))
-                .unwrap_or_default(),
-        ),
+        &json!({ "error": { "reason": "DAEMON_UNAVAILABLE" } }),
     )
 }
 

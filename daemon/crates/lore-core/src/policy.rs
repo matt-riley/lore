@@ -192,3 +192,56 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
 }
+
+fn encoded(params: &impl serde::Serialize) -> CoreResult<Vec<u8>> {
+    serde_json::to_vec(params)
+        .map_err(|error| CoreError::internal("PARAMS_UNSERIALIZABLE", error.to_string()))
+}
+
+/// Serialize request parameters for a replay fingerprint. A payload that cannot
+/// be encoded is returned as an error, never hashed as an empty one.
+pub fn params_fingerprint(params: &impl serde::Serialize) -> CoreResult<String> {
+    encoded(params).map(|bytes| sha256_hex(&bytes))
+}
+
+/// Fingerprint an operation name together with its parameters, so the same
+/// parameters under a different name cannot produce the same fingerprint.
+pub fn receipt_fingerprint(operation: &str, params: &impl serde::Serialize) -> CoreResult<String> {
+    let mut material = operation.as_bytes().to_vec();
+    material.push(b'\n');
+    material.extend_from_slice(&encoded(params)?);
+    Ok(sha256_hex(&material))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::ser::Error as _;
+
+    struct Unserializable;
+
+    impl serde::Serialize for Unserializable {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            Err(S::Error::custom("boom"))
+        }
+    }
+
+    #[test]
+    fn a_payload_that_cannot_serialize_is_not_hashed_as_empty() {
+        let error = params_fingerprint(&Unserializable).expect_err("must not hash empty input");
+        assert_eq!(error.reason, "PARAMS_UNSERIALIZABLE");
+        assert!(receipt_fingerprint("admin.search", &Unserializable).is_err());
+    }
+
+    #[test]
+    fn the_operation_name_is_part_of_the_fingerprint() {
+        assert_ne!(
+            receipt_fingerprint("admin.search", &json!({ "limit": 1 })).expect("fingerprint"),
+            receipt_fingerprint("admin.explain", &json!({ "limit": 1 })).expect("fingerprint")
+        );
+        assert_eq!(
+            receipt_fingerprint("admin.search", &json!({ "limit": 1 })).expect("fingerprint"),
+            receipt_fingerprint("admin.search", &json!({ "limit": 1 })).expect("fingerprint")
+        );
+    }
+}

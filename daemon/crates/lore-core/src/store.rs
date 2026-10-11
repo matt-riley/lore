@@ -1109,7 +1109,7 @@ impl Store {
                 updated_ms: row.get(8)?,
                 expires_at_ms: row.get(9)?,
                 source_session_id: row.get(10)?,
-                tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+                tags: parse_tags(&tags_json),
             })
         })?;
         let records: Vec<MemoryRecord> = collapse_duplicates(rows.collect::<Result<_, _>>()?);
@@ -1508,12 +1508,8 @@ impl Store {
                     after = page.last().map(|stored| stored.memory_id.clone());
                     for stored in page {
                         scanned += 1;
-                        let score = embedding::cosine(
-                            vector,
-                            query_norm,
-                            &stored.vector,
-                            stored.norm,
-                        );
+                        let score =
+                            embedding::cosine(vector, query_norm, &stored.vector, stored.norm);
                         if score >= semantic.min_similarity {
                             vector_rank.push((stored.memory_id, score));
                         }
@@ -1762,7 +1758,7 @@ impl Store {
                 updated_ms: row.get(8)?,
                 expires_at_ms: row.get(9)?,
                 source_session_id: row.get(10)?,
-                tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+                tags: parse_tags(&tags_json),
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -1814,11 +1810,17 @@ impl Store {
                 updated_ms: row.get(8)?,
                 expires_at_ms: row.get(9)?,
                 source_session_id: row.get(10)?,
-                tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+                tags: parse_tags(&tags_json),
             })
         })?;
         Ok(collapse_duplicates(rows.collect::<Result<Vec<_>, _>>()?))
     }
+}
+
+/// Tags are stored as a JSON array column. A malformed value yields no tags;
+/// the parse lives in one place so every reader degrades the same way.
+fn parse_tags(tags_json: &str) -> Vec<String> {
+    serde_json::from_str(tags_json).unwrap_or_default()
 }
 
 /// One rendering per memory: drop repeated ids and identical bodies, keeping

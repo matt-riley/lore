@@ -31,8 +31,8 @@ use uuid::Uuid;
 
 use lore_core::config::{ResolvedAnalysis, ResolvedConfig, ResolvedEmbedding, ResolvedMaintenance};
 use lore_core::error::CoreError;
-use lore_core::now_ms;
 use lore_core::lifecycle;
+use lore_core::now_ms;
 use lore_core::policy;
 use lore_core::store::{EmbeddingCounts, OnboardInput, SemanticInput, Store};
 use lore_provider::{EmbeddingProvider, ProviderIdentity};
@@ -1329,15 +1329,19 @@ async fn handle_admin(
     // with the same parameters was already applied. A reused key with different
     // parameters is a conflict, so a lost response can be retried safely.
     let client_id = envelope.meta.client_id.clone();
-    let receipt = envelope.params.idempotency_key.clone().map(|key| {
-        let receipt_operation = format!("admin.{operation}");
-        let mut canonical = envelope.params.clone();
-        canonical.idempotency_key = None;
-        let mut bytes = operation.as_bytes().to_vec();
-        bytes.push(b'\n');
-        bytes.extend(serde_json::to_vec(&canonical).unwrap_or_default());
-        (key, receipt_operation, policy::sha256_hex(&bytes))
-    });
+    let receipt = match envelope.params.idempotency_key.clone() {
+        Some(key) => {
+            let receipt_operation = format!("admin.{operation}");
+            let mut canonical = envelope.params.clone();
+            canonical.idempotency_key = None;
+            let hash = match policy::receipt_fingerprint(&operation, &canonical) {
+                Ok(hash) => hash,
+                Err(error) => return core_response(error, &request_id, &store_id),
+            };
+            Some((key, receipt_operation, hash))
+        }
+        None => None,
+    };
     // Only one request per key runs at a time. Without this, two concurrent
     // requests could both miss the receipt and both perform the operation.
     let _key_lease = match &receipt {
@@ -2260,7 +2264,10 @@ async fn handle_jobs_retry(raw: &[u8], state: &Arc<State>, fallback_id: Option<S
     };
     let client_id = envelope.meta.client_id.clone();
     let key = envelope.params.idempotency_key.clone();
-    let hash = policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
+    let hash = match policy::params_fingerprint(&envelope.params) {
+        Ok(hash) => hash,
+        Err(error) => return core_response(error, &request_id, &store_id),
+    };
     match state
         .store
         .lookup_receipt_json(&client_id, "jobs.retry", &key)

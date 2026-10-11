@@ -342,8 +342,10 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
     }
     let client_id = envelope.meta.client_id.clone();
     let key = envelope.params.idempotency_key.clone();
-    let hash =
-        lore_core::policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
+    let hash = match lore_core::policy::params_fingerprint(&envelope.params) {
+        Ok(hash) => hash,
+        Err(error) => return core_response(error, &request_id, &store_id),
+    };
     // One registration per key at a time: without the lease, two concurrent
     // requests with different paths could both register and both succeed.
     let _key_lease =
@@ -535,8 +537,10 @@ pub async fn handle_hint(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
     }
     let client_id = envelope.meta.client_id.clone();
     let key = envelope.params.idempotency_key.clone();
-    let hash =
-        lore_core::policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
+    let hash = match lore_core::policy::params_fingerprint(&envelope.params) {
+        Ok(hash) => hash,
+        Err(error) => return core_response(error, &request_id, &store_id),
+    };
     match state
         .store
         .lookup_receipt_json(&client_id, "sources.hint", &key)
@@ -695,8 +699,10 @@ pub async fn handle_extraction_retry(
     }
     let client_id = envelope.meta.client_id.clone();
     let key = envelope.params.idempotency_key.clone();
-    let hash =
-        lore_core::policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
+    let hash = match lore_core::policy::params_fingerprint(&envelope.params) {
+        Ok(hash) => hash,
+        Err(error) => return core_response(error, &request_id, &store_id),
+    };
     match state
         .store
         .lookup_receipt_json(&client_id, "extraction.retry", &key)

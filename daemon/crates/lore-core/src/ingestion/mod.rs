@@ -367,6 +367,16 @@ fn capture_jsonl(
     }
     let pending = (observed_size - consumed_to).max(0);
     let state = if pending > 0 { "growing" } else { "caught_up" };
+    // An empty parser state would silently claim the parser has no position to
+    // resume from, so the capture fails instead.
+    let parser_state = match serde_json::to_string(&parser.state) {
+        Ok(parser_state) => parser_state,
+        Err(_) => {
+            report.state = "failed".into();
+            report.reason = Some("PARSER_STATE_UNENCODABLE".into());
+            return;
+        }
+    };
     let commit = CaptureCommit {
         source_id: row.source_id.clone(),
         expected_generation: row.generation.clone(),
@@ -385,7 +395,7 @@ fn capture_jsonl(
         records,
         retire: (!anchored).then(|| (row.generation.clone(), "superseded".into())),
         now_ms,
-        parser_state: serde_json::to_string(&parser.state).unwrap_or_default(),
+        parser_state,
         corrections,
     };
     match store.commit_capture(&commit) {
@@ -662,6 +672,16 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
     // A completed pass resets the cursor so updates to already-seen sessions
     // are reconciled on the next sweep; revisions are rechecked before commit.
     state.cursor = (!complete).then(|| cursor.unwrap_or_default());
+    // An empty parser state would silently claim the parser has no position to
+    // resume from, so the capture fails instead.
+    let parser_state = match serde_json::to_string(&state) {
+        Ok(parser_state) => parser_state,
+        Err(_) => {
+            report.state = "failed".into();
+            report.reason = Some("PARSER_STATE_UNENCODABLE".into());
+            return report;
+        }
+    };
     let commit = CaptureCommit {
         source_id: row.source_id.clone(),
         expected_generation: row.generation.clone(),
@@ -684,7 +704,7 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
         records,
         retire: None,
         now_ms,
-        parser_state: serde_json::to_string(&state).unwrap_or_default(),
+        parser_state,
         corrections: HashMap::new(),
     };
     match store.commit_capture(&commit) {

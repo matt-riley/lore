@@ -209,11 +209,9 @@ pub fn setup_apply(
                 continue;
             }
             let document = integration_document(client, socket, version);
-            let hash = sha256_hex(
-                serde_json::to_string_pretty(&document)
-                    .unwrap_or_default()
-                    .as_bytes(),
-            );
+            let rendered = serde_json::to_string_pretty(&document)
+                .map_err(|error| format!("render integration document: {error}"))?;
+            let hash = sha256_hex(rendered.as_bytes());
             let current = std::fs::read(&path)
                 .map(|bytes| sha256_hex(&bytes))
                 .unwrap_or_default();

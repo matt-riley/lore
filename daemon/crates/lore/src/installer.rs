@@ -293,29 +293,35 @@ pub fn setup_apply(
             });
             actions.push(json!({ "client": client, "state": "written" }));
         }
+        // The manifest records ownership of every file above, so it is part of the
+        // same transaction: if it cannot be written, the files are restored too.
+        if !remove {
+            manifest["formatVersion"] = json!(1);
+            manifest["updatedMs"] = json!(now_ms());
+        }
+        touched.push((
+            integrations_path(home),
+            std::fs::read(integrations_path(home)).ok(),
+        ));
+        if remove
+            && manifest["managed"]
+                .as_object()
+                .is_none_or(|map| map.is_empty())
+        {
+            let _ = std::fs::remove_file(integrations_path(home));
+        } else {
+            write_private(
+                &integrations_path(home),
+                serde_json::to_vec_pretty(&manifest)
+                    .unwrap_or_default()
+                    .as_slice(),
+            )?;
+        }
         Ok(())
     })();
     if let Err(error) = outcome {
         restore_files(&touched);
         return Err(error);
-    }
-    if !remove {
-        manifest["formatVersion"] = json!(1);
-        manifest["updatedMs"] = json!(now_ms());
-    }
-    if remove
-        && manifest["managed"]
-            .as_object()
-            .is_none_or(|map| map.is_empty())
-    {
-        let _ = std::fs::remove_file(integrations_path(home));
-    } else {
-        write_private(
-            &integrations_path(home),
-            serde_json::to_vec_pretty(&manifest)
-                .unwrap_or_default()
-                .as_slice(),
-        )?;
     }
     plan["applied"] = json!(true);
     plan["actions"] = json!(actions);

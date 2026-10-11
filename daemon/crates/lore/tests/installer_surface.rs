@@ -477,3 +477,21 @@ fn a_failed_setup_restores_the_clients_it_already_wrote() {
         "{}\n"
     );
 }
+
+#[test]
+fn a_failed_manifest_write_restores_the_client_files_it_describes() {
+    let home = tempfile::tempdir().expect("home");
+    let integrations = home.path().join(".lore/integrations");
+    std::fs::create_dir_all(&integrations).expect("mkdir");
+    // The manifest path is a directory, so writing it fails after pi's file is written.
+    std::fs::create_dir_all(home.path().join(".lore/integrations.json")).expect("block manifest");
+    let (code, _, stderr) = run(
+        home.path(),
+        &["setup", "--clients", "pi", "--apply", "--output", "json"],
+    );
+    assert_ne!(code, 0, "{stderr}");
+    assert!(
+        !integrations.join("pi.json").exists(),
+        "pi's file is rolled back when its manifest entry cannot be saved"
+    );
+}

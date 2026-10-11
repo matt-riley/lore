@@ -163,26 +163,24 @@ export function createHostSession({
     async retryUncertain(key) {
       const entry = journal?.entry(key);
       if (!entry || entry.resolved || entry.params === null) return null;
-      // The journal names the store the write belongs to. A daemon that now serves
-      // a different store must not receive it, so the entry stays unresolved.
-      const state = await client.negotiated({});
-      if (state.storeId !== entry.storeId) {
-        const error = new Error(
-          `uncertain write ${key} belongs to store ${entry.storeId}; this daemon serves ${state.storeId}`,
-        );
-        error.reason = "STORE_MISMATCH";
-        throw error;
-      }
       let result;
       try {
+        // The daemon is the authority on which store it serves, so the pinned
+        // request is dispatched directly rather than compared against a cached
+        // identity that may itself be stale.
         result = await client.call(entry.route, entry.params, { pinStoreId: entry.storeId });
       } catch (error) {
         // A mismatch is still uncertain: the write may have committed in the
         // recorded store, so the entry is kept. Any other definitive rejection
         // committed nothing.
-        if (error?.reason !== "STORE_MISMATCH" && error?.retryable === false) {
-          journal.discard(key);
+        if (error?.reason === "STORE_MISMATCH") {
+          const mismatch = new Error(
+            `uncertain write ${key} belongs to store ${entry.storeId}; this daemon serves another store`,
+          );
+          mismatch.reason = "STORE_MISMATCH";
+          throw mismatch;
         }
+        if (error?.retryable === false) journal.discard(key);
         throw error;
       }
       journal.complete(key);

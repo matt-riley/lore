@@ -300,8 +300,14 @@ test("a retry is refused when the daemon serves a different store", async () => 
   const fakeClient = {
     negotiated: async () => ({ storeId: servedStore, capabilities: [] }),
     requireCapability: async () => {},
-    call: async () => {
+    call: async (_route, _params, options) => {
       dispatched += 1;
+      // The daemon rejects a pinned request that names another store.
+      if (options?.pinStoreId !== undefined && options.pinStoreId !== servedStore) {
+        const error = new Error("store mismatch");
+        error.reason = "STORE_MISMATCH";
+        throw error;
+      }
       const error = new Error("daemon did not answer");
       error.reason = "REQUEST_DEADLINE";
       throw error;
@@ -319,11 +325,11 @@ test("a retry is refused when the daemon serves a different store", async () => 
   const [pending] = session.retries();
   assert.equal(dispatched, 1);
 
-  // The store is replaced; the recorded write must not follow it.
+  // The store is replaced; the recorded write is dispatched pinned and refused.
   servedStore = "store-replaced";
   const response = await retriesResponse(session, `retry ${pending.key}`);
   assert.match(response, /belongs to store store-original/);
-  assert.equal(dispatched, 1, "the replacement store received no dispatch");
+  assert.equal(dispatched, 2, "the pinned retry reached the daemon and was refused");
   assert.equal(session.retries().length, 1, "the entry stays unresolved");
   const entry = session.journal.entry(pending.key);
   assert.equal(entry.resolved, false);

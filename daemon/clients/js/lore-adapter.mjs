@@ -143,7 +143,14 @@ export function createLoreClient({ socketPath, clientId = "adapter" }) {
             signal,
           }),
           signal,
-        ).then(unwrap);
+        )
+          .then(unwrap)
+          .catch((error) => {
+            // The daemon serves another store now, so the cached identity is
+            // stale; the next negotiation must observe the replacement.
+            if (error?.reason === "STORE_MISMATCH") cached = null;
+            throw error;
+          });
       }
       return bound(
         (state) =>

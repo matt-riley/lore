@@ -876,7 +876,8 @@ impl Store {
     ) -> CoreResult<ForgetResult> {
         let mut connection = self.writer.lock().expect("writer lock");
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let request_hash = policy::forget_request_hash(&params.memory_id, params.reason.as_deref());
+        let request_hash =
+            policy::forget_request_hash(&params.memory_id, params.reason.as_deref())?;
         if let Some((stored_hash, response)) = lookup_receipt(
             &transaction,
             client_id,

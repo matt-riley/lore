@@ -180,11 +180,11 @@ pub fn retain_request_hash(params: &RetainParams) -> String {
 }
 
 /// Deterministic canonical payload hash for Forget retries.
-pub fn forget_request_hash(memory_id: &str, reason: Option<&str>) -> String {
+pub fn forget_request_hash(memory_id: &str, reason: Option<&str>) -> CoreResult<String> {
     let mut map = Map::new();
     map.insert("memoryId".to_string(), json!(memory_id));
     map.insert("reason".to_string(), json!(reason));
-    sha256_hex(&serde_json::to_vec(&Value::Object(map)).unwrap_or_default())
+    params_fingerprint(&Value::Object(map))
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {

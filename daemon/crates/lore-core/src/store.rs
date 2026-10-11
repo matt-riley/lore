@@ -1386,7 +1386,10 @@ impl Store {
     }
 
     /// Fused lexical and semantic recall under one read snapshot.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the request plus its read-snapshot context"
+    )]
     pub fn recall_fused(
         &self,
         params: &RecallParams,
@@ -1431,7 +1434,10 @@ impl Store {
         result
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the request plus its read-snapshot context"
+    )]
     fn recall_fused_on(
         &self,
         connection: &Connection,
@@ -2051,7 +2057,10 @@ fn lookup_receipt(
 /// the operation committed, so it is refused rather than run again.
 pub const RECEIPT_PENDING: &str = "pending";
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the parameters are the request plus its read-snapshot context"
+)]
 fn store_receipt(
     connection: &Connection,
     client_id: &str,

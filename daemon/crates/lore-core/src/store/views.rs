@@ -135,7 +135,10 @@ impl Store {
     }
 
     /// Keyset page of memories for the dashboard.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters mirror the dashboard page query"
+    )]
     pub fn view_memories(
         &self,
         repository: Option<&str>,
@@ -152,7 +155,10 @@ impl Store {
 
     /// Keyset page of memories in one lifecycle state: `active` (neither forgotten
     /// nor superseded), `superseded`, `forgotten`, or `all`.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters mirror the dashboard page query"
+    )]
     pub fn view_memories_in_state(
         &self,
         repository: Option<&str>,

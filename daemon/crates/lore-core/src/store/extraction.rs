@@ -35,7 +35,10 @@ impl Store {
     /// Apply extracted proposals for one source generation. Idempotent:
     /// identical propositions map to one memory ID and re-application only
     /// refreshes evidence links.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the proposal fields the write binds"
+    )]
     pub fn apply_proposals(
         &self,
         source_id: &str,

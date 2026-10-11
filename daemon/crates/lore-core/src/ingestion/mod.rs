@@ -958,7 +958,10 @@ fn normalize_repository_hint(value: &str) -> Option<String> {
 }
 
 /// Verify a hinted path and register it inside an approved root.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the parameters are the resolved root and its discovery context"
+)]
 pub fn register_hinted_source(
     store: &Store,
     root: &ResolvedSourceRoot,

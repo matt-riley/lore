@@ -266,7 +266,10 @@ impl Store {
     // ---------------------------------------------------------------------
 
     /// Preview a correction and return the deterministic plan fingerprint.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the operation payload a transaction binds field by field"
+    )]
     pub fn correct_preview(
         &self,
         memory_id: &str,
@@ -292,7 +295,10 @@ impl Store {
     /// Apply a previewed correction: a manual replacement is created, the
     /// original is retired with lineage, and dependent derived state is
     /// invalidated atomically. Requires the exact preview fingerprint.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the operation payload a transaction binds field by field"
+    )]
     pub fn correct_apply(
         &self,
         memory_id: &str,
@@ -600,7 +606,10 @@ impl Store {
 
     /// Apply a previewed purge: forgotten with durable scoped suppression,
     /// derived vectors removed, evidence retained as provenance.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the operation payload a transaction binds field by field"
+    )]
     /// derived vectors removed, evidence retained as provenance.
     pub fn purge_apply(
         &self,
@@ -837,7 +846,10 @@ impl Store {
 
     /// Apply a previewed scope override, recording actor/reason in the audit
     /// ledger and invalidating vector eligibility immediately.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the operation payload a transaction binds field by field"
+    )]
     pub fn scope_override_apply(
         &self,
         memory_ids: &[String],
@@ -1210,7 +1222,10 @@ pub(super) fn queue_embedding(
 ///
 /// Returns `(memory_id, created, changed)`; a repeat onboard with identical
 /// content is a no-op that keeps the same memory id.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the parameters are the operation payload a transaction binds field by field"
+)]
 fn upsert_identity(
     transaction: &rusqlite::Transaction<'_>,
     kind: &str,
@@ -1564,7 +1579,10 @@ impl Store {
 /// The correction plan for one memory against the given connection. Apply runs
 /// it again inside its write transaction, so the fingerprint it checks describes
 /// the state it writes against.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the parameters are the operation payload a transaction binds field by field"
+)]
 fn correct_preview_on(
     connection: &rusqlite::Connection,
     memory_id: &str,

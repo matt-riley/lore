@@ -16,3 +16,6 @@ serde_json.workspace = true
 sha2 = "0.10"
 tokio.workspace = true
 url = "2"
+
+[lints]
+workspace = true

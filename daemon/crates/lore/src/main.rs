@@ -1085,7 +1085,10 @@ async fn run(cli: Cli) -> Result<(), String> {
 }
 
 /// Dispatch one canonical operation, journaling mutations before dispatch.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "every dispatch needs the cli and socket context; grouping them would hide the shared pair"
+)]
 async fn dispatch_tool(
     cli: &Cli,
     socket: &Path,

@@ -28,3 +28,6 @@ rusqlite = { version = "0.40", features = ["bundled", "backup"] }
 lore.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+
+[lints]
+workspace = true

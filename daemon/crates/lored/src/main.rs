@@ -591,7 +591,10 @@ async fn handle(request: Request<Incoming>, state: Arc<State>) -> Resp {
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the refusal response the route returns as-is"
+)]
 fn parse_route<P: DeserializeOwned + Default>(
     raw: &[u8],
     request_id: Option<&str>,
@@ -713,7 +716,10 @@ impl Drop for KeyLease {
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the refusal response the route returns as-is"
+)]
 fn blocking_slot(state: &State, request_id: Option<&str>) -> Result<OwnedSemaphorePermit, Resp> {
     Arc::clone(&state.blocking)
         .try_acquire_owned()
@@ -729,7 +735,10 @@ fn blocking_slot(state: &State, request_id: Option<&str>) -> Result<OwnedSemapho
         })
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the refusal response the route returns as-is"
+)]
 fn acquire_client(client_id: &str, state: &Arc<State>) -> Result<ClientGuard, Resp> {
     let mut clients = state.clients.lock().expect("client map");
     let count = clients.entry(client_id.to_string()).or_insert(0);

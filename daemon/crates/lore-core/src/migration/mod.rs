@@ -441,7 +441,10 @@ pub fn apply(
     Ok(status)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the parameters are the staging and destination paths the swap needs"
+)]
 fn publish(
     destination: &Path,
     staging: &Path,

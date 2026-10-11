@@ -222,7 +222,10 @@ impl Store {
     }
 
     /// Register a source idempotently. Returns the row and whether it is new.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the source columns"
+    )]
     pub fn register_source(
         &self,
         source_id: &str,

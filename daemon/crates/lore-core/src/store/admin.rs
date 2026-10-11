@@ -20,7 +20,10 @@ pub const ADMIN_PAGE_MAX: u32 = 200;
 impl Store {
     /// Lexical browsing with explicit scope selection and keyset pagination.
     /// Suppression, expiry and supersession always apply to active results.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters mirror the admin route fields the query binds one-for-one"
+    )]
     pub fn admin_search(
         &self,
         query: &str,
@@ -113,7 +116,10 @@ impl Store {
 
     /// Explanation of the context Recall would assemble, with represented IDs
     /// and bounded diagnostic reasons. No query text is persisted.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters mirror the admin route fields the query binds one-for-one"
+    )]
     pub fn admin_explain(
         &self,
         query: &str,

@@ -158,7 +158,10 @@ fn matches_expected(proposal: &Proposal, expected: &Expected) -> bool {
 }
 
 struct BlueprintReport {
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "reported in the blueprint for diagnostics; the assertions do not read it"
+    )]
     id: String,
     extracted: usize,
     matched_extracted: usize,
@@ -167,7 +170,10 @@ struct BlueprintReport {
     forbidden_hits: usize,
     false_global: usize,
     unresolved: usize,
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "reported in the blueprint for diagnostics; the assertions do not read it"
+    )]
     critical: Vec<String>,
     failures: Vec<String>,
 }

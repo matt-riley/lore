@@ -145,7 +145,10 @@ impl Store {
     }
 
     /// Add a backlog item.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the backlog item fields"
+    )]
     pub fn backlog_add(
         &self,
         id: Option<&str>,
@@ -980,7 +983,10 @@ impl Store {
             #[serde(rename = "type", default)]
             kind: Option<String>,
             #[serde(default)]
-            #[allow(dead_code)]
+            #[allow(
+                dead_code,
+                reason = "deserialized for fixture round-trips; the assertions do not read it"
+            )]
             scope: Option<String>,
             #[serde(default)]
             anchors: Vec<String>,

@@ -411,7 +411,10 @@ impl Store {
     }
 
     /// Record a failure: schedule a retry within budget or go terminal.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the embedding job fields the statement binds"
+    )]
     pub fn fail_job(
         &self,
         job_id: &str,
@@ -518,7 +521,10 @@ impl Store {
     }
 
     /// Page eligible stored vectors in stable memory-ID order.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the embedding job fields the statement binds"
+    )]
     pub fn vector_page(
         &self,
         connection: &rusqlite::Connection,

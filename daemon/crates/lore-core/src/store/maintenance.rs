@@ -215,7 +215,10 @@ impl Store {
 
     /// Finish a claimed run and advance the task's due time by its cadence.
     /// A missed-while-running interval coalesces to one run from now.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parameters are the completion fields the update binds"
+    )]
     pub fn maintenance_finish(
         &self,
         run_id: &str,

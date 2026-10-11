@@ -394,7 +394,10 @@ async fn api(name: &str, query: Option<&str>, state: &GatewayState) -> Response<
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the gateway response returned as-is; boxing it would allocate per request"
+)]
 async fn gateway_store_id(state: &GatewayState) -> Result<String, Response<Full<Bytes>>> {
     if let Some(store_id) = state.store_id.lock().await.clone() {
         return Ok(store_id);
@@ -402,7 +405,10 @@ async fn gateway_store_id(state: &GatewayState) -> Result<String, Response<Full<
     gateway_store_id_refresh(state).await
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the gateway response returned as-is; boxing it would allocate per request"
+)]
 async fn gateway_store_id_refresh(state: &GatewayState) -> Result<String, Response<Full<Bytes>>> {
     let meta = browser_meta();
     match lore::request(&state.socket, "/v2/status", meta, json!({})).await {
@@ -504,7 +510,10 @@ fn adjust_params(name: &str, query: Option<&str>, params: &mut ViewParams) {
 
 /// One memories page. The daemon pages by keyset cursor, so reaching page N means
 /// following the cursor N-1 times; each step is bounded by the page size.
-#[allow(clippy::result_large_err)]
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the gateway response returned as-is; boxing it would allocate per request"
+)]
 async fn memories_page(
     state: &GatewayState,
     query: Option<&str>,
@@ -530,7 +539,10 @@ async fn memories_page(
 
 /// One read-only view request with the gateway's store-identity refresh and error
 /// mapping, returning the result payload.
-#[allow(clippy::result_large_err)]
+#[allow(
+    clippy::result_large_err,
+    reason = "the error arm is the gateway response returned as-is; boxing it would allocate per request"
+)]
 async fn fetch_view(
     state: &GatewayState,
     route: &str,

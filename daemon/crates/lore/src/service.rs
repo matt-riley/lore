@@ -287,15 +287,24 @@ pub fn install(
         .ok_or_else(|| "the service contract supports macOS and Linux only".to_string())?;
     // The service runs the daemon, not this CLI. Both ship in the same
     // directory, so resolve the sibling rather than trusting argv[0].
-    let executable =
-        std::env::current_exe().map_err(|error| format!("resolve executable: {error}"))?;
-    let executable = executable
-        .parent()
-        .map(|dir| dir.join("lored"))
-        .filter(|candidate| candidate.exists())
-        .ok_or_else(|| {
-            "lored must be installed next to lore; reinstall from a released package".to_string()
-        })?;
+    // Prefer the stable launcher: `lore upgrade` switches it, so the unit follows
+    // upgrades. Resolving the running binary would pin a versioned path on Linux,
+    // where current_exe follows symlinks.
+    let launcher = crate::installer::launcher_dir(home).join("lored");
+    let executable = if launcher.exists() {
+        launcher
+    } else {
+        let current =
+            std::env::current_exe().map_err(|error| format!("resolve executable: {error}"))?;
+        current
+            .parent()
+            .map(|dir| dir.join("lored"))
+            .filter(|candidate| candidate.exists())
+            .ok_or_else(|| {
+                "lored must be installed next to lore; reinstall from a released package"
+                    .to_string()
+            })?
+    };
     let config = config_override
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| home.join(".lore/lore.json"));

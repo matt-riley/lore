@@ -308,6 +308,17 @@ fn params_from_query(query: Option<&str>) -> ViewParams {
     params
 }
 
+/// Following the cursor to page N costs N daemon round trips, so the memories
+/// dashboard stops at this page. Later pages are refused, not served as this one.
+const MEMORY_PAGE_LIMIT: u32 = 40;
+
+fn requested_page(query: Option<&str>) -> u64 {
+    query_value(&query_pairs(query), "page")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(1)
+        .max(1)
+}
+
 async fn api(name: &str, query: Option<&str>, state: &GatewayState) -> Response<Full<Bytes>> {
     if name.contains("..") || !VIEWS.contains(&name) {
         return message(StatusCode::NOT_FOUND, "unknown view");
@@ -321,6 +332,12 @@ async fn api(name: &str, query: Option<&str>, state: &GatewayState) -> Response<
         Err(response) => return response,
     };
     if name == "memories" {
+        if requested_page(query) > u64::from(MEMORY_PAGE_LIMIT) {
+            return message(
+                StatusCode::BAD_REQUEST,
+                "PAGE_BEYOND_LIMIT: the memories dashboard reaches the first 40 pages; narrow the state filter to see older memories",
+            );
+        }
         let page_result = match memories_page(state, query, &params).await {
             Ok(result) => result,
             Err(response) => return response,
@@ -492,11 +509,7 @@ async fn memories_page(
     query: Option<&str>,
     params: &ViewParams,
 ) -> Result<Value, Response<Full<Bytes>>> {
-    let pairs = query_pairs(query);
-    let page = query_value(&pairs, "page")
-        .and_then(|value| value.parse::<u32>().ok())
-        .unwrap_or(1)
-        .clamp(1, 40);
+    let page = requested_page(query);
     let mut step_params = serde_json::to_value(params).unwrap_or_default();
     let mut cursor: Option<String> = None;
     for index in 1..=page {
@@ -547,10 +560,7 @@ async fn fetch_view(
 
 fn translate_memories(query: Option<&str>, result: &Value) -> Value {
     let pairs = query_pairs(query);
-    let page = query_value(&pairs, "page")
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(1)
-        .clamp(1, 40);
+    let page = requested_page(query).min(u64::from(MEMORY_PAGE_LIMIT));
     let page_size = query_value(&pairs, "pageSize")
         .or_else(|| query_value(&pairs, "limit"))
         .and_then(|value| value.parse::<u64>().ok())
@@ -559,7 +569,9 @@ fn translate_memories(query: Option<&str>, result: &Value) -> Value {
     // `result` already holds exactly the requested page.
     let items: Vec<Value> = result["items"].as_array().cloned().unwrap_or_default();
     let skip = ((page - 1).saturating_mul(page_size)) as usize;
-    let more = result["nextCursor"].is_string();
+    // A page past the walk limit is refused, so the last reachable page must not
+    // advertise another one, or the pager would send the browser into that error.
+    let more = result["nextCursor"].is_string() && page < u64::from(MEMORY_PAGE_LIMIT);
     let rows: Vec<Value> = items
         .iter()
         .map(|item| {
@@ -1094,5 +1106,31 @@ mod tests {
         let missing = translate_drilldown(&json!({ "found": false }));
         assert_eq!(missing["found"], false);
         assert_eq!(missing["entityType"], "memory");
+    }
+}
+
+#[cfg(test)]
+mod last_page_tests {
+    use super::*;
+
+    fn page_of(rows: usize) -> Value {
+        let items: Vec<Value> = (0..rows).map(|index| json!({ "id": index })).collect();
+        json!({ "items": items, "nextCursor": "more" })
+    }
+
+    #[test]
+    fn the_last_reachable_page_advertises_no_next_page() {
+        // Page 40 of 25-row pages: 975 rows before it and no further page to offer.
+        let last = translate_memories(Some("page=40&pageSize=25"), &page_of(25));
+        assert_eq!(last["total"], 1_000, "{last}");
+        // An earlier page still advertises the next one.
+        let earlier = translate_memories(Some("page=39&pageSize=25"), &page_of(25));
+        assert_eq!(earlier["total"], 976, "{earlier}");
+    }
+
+    #[test]
+    fn a_page_number_past_u32_is_read_not_defaulted() {
+        // Read as page 1 it would be served; it must parse so the handler refuses it.
+        assert_eq!(requested_page(Some("page=5000000000")), 5_000_000_000);
     }
 }

@@ -468,3 +468,21 @@ fn the_gateway_serves_only_a_browser_that_presented_its_token() {
     assert!(lower.contains("httponly"), "{headers}");
     assert!(lower.contains("samesite=strict"), "{headers}");
 }
+
+#[test]
+fn the_memories_dashboard_refuses_pages_past_its_walk_limit() {
+    let daemon = FakeDaemon::start();
+    let gateway = wait_for_gateway(&daemon.socket);
+    let host = format!("127.0.0.1:{}", gateway.port);
+
+    // Page 41 is refused rather than served as page 40, and no cursor walk starts.
+    let (status, _, body) = gateway.request(&format!(
+        "GET /api/memories?page=41 HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    ));
+    assert_eq!(status, 400, "{body}");
+    assert!(body.contains("PAGE_BEYOND_LIMIT"), "{body}");
+    assert!(
+        daemon.requests_for("/v2/views/memories").is_empty(),
+        "a refused page makes no daemon request"
+    );
+}

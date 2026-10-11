@@ -42,6 +42,36 @@ pub fn is_session_start(event: &str) -> bool {
     matches!(event, "SessionStart" | "SessionStartComplete")
 }
 
+/// Recall sections that hold standing guidance. They are injected once at
+/// session start; repeating them on every prompt only spends tokens.
+const STANDING_SECTIONS: &[&str] = &["directives", "identity", "preferences"];
+
+/// The context a prompt-time hook should inject. Standing sections are
+/// dropped when the daemon reports sections, so each prompt carries only what
+/// matches it. Falls back to the full context from daemons that predate
+/// sections.
+pub fn prompt_context(body: &Value) -> String {
+    match body.pointer("/result/sections").and_then(Value::as_array) {
+        Some(sections) => sections
+            .iter()
+            .filter(|section| {
+                section
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| !STANDING_SECTIONS.contains(&id))
+            })
+            .filter_map(|section| section.get("text").and_then(Value::as_str))
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        None => body
+            .pointer("/result/context")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+    }
+}
+
 /// Extract the submitted prompt from a tolerant set of host field shapes.
 pub fn prompt_from(payload: &Value) -> Option<String> {
     for key in [
@@ -257,11 +287,16 @@ pub async fn run(
                 Ok(value) => value,
                 Err(_) => return (neutral_response(client, event), None),
             };
-            let context = body
-                .pointer("/result/context")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
+            // SessionStart carries the standing guidance; prompt events add only
+            // what is relevant to the prompt.
+            let context = if is_session_start(event) {
+                body.pointer("/result/context")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                prompt_context(&body)
+            };
             let Some(envelope) = wrap_lore_context(&context) else {
                 return (neutral_response(client, event), None);
             };
@@ -355,6 +390,33 @@ mod tests {
     #[test]
     fn empty_context_is_not_wrapped() {
         assert_eq!(wrap_lore_context("  \n "), None);
+    }
+
+    #[test]
+    fn prompt_context_drops_standing_sections_and_keeps_topical_ones() {
+        let body = json!({"result": {
+            "context": "- Always use UTC.\n- Relevant note.",
+            "sections": [
+                {"id": "directives", "text": "- Always use UTC.", "memoryIds": ["a"], "omitted": 0},
+                {"id": "topical", "text": "- Relevant note.", "memoryIds": ["b"], "omitted": 0}
+            ]
+        }});
+        assert_eq!(prompt_context(&body), "- Relevant note.");
+    }
+
+    #[test]
+    fn prompt_context_with_only_standing_sections_is_empty() {
+        let body = json!({"result": {
+            "context": "- Always use UTC.",
+            "sections": [{"id": "directives", "text": "- Always use UTC.", "memoryIds": ["a"], "omitted": 0}]
+        }});
+        assert_eq!(prompt_context(&body), "");
+    }
+
+    #[test]
+    fn prompt_context_falls_back_to_context_without_sections() {
+        let body = json!({"result": {"context": "- Older daemon note."}});
+        assert_eq!(prompt_context(&body), "- Older daemon note.");
     }
 
     #[test]

@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use lore_core::store::{Store, jittered_backoff_ms};
 use lore_core::now_ms;
+use lore_core::store::{Store, jittered_backoff_ms};
 use tokio::sync::Notify;
 
 use crate::semantics::Semantics;

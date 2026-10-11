@@ -281,7 +281,11 @@ async fn run_within_budget(
     // first: without it every prompt-time recall is refused with
     // STORE_ID_REQUIRED and the host silently gets no context.
     let status_meta = RequestMeta {
-        request_id: format!("hook-status-{}-{}", std::process::id(), lore_core::now_nanos()),
+        request_id: format!(
+            "hook-status-{}-{}",
+            std::process::id(),
+            lore_core::now_nanos()
+        ),
         ..meta.clone()
     };
     let store_id = match lore::request(socket, "/v2/status", status_meta, json!({})).await {

@@ -13,8 +13,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::error::{CoreError, CoreResult};
-use crate::store::Store;
 use crate::now_ms;
+use crate::store::Store;
 
 /// One durable operation run.
 #[derive(Debug, Clone, Serialize, Deserialize)]

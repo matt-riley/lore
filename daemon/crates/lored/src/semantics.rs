@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use lore_provider::EmbeddingProvider;
 use lore_core::now_ms;
+use lore_provider::EmbeddingProvider;
 use sha2::{Digest, Sha256};
 use tokio::sync::{Semaphore, watch};
 

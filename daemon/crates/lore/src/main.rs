@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use lore_core::now_ms;
 use protocol::RequestMeta;
 use serde_json::{Value, json};
-use lore_core::now_ms;
 
 #[derive(Debug, Parser)]
 #[command(name = "lore", version, about = "Lore v2 CLI")]

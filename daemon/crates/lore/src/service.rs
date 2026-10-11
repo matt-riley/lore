@@ -8,10 +8,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde_json::{Value, json};
 use crate::installer::{read_json, write_private};
 use lore_core::now_ms;
 use lore_core::policy::sha256_hex;
+use serde_json::{Value, json};
 
 pub const LABEL: &str = "dev.lore.lored";
 

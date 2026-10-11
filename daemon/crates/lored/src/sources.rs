@@ -719,6 +719,22 @@ pub async fn handle_extraction_retry(
         Ok(hash) => hash,
         Err(error) => return core_response(error, &request_id, &store_id),
     };
+    // One retry per key at a time: without the lease, two concurrent requests
+    // with different rule versions could both reset under one key.
+    let _key_lease =
+        match crate::KeyLease::acquire(state, format!("{client_id}\nextraction.retry\n{key}")) {
+            Some(lease) => lease,
+            None => {
+                return fail_response(
+                    StatusCode::CONFLICT,
+                    "ALREADY_EXISTS",
+                    "IDEMPOTENCY_IN_PROGRESS",
+                    true,
+                    Some(&request_id),
+                    Some(&store_id),
+                );
+            }
+        };
     match state
         .store
         .lookup_receipt_json(&client_id, "extraction.retry", &key)
@@ -763,24 +779,29 @@ pub async fn handle_extraction_retry(
         .clone()
         .unwrap_or_else(|| RULE_VERSION.to_string());
     let now = now_ms();
-    let reset = match state.store.reset_extraction_intents(&rule_version, now) {
+    // The reset and its receipt commit together, so one key cannot produce two
+    // resets and a committed reset always has a response to replay.
+    let receipt = lore_core::store::ReceiptRef {
+        client_id: &client_id,
+        operation: "extraction.retry",
+        key: &key,
+        request_hash: &hash,
+    };
+    let reset = match state.store.reset_extraction_intents_with_receipt(
+        &rule_version,
+        now,
+        &receipt,
+        |reset| {
+            serde_json::to_string(&ExtractionRetryResult {
+                reset,
+                rule_version: rule_version.clone(),
+            })
+            .map_err(|error| CoreError::internal("INTERNAL", error.to_string()))
+        },
+    ) {
         Ok(reset) => reset,
         Err(error) => return core_response(error, &request_id, &store_id),
     };
-    let result = ExtractionRetryResult {
-        reset,
-        rule_version: rule_version.clone(),
-    };
-    if let Ok(response) = serde_json::to_string(&result) {
-        let _ = state.store.store_receipt_json(
-            &client_id,
-            "extraction.retry",
-            &key,
-            &hash,
-            &response,
-            now,
-        );
-    }
     state.scheduler.wake();
     json(
         StatusCode::OK,
@@ -788,7 +809,10 @@ pub async fn handle_extraction_retry(
             ok: true,
             request_id,
             store_id,
-            result,
+            result: ExtractionRetryResult {
+                reset,
+                rule_version,
+            },
         },
     )
 }

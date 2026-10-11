@@ -372,6 +372,59 @@ pub struct Limits {
     pub candidate_pool: usize,
 }
 
+impl Limits {
+    /// Reject limits that would start a daemon nothing can use: a zero or
+    /// negative bound refuses every write or recall, and a default above its
+    /// maximum makes every recall that omits a limit fail.
+    pub fn validate(&self) -> CoreResult<()> {
+        let positive = [
+            ("maxContentBytes", self.max_content_bytes as i128),
+            ("maxQueryBytes", self.max_query_bytes as i128),
+            ("maxTags", self.max_tags as i128),
+            ("maxTagBytes", self.max_tag_bytes as i128),
+            ("defaultResults", i128::from(self.default_results)),
+            ("maxResults", i128::from(self.max_results)),
+            (
+                "defaultContextBytes",
+                i128::from(self.default_context_bytes),
+            ),
+            ("maxContextBytes", i128::from(self.max_context_bytes)),
+            ("recallServerMs", i128::from(self.recall_server_ms)),
+            ("maxMemories", i128::from(self.max_memories)),
+            ("maxReceipts", i128::from(self.max_receipts)),
+            ("candidatePool", self.candidate_pool as i128),
+        ];
+        for (name, value) in positive {
+            if value < 1 {
+                return Err(CoreError::invalid(
+                    "CONFIG_LIMITS_INVALID",
+                    format!("limits.{name} must be at least 1"),
+                ));
+            }
+        }
+        for (default, maximum, label) in [
+            (
+                i128::from(self.default_results),
+                i128::from(self.max_results),
+                "defaultResults must not exceed maxResults",
+            ),
+            (
+                i128::from(self.default_context_bytes),
+                i128::from(self.max_context_bytes),
+                "defaultContextBytes must not exceed maxContextBytes",
+            ),
+        ] {
+            if default > maximum {
+                return Err(CoreError::invalid(
+                    "CONFIG_LIMITS_INVALID",
+                    format!("limits.{label}"),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Default for Limits {
     fn default() -> Self {
         Self {
@@ -514,16 +567,19 @@ impl ResolvedConfig {
             &base,
         )?;
 
+        let limits = file
+            .as_ref()
+            .map(|file| file.limits.clone())
+            .unwrap_or_default();
+        limits.validate()?;
+
         Ok(Self {
             enabled: file.as_ref().map(|file| file.enabled).unwrap_or(false),
             config_path,
             data_dir,
             socket_path,
             store_path,
-            limits: file
-                .as_ref()
-                .map(|file| file.limits.clone())
-                .unwrap_or_default(),
+            limits,
             embedding_identity: embedding
                 .as_ref()
                 .map(|embedding| embedding.identity.clone()),
@@ -750,6 +806,17 @@ pub fn ensure_private_dir(path: &Path, label: &str) -> CoreResult<()> {
                     format!("{label} is not owned by this user: {}", path.display()),
                 ));
             }
+            // Another user who can write here could replace the lock or socket
+            // after startup and answer in this daemon's place.
+            if metadata.mode() & 0o022 != 0 {
+                return Err(CoreError::precondition(
+                    "UNSAFE_PATH",
+                    format!(
+                        "{label} is writable by other users; run `chmod go-w {}`",
+                        path.display()
+                    ),
+                ));
+            }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             std::fs::create_dir_all(path)?;
@@ -809,5 +876,53 @@ mod socket_tests {
             "the data directory is never the socket path"
         );
         assert_eq!(resolved, default_socket_path(&data));
+    }
+}
+
+#[cfg(test)]
+mod limits_tests {
+    use super::*;
+
+    #[test]
+    fn default_limits_are_accepted() {
+        Limits::default().validate().expect("defaults are valid");
+    }
+
+    #[test]
+    fn inconsistent_or_non_positive_limits_are_refused_before_start() {
+        let mut limits = Limits {
+            default_results: 20,
+            max_results: 6,
+            ..Limits::default()
+        };
+        let error = limits.validate().expect_err("default above maximum");
+        assert_eq!(error.reason, "CONFIG_LIMITS_INVALID");
+        limits = Limits {
+            max_memories: -1,
+            ..Limits::default()
+        };
+        assert_eq!(
+            limits.validate().expect_err("negative cap").reason,
+            "CONFIG_LIMITS_INVALID"
+        );
+    }
+}
+
+#[cfg(test)]
+mod private_dir_tests {
+    use super::*;
+
+    #[test]
+    fn a_directory_other_users_can_write_to_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let managed = dir.path().join("managed");
+        std::fs::create_dir(&managed).expect("create");
+        std::fs::set_permissions(&managed, std::fs::Permissions::from_mode(0o777)).expect("chmod");
+        let error = ensure_private_dir(&managed, "data directory").expect_err("writable by others");
+        assert_eq!(error.reason, "UNSAFE_PATH");
+
+        std::fs::set_permissions(&managed, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        ensure_private_dir(&managed, "data directory").expect("owner-only directory is accepted");
     }
 }

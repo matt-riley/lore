@@ -269,6 +269,7 @@ pub fn restore_apply(
     {
         let source =
             Connection::open_with_flags(target, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        create_private_file(&rescue)?;
         let mut destination = Connection::open(&rescue)?;
         let backup = rusqlite::backup::Backup::new(&source, &mut destination)
             .map_err(|error| CoreError::internal("RESTORE_RESCUE_FAILED", format!("{error}")))?;
@@ -279,6 +280,7 @@ pub fn restore_apply(
     {
         let source =
             Connection::open_with_flags(snapshot, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        create_private_file(&stage)?;
         let mut destination = Connection::open(&stage)?;
         let backup = rusqlite::backup::Backup::new(&source, &mut destination)
             .map_err(|error| CoreError::internal("RESTORE_STAGE_FAILED", format!("{error}")))?;
@@ -358,4 +360,23 @@ pub fn restore_apply(
         merged_suppressions,
         merged_receipts,
     })
+}
+
+/// Create an empty file that only the owner can read. A copy of the store is
+/// written into it, so it must never be readable by other users while filling.
+fn create_private_file(path: &Path) -> CoreResult<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::File::create_new(path)?;
+    }
+    Ok(())
 }

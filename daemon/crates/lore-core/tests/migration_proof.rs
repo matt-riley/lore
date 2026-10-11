@@ -742,3 +742,27 @@ fn restore_runs_when_the_configured_path_contains_an_apostrophe() {
     .expect("restore into an apostrophe path");
     assert!(Path::new(&report.rescue).exists());
 }
+
+#[test]
+fn conflicting_v1_marker_tables_are_rejected_not_first_match() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let connection = rusqlite::Connection::open(dir.path().join("v1.db")).expect("open");
+    connection
+        .execute_batch(
+            "CREATE TABLE lore_schema_version (version INTEGER NOT NULL);
+             INSERT INTO lore_schema_version (version) VALUES (12);
+             CREATE TABLE coherence_schema_version (version INTEGER NOT NULL);
+             INSERT INTO coherence_schema_version (version) VALUES (13);",
+        )
+        .expect("markers");
+    let error = lore_core::migration::read_schema_version(&connection).expect_err("disagreement");
+    assert_eq!(error.reason, "MIGRATE_VERSION_AMBIGUOUS");
+
+    connection
+        .execute("UPDATE coherence_schema_version SET version = 12", [])
+        .expect("agree");
+    assert_eq!(
+        lore_core::migration::read_schema_version(&connection).expect("agreeing markers"),
+        12
+    );
+}

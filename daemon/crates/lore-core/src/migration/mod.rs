@@ -134,36 +134,47 @@ fn table_columns(connection: &Connection, name: &str) -> CoreResult<Vec<String>>
 }
 
 /// Read the v1 schema version. v13 marks it in `coherence_schema_version`;
-/// later releases use `lore_schema_version`.
+/// later releases use `lore_schema_version`. Every marker table present must
+/// hold exactly one row and agree with the others, so a source that disagrees
+/// with itself is never imported under either version.
 pub fn read_schema_version(connection: &Connection) -> CoreResult<i64> {
+    let mut found: Vec<i64> = Vec::new();
     for table in ["lore_schema_version", "coherence_schema_version"] {
-        if table_exists(connection, table)? {
-            let versions: Vec<i64> = {
-                let mut statement = connection.prepare(&format!("SELECT version FROM {table}"))?;
-                let rows = statement.query_map([], |row| row.get(0))?;
-                rows.collect::<Result<_, _>>()?
-            };
-            match versions.as_slice() {
-                [version] => return Ok(*version),
-                [] => {
-                    return Err(CoreError::precondition(
-                        "MIGRATE_VERSION_MISSING",
-                        "source has no schema version row",
-                    ));
-                }
-                _ => {
-                    return Err(CoreError::precondition(
-                        "MIGRATE_VERSION_AMBIGUOUS",
-                        "source has multiple conflicting schema version rows",
-                    ));
-                }
+        if !table_exists(connection, table)? {
+            continue;
+        }
+        let versions: Vec<i64> = {
+            let mut statement = connection.prepare(&format!("SELECT version FROM {table}"))?;
+            let rows = statement.query_map([], |row| row.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        match versions.as_slice() {
+            [version] => found.push(*version),
+            [] => {
+                return Err(CoreError::precondition(
+                    "MIGRATE_VERSION_MISSING",
+                    "source has no schema version row",
+                ));
+            }
+            _ => {
+                return Err(CoreError::precondition(
+                    "MIGRATE_VERSION_AMBIGUOUS",
+                    "source has multiple conflicting schema version rows",
+                ));
             }
         }
     }
-    Err(CoreError::precondition(
-        "MIGRATE_VERSION_MISSING",
-        "source is not a recognized Lore database",
-    ))
+    match found.as_slice() {
+        [] => Err(CoreError::precondition(
+            "MIGRATE_VERSION_MISSING",
+            "source is not a recognized Lore database",
+        )),
+        [first, rest @ ..] if rest.iter().all(|version| version == first) => Ok(*first),
+        _ => Err(CoreError::precondition(
+            "MIGRATE_VERSION_AMBIGUOUS",
+            "source's schema marker tables disagree",
+        )),
+    }
 }
 
 fn row_count(connection: &Connection, name: &str) -> CoreResult<i64> {

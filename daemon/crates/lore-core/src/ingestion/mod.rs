@@ -419,6 +419,56 @@ fn path_identity(row: &SourceRow, path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
+/// One turn of a Copilot session: (turn index, user, assistant, timestamp).
+type SessionTurn = (i64, String, String, String);
+
+/// Read every turn of a session in pages keyed by turn index, so a session of any
+/// length is captured in full and no single query holds an unbounded result. A
+/// session with a turn that has no index is refused (None) and counted as a gap,
+/// because paging by index would otherwise drop that turn silently.
+fn session_turns(
+    connection: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Option<Vec<SessionTurn>>> {
+    let unindexed: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM turns WHERE session_id = ?1 AND turn_index IS NULL",
+        rusqlite::params![session_id],
+        |row| row.get(0),
+    )?;
+    if unindexed > 0 {
+        return Ok(None);
+    }
+    let mut turns = Vec::new();
+    let mut after = i64::MIN;
+    loop {
+        let mut statement = connection.prepare(
+            "SELECT turn_index, user_message, assistant_response, timestamp FROM turns \
+             WHERE session_id = ?1 AND turn_index > ?2 ORDER BY turn_index ASC LIMIT ?3",
+        )?;
+        let page = statement
+            .query_map(
+                rusqlite::params![session_id, after, MAX_SQLITE_PAGE as i64],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        let Some(last) = page.last() else { break };
+        after = last.0;
+        let full = page.len() == MAX_SQLITE_PAGE;
+        turns.extend(page);
+        if !full {
+            break;
+        }
+    }
+    Ok(Some(turns))
+}
+
 /// Read changed rows from a Copilot-style session store. Host databases are
 /// opened read-only and are never migrated or written.
 fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> CaptureReport {
@@ -507,27 +557,9 @@ fn capture_copilot(store: &Store, path: &Path, row: &SourceRow, now_ms: i64) -> 
     let mut last: Option<(String, String)> = None;
     for (session_id, updated_at, cwd, repository) in &sessions {
         last = Some((updated_at.clone(), session_id.clone()));
-        let turns = connection
-            .prepare(
-                "SELECT turn_index, user_message, assistant_response, timestamp FROM turns \
-                 WHERE session_id = ?1 ORDER BY turn_index ASC LIMIT 10000",
-            )
-            .and_then(|mut statement| {
-                statement
-                    .query_map(rusqlite::params![session_id], |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, String>(3)?,
-                        ))
-                    })
-                    .map(|rows| rows.collect::<Result<Vec<_>, _>>())
-            })
-            .unwrap_or_else(|_| Ok(Vec::new()));
-        let turns = match turns {
-            Ok(turns) => turns,
-            Err(_) => {
+        let turns = match session_turns(&connection, session_id) {
+            Ok(Some(turns)) => turns,
+            Ok(None) | Err(_) => {
                 skipped += 1;
                 continue;
             }

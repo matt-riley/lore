@@ -610,3 +610,51 @@ fn a_record_larger_than_one_quantum_is_skipped_and_capture_moves_on() {
         "the records after it are captured"
     );
 }
+
+#[test]
+fn copilot_session_over_the_old_turn_cap_is_captured_in_full() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config(dir.path(), "copilot", None);
+    let store = Store::open(&config).expect("open");
+    let path = sources_dir(dir.path()).join("session-store.db");
+    {
+        let connection = rusqlite::Connection::open(&path).expect("open db");
+        connection
+            .execute_batch(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT, repository TEXT, branch TEXT, \
+                 summary TEXT, created_at TEXT, updated_at TEXT); \
+                 CREATE TABLE turns (session_id TEXT, turn_index INTEGER, user_message TEXT, \
+                 assistant_response TEXT, timestamp TEXT); \
+                 INSERT INTO sessions VALUES ('long', '/work', 'owner/name', 'main', '', \
+                 '2026-01-01T00:00:00Z', '2026-01-01T00:00:05Z'); \
+                 INSERT INTO sessions VALUES ('short', '/work', 'owner/name', 'main', '', \
+                 '2026-01-01T00:00:00Z', '2026-01-01T00:00:06Z'); \
+                 INSERT INTO turns VALUES ('short', 1, 'Still captured?', 'Yes.', \
+                 '2026-01-01T00:00:06Z');",
+            )
+            .expect("schema");
+        // One more turn than the per-session cap, in the earlier session.
+        connection
+            .execute(
+                "WITH RECURSIVE turn(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM turn WHERE n < 10001) \
+                 INSERT INTO turns SELECT 'long', n, 'question ' || n, 'answer ' || n, \
+                 '2026-01-01T00:00:05Z' FROM turn",
+                [],
+            )
+            .expect("turns");
+    }
+    let row = register(&store, &config, &path, None);
+    let report = capture(&store, &config, &row, 2_000);
+    assert_ne!(report.state, "failed", "{report:?}");
+    assert_eq!(report.skipped, 0, "{report:?}");
+    assert!(report.reason.is_none(), "{report:?}");
+    assert_eq!(
+        store
+            .source_record_count(&row.source_id, &report.generation)
+            .expect("count"),
+        // 10,001 turns of two records each, the long session record, then the short
+        // session's question, answer and session record.
+        20_003 + 3,
+        "every turn of the long session is captured, and so is the short session"
+    );
+}

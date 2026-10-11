@@ -8,7 +8,6 @@
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::sync::atomic::Ordering;
 
 use crate::error::CoreResult;
 use crate::store::Store;
@@ -88,13 +87,19 @@ impl Store {
         // A pass resumes after the last generation it examined. Unchanged
         // digests are skipped without being refreshed, so always taking the
         // oldest rows would starve every generation behind them.
-        let after = self.digest_cursor.load(Ordering::Relaxed);
-        let mut candidates = self.digest_candidates(after, limit)?;
-        if candidates.is_empty() && after > 0 {
-            candidates = self.digest_candidates(0, limit)?;
+        let start = (i64::MIN, String::new(), String::new());
+        let resume = self.digest_cursor.lock().expect("digest cursor").clone();
+        let mut candidates =
+            self.digest_candidates(&resume.clone().unwrap_or_else(|| start.clone()), limit)?;
+        if candidates.is_empty() && resume.is_some() {
+            candidates = self.digest_candidates(&start, limit)?;
         }
         if let Some(last) = candidates.last() {
-            self.digest_cursor.store(last.started_ms, Ordering::Relaxed);
+            *self.digest_cursor.lock().expect("digest cursor") = Some((
+                last.started_ms,
+                last.source_id.clone(),
+                last.generation.clone(),
+            ));
         }
         if candidates.is_empty() {
             return Ok(DigestReport::default());
@@ -102,20 +107,25 @@ impl Store {
         self.apply_digest_candidates(&candidates, now_ms)
     }
 
-    fn digest_candidates(&self, after_ms: i64, limit: i64) -> CoreResult<Vec<GenerationCandidate>> {
+    fn digest_candidates(
+        &self,
+        after: &(i64, String, String),
+        limit: i64,
+    ) -> CoreResult<Vec<GenerationCandidate>> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
         let mut statement = connection.prepare(
             "SELECT g.source_id, g.generation, s.client, s.repository, s.native_session_id, g.started_ms \
              FROM source_generations g JOIN sources s ON s.source_id = g.source_id \
-             WHERE g.retired_ms IS NULL AND g.started_ms > ?2 \
+             WHERE g.retired_ms IS NULL \
+             AND (g.started_ms, g.source_id, g.generation) > (?2, ?3, ?4) \
              AND EXISTS (SELECT 1 FROM source_records r WHERE r.source_id = g.source_id AND r.generation = g.generation) \
              AND NOT EXISTS (SELECT 1 FROM extraction_intents i \
                 WHERE i.source_id = g.source_id AND i.generation = g.generation \
                 AND i.state IN ('pending', 'running', 'retry_wait')) \
-             ORDER BY g.started_ms ASC LIMIT ?1",
+             ORDER BY g.started_ms ASC, g.source_id ASC, g.generation ASC LIMIT ?1",
         )?;
-        let rows = statement.query_map(params![limit, after_ms], |row| {
+        let rows = statement.query_map(params![limit, after.0, after.1, after.2], |row| {
             Ok(GenerationCandidate {
                 source_id: row.get(0)?,
                 generation: row.get(1)?,

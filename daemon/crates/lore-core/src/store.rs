@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -491,9 +491,10 @@ pub struct Store {
     writer: Mutex<Connection>,
     readers: Vec<Mutex<Connection>>,
     next_reader: AtomicUsize,
-    /// Where the next digest pass resumes among captured generations, so a
-    /// bounded pass reaches every generation instead of the same oldest ones.
-    digest_cursor: AtomicI64,
+    /// Where the next digest pass resumes among captured generations, as the
+    /// (started_ms, source_id, generation) key of the last one examined. Sources
+    /// registered in one sweep share a timestamp, so the key needs its tie-breakers.
+    digest_cursor: Mutex<Option<(i64, String, String)>>,
     /// Path of the SQLite file, used for pre-apply snapshots.
     store_path: PathBuf,
     limits: Limits,
@@ -516,7 +517,7 @@ impl Store {
             writer: Mutex::new(writer),
             readers,
             next_reader: AtomicUsize::new(0),
-            digest_cursor: AtomicI64::new(0),
+            digest_cursor: Mutex::new(None),
             store_path: config.store_path.clone(),
             limits: config.limits.clone(),
             embedding_identity: config.embedding_identity.clone(),
@@ -536,7 +537,7 @@ impl Store {
             writer: Mutex::new(writer),
             readers,
             next_reader: AtomicUsize::new(0),
-            digest_cursor: AtomicI64::new(0),
+            digest_cursor: Mutex::new(None),
             store_path: path.to_path_buf(),
             limits: Limits::default(),
             embedding_identity: None,

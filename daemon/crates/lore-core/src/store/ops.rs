@@ -1568,6 +1568,16 @@ impl Store {
         let text = text_override.map(str::to_string).unwrap_or(text);
         let mut persisted = None;
         if persist {
+            // A persisted reflection is a new authoritative memory, so it counts
+            // against max_memories like every other write.
+            let total: i64 =
+                transaction.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
+            if total >= self.limits.max_memories {
+                return Err(CoreError::quota(
+                    "STORE_QUOTA",
+                    "authoritative memory cap reached; the reflection was not persisted",
+                ));
+            }
             revision += 1;
             let memory_id = uuid::Uuid::new_v4().to_string();
             let content_hash = crate::policy::sha256_hex(text.as_bytes());

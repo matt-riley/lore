@@ -53,11 +53,17 @@ struct GatewayState {
     /// Per-process secret. Any local account can reach a loopback port, so the
     /// gateway serves only a browser that presented this token once.
     token: String,
+    /// Cookie name for this gateway's token, scoped to its port.
+    cookie_name: String,
 }
 
-/// Cookie that carries the token after the first visit. HttpOnly and
-/// SameSite=Strict keep it away from scripts and from cross-site requests.
-const TOKEN_COOKIE: &str = "lore_browser";
+/// Name of the cookie that carries the token after the first visit. Cookies are not
+/// isolated by port, so the port is part of the name: two gateways on one host
+/// keep separate tokens. HttpOnly and SameSite=Strict keep it away from scripts and
+/// from cross-site requests.
+fn token_cookie_name(port: u16) -> String {
+    format!("lore_browser_{port}")
+}
 
 fn new_token() -> String {
     // Two v4 UUIDs: about 244 bits from the operating system's random source.
@@ -77,7 +83,7 @@ fn query_token(query: Option<&str>) -> Option<String> {
 }
 
 /// The token presented in the cookie header, if any.
-fn cookie_token(request: &Request<Incoming>) -> Option<String> {
+fn cookie_token(request: &Request<Incoming>, name: &str) -> Option<String> {
     request
         .headers()
         .get_all(hyper::header::COOKIE)
@@ -85,7 +91,7 @@ fn cookie_token(request: &Request<Incoming>) -> Option<String> {
         .filter_map(|value| value.to_str().ok())
         .flat_map(|value| value.split(';'))
         .filter_map(|pair| pair.trim().split_once('='))
-        .find(|(name, _)| *name == TOKEN_COOKIE)
+        .find(|(cookie, _)| *cookie == name)
         .map(|(_, value)| value.to_string())
 }
 
@@ -115,6 +121,7 @@ pub async fn run(socket: &Path, port: u16, open: bool) -> Result<(), String> {
         socket: socket.to_path_buf(),
         store_id: tokio::sync::Mutex::new(None),
         token,
+        cookie_name: token_cookie_name(bound.port()),
     });
     loop {
         let (stream, remote) = match listener.accept().await {
@@ -228,8 +235,8 @@ async fn handle(request: Request<Incoming>, state: Arc<GatewayState>) -> Respons
         && token_matches(&presented, &state.token)
     {
         let cookie = format!(
-            "{TOKEN_COOKIE}={}; HttpOnly; SameSite=Strict; Path=/",
-            state.token
+            "{}={}; HttpOnly; SameSite=Strict; Path=/",
+            state.cookie_name, state.token
         );
         return secure(Response::builder())
             .status(StatusCode::SEE_OTHER)
@@ -238,8 +245,8 @@ async fn handle(request: Request<Incoming>, state: Arc<GatewayState>) -> Respons
             .body(Full::new(Bytes::new()))
             .unwrap_or_else(|_| message(StatusCode::INTERNAL_SERVER_ERROR, "internal"));
     }
-    let authorized =
-        cookie_token(&request).is_some_and(|presented| token_matches(&presented, &state.token));
+    let authorized = cookie_token(&request, &state.cookie_name)
+        .is_some_and(|presented| token_matches(&presented, &state.token));
     if !authorized {
         return message(
             StatusCode::FORBIDDEN,
@@ -330,7 +337,7 @@ async fn api(name: &str, query: Option<&str>, state: &GatewayState) -> Response<
     // refresh the identity once and retry rather than serving a mismatch.
     if let Ok((_, body)) = &outcome {
         let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-        if parsed["error"]["reason"] == "STORE_ID_MISMATCH" {
+        if parsed["error"]["reason"] == "STORE_MISMATCH" {
             let refreshed = match gateway_store_id_refresh(state).await {
                 Ok(store_id) => store_id,
                 Err(response) => return response,
@@ -519,7 +526,7 @@ async fn fetch_view(
     let mut outcome = view_request(state, route, params, &store_id).await;
     if let Ok((_, body)) = &outcome {
         let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-        if parsed["error"]["reason"] == "STORE_ID_MISMATCH" {
+        if parsed["error"]["reason"] == "STORE_MISMATCH" {
             let refreshed = gateway_store_id_refresh(state).await?;
             outcome = view_request(state, route, params, &refreshed).await;
         }
@@ -543,7 +550,7 @@ fn translate_memories(query: Option<&str>, result: &Value) -> Value {
     let page = query_value(&pairs, "page")
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(1)
-        .max(1);
+        .clamp(1, 40);
     let page_size = query_value(&pairs, "pageSize")
         .or_else(|| query_value(&pairs, "limit"))
         .and_then(|value| value.parse::<u64>().ok())

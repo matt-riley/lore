@@ -70,7 +70,7 @@ impl FakeDaemon {
                             // First view request answers a store mismatch.
                             (
                                 "409 CONFLICT",
-                                r#"{"ok":false,"requestId":"r","storeId":"s","error":{"code":"PRECONDITION_FAILED","message":"request rejected","reason":"STORE_ID_MISMATCH","retryable":false}}"#,
+                                r#"{"ok":false,"requestId":"r","storeId":"s","error":{"code":"PRECONDITION_FAILED","message":"request rejected","reason":"STORE_MISMATCH","retryable":false}}"#,
                             )
                         } else if request_line.contains("/v2/views/memories/filters") {
                             (
@@ -180,7 +180,7 @@ impl Gateway {
     fn request(&self, raw: &str) -> (u16, String, String) {
         let raw = raw.replacen(
             "\r\n",
-            &format!("\r\nCookie: lore_browser={}\r\n", self.token),
+            &format!("\r\nCookie: lore_browser_{}={}\r\n", self.port, self.token),
             1,
         );
         self.send(&raw)
@@ -355,7 +355,7 @@ fn same_origin_origin_headers_are_allowed_and_favicon_is_quiet() {
 
 #[test]
 fn gateway_refreshes_the_identity_once_when_the_daemon_changed() {
-    // The first view request answers STORE_ID_MISMATCH; the gateway must
+    // The first view request answers STORE_MISMATCH; the gateway must
     // re-probe Status and retry exactly once, then reuse the identity.
     let daemon = FakeDaemon::start();
     let gateway = wait_for_gateway(&daemon.socket);
@@ -461,7 +461,10 @@ fn the_gateway_serves_only_a_browser_that_presented_its_token() {
     ));
     assert_eq!(status, 303, "{headers}");
     let lower = headers.to_ascii_lowercase();
-    assert!(lower.contains("set-cookie: lore_browser="), "{headers}");
+    assert!(
+        lower.contains(&format!("set-cookie: lore_browser_{}=", gateway.port)),
+        "{headers}"
+    );
     assert!(lower.contains("httponly"), "{headers}");
     assert!(lower.contains("samesite=strict"), "{headers}");
 }

@@ -38,6 +38,9 @@ pub struct RestorePreview {
 pub struct RestoreReport {
     pub target: String,
     pub rescue: String,
+    /// Base path of the raw pre-restore database. Its -wal and -shm files sit beside
+    /// it. This copy holds the old data, including forgotten content.
+    pub replaced: String,
     pub snapshot: String,
     pub restored_memories: i64,
     pub merged_suppressions: i64,
@@ -341,10 +344,16 @@ pub fn restore_apply(
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o600));
     }
-    std::fs::rename(target, &rescue)?;
+    // The backup-generated rescue above is the consistent copy and stays as it
+    // is. The raw files move aside, WAL and shared memory included: a WAL left
+    // under the target name could be replayed into the restored database.
+    let aside = PathBuf::from(format!("{}.replaced-{now_ms}", target.display()));
+    let moved = move_live_files_aside(target, &aside)?;
     if let Err(error) = std::fs::rename(&stage, target) {
-        // Best-effort recovery: put the rescue back if the swap failed.
-        let _ = std::fs::rename(&rescue, target);
+        // Best-effort recovery: put the live files back if the swap failed.
+        for (from, to) in moved.iter().rev() {
+            let _ = std::fs::rename(to, from);
+        }
         return Err(CoreError::internal(
             "RESTORE_SWAP_FAILED",
             format!("{error}"),
@@ -353,15 +362,36 @@ pub fn restore_apply(
     let restored: i64 =
         Connection::open(target)?
             .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
-    let _ = now_ms;
     Ok(RestoreReport {
         target: target.display().to_string(),
         rescue: rescue.display().to_string(),
+        replaced: aside.display().to_string(),
         snapshot: snapshot.display().to_string(),
         restored_memories: restored,
         merged_suppressions,
         merged_receipts,
     })
+}
+
+/// Move the database and any WAL or shared-memory sidecars aside. Returns each
+/// (original, moved) pair so a failed swap can put them back.
+fn move_live_files_aside(target: &Path, aside: &Path) -> CoreResult<Vec<(PathBuf, PathBuf)>> {
+    let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for suffix in ["", "-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{suffix}", target.display()));
+        if !from.exists() {
+            continue;
+        }
+        let to = PathBuf::from(format!("{}{suffix}", aside.display()));
+        if let Err(error) = std::fs::rename(&from, &to) {
+            for (original, parked) in moved.iter().rev() {
+                let _ = std::fs::rename(parked, original);
+            }
+            return Err(error.into());
+        }
+        moved.push((from, to));
+    }
+    Ok(moved)
 }
 
 /// Create an empty file that only the owner can read. A copy of the store is

@@ -766,3 +766,65 @@ fn conflicting_v1_marker_tables_are_rejected_not_first_match() {
         12
     );
 }
+
+#[test]
+fn restore_keeps_the_consistent_rescue_when_the_wal_is_uncheckpointed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config(dir.path());
+    let store = Store::open(&config).expect("open");
+    let retain = |key: &str, content: &str| RetainParams {
+        idempotency_key: key.to_string(),
+        kind: "note".to_string(),
+        content: content.to_string(),
+        scope: Scope::Global,
+        repository: None,
+        confidence: None,
+        tags: Vec::new(),
+        source_session_id: None,
+        expires_at_ms: None,
+    };
+    store
+        .retain("client", &retain("k1", "Snapshotted memory."), 1_000)
+        .expect("retain");
+    let snapshot = dir.path().join("backup.db");
+    backup::backup(&config.store_path, &snapshot, 2_000).expect("backup");
+    store
+        .retain(
+            "client",
+            &retain("k2", "Written just before restore."),
+            2_100,
+        )
+        .expect("retain");
+    // A crash leaves the write in the WAL: never checkpointed, never closed.
+    std::mem::forget(store);
+    assert!(
+        dir.path().join("lore-v2.db-wal").exists(),
+        "the write sits in an uncheckpointed WAL"
+    );
+
+    let preview = backup::restore_preview(&snapshot, &config.store_path).expect("preview");
+    let report = backup::restore_apply(
+        &snapshot,
+        &config.store_path,
+        &preview.plan_fingerprint,
+        true,
+        2_300,
+    )
+    .expect("restore");
+
+    // The rescue is the consistent copy, so it keeps the pre-restore write.
+    let rescue = rusqlite::Connection::open(&report.rescue).expect("open rescue");
+    let kept: i64 = rescue
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE content = 'Written just before restore.'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count");
+    assert_eq!(kept, 1, "the rescue keeps the latest pre-restore write");
+    // No stale WAL is left under the live name to be replayed into the restore.
+    assert!(
+        !dir.path().join("lore-v2.db-wal").exists(),
+        "the live WAL was moved aside"
+    );
+}

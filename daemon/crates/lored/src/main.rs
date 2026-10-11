@@ -2513,6 +2513,18 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
                     Some(&store_id),
                 );
             }
+            // A keyed reload whose marker never settled may have changed the settings, so
+            // it is refused instead of replayed or applied again.
+            if response == lore_core::store::RECEIPT_PENDING {
+                return fail_response(
+                    StatusCode::CONFLICT,
+                    "ALREADY_EXISTS",
+                    "IDEMPOTENCY_OUTCOME_UNKNOWN",
+                    false,
+                    Some(&request_id),
+                    Some(&store_id),
+                );
+            }
             return match serde_json::from_str::<ConfigReloadResult>(&response) {
                 Ok(result) => json(
                     StatusCode::OK,
@@ -2587,52 +2599,101 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
             Some(&store_id),
         );
     }
-    let result = if identity_unchanged && settings_unchanged {
-        ConfigReloadResult {
+    if identity_unchanged && settings_unchanged {
+        let result = ConfigReloadResult {
             reloaded: false,
             generation: state.generation.load(Ordering::Relaxed),
             reason: "UNCHANGED".to_string(),
+        };
+        // Nothing changed, so a lost response retries to the same answer.
+        if let Ok(response) = serde_json::to_string(&result) {
+            let _ = state.store.store_receipt_json(
+                &client_id,
+                "config.reload",
+                &key,
+                &hash,
+                &response,
+                now_ms(),
+            );
         }
-    } else {
-        let provider = match &fresh.embedding {
-            Some(embedding) => match build_provider(embedding) {
-                Ok(provider) => Some(Arc::new(provider)),
-                Err(error) => return core_response(error, &request_id, &store_id),
+        return json(
+            StatusCode::OK,
+            &OkEnvelope {
+                ok: true,
+                request_id,
+                store_id,
+                result,
             },
-            None => None,
-        };
-        let min_similarity = next_similarity;
-        let generation = fresh
-            .embedding
-            .as_ref()
-            .map(|embedding| embedding.generation)
-            .unwrap_or(0);
-        state
-            .semantics
-            .replace(provider, next_identity, min_similarity, next_timeout);
-        state.generation.store(generation, Ordering::Relaxed);
-        *state.live_embedding.lock().expect("live embedding") = fresh.embedding.clone();
-        state.worker_state.request_resume();
-        state.notify.notify_one();
-        let reason = if identity_unchanged {
-            "SETTINGS_APPLIED"
-        } else {
-            "PROVIDER_GENERATION_CHANGED"
-        };
-        ConfigReloadResult {
-            reloaded: true,
-            generation,
-            reason: reason.to_string(),
-        }
+        );
+    }
+    let provider = match &fresh.embedding {
+        Some(embedding) => match build_provider(embedding) {
+            Ok(provider) => Some(Arc::new(provider)),
+            Err(error) => return core_response(error, &request_id, &store_id),
+        },
+        None => None,
     };
-    if let Ok(response) = serde_json::to_string(&result) {
-        let _ = state.store.store_receipt_json(
-            &client_id,
-            "config.reload",
-            &key,
-            &hash,
-            &response,
-            now_ms(),
+    // Mark the key in flight before live settings change. A stop between the swap
+    // and the settle then refuses a retry as an unknown outcome instead of
+    // applying the newer file a second time.
+    if let Err(error) =
+        state
+            .store
+            .begin_receipt_json(&client_id, "config.reload", &key, &hash, now_ms())
+    {
+        return core_response(error, &request_id, &store_id);
+    }
+    let min_similarity = next_similarity;
+    let generation = fresh
+        .embedding
+        .as_ref()
+        .map(|embedding| embedding.generation)
+        .unwrap_or(0);
+    state
+        .semantics
+        .replace(provider, next_identity, min_similarity, next_timeout);
+    state.generation.store(generation, Ordering::Relaxed);
+    *state.live_embedding.lock().expect("live embedding") = fresh.embedding.clone();
+    state.worker_state.request_resume();
+    state.notify.notify_one();
+    let reason = if identity_unchanged {
+        "SETTINGS_APPLIED"
+    } else {
+        "PROVIDER_GENERATION_CHANGED"
+    };
+    let result = ConfigReloadResult {
+        reloaded: true,
+        generation,
+        reason: reason.to_string(),
+    };
+    // The settings are live now, so a failed settle is reported as an unknown
+    // outcome; the pending marker keeps a retry from applying the file again.
+    let settled = serde_json::to_string(&result)
+        .map_err(|error| error.to_string())
+        .and_then(|response| {
+            let settle = || {
+                state
+                    .store
+                    .finish_receipt_json(&client_id, "config.reload", &key, &response)
+            };
+            let mut attempt = settle();
+            for _ in 1..3 {
+                if attempt.is_ok() {
+                    break;
+                }
+                attempt = settle();
+            }
+            attempt.map_err(|error| error.to_string())
+        });
+    if let Err(error) = settled {
+        eprintln!("[lored] config.reload receipt not settled: {error}");
+        return fail_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            code::INTERNAL,
+            "IDEMPOTENCY_OUTCOME_UNKNOWN",
+            false,
+            Some(&request_id),
+            Some(&store_id),
         );
     }
     json(

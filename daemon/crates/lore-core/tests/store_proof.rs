@@ -704,3 +704,55 @@ fn store_files_are_owner_only_even_when_a_looser_file_already_exists() {
         assert_eq!(mode & 0o777, 0o600, "{name} must be owner-only");
     }
 }
+
+#[test]
+fn auto_extracted_global_directives_stay_out_of_standing_context() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = open(dir.path());
+    let manual = store
+        .retain(
+            "client-a",
+            &RetainParams {
+                kind: "directive".to_string(),
+                ..retain(
+                    "manual-directive",
+                    "Always use UTC timestamps in logs.",
+                    Scope::Global,
+                    None,
+                )
+            },
+            1_000,
+        )
+        .expect("retain")
+        .memory_id;
+    // Extraction writes auto-authority rows directly; mirror that shape here.
+    let connection = rusqlite::Connection::open(dir.path().join("lore-v2.db")).expect("open db");
+    connection
+        .execute(
+            "INSERT INTO memories (id, kind, content, content_hash, scope, repository, authority, \
+             confidence, tags_json, source_session_id, created_ms, updated_ms, expires_at_ms, revision, forgotten) \
+             VALUES ('auto-directive', 'directive', 'Ship the diffuser with Copper Ore.', 'auto-hash', \
+             'global', NULL, 'auto', 0.78, '[]', NULL, 1, 1, NULL, 1, 0)",
+            [],
+        )
+        .expect("insert auto row");
+    drop(connection);
+
+    let recalled = store
+        .recall(&recall("zebra"), 2_000, 6, 8_192, None)
+        .expect("recall");
+    let standing: Vec<&str> = recalled
+        .sections
+        .iter()
+        .filter(|section| section.id == "directives")
+        .flat_map(|section| section.memory_ids.iter().map(String::as_str))
+        .collect();
+    assert!(
+        standing.contains(&manual.as_str()),
+        "manual global directive is standing"
+    );
+    assert!(
+        !standing.contains(&"auto-directive"),
+        "auto global directive is not standing"
+    );
+}

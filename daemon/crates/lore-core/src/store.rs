@@ -966,13 +966,18 @@ impl Store {
         budget: usize,
         deadline: Option<Instant>,
     ) -> CoreResult<RequiredContext> {
+        // Auto-extracted global directives are task instructions from one-off
+        // chats, not standing guidance: they stay out of every session and
+        // remain available to topical recall. Identity still reaches everywhere.
         let mut sql = String::from(
             "SELECT m.id, m.kind, m.content, m.scope, m.repository, m.authority, m.confidence, \
              m.created_ms, m.updated_ms, m.expires_at_ms, m.source_session_id, m.tags_json \
              FROM memories m WHERE m.forgotten = 0 AND m.superseded_by IS NULL \
              AND (m.expires_at_ms IS NULL OR m.expires_at_ms > ?1) \
              AND m.kind IN ('directive', 'rejected_approach', 'commitment', 'assistant_identity', \
-             'user_identity', 'interaction_style', 'recurring_mistake', 'user_preference')",
+             'user_identity', 'interaction_style', 'recurring_mistake', 'user_preference') \
+             AND NOT (m.authority = 'auto' AND m.scope = 'global' \
+             AND m.kind IN ('directive', 'rejected_approach', 'commitment', 'user_preference'))",
         );
         let mut values: Vec<Value> = vec![Value::Integer(now_ms)];
         match params.repository.as_deref() {

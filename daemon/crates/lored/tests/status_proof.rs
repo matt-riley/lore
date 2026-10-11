@@ -1,75 +1,13 @@
 //! G1 proof: `lored`'s Status route over a real Unix socket.
 
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use protocol::{RequestMeta, StatusParams};
 
-struct Daemon {
-    child: Child,
-    socket: PathBuf,
-    _dir: tempfile::TempDir,
-}
-
-impl Daemon {
-    fn start() -> Self {
-        Self::start_with(&[])
-    }
-
-    fn start_with(extra: &[&str]) -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let socket = dir.path().join("lored.sock");
-        let config_path = dir.path().join("lore.json");
-        let config = serde_json::json!({
-            "configVersion": 2,
-            "enabled": true,
-            "dataDir": dir.path().to_str().expect("utf8 dir"),
-            "socketPath": socket.to_str().expect("utf8 socket"),
-        });
-        std::fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&config).expect("config json"),
-        )
-        .expect("write config");
-        let child = Command::new(env!("CARGO_BIN_EXE_lored"))
-            .arg("--config")
-            .arg(&config_path)
-            .args(extra)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn lored");
-        Self {
-            child,
-            socket,
-            _dir: dir,
-        }
-    }
-
-    fn socket(&self) -> &Path {
-        &self.socket
-    }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        // SIGTERM lets the daemon exit cleanly, so coverage counters are written.
-        // SIGKILL would discard them.
-        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        // Wait for a clean exit, then fall back to SIGKILL so a stuck daemon cannot hang the test.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
+mod support;
+use support::Daemon;
 
 async fn wait_for_socket(path: &Path) {
     // The file can exist before the listener accepts, so wait for a real connection.
@@ -144,8 +82,8 @@ fn reason(body: &str) -> String {
 #[tokio::test]
 async fn status_round_trip_is_contract_shaped() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
-    let outcome = lore::request_status(daemon.socket(), meta(), StatusParams::default())
+    wait_for_socket(&daemon.socket).await;
+    let outcome = lore::request_status(&daemon.socket, meta(), StatusParams::default())
         .await
         .expect("status");
     assert_eq!(outcome.status_code, 200, "body: {}", outcome.body);
@@ -168,9 +106,9 @@ async fn status_round_trip_is_contract_shaped() {
 #[tokio::test]
 async fn sequential_requests_reconnect_cleanly() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
     for _ in 0..3 {
-        let outcome = lore::request_status(daemon.socket(), meta(), StatusParams::default())
+        let outcome = lore::request_status(&daemon.socket, meta(), StatusParams::default())
             .await
             .expect("status");
         assert_eq!(outcome.status_code, 200);
@@ -180,9 +118,9 @@ async fn sequential_requests_reconnect_cleanly() {
 #[tokio::test]
 async fn rejects_foreign_host_header() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
     let (status, body) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "POST",
         "/v2/status",
         "localhost",
@@ -197,9 +135,9 @@ async fn rejects_foreign_host_header() {
 #[tokio::test]
 async fn unknown_route_is_unimplemented() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
     let (status, body) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "POST",
         "/v2/unknown",
         "lore.local",
@@ -214,10 +152,10 @@ async fn unknown_route_is_unimplemented() {
 #[tokio::test]
 async fn invalid_json_content_type_and_method_are_rejected() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
     let (status, body) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "POST",
         "/v2/status",
         "lore.local",
@@ -229,7 +167,7 @@ async fn invalid_json_content_type_and_method_are_rejected() {
     assert_eq!(reason(&body), "INVALID_JSON");
 
     let (status, body) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "POST",
         "/v2/status",
         "lore.local",
@@ -241,7 +179,7 @@ async fn invalid_json_content_type_and_method_are_rejected() {
     assert_eq!(reason(&body), "INVALID_JSON");
 
     let (status, body) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "POST",
         "/v2/status",
         "lore.local",
@@ -253,7 +191,7 @@ async fn invalid_json_content_type_and_method_are_rejected() {
     assert_eq!(reason(&body), "UNSUPPORTED_MEDIA_TYPE");
 
     let (status, body) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "GET",
         "/v2/status",
         "lore.local",
@@ -268,18 +206,18 @@ async fn invalid_json_content_type_and_method_are_rejected() {
 #[tokio::test]
 async fn mismatched_store_and_major_are_failed_preconditions() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
     let mut wrong_store = meta();
     wrong_store.expected_store_id = Some("other-store".to_string());
-    let outcome = lore::request_status(daemon.socket(), wrong_store, StatusParams::default())
+    let outcome = lore::request_status(&daemon.socket, wrong_store, StatusParams::default())
         .await
         .expect("status");
     assert_eq!(outcome.status_code, 412);
     assert_eq!(reason(&outcome.body), "STORE_MISMATCH");
 
     let outcome = lore::request_status(
-        daemon.socket(),
+        &daemon.socket,
         meta(),
         StatusParams {
             expected_api_major: Some(3),
@@ -294,11 +232,11 @@ async fn mismatched_store_and_major_are_failed_preconditions() {
 #[tokio::test]
 async fn zero_deadline_is_rejected() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
     let mut zero = meta();
     zero.timeout_ms = Some(0);
-    let outcome = lore::request_status(daemon.socket(), zero, StatusParams::default())
+    let outcome = lore::request_status(&daemon.socket, zero, StatusParams::default())
         .await
         .expect("status");
     assert_eq!(outcome.status_code, 400);
@@ -308,10 +246,10 @@ async fn zero_deadline_is_rejected() {
 #[tokio::test]
 async fn omitted_params_default_to_empty() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
     let (status, body) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "POST",
         "/v2/status",
         "lore.local",
@@ -328,10 +266,10 @@ async fn omitted_params_default_to_empty() {
 #[tokio::test]
 async fn duplicate_keys_and_unsafe_integers_are_rejected() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
     let (status, body) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "POST",
         "/v2/status",
         "lore.local",
@@ -344,7 +282,7 @@ async fn duplicate_keys_and_unsafe_integers_are_rejected() {
 
     let mut unsafe_meta = meta();
     unsafe_meta.timeout_ms = Some(9_007_199_254_740_993);
-    let outcome = lore::request_status(daemon.socket(), unsafe_meta, StatusParams::default())
+    let outcome = lore::request_status(&daemon.socket, unsafe_meta, StatusParams::default())
         .await
         .expect("status");
     assert_eq!(outcome.status_code, 400);
@@ -354,13 +292,13 @@ async fn duplicate_keys_and_unsafe_integers_are_rejected() {
 #[tokio::test]
 async fn oversized_bodies_are_rejected_while_reading() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
     let filler = "x".repeat(1024 * 1024 + 64);
     let body =
         format!(r#"{{"meta":{{"clientId":"t","requestId":"r"}},"params":{{}},"pad":"{filler}"}}"#);
     let (status, response) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "POST",
         "/v2/status",
         "lore.local",
@@ -377,9 +315,9 @@ async fn slow_bodies_hit_the_receive_deadline() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
-    let mut stream = tokio::net::UnixStream::connect(daemon.socket())
+    let mut stream = tokio::net::UnixStream::connect(&daemon.socket)
         .await
         .expect("connect");
     stream
@@ -403,9 +341,9 @@ async fn bounded_overload_rejects_and_recovers() {
     use tokio::io::AsyncWriteExt;
 
     let daemon = Daemon::start_with(&["--max-inflight", "1"]);
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
-    let mut stalled = tokio::net::UnixStream::connect(daemon.socket())
+    let mut stalled = tokio::net::UnixStream::connect(&daemon.socket)
         .await
         .expect("connect");
     stalled
@@ -417,7 +355,7 @@ async fn bounded_overload_rejects_and_recovers() {
     tokio::time::sleep(Duration::from_millis(150)).await;
 
     let (status, body) = raw(
-        daemon.socket(),
+        &daemon.socket,
         "POST",
         "/v2/status",
         "lore.local",
@@ -430,7 +368,7 @@ async fn bounded_overload_rejects_and_recovers() {
 
     drop(stalled);
     tokio::time::sleep(Duration::from_millis(1_300)).await;
-    let outcome = lore::request_status(daemon.socket(), meta(), StatusParams::default())
+    let outcome = lore::request_status(&daemon.socket, meta(), StatusParams::default())
         .await
         .expect("status");
     assert_eq!(outcome.status_code, 200);
@@ -441,10 +379,10 @@ async fn client_disconnect_does_not_break_later_requests() {
     use tokio::io::AsyncWriteExt;
 
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
     {
-        let mut stream = tokio::net::UnixStream::connect(daemon.socket())
+        let mut stream = tokio::net::UnixStream::connect(&daemon.socket)
             .await
             .expect("connect");
         stream
@@ -454,7 +392,7 @@ async fn client_disconnect_does_not_break_later_requests() {
     }
     tokio::time::sleep(Duration::from_millis(50)).await;
     for _ in 0..2 {
-        let outcome = lore::request_status(daemon.socket(), meta(), StatusParams::default())
+        let outcome = lore::request_status(&daemon.socket, meta(), StatusParams::default())
             .await
             .expect("status");
         assert_eq!(outcome.status_code, 200);
@@ -464,22 +402,23 @@ async fn client_disconnect_does_not_break_later_requests() {
 #[tokio::test]
 async fn a_second_daemon_refuses_a_live_socket() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
 
-    let status = Command::new(env!("CARGO_BIN_EXE_lored"))
+    let output = Command::new(env!("CARGO_BIN_EXE_lored"))
         .arg("--socket")
-        .arg(daemon.socket())
+        .arg(&daemon.socket)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .stderr(Stdio::piped())
+        .output()
         .expect("spawn second lored");
     assert!(
-        !status.success(),
-        "second daemon must refuse the live socket"
+        !output.status.success(),
+        "second daemon must refuse the live socket: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 
-    let outcome = lore::request_status(daemon.socket(), meta(), StatusParams::default())
+    let outcome = lore::request_status(&daemon.socket, meta(), StatusParams::default())
         .await
         .expect("status");
     assert_eq!(outcome.status_code, 200);
@@ -488,25 +427,20 @@ async fn a_second_daemon_refuses_a_live_socket() {
 #[tokio::test]
 async fn required_capabilities_the_daemon_lacks_are_refused_before_routing() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
+    wait_for_socket(&daemon.socket).await;
     let mut request = meta();
     request.required_capabilities = vec!["recall.semantic.bounded".to_string()];
     // Embeddings are disabled in this daemon, so the semantic capability is not advertised.
-    let refused = lore::request(
-        daemon.socket(),
-        "/v2/status",
-        request,
-        serde_json::json!({}),
-    )
-    .await
-    .expect("request");
+    let refused = lore::request(&daemon.socket, "/v2/status", request, serde_json::json!({}))
+        .await
+        .expect("request");
     assert_eq!(refused.status_code, 412, "{}", refused.body);
     assert_eq!(reason(&refused.body), "CAPABILITY_REQUIRED");
 
     let mut satisfied = meta();
     satisfied.required_capabilities = vec!["status.basic".to_string()];
     let accepted = lore::request(
-        daemon.socket(),
+        &daemon.socket,
         "/v2/status",
         satisfied,
         serde_json::json!({}),
@@ -519,8 +453,8 @@ async fn required_capabilities_the_daemon_lacks_are_refused_before_routing() {
 #[tokio::test]
 async fn a_reload_cannot_switch_embeddings_on_for_a_store_opened_without_them() {
     let daemon = Daemon::start();
-    wait_for_socket(daemon.socket()).await;
-    let config_path = daemon._dir.path().join("lore.json");
+    wait_for_socket(&daemon.socket).await;
+    let config_path = daemon.dir.path().join("lore.json");
     let mut config: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&config_path).expect("read config"))
             .expect("parse config");
@@ -541,7 +475,7 @@ async fn a_reload_cannot_switch_embeddings_on_for_a_store_opened_without_them() 
     )
     .expect("write config");
 
-    let status = lore::request(daemon.socket(), "/v2/status", meta(), serde_json::json!({}))
+    let status = lore::request(&daemon.socket, "/v2/status", meta(), serde_json::json!({}))
         .await
         .expect("status");
     let store_id =
@@ -552,7 +486,7 @@ async fn a_reload_cannot_switch_embeddings_on_for_a_store_opened_without_them() 
     let mut request = meta();
     request.expected_store_id = Some(store_id);
     let reload = lore::request(
-        daemon.socket(),
+        &daemon.socket,
         "/v2/config/reload",
         request,
         serde_json::json!({ "idempotencyKey": "enable-embeddings" }),

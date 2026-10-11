@@ -1,71 +1,13 @@
 //! Drill-down depth: supersession lineage, canonical grouping and the graph.
 
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
 use std::time::Duration;
 
 use protocol::RequestMeta;
 use serde_json::{Value, json};
 
-struct Daemon {
-    child: Child,
-    socket: PathBuf,
-    _dir: tempfile::TempDir,
-}
-
-impl Daemon {
-    fn start() -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let socket = dir.path().join("lored.sock");
-        let config_path = dir.path().join("lore.json");
-        let config = json!({
-            "configVersion": 2,
-            "enabled": true,
-            "dataDir": dir.path().to_str().expect("utf8"),
-            "socketPath": socket.to_str().expect("utf8"),
-        });
-        std::fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&config).expect("config"),
-        )
-        .expect("write config");
-        let child = Command::new(env!("CARGO_BIN_EXE_lored"))
-            .arg("--config")
-            .arg(&config_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn lored");
-        Self {
-            child,
-            socket,
-            _dir: dir,
-        }
-    }
-
-    fn database(&self) -> PathBuf {
-        self._dir.path().join("lore-v2.db")
-    }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        // SIGTERM lets the daemon exit cleanly, so coverage counters are written.
-        // SIGKILL would discard them.
-        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        // Wait for a clean exit, then fall back to SIGKILL so a stuck daemon cannot hang the test.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
+mod support;
+use support::Daemon;
 
 fn meta(store_id: Option<&str>) -> RequestMeta {
     RequestMeta {
@@ -86,7 +28,10 @@ async fn call(socket: &Path, route: &str, params: Value, store_id: Option<&str>)
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("daemon never accepted requests");
+    panic!(
+        "daemon never accepted requests; stderr:\n{}",
+        support::stderr_for(socket)
+    );
 }
 
 async fn store_id(socket: &Path) -> String {
@@ -131,7 +76,7 @@ async fn drilldown_reports_lineage_canonical_grouping_and_a_consistent_graph() {
     .await;
     // Shape the store: original retired by replacement, both sharing a topic key.
     {
-        let connection = rusqlite::Connection::open(daemon.database()).expect("db");
+        let connection = rusqlite::Connection::open(daemon.database_path()).expect("db");
         connection
             .execute(
                 "UPDATE memories SET superseded_by = ?1, topic_key = 'topic-shared' WHERE id = ?2",

@@ -1,8 +1,6 @@
 //! End-to-end embedding flow against a fake OpenAI-compatible provider:
 //! worker indexing, hybrid recall, outage fallback, caching and status.
 
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -11,6 +9,26 @@ use protocol::RequestMeta;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+
+mod support;
+use support::Daemon;
+
+fn start(endpoint: &str) -> Daemon {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut config = Daemon::config_with(dir.path());
+    config["providers"] = json!({
+        "embeddings": {
+            "enabled": true,
+            "endpoint": endpoint,
+            "model": "fake-model",
+            "dimensions": 4,
+            "generation": 1,
+            "timeoutMs": 5000,
+            "minSimilarity": 0.5
+        }
+    });
+    Daemon::spawn(dir, &config, &[])
+}
 
 #[derive(Clone, Copy)]
 enum Mode {
@@ -98,73 +116,6 @@ fn content_length(headers: &[u8]) -> usize {
         .unwrap_or(0)
 }
 
-struct Daemon {
-    child: Child,
-    socket: PathBuf,
-    _dir: tempfile::TempDir,
-}
-
-impl Daemon {
-    fn start(endpoint: &str) -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let socket = dir.path().join("lored.sock");
-        let config_path = dir.path().join("lore.json");
-        let config = json!({
-            "configVersion": 2,
-            "enabled": true,
-            "dataDir": dir.path().to_str().expect("utf8"),
-            "socketPath": socket.to_str().expect("utf8"),
-            "providers": {
-                "embeddings": {
-                    "enabled": true,
-                    "endpoint": endpoint,
-                    "model": "fake-model",
-                    "dimensions": 4,
-                    "generation": 1,
-                    "timeoutMs": 5000,
-                    "minSimilarity": 0.5
-                }
-            }
-        });
-        std::fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&config).expect("config"),
-        )
-        .expect("write config");
-        let child = Command::new(env!("CARGO_BIN_EXE_lored"))
-            .arg("--config")
-            .arg(&config_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn lored");
-        Self {
-            child,
-            socket,
-            _dir: dir,
-        }
-    }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        // SIGTERM lets the daemon exit cleanly, so coverage counters are written.
-        // SIGKILL would discard them.
-        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        // Wait for a clean exit, then fall back to SIGKILL so a stuck daemon cannot hang the test.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 fn meta() -> RequestMeta {
     RequestMeta {
         client_id: "test.rust".to_string(),
@@ -231,7 +182,7 @@ async fn recall(socket: &std::path::Path, store_id: &str, query: &str) -> Value 
 #[tokio::test]
 async fn worker_indexes_and_vector_recall_finds_lexically_unrelated_memory() {
     let provider = FakeProvider::start(Mode::Ok).await;
-    let daemon = Daemon::start(&provider.endpoint);
+    let daemon = start(&provider.endpoint);
     let initial = wait_for_status(&daemon.socket, |_| true).await;
     let store_id = initial["storeId"].as_str().expect("storeId").to_string();
 
@@ -252,7 +203,7 @@ async fn worker_indexes_and_vector_recall_finds_lexically_unrelated_memory() {
 #[tokio::test]
 async fn provider_outage_falls_back_to_lexical_with_a_reason() {
     let provider = FakeProvider::start(Mode::ServerError).await;
-    let daemon = Daemon::start(&provider.endpoint);
+    let daemon = start(&provider.endpoint);
     let initial = wait_for_status(&daemon.socket, |_| true).await;
     let store_id = initial["storeId"].as_str().expect("storeId").to_string();
 
@@ -285,7 +236,7 @@ async fn provider_outage_falls_back_to_lexical_with_a_reason() {
 #[tokio::test]
 async fn identical_queries_are_served_from_the_cache() {
     let provider = FakeProvider::start(Mode::Ok).await;
-    let daemon = Daemon::start(&provider.endpoint);
+    let daemon = start(&provider.endpoint);
     let initial = wait_for_status(&daemon.socket, |_| true).await;
     let store_id = initial["storeId"].as_str().expect("storeId").to_string();
 
@@ -311,7 +262,7 @@ async fn identical_queries_are_served_from_the_cache() {
 #[tokio::test]
 async fn malformed_provider_falls_back_and_records_a_terminal_failure() {
     let provider = FakeProvider::start(Mode::WrongDimensions).await;
-    let daemon = Daemon::start(&provider.endpoint);
+    let daemon = start(&provider.endpoint);
     let initial = wait_for_status(&daemon.socket, |_| true).await;
     let store_id = initial["storeId"].as_str().expect("storeId").to_string();
 
@@ -333,7 +284,7 @@ async fn malformed_provider_falls_back_and_records_a_terminal_failure() {
 #[tokio::test]
 async fn embedding_status_and_jobs_routes_report_coverage() {
     let provider = FakeProvider::start(Mode::Ok).await;
-    let daemon = Daemon::start(&provider.endpoint);
+    let daemon = start(&provider.endpoint);
     let initial = wait_for_status(&daemon.socket, |_| true).await;
     let store_id = initial["storeId"].as_str().expect("storeId").to_string();
 
@@ -389,10 +340,10 @@ async fn reload(socket: &std::path::Path, store_id: &str, key: &str) -> Value {
 #[tokio::test]
 async fn config_reload_replays_the_first_result_for_a_same_key() {
     let provider = FakeProvider::start(Mode::Ok).await;
-    let daemon = Daemon::start(&provider.endpoint);
+    let daemon = start(&provider.endpoint);
     let initial = wait_for_status(&daemon.socket, |_| true).await;
     let store_id = initial["storeId"].as_str().expect("storeId").to_string();
-    let config_path = daemon._dir.path().join("lore.json");
+    let config_path = daemon.dir.path().join("lore.json");
     let mut config: Value =
         serde_json::from_str(&std::fs::read_to_string(&config_path).expect("read")).expect("parse");
     let write = |config: &Value| {
@@ -428,7 +379,7 @@ async fn config_reload_replays_the_first_result_for_a_same_key() {
 #[tokio::test]
 async fn an_unchanged_reload_settles_and_replays_its_acknowledgement() {
     let provider = FakeProvider::start(Mode::Ok).await;
-    let daemon = Daemon::start(&provider.endpoint);
+    let daemon = start(&provider.endpoint);
     let initial = wait_for_status(&daemon.socket, |_| true).await;
     let store_id = initial["storeId"].as_str().expect("storeId").to_string();
 

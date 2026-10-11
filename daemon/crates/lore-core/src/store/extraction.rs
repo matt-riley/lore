@@ -88,6 +88,34 @@ impl Store {
                 continue;
             }
 
+            // A target that an earlier correction superseded comes back to life when a
+            // later correction points at it again. Otherwise the predecessor below
+            // would retire it, and the two would retire each other.
+            let superseded_target: Option<(String, String)> = transaction
+                .query_row(
+                    "SELECT content, kind FROM memories WHERE id = ?1 AND forgotten = 0 \
+                     AND superseded_by IS NOT NULL",
+                    params![memory_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            if let Some((content, kind)) = superseded_target {
+                revision += 1;
+                transaction.execute(
+                    "UPDATE memories SET superseded_by = NULL, revision = ?2, updated_ms = ?3 WHERE id = ?1",
+                    params![memory_id, revision, now_ms],
+                )?;
+                let tags = [proposal.kind.clone(), proposal.source_role.clone()];
+                transaction.execute(
+                    "DELETE FROM memory_fts WHERE memory_id = ?1",
+                    params![memory_id],
+                )?;
+                transaction.execute(
+                    "INSERT INTO memory_fts (content, kind, tags, memory_id) VALUES (?1, ?2, ?3, ?4)",
+                    params![content, kind, tags.join(" "), memory_id],
+                )?;
+            }
+
             // Retire superseded automatic propositions before inserting the
             // replacement so contradictory guidance never stays active.
             for retired_topic in &proposal.retires {

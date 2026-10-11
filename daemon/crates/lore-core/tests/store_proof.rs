@@ -851,3 +851,64 @@ fn memory_view_pages_close_on_the_byte_budget_and_still_reach_every_memory() {
         "the byte budget split the memories across pages"
     );
 }
+
+#[test]
+fn a_correction_back_to_an_earlier_proposition_reactivates_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(&config_with(dir.path(), Limits::default())).expect("open");
+    let proposal = |content: &str, retires: Vec<String>| lore_core::extraction::Proposal {
+        kind: "user_preference".to_string(),
+        content: content.to_string(),
+        scope: "global".to_string(),
+        repository: None,
+        confidence: 0.9,
+        evidence_key: format!("evidence-{content}"),
+        turn_index: 1,
+        source_role: "user".to_string(),
+        rule_version: "test".to_string(),
+        topic_key: content.to_lowercase(),
+        retires,
+        correction: true,
+    };
+    let a = "Prefer tabs.";
+    let b = "Prefer spaces.";
+    store
+        .apply_proposals(
+            "source-1",
+            "generation-1",
+            &[proposal(a, Vec::new())],
+            1_000,
+        )
+        .expect("A");
+    // B supersedes A.
+    store
+        .apply_proposals(
+            "source-1",
+            "generation-2",
+            &[proposal(b, vec![a.to_lowercase()])],
+            2_000,
+        )
+        .expect("B");
+    // A supersedes B: A's own row must come back, not stay superseded.
+    store
+        .apply_proposals(
+            "source-1",
+            "generation-3",
+            &[proposal(a, vec![b.to_lowercase()])],
+            3_000,
+        )
+        .expect("A again");
+    assert_eq!(
+        store.status().expect("status").active_memories,
+        1,
+        "the corrected-back proposition is active"
+    );
+    let recalled = store
+        .recall(&recall("tabs"), 4_000, 6, 8_192, None)
+        .expect("recall");
+    assert!(
+        recalled.context.contains("Prefer tabs."),
+        "the reactivated memory is searchable: {}",
+        recalled.context
+    );
+}

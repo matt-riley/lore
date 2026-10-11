@@ -370,3 +370,57 @@ async fn embedding_status_and_jobs_routes_report_coverage() {
     assert_eq!(reload["result"]["reloaded"], false);
     assert_eq!(reload["result"]["reason"], "UNCHANGED");
 }
+
+async fn reload(socket: &std::path::Path, store_id: &str, key: &str) -> Value {
+    let mut request_meta = meta();
+    request_meta.expected_store_id = Some(store_id.to_string());
+    let response = lore::request(
+        socket,
+        "/v2/config/reload",
+        request_meta,
+        json!({ "idempotencyKey": key }),
+    )
+    .await
+    .expect("reload");
+    assert_eq!(response.status_code, 200, "body: {}", response.body);
+    serde_json::from_str(&response.body).expect("json")
+}
+
+#[tokio::test]
+async fn config_reload_replays_the_first_result_for_a_same_key() {
+    let provider = FakeProvider::start(Mode::Ok).await;
+    let daemon = Daemon::start(&provider.endpoint);
+    let initial = wait_for_status(&daemon.socket, |_| true).await;
+    let store_id = initial["storeId"].as_str().expect("storeId").to_string();
+    let config_path = daemon._dir.path().join("lore.json");
+    let mut config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).expect("read")).expect("parse");
+    let write = |config: &Value| {
+        std::fs::write(
+            &config_path,
+            serde_json::to_vec_pretty(config).expect("config"),
+        )
+        .expect("write");
+    };
+
+    config["providers"]["embeddings"]["minSimilarity"] = json!(0.7);
+    write(&config);
+    let first = reload(&daemon.socket, &store_id, "reload-replay").await;
+    assert_eq!(first["result"]["reason"], "SETTINGS_APPLIED", "{first}");
+
+    // The file moves on, but a retry with the same key must replay the original
+    // acknowledgement instead of applying the newer settings.
+    config["providers"]["embeddings"]["minSimilarity"] = json!(0.75);
+    write(&config);
+    let replay = reload(&daemon.socket, &store_id, "reload-replay").await;
+    assert_eq!(
+        replay["result"], first["result"],
+        "the same key replays the stored result"
+    );
+
+    let second = reload(&daemon.socket, &store_id, "reload-replay-2").await;
+    assert_eq!(
+        second["result"]["reason"], "SETTINGS_APPLIED",
+        "the retry did not apply 0.75: {second}"
+    );
+}

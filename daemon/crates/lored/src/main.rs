@@ -2414,6 +2414,68 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
         Ok(guard) => guard,
         Err(response) => return response,
     };
+    let client_id = envelope.meta.client_id.clone();
+    let key = envelope.params.idempotency_key.clone();
+    if let Err(error) = policy::validate_idempotency_key(&key) {
+        return core_response(error, &request_id, &store_id);
+    }
+    let hash = match policy::params_fingerprint(&envelope.params) {
+        Ok(hash) => hash,
+        Err(error) => return core_response(error, &request_id, &store_id),
+    };
+    // One reload per key at a time, and the applied result is replayed so a lost
+    // response cannot apply a second generation change on retry.
+    let _key_lease = match KeyLease::acquire(state, format!("{client_id}\nconfig.reload\n{key}")) {
+        Some(lease) => lease,
+        None => {
+            return fail_response(
+                StatusCode::CONFLICT,
+                "ALREADY_EXISTS",
+                "IDEMPOTENCY_IN_PROGRESS",
+                true,
+                Some(&request_id),
+                Some(&store_id),
+            );
+        }
+    };
+    match state
+        .store
+        .lookup_receipt_json(&client_id, "config.reload", &key)
+    {
+        Ok(Some((stored_hash, response))) => {
+            if stored_hash != hash {
+                return fail_response(
+                    StatusCode::CONFLICT,
+                    "ALREADY_EXISTS",
+                    "IDEMPOTENCY_CONFLICT",
+                    false,
+                    Some(&request_id),
+                    Some(&store_id),
+                );
+            }
+            return match serde_json::from_str::<ConfigReloadResult>(&response) {
+                Ok(result) => json(
+                    StatusCode::OK,
+                    &OkEnvelope {
+                        ok: true,
+                        request_id,
+                        store_id,
+                        result,
+                    },
+                ),
+                Err(_) => fail_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    code::INTERNAL,
+                    reason::INTERNAL_FAILURE,
+                    false,
+                    Some(&request_id),
+                    Some(&store_id),
+                ),
+            };
+        }
+        Ok(None) => {}
+        Err(error) => return core_response(error, &request_id, &store_id),
+    }
     let Some(config_path) = state.config_path.clone() else {
         return fail_response(
             StatusCode::PRECONDITION_FAILED,
@@ -2465,57 +2527,61 @@ async fn handle_config_reload(raw: &[u8], state: &Arc<State>, fallback_id: Optio
             Some(&store_id),
         );
     }
-    if identity_unchanged && settings_unchanged {
-        return json(
-            StatusCode::OK,
-            &OkEnvelope {
-                ok: true,
-                request_id,
-                store_id,
-                result: ConfigReloadResult {
-                    reloaded: false,
-                    generation: state.generation.load(Ordering::Relaxed),
-                    reason: "UNCHANGED".to_string(),
-                },
+    let result = if identity_unchanged && settings_unchanged {
+        ConfigReloadResult {
+            reloaded: false,
+            generation: state.generation.load(Ordering::Relaxed),
+            reason: "UNCHANGED".to_string(),
+        }
+    } else {
+        let provider = match &fresh.embedding {
+            Some(embedding) => match build_provider(embedding) {
+                Ok(provider) => Some(Arc::new(provider)),
+                Err(error) => return core_response(error, &request_id, &store_id),
             },
+            None => None,
+        };
+        let min_similarity = next_similarity;
+        let generation = fresh
+            .embedding
+            .as_ref()
+            .map(|embedding| embedding.generation)
+            .unwrap_or(0);
+        state
+            .semantics
+            .replace(provider, next_identity, min_similarity, next_timeout);
+        state.generation.store(generation, Ordering::Relaxed);
+        *state.live_embedding.lock().expect("live embedding") = fresh.embedding.clone();
+        state.worker_state.request_resume();
+        state.notify.notify_one();
+        let reason = if identity_unchanged {
+            "SETTINGS_APPLIED"
+        } else {
+            "PROVIDER_GENERATION_CHANGED"
+        };
+        ConfigReloadResult {
+            reloaded: true,
+            generation,
+            reason: reason.to_string(),
+        }
+    };
+    if let Ok(response) = serde_json::to_string(&result) {
+        let _ = state.store.store_receipt_json(
+            &client_id,
+            "config.reload",
+            &key,
+            &hash,
+            &response,
+            now_ms(),
         );
     }
-    let provider = match &fresh.embedding {
-        Some(embedding) => match build_provider(embedding) {
-            Ok(provider) => Some(Arc::new(provider)),
-            Err(error) => return core_response(error, &request_id, &store_id),
-        },
-        None => None,
-    };
-    let min_similarity = next_similarity;
-    let generation = fresh
-        .embedding
-        .as_ref()
-        .map(|embedding| embedding.generation)
-        .unwrap_or(0);
-    state
-        .semantics
-        .replace(provider, next_identity, min_similarity, next_timeout);
-    state.generation.store(generation, Ordering::Relaxed);
-    *state.live_embedding.lock().expect("live embedding") = fresh.embedding.clone();
-    state.worker_state.request_resume();
-    state.notify.notify_one();
-    let reason = if identity_unchanged {
-        "SETTINGS_APPLIED"
-    } else {
-        "PROVIDER_GENERATION_CHANGED"
-    };
     json(
         StatusCode::OK,
         &OkEnvelope {
             ok: true,
             request_id,
             store_id,
-            result: ConfigReloadResult {
-                reloaded: true,
-                generation,
-                reason: reason.to_string(),
-            },
+            result,
         },
     )
 }

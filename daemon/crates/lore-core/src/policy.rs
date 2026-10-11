@@ -108,7 +108,7 @@ pub fn resolve_recall(params: &RecallParams, limits: &Limits) -> CoreResult<(u32
     Ok((limit, context_bytes))
 }
 
-fn validate_idempotency_key(key: &str) -> CoreResult<()> {
+pub fn validate_idempotency_key(key: &str) -> CoreResult<()> {
     if key.is_empty() || key.len() > 128 || !key.is_ascii() {
         return Err(CoreError::invalid(
             "INVALID_IDEMPOTENCY_KEY",

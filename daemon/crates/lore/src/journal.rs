@@ -83,9 +83,21 @@ impl Journal {
     fn flush(&self) -> Result<(), String> {
         let temporary = self.path.with_extension("json.tmp");
         let bytes = serde_json::to_vec_pretty(&self.file).map_err(|error| error.to_string())?;
+        // The journal holds exact payloads of pending writes, so it is created
+        // owner-only rather than with the umask's default mode. Removing a stale
+        // temporary first matters: truncating it would keep its old mode.
+        let _ = std::fs::remove_file(&temporary);
         {
-            let mut file =
-                std::fs::File::create(&temporary).map_err(|error| format!("journal: {error}"))?;
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options
+                .open(&temporary)
+                .map_err(|error| format!("journal: {error}"))?;
             file.write_all(&bytes)
                 .map_err(|error| format!("journal: {error}"))?;
             file.sync_all()
@@ -133,6 +145,20 @@ mod tests {
         assert_eq!(stored.state, "resolved");
         assert!(stored.payload.is_none(), "resolved payloads are dropped");
         assert!(!journal.resolve("missing").expect("missing"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn journal_file_is_owner_only_under_a_permissive_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut journal = Journal::open(dir.path()).expect("open");
+        journal.record(entry("key-1")).expect("record");
+        let mode = std::fs::metadata(dir.path().join("uncertain-writes.json"))
+            .expect("journal exists")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]

@@ -378,6 +378,48 @@ fn malformed_updated_at_is_quarantined_not_replaced() {
 }
 
 #[test]
+fn import_revision_never_falls_below_a_row_revision() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let source = build_v1(dir.path(), V20);
+    {
+        // One live row, suppressed on import: its revision moves past the first write,
+        // so a counter taken from the row count alone would fall behind it.
+        let connection = rusqlite::Connection::open(&source).expect("open v1");
+        connection
+            .execute("DELETE FROM semantic_memory WHERE id <> 'mem-a'", [])
+            .expect("keep one row");
+        connection
+            .execute(
+                "INSERT INTO memory_suppression (suppression_key, memory_id, canonical_fingerprint, scope, repository, actor, reason, created_at) \
+                 VALUES ('sup-a', 'mem-a', 'fingerprint-a', 'repo', 'acme/app', 'user', 'forgotten', '2026-01-03T00:00:00.000Z')",
+                [],
+            )
+            .expect("suppress mem-a");
+    }
+    let destination = dir.path().join("v2");
+    let preview = migration::preview(&source, &destination).expect("preview");
+    let status =
+        migration::apply(&source, &destination, &preview.fingerprint, true, 1_000).expect("apply");
+    assert_eq!(status.state, "validated");
+    let connection =
+        rusqlite::Connection::open(destination.join("lore-v2.db")).expect("open published");
+    let stored: i64 = connection
+        .query_row(
+            "SELECT memory_revision FROM store_metadata WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("store revision");
+    let highest: i64 = connection
+        .query_row("SELECT MAX(revision) FROM memories", [], |row| row.get(0))
+        .expect("highest row revision");
+    assert!(
+        stored >= highest,
+        "store revision {stored} trails a row at revision {highest}"
+    );
+}
+
+#[test]
 fn backup_and_restore_preserve_later_deletions() {
     let dir = tempfile::tempdir().expect("tempdir");
     let config = config(dir.path());

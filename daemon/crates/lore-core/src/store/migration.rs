@@ -615,12 +615,13 @@ fn rebuild_metadata(store: &Store, now_ms: i64) -> CoreResult<()> {
         [],
         |row| row.get(0),
     )?;
-    let revision: i64 =
-        transaction.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
+    // The counter only moves forward: it must stay at or above every row's revision,
+    // including rows that imported suppression advanced past their first write.
     transaction.execute(
         "UPDATE store_metadata SET active_memories = ?1, forgotten_memories = ?2, \
-         memory_revision = ?3 WHERE id = 1",
-        params![active, forgotten, revision],
+         memory_revision = MAX(memory_revision, COALESCE((SELECT MAX(revision) FROM memories), 0)) \
+         WHERE id = 1",
+        params![active, forgotten],
     )?;
     let _ = now_ms;
     transaction.commit()?;
@@ -849,7 +850,8 @@ impl Store {
             imported += 1;
         }
         transaction.execute(
-            "UPDATE store_metadata SET memory_revision = (SELECT COUNT(*) FROM memories), \
+            "UPDATE store_metadata SET \
+             memory_revision = MAX(memory_revision, COALESCE((SELECT MAX(revision) FROM memories), 0)), \
              active_memories = (SELECT COUNT(*) FROM memories WHERE forgotten = 0 AND superseded_by IS NULL), \
              forgotten_memories = (SELECT COUNT(*) FROM memories WHERE forgotten = 1) WHERE id = 1",
             [],

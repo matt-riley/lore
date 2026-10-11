@@ -518,6 +518,9 @@ pub struct ViewParams {
     pub id: Option<String>,
     #[serde(default)]
     pub include_forgotten: bool,
+    /// `active`, `superseded`, `forgotten` or `all`. Overrides include_forgotten when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
 }
 
 /// `/v2/extraction/retry` parameters.

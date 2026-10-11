@@ -346,6 +346,22 @@ pub async fn handle_register(raw: &[u8], state: &Arc<State>, fallback_id: Option
     let key = envelope.params.idempotency_key.clone();
     let hash =
         lore_core::policy::sha256_hex(&serde_json::to_vec(&envelope.params).unwrap_or_default());
+    // One registration per key at a time: without the lease, two concurrent
+    // requests with different paths could both register and both succeed.
+    let _key_lease =
+        match crate::KeyLease::acquire(state, format!("{client_id}\nsources.register\n{key}")) {
+            Some(lease) => lease,
+            None => {
+                return fail_response(
+                    StatusCode::CONFLICT,
+                    "ALREADY_EXISTS",
+                    "IDEMPOTENCY_IN_PROGRESS",
+                    true,
+                    Some(&request_id),
+                    Some(&store_id),
+                );
+            }
+        };
     match state
         .store
         .lookup_receipt_json(&client_id, "sources.register", &key)

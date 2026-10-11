@@ -1960,12 +1960,19 @@ async fn handle_view(
         match view.as_str() {
             "overview" => store.view_overview(params.repository.as_deref()),
             "health" => store.view_health(),
-            "memories" => store.view_memories(
+            "memories" => store.view_memories_in_state(
                 params.repository.as_deref(),
                 params.kind.as_deref(),
                 params.scope.as_deref(),
                 params.query.as_deref(),
-                params.include_forgotten,
+                params
+                    .state
+                    .as_deref()
+                    .unwrap_or(if params.include_forgotten {
+                        "all"
+                    } else {
+                        "active"
+                    }),
                 params.cursor.as_deref(),
                 params
                     .page_size
@@ -2441,6 +2448,9 @@ async fn handle_analysis(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
             Some(&state.store_id),
         );
     };
+    // The caller's remaining budget bounds the analysis work too, not only the
+    // analysis-specific deadline.
+    let envelope_budget = envelope.meta.timeout_ms.map(Duration::from_millis);
     let params = envelope.params;
     let kind = params.kind.as_str();
     if kind != "query-expansion" && kind != "context-compression" {
@@ -2563,11 +2573,9 @@ async fn handle_analysis(raw: &[u8], state: &Arc<State>, fallback_id: Option<Str
         .deadline_ms
         .unwrap_or(config.default_deadline_ms)
         .clamp(1_000, config.max_deadline_ms);
-    let completion = tokio::time::timeout(
-        std::time::Duration::from_millis(deadline_ms + 250),
-        provider.complete(&prompt),
-    )
-    .await;
+    let wait = Duration::from_millis(deadline_ms + 250);
+    let wait = envelope_budget.map_or(wait, |budget| wait.min(budget));
+    let completion = tokio::time::timeout(wait, provider.complete(&prompt)).await;
     let text = match completion {
         Ok(Ok(text)) => text,
         Ok(Err(error)) => {

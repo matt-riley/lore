@@ -585,7 +585,22 @@ impl Store {
         key: &str,
     ) -> CoreResult<Option<(String, String)>> {
         let connection = self.writer.lock().expect("writer lock");
-        lookup_receipt(&connection, client_id, operation, key)
+        let existing = lookup_receipt(&connection, client_id, operation, key)?;
+        if existing.is_none() {
+            // Every keyed operation looks its receipt up before running. Refusing a
+            // new key at the cap stops receipts growing past the configured bound.
+            let receipts: i64 =
+                connection.query_row("SELECT COUNT(*) FROM idempotency_receipts", [], |row| {
+                    row.get(0)
+                })?;
+            if receipts >= self.limits.max_receipts {
+                return Err(CoreError::quota(
+                    "STORE_QUOTA",
+                    "retry receipt cap reached; a new keyed operation was not run",
+                ));
+            }
+        }
+        Ok(existing)
     }
 
     /// Persist an operation receipt for explicit operator actions.

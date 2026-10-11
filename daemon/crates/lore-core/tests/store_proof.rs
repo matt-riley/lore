@@ -912,3 +912,99 @@ fn a_correction_back_to_an_earlier_proposition_reactivates_it() {
         recalled.context
     );
 }
+
+#[test]
+fn keyed_operations_stop_at_the_receipt_cap_but_known_keys_still_replay() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config_with(
+        dir.path(),
+        Limits {
+            max_receipts: 1,
+            ..Limits::default()
+        },
+    );
+    let store = Store::open(&config).expect("open");
+    assert!(
+        store
+            .lookup_receipt_json("c", "op", "k1")
+            .expect("first lookup")
+            .is_none()
+    );
+    store
+        .store_receipt_json("c", "op", "k1", "hash", "{}", 1_000)
+        .expect("store first receipt");
+    let refused = store
+        .lookup_receipt_json("c", "op", "k2")
+        .expect_err("a new key is refused at the cap");
+    assert_eq!(refused.reason, "STORE_QUOTA");
+    assert!(
+        store
+            .lookup_receipt_json("c", "op", "k1")
+            .expect("known key")
+            .is_some(),
+        "an existing receipt still replays at the cap"
+    );
+}
+
+#[test]
+fn the_memories_view_filters_by_lifecycle_state_and_reports_each_rows_state() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(&config_with(dir.path(), Limits::default())).expect("open");
+    let proposal = |content: &str, retires: Vec<String>| lore_core::extraction::Proposal {
+        kind: "user_preference".to_string(),
+        content: content.to_string(),
+        scope: "global".to_string(),
+        repository: None,
+        confidence: 0.9,
+        evidence_key: format!("evidence-{content}"),
+        turn_index: 1,
+        source_role: "user".to_string(),
+        rule_version: "test".to_string(),
+        topic_key: content.to_lowercase(),
+        retires,
+        correction: true,
+    };
+    store
+        .apply_proposals(
+            "source-1",
+            "generation-1",
+            &[proposal("Prefer tabs.", Vec::new())],
+            1_000,
+        )
+        .expect("A");
+    store
+        .apply_proposals(
+            "source-1",
+            "generation-2",
+            &[proposal("Prefer spaces.", vec!["prefer tabs.".to_string()])],
+            2_000,
+        )
+        .expect("B");
+
+    let rows = |state: &str| {
+        store
+            .view_memories_in_state(None, None, None, None, state, None, 50)
+            .expect("view")["items"]
+            .as_array()
+            .expect("items")
+            .clone()
+    };
+    let superseded = rows("superseded");
+    assert_eq!(superseded.len(), 1, "only the superseded row");
+    assert_eq!(superseded[0]["content"], "Prefer tabs.");
+    assert!(
+        superseded[0]["supersededBy"].is_string(),
+        "the row says what superseded it"
+    );
+    let active = rows("active");
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0]["content"], "Prefer spaces.");
+    assert!(active[0]["supersededBy"].is_null());
+    assert_eq!(rows("all").len(), 2);
+    assert!(
+        store
+            .view_memories_in_state(None, None, None, None, "bogus", None, 50)
+            .is_err(),
+        "an unknown state is refused"
+    );
+}

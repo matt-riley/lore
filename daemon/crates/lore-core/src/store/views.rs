@@ -4,7 +4,7 @@
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 
-use crate::error::CoreResult;
+use crate::error::{CoreError, CoreResult};
 use crate::store::Store;
 
 /// Default page size and cap for keyset views.
@@ -146,16 +146,43 @@ impl Store {
         cursor: Option<&str>,
         page_size: u32,
     ) -> CoreResult<Value> {
+        let state = if include_forgotten { "all" } else { "active" };
+        self.view_memories_in_state(repository, kind, scope, query, state, cursor, page_size)
+    }
+
+    /// Keyset page of memories in one lifecycle state: `active` (neither forgotten
+    /// nor superseded), `superseded`, `forgotten`, or `all`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn view_memories_in_state(
+        &self,
+        repository: Option<&str>,
+        kind: Option<&str>,
+        scope: Option<&str>,
+        query: Option<&str>,
+        state: &str,
+        cursor: Option<&str>,
+        page_size: u32,
+    ) -> CoreResult<Value> {
         let connection = self.reader();
         let connection = connection.lock().expect("reader lock");
         let limit = page_size.clamp(1, VIEW_PAGE_MAX);
         let mut sql = String::from(
             "SELECT id, kind, content, scope, repository, authority, confidence, created_ms, \
-             updated_ms, expires_at_ms, source_session_id, tags_json FROM memories WHERE 1 = 1",
+             updated_ms, expires_at_ms, source_session_id, tags_json, superseded_by, forgotten \
+             FROM memories WHERE 1 = 1",
         );
         let mut values: Vec<rusqlite::types::Value> = Vec::new();
-        if !include_forgotten {
-            sql.push_str(" AND forgotten = 0 AND superseded_by IS NULL");
+        match state {
+            "active" => sql.push_str(" AND forgotten = 0 AND superseded_by IS NULL"),
+            "superseded" => sql.push_str(" AND forgotten = 0 AND superseded_by IS NOT NULL"),
+            "forgotten" => sql.push_str(" AND forgotten = 1"),
+            "all" => {}
+            other => {
+                return Err(CoreError::invalid(
+                    "VIEW_STATE_INVALID",
+                    format!("state must be active, superseded, forgotten or all, not {other}"),
+                ));
+            }
         }
         if let Some(repository) = repository {
             sql.push_str(" AND repository = ?");
@@ -195,6 +222,8 @@ impl Store {
                 "expiresAtMs": row.get::<_, Option<i64>>(9)?,
                 "sourceSessionId": row.get::<_, Option<String>>(10)?,
                 "tags": serde_json::from_str::<Value>(&tags_json).unwrap_or(json!([])),
+                "supersededBy": row.get::<_, Option<String>>(12)?,
+                "forgotten": row.get::<_, i64>(13)? != 0,
             }))
         })?;
         // A page closes at the row limit or the byte budget, whichever comes first, so

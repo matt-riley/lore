@@ -721,12 +721,28 @@ const MAX_DISCOVERY_DEPTH: usize = 4;
 /// whole directory.
 const MAX_DISCOVERY_ENTRIES: usize = 200_000;
 
-/// Collect candidate files under a root, bounded by depth and by `cap`. Returns
-/// true when the cap stopped the walk before every candidate was listed.
+/// Whether a file under a root of this client is a session candidate, judged by
+/// its extension. Only candidates count toward the discovery cap.
+fn is_candidate(client: &str, path: &Path) -> bool {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+    match client {
+        "copilot" => matches!(extension, "db" | "sqlite" | "sqlite3"),
+        "antigravity" => matches!(extension, "json" | "jsonl"),
+        _ => extension == "jsonl",
+    }
+}
+
+/// Collect candidate files under a root, bounded by depth and by `cap` on the
+/// candidates it lists. Returns true when the cap stopped the walk before every
+/// candidate was listed. Files that `accept` rejects are not listed and do not count.
 fn collect_candidate_files(
     directory: &Path,
     max_depth: usize,
     cap: usize,
+    accept: &dyn Fn(&Path) -> bool,
     out: &mut Vec<PathBuf>,
 ) -> std::io::Result<bool> {
     let mut queue: Vec<(PathBuf, usize)> = vec![(directory.to_path_buf(), 0)];
@@ -742,6 +758,9 @@ fn collect_candidate_files(
                 if depth < max_depth {
                     queue.push((path, depth + 1));
                 }
+                continue;
+            }
+            if !accept(&path) {
                 continue;
             }
             out.push(path);
@@ -769,6 +788,7 @@ pub fn discover_page(
         directory,
         MAX_DISCOVERY_DEPTH,
         MAX_DISCOVERY_ENTRIES,
+        &|path: &Path| is_candidate(&root.client, path),
         &mut entries,
     )
     .map_err(|error| CoreError::precondition("SOURCE_ROOT_UNAVAILABLE", format!("{error}")))?;
@@ -811,16 +831,7 @@ fn register_discovered(
     path: &Path,
     now_ms: i64,
 ) -> CoreResult<Option<SourceRow>> {
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("");
-    let acceptable = match root.client.as_str() {
-        "copilot" => matches!(extension, "db" | "sqlite" | "sqlite3"),
-        "antigravity" => matches!(extension, "json" | "jsonl"),
-        _ => extension == "jsonl",
-    };
-    if !acceptable {
+    if !is_candidate(&root.client, path) {
         return Ok(None);
     }
     let Ok(canonical) = safe_source_path(root, path, true) else {
@@ -1043,9 +1054,33 @@ mod tests {
             std::fs::write(dir.path().join(name), "{}\n").expect("write");
         }
         let mut listed = Vec::new();
-        assert!(collect_candidate_files(dir.path(), 1, 2, &mut listed).expect("walk"));
+        assert!(
+            collect_candidate_files(dir.path(), 1, 2, &|_: &Path| true, &mut listed).expect("walk")
+        );
         let mut all = Vec::new();
-        assert!(!collect_candidate_files(dir.path(), 1, 10, &mut all).expect("walk"));
+        assert!(
+            !collect_candidate_files(dir.path(), 1, 10, &|_: &Path| true, &mut all).expect("walk")
+        );
         assert_eq!(all.len(), 3);
+    }
+
+    #[test]
+    fn unsupported_files_do_not_count_toward_the_cap() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for index in 0..5 {
+            std::fs::write(dir.path().join(format!("cache-{index}.bin")), "x").expect("write");
+        }
+        std::fs::write(dir.path().join("session.jsonl"), "{}\n").expect("write");
+        let mut listed = Vec::new();
+        let truncated = collect_candidate_files(
+            dir.path(),
+            1,
+            2,
+            &|path: &Path| is_candidate("pi", path),
+            &mut listed,
+        )
+        .expect("walk");
+        assert!(!truncated, "five unsupported files must not stop the walk");
+        assert_eq!(listed, vec![dir.path().join("session.jsonl")]);
     }
 }

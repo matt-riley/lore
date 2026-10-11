@@ -275,6 +275,9 @@ fn import_suppressions(
             )?;
             bump(counts, "memory_suppression");
         }
+        // The cursor is recorded in this transaction with the rows it covers, so a
+        // resume never replays a chunk whose counts are already stored.
+        cursor.insert("memory_suppression".to_string(), position);
         transaction.execute(
             "UPDATE migration_manifest SET cursor_json = ?2, counts_json = ?3 WHERE run_id = ?1",
             params![
@@ -284,7 +287,6 @@ fn import_suppressions(
             ],
         )?;
         transaction.commit()?;
-        cursor.insert("memory_suppression".to_string(), position);
     }
     Ok(())
 }
@@ -425,6 +427,9 @@ fn import_semantic_memory(
             }
             bump(counts, "semantic_memory");
         }
+        // The cursor is recorded in this transaction with the rows it covers, so a
+        // resume never replays a chunk whose counts are already stored.
+        cursor.insert("semantic_memory".to_string(), position);
         transaction.execute(
             "UPDATE migration_manifest SET cursor_json = ?2, counts_json = ?3 WHERE run_id = ?1",
             params![
@@ -434,7 +439,6 @@ fn import_semantic_memory(
             ],
         )?;
         transaction.commit()?;
-        cursor.insert("semantic_memory".to_string(), position);
     }
     Ok(())
 }
@@ -491,6 +495,9 @@ fn import_evidence(
             )?;
             bump(counts, "memory_evidence");
         }
+        // The cursor is recorded in this transaction with the rows it covers, so a
+        // resume never replays a chunk whose counts are already stored.
+        cursor.insert("memory_evidence".to_string(), position);
         transaction.execute(
             "UPDATE migration_manifest SET cursor_json = ?2, counts_json = ?3 WHERE run_id = ?1",
             params![
@@ -500,7 +507,6 @@ fn import_evidence(
             ],
         )?;
         transaction.commit()?;
-        cursor.insert("memory_evidence".to_string(), position);
     }
     Ok(())
 }
@@ -545,6 +551,9 @@ fn import_repository_mappings(
             )?;
             bump(counts, "repository_identity_mapping");
         }
+        // The cursor is recorded in this transaction with the rows it covers, so a
+        // resume never replays a chunk whose counts are already stored.
+        cursor.insert("repository_identity_mapping".to_string(), position);
         transaction.execute(
             "UPDATE migration_manifest SET cursor_json = ?2, counts_json = ?3 WHERE run_id = ?1",
             params![
@@ -554,7 +563,6 @@ fn import_repository_mappings(
             ],
         )?;
         transaction.commit()?;
-        cursor.insert("repository_identity_mapping".to_string(), position);
     }
     Ok(())
 }

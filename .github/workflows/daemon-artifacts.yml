@@ -67,7 +67,12 @@ jobs:
             -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" lore-signing.keychain-db
-          security list-keychains -d user -s lore-signing.keychain-db $(security list-keychains -d user | tr -d '"')
+          # Read the search list one keychain per line, so a path with spaces stays whole.
+          keychains=()
+          while read -r keychain; do
+            keychains+=("$keychain")
+          done < <(security list-keychains -d user | tr -d '"')
+          security list-keychains -d user -s lore-signing.keychain-db "${keychains[@]}"
           rm -f "$certificate"
           # Prove the identity is usable before any build work is signed.
           security find-identity -v -p codesigning lore-signing.keychain-db

@@ -178,6 +178,34 @@ pub fn setup_apply(
         read_json(&integrations_path(home)).unwrap_or_else(|| json!({ "managed": {} }));
     let mut actions = Vec::new();
 
+    // Refuse every unowned target before the first write. Otherwise an earlier
+    // client's file is written, the manifest is never saved, and the next run
+    // sees that file as unowned.
+    if !remove && !replace_unowned {
+        for client in &selected {
+            let path = integration_file(home, client);
+            if !path.exists() {
+                continue;
+            }
+            let document = integration_document(client, socket, version);
+            let hash = sha256_hex(
+                serde_json::to_string_pretty(&document)
+                    .unwrap_or_default()
+                    .as_bytes(),
+            );
+            let current = std::fs::read(&path)
+                .map(|bytes| sha256_hex(&bytes))
+                .unwrap_or_default();
+            let recorded = manifest["managed"][client]["hash"].as_str();
+            if hash != current && recorded != Some(current.as_str()) {
+                return Err(format!(
+                    "{} exists and is not owned by lore; rerun with --replace-unowned to replace it",
+                    path.display()
+                ));
+            }
+        }
+    }
+
     for client in &selected {
         let path = integration_file(home, client);
         if remove {

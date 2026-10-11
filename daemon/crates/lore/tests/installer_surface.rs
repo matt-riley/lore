@@ -421,3 +421,27 @@ fn a_failed_same_version_upgrade_keeps_the_live_version_runnable() {
         .expect("live binary runs");
     assert!(output.status.success(), "the live version still runs");
 }
+
+#[test]
+fn setup_refuses_before_writing_any_client_when_a_later_target_is_unowned() {
+    let home = tempfile::tempdir().expect("home");
+    std::fs::create_dir_all(home.path().join(".lore/integrations")).expect("mkdir");
+    std::fs::write(home.path().join(".lore/integrations/codex.json"), "{}\n")
+        .expect("seed unowned");
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "setup",
+            "--clients",
+            "pi,codex",
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_ne!(code, 0, "{stderr}");
+    assert!(
+        !home.path().join(".lore/integrations/pi.json").exists(),
+        "no client file is written when a later one is refused"
+    );
+}

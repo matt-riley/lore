@@ -337,6 +337,43 @@ test("a retry is refused when the daemon serves a different store", async () => 
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("an ambiguous attempt keeps its entry when the retry is rejected", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-"));
+  const journalPath = path.join(dir, "uncertain-writes.json");
+  let calls = 0;
+  const fakeClient = {
+    negotiated: async () => ({ storeId: "store-a", capabilities: [] }),
+    requireCapability: async () => {},
+    call: async () => {
+      calls += 1;
+      if (calls === 1) {
+        // The first attempt may have committed before the connection failed.
+        const error = new Error("connect ECONNREFUSED");
+        error.code = "ECONNREFUSED";
+        throw error;
+      }
+      const error = new Error("store mismatch");
+      error.reason = "STORE_MISMATCH";
+      error.retryable = false;
+      throw error;
+    },
+  };
+  const session = createHostSession({
+    socketPath: "/tmp/unused.sock",
+    createClient: () => fakeClient,
+    journalPath,
+  });
+  await assert.rejects(
+    () => session.invokeTool("lore_retain", { content: "Ambiguous." }, { sessionId: "s" }),
+    /store mismatch/,
+  );
+  assert.equal(calls, 2, "one bounded retry ran");
+  const pending = session.retries();
+  assert.equal(pending.length, 1, "the ambiguous first attempt keeps its entry");
+  assert.equal(pending[0].hasPayload, true);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("a journaled write is pinned to the store its entry records", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-"));
   const journalPath = path.join(dir, "uncertain-writes.json");

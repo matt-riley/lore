@@ -116,18 +116,23 @@ export function createHostSession({
       recordedStore
         ? client.call(tool.route, payload, { signal, pinStoreId: recordedStore })
         : client.call(tool.route, payload, { signal });
+    let ambiguous = false;
     let result;
     try {
       try {
         result = await dispatch();
       } catch (error) {
         if (!isRetryableTransportError(error)) throw error;
+        // The request may have reached the daemon and committed; a definitive
+        // rejection of the retry below says nothing about this attempt.
+        ambiguous = true;
         result = await dispatch();
       }
     } catch (error) {
-      // A definitive daemon rejection means nothing committed, so the entry is
-      // no longer needed. Anything else may have committed and stays for retry.
-      if (error?.retryable === false) journal?.discard(key);
+      // A definitive daemon rejection only proves nothing committed when no
+      // earlier attempt was transport-ambiguous; anything else may have
+      // committed and stays for retry.
+      if (error?.retryable === false && !ambiguous) journal?.discard(key);
       throw error;
     }
     journal?.complete(key);

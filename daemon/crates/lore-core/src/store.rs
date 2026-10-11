@@ -2058,6 +2058,15 @@ fn lookup_receipt(
 /// the operation committed, so it is refused rather than run again.
 pub const RECEIPT_PENDING: &str = "pending";
 
+/// Receipt fields for an operation that settles its receipt in the same
+/// transaction as the write it acknowledges.
+pub struct ReceiptRef<'a> {
+    pub client_id: &'a str,
+    pub operation: &'a str,
+    pub key: &'a str,
+    pub request_hash: &'a str,
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "the parameters are the request plus its read-snapshot context"

@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
 
-use super::Store;
+use super::{ReceiptRef, Store, store_receipt};
 
 /// One handed-out job with everything the caller needs to embed it.
 #[derive(Debug, Clone)]
@@ -615,39 +615,78 @@ impl Store {
     ) -> CoreResult<u64> {
         let mut connection = self.writer.lock().expect("writer lock");
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        // Jobs and intents are filtered the same way, so a selective retry resets only
-        // the selected memories in both tables.
-        let mut memory_clause = String::new();
-        let mut values: Vec<Value> = vec![
-            Value::Integer(now_ms),
-            identity.map_or(Value::Null, |value| Value::Text(value.to_string())),
-        ];
-        if let Some(ids) = memory_ids
-            && !ids.is_empty()
-        {
-            let placeholders = vec!["?"; ids.len()].join(", ");
-            memory_clause = format!(" AND memory_id IN ({placeholders})");
-            values.extend(ids.iter().map(|id| Value::Text(id.clone())));
-        }
-        let reset = transaction.execute(
-            &format!(
-                "UPDATE embedding_jobs SET state = 'queued', attempts = 0, next_attempt_ms = NULL, \
-                 terminal_reason = NULL, updated_ms = ?1 WHERE state = 'failed' \
-                 AND (?2 IS NULL OR model_identity = ?2){memory_clause}"
-            ),
-            params_from_iter(values.iter()),
-        )? as u64;
-        transaction.execute(
-            &format!(
-                "UPDATE embedding_intents SET state = 'pending', attempts = 0, next_attempt_ms = NULL, \
-                 terminal_reason = NULL, updated_ms = ?1 WHERE state = 'failed' \
-                 AND (?2 IS NULL OR model_identity = ?2){memory_clause}"
-            ),
-            params_from_iter(values.iter()),
+        let reset = reset_failed_jobs(&transaction, identity, memory_ids, now_ms)?;
+        transaction.commit()?;
+        Ok(reset)
+    }
+
+    /// Reset terminal failures and settle the replay receipt in one transaction, so
+    /// a committed reset always has a response to replay and a failed one leaves
+    /// neither.
+    pub fn retry_failed_jobs_with_receipt(
+        &self,
+        identity: Option<&str>,
+        memory_ids: Option<&[String]>,
+        now_ms: i64,
+        receipt: &ReceiptRef<'_>,
+        response: impl FnOnce(u64) -> CoreResult<String>,
+    ) -> CoreResult<u64> {
+        let mut connection = self.writer.lock().expect("writer lock");
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let reset = reset_failed_jobs(&transaction, identity, memory_ids, now_ms)?;
+        let response_json = response(reset)?;
+        store_receipt(
+            &transaction,
+            receipt.client_id,
+            receipt.operation,
+            receipt.key,
+            receipt.request_hash,
+            &response_json,
+            now_ms,
         )?;
         transaction.commit()?;
         Ok(reset)
     }
+}
+
+/// The reset itself, run inside a caller-owned transaction.
+fn reset_failed_jobs(
+    transaction: &rusqlite::Transaction<'_>,
+    identity: Option<&str>,
+    memory_ids: Option<&[String]>,
+    now_ms: i64,
+) -> CoreResult<u64> {
+    // Jobs and intents are filtered the same way, so a selective retry resets only
+    // the selected memories in both tables.
+    let mut memory_clause = String::new();
+    let mut values: Vec<Value> = vec![
+        Value::Integer(now_ms),
+        identity.map_or(Value::Null, |value| Value::Text(value.to_string())),
+    ];
+    if let Some(ids) = memory_ids
+        && !ids.is_empty()
+    {
+        let placeholders = vec!["?"; ids.len()].join(", ");
+        memory_clause = format!(" AND memory_id IN ({placeholders})");
+        values.extend(ids.iter().map(|id| Value::Text(id.clone())));
+    }
+    let reset = transaction.execute(
+        &format!(
+            "UPDATE embedding_jobs SET state = 'queued', attempts = 0, next_attempt_ms = NULL, \
+             terminal_reason = NULL, updated_ms = ?1 WHERE state = 'failed' \
+             AND (?2 IS NULL OR model_identity = ?2){memory_clause}"
+        ),
+        params_from_iter(values.iter()),
+    )? as u64;
+    transaction.execute(
+        &format!(
+            "UPDATE embedding_intents SET state = 'pending', attempts = 0, next_attempt_ms = NULL, \
+             terminal_reason = NULL, updated_ms = ?1 WHERE state = 'failed' \
+             AND (?2 IS NULL OR model_identity = ?2){memory_clause}"
+        ),
+        params_from_iter(values.iter()),
+    )?;
+    Ok(reset)
 }
 
 #[cfg(test)]

@@ -2337,9 +2337,28 @@ async fn handle_jobs_retry(raw: &[u8], state: &Arc<State>, fallback_id: Option<S
         Ok(slot) => slot,
         Err(response) => return response,
     };
+    // The reset and its receipt commit in one transaction inside the blocking task.
+    // A timeout still returns 504, but the task settles anyway, so a same-key retry
+    // replays the response instead of resetting the epoch again.
     let work = tokio::task::spawn_blocking(move || {
         let _slot = slot;
-        store.retry_failed_jobs(identity.as_deref(), ids.as_deref(), now)
+        let receipt = lore_core::store::ReceiptRef {
+            client_id: &client_id,
+            operation: "jobs.retry",
+            key: &key,
+            request_hash: &hash,
+        };
+        store.retry_failed_jobs_with_receipt(
+            identity.as_deref(),
+            ids.as_deref(),
+            now,
+            &receipt,
+            |reset| {
+                serde_json::to_string(&JobsRetryResult { reset }).map_err(|error| {
+                    CoreError::internal("RECEIPT_UNSERIALIZABLE", error.to_string())
+                })
+            },
+        )
     });
     let reset = match tokio::time::timeout(effective_deadline(&envelope.meta, MAX_TIMEOUT_MS), work)
         .await
@@ -2367,13 +2386,6 @@ async fn handle_jobs_retry(raw: &[u8], state: &Arc<State>, fallback_id: Option<S
         Ok(Ok(Err(error))) => return core_response(error, &request_id, &store_id),
         Ok(Ok(Ok(reset))) => reset,
     };
-    let result = JobsRetryResult { reset };
-    if let Ok(response) = serde_json::to_string(&result) {
-        let _ =
-            state
-                .store
-                .store_receipt_json(&client_id, "jobs.retry", &key, &hash, &response, now);
-    }
     state.worker_state.request_resume();
     state.notify.notify_one();
     json(
@@ -2382,7 +2394,7 @@ async fn handle_jobs_retry(raw: &[u8], state: &Arc<State>, fallback_id: Option<S
             ok: true,
             request_id,
             store_id,
-            result,
+            result: JobsRetryResult { reset },
         },
     )
 }

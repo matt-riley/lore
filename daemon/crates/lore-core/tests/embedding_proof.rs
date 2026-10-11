@@ -474,3 +474,84 @@ fn schema_reports_current_version_after_migration() {
         .expect("jobs table");
     assert_eq!(jobs, 1);
 }
+
+#[test]
+fn explicit_retry_settles_its_receipt_in_the_same_transaction() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(&config(dir.path())).expect("open");
+    store
+        .retain("client", &retain("k1", "retry receipt fact"), 1_000)
+        .expect("retain");
+    store
+        .reconcile_page(IDENTITY, None, 256, 1_000)
+        .expect("reconcile");
+    while let Some(job) = store.claim_job("owner", 1_000, 60_000).expect("claim") {
+        store
+            .fail_job(
+                &job.job_id,
+                &job.lease_token,
+                "owner",
+                "PROVIDER_OFFLINE",
+                true,
+                Some(0),
+                1_000,
+            )
+            .expect("fail");
+    }
+    assert_eq!(
+        store
+            .embedding_counts(IDENTITY, 1_000)
+            .expect("counts")
+            .failed,
+        1
+    );
+    let receipt = lore_core::store::ReceiptRef {
+        client_id: "client",
+        operation: "jobs.retry",
+        key: "retry-key",
+        request_hash: "hash",
+    };
+
+    // A response that cannot be produced rolls the reset back with it.
+    store
+        .retry_failed_jobs_with_receipt(Some(IDENTITY), None, 2_000, &receipt, |_| {
+            Err(lore_core::error::CoreError::internal("NO_RESPONSE", "test"))
+        })
+        .expect_err("the response closure failed");
+    assert_eq!(
+        store
+            .embedding_counts(IDENTITY, 2_000)
+            .expect("counts")
+            .failed,
+        1,
+        "no reset without its receipt"
+    );
+    assert!(
+        store
+            .lookup_receipt_json("client", "jobs.retry", "retry-key")
+            .expect("lookup")
+            .is_none(),
+        "no receipt without its reset"
+    );
+
+    // A settled retry writes both.
+    let reset = store
+        .retry_failed_jobs_with_receipt(Some(IDENTITY), None, 2_000, &receipt, |reset| {
+            Ok(format!("{{\"reset\":{reset}}}"))
+        })
+        .expect("retry with receipt");
+    assert_eq!(reset, 1);
+    let (hash, response) = store
+        .lookup_receipt_json("client", "jobs.retry", "retry-key")
+        .expect("lookup")
+        .expect("receipt present");
+    assert_eq!(hash, "hash");
+    assert_eq!(response, "{\"reset\":1}");
+    assert_eq!(
+        store
+            .embedding_counts(IDENTITY, 2_000)
+            .expect("counts")
+            .failed,
+        0
+    );
+}

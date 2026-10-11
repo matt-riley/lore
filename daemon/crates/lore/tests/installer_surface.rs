@@ -540,3 +540,83 @@ fn a_failed_launcher_switch_puts_the_cli_back_on_its_previous_version() {
         "the CLI launcher is restored to its previous version"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_failed_version_record_leaves_the_previous_launchers_in_place() {
+    let home = tempfile::tempdir().expect("home");
+    let package_dir = tempfile::tempdir().expect("packages");
+    let first = fake_package(package_dir.path(), "9.9.40", true);
+    let (code, _, stderr) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            first.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_eq!(code, 0, "{stderr}");
+    let launcher = home.path().join(".lore/bin");
+    let before = std::fs::read_link(launcher.join("lore")).expect("lore launcher");
+
+    // The version record cannot be written: its path is a directory.
+    let record = home.path().join(".lore/installation.json");
+    std::fs::remove_file(&record).expect("remove record");
+    std::fs::create_dir_all(&record).expect("block record");
+    let second = fake_package(package_dir.path(), "9.9.41", true);
+    let (code, _, _) = run(
+        home.path(),
+        &[
+            "upgrade",
+            "--from",
+            second.to_str().expect("utf8"),
+            "--apply",
+            "--output",
+            "json",
+        ],
+    );
+    assert_ne!(code, 0, "the upgrade reports the failed record");
+    assert_eq!(
+        std::fs::read_link(launcher.join("lore")).expect("lore launcher"),
+        before,
+        "the launchers are back on the version the record names"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_reinstall_of_the_active_version_keeps_that_version_runnable() {
+    let home = tempfile::tempdir().expect("home");
+    let package_dir = tempfile::tempdir().expect("packages");
+    let package = fake_package(package_dir.path(), "9.9.50", true);
+    let args = [
+        "upgrade",
+        "--from",
+        package.to_str().expect("utf8"),
+        "--apply",
+        "--output",
+        "json",
+    ];
+    let (code, _, stderr) = run(home.path(), &args);
+    assert_eq!(code, 0, "{stderr}");
+
+    // Re-applying the active version replaces its directory; blocking the daemon's
+    // launcher makes that switch fail afterwards.
+    let launcher = home.path().join(".lore/bin");
+    std::fs::remove_file(launcher.join("lored")).expect("remove lored launcher");
+    std::fs::create_dir_all(launcher.join("lored")).expect("block lored launcher");
+    let (code, _, _) = run(home.path(), &args);
+    assert_ne!(code, 0, "the reinstall fails");
+    let live = home.path().join(".lore/versions/9.9.50/bin/lore");
+    let output = std::process::Command::new(&live)
+        .arg("--version")
+        .output()
+        .expect("runs");
+    assert!(
+        output.status.success(),
+        "the active version directory is still there and runs"
+    );
+}

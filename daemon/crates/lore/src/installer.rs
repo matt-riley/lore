@@ -461,7 +461,7 @@ fn is_safe_version(version: &str) -> bool {
 
 /// Replace `target` with `staging`. The previous directory is kept until the new
 /// one is in place, and restored if the rename fails.
-fn swap_version_dir(staging: &Path, target: &Path, pid: u32) -> Result<(), String> {
+fn swap_version_dir(staging: &Path, target: &Path, pid: u32) -> Result<Option<PathBuf>, String> {
     let previous = target.with_file_name(format!(
         ".previous-{}-{pid}",
         target
@@ -482,10 +482,18 @@ fn swap_version_dir(staging: &Path, target: &Path, pid: u32) -> Result<(), Strin
         let _ = std::fs::remove_dir_all(staging);
         return Err(format!("install {target:?}: {error}"));
     }
-    if had_previous {
-        let _ = std::fs::remove_dir_all(&previous);
+    // The previous directory stays until the upgrade is recorded, so a failure
+    // after this point can put it back. The caller removes it on success.
+    Ok(had_previous.then_some(previous))
+}
+
+/// Undo `swap_version_dir` after a later step failed: the new contents go, and the
+/// previous directory (if there was one) comes back under the version's name.
+fn restore_version_dir(target: &Path, previous: Option<&Path>) {
+    let _ = std::fs::remove_dir_all(target);
+    if let Some(previous) = previous {
+        let _ = std::fs::rename(previous, target);
     }
-    Ok(())
 }
 
 pub fn upgrade_apply(home: &Path, from: &Path) -> Result<Value, String> {
@@ -519,21 +527,54 @@ pub fn upgrade_apply(home: &Path, from: &Path) -> Result<Value, String> {
         let _ = std::fs::remove_dir_all(&staging);
         return Err("staged binary did not run or failed --version; upgrade aborted".to_string());
     }
-    swap_version_dir(&staging, &target, pid)?;
-    switch_launcher(home, &version)?;
-
-    let mut manifest = read_json(&crate::service::mode_path(home)).unwrap_or_else(|| json!({}));
-    manifest["activeVersion"] = json!(version);
-    manifest["upgradedMs"] = json!(now_ms());
-    if manifest["mode"].is_null() {
-        manifest["mode"] = json!("v1");
+    // The launchers and the active-version record change together. Their previous
+    // state is captured first, so a failed record write puts both back.
+    let directory = launcher_dir(home);
+    let previous_links: Vec<(PathBuf, Option<PathBuf>)> = ["lore", "lored"]
+        .iter()
+        .map(|binary| {
+            let link = directory.join(binary);
+            let previous = std::fs::read_link(&link).ok();
+            (link, previous)
+        })
+        .collect();
+    let previous_mode = std::fs::read(crate::service::mode_path(home)).ok();
+    let previous_dir = swap_version_dir(&staging, &target, pid)?;
+    if let Err(error) = switch_launcher(home, &version) {
+        restore_version_dir(&target, previous_dir.as_deref());
+        return Err(error);
     }
-    write_private(
-        &crate::service::mode_path(home),
-        serde_json::to_vec_pretty(&manifest)
-            .unwrap_or_default()
-            .as_slice(),
-    )?;
+
+    let recorded: Result<(), String> = {
+        let mut manifest = read_json(&crate::service::mode_path(home)).unwrap_or_else(|| json!({}));
+        manifest["activeVersion"] = json!(version);
+        manifest["upgradedMs"] = json!(now_ms());
+        if manifest["mode"].is_null() {
+            manifest["mode"] = json!("v1");
+        }
+        write_private(
+            &crate::service::mode_path(home),
+            serde_json::to_vec_pretty(&manifest)
+                .unwrap_or_default()
+                .as_slice(),
+        )
+    };
+    if let Err(error) = recorded {
+        restore_launchers(&directory, &previous_links);
+        match previous_mode {
+            Some(bytes) => {
+                let _ = write_private(&crate::service::mode_path(home), &bytes);
+            }
+            None => {
+                let _ = std::fs::remove_file(crate::service::mode_path(home));
+            }
+        }
+        restore_version_dir(&target, previous_dir.as_deref());
+        return Err(error);
+    }
+    if let Some(previous) = &previous_dir {
+        let _ = std::fs::remove_dir_all(previous);
+    }
 
     // Record what is installed; previous versions stay until an operator
     // removes them, so a rollback binary remains available.

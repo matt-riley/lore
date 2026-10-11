@@ -60,16 +60,30 @@ fn sha256_hex(bytes: &[u8]) -> String {
     lore_core::policy::sha256_hex(bytes)
 }
 
+/// Escape text for an XML element, so a path with `&` or `<` stays well formed.
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 fn unit_contents(platform: Platform, executable: &Path, config: &Path) -> String {
-    let executable = executable.display();
-    let log = config
+    let executable_path = executable.display().to_string();
+    let config_path = config.display().to_string();
+    let log_path = config
         .parent()
         .map(|parent| parent.join("lored.log").display().to_string())
         .unwrap_or_else(|| "/tmp/lored.log".to_string());
-    let config = config.display();
     match platform {
-        Platform::MacOs => format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
+        Platform::MacOs => {
+            let executable = xml_escape(&executable_path);
+            let config = xml_escape(&config_path);
+            let log = xml_escape(&log_path);
+            format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -91,7 +105,8 @@ fn unit_contents(platform: Platform, executable: &Path, config: &Path) -> String
 </dict>
 </plist>
 "#,
-        ),
+            )
+        }
         Platform::Linux => format!(
             r#"[Unit]
 Description=Lore v2 memory daemon
@@ -106,8 +121,8 @@ UMask=0077
 [Install]
 WantedBy=default.target
 "#,
-            executable = systemd_arg(&executable.to_string()),
-            config = systemd_arg(&config.to_string()),
+            executable = systemd_arg(&executable_path),
+            config = systemd_arg(&config_path),
         ),
         Platform::Unsupported => String::new(),
     }
@@ -594,6 +609,20 @@ mod tests {
             "\"/tmp/lore bin/lored\""
         );
         assert_eq!(systemd_arg("/tmp/50%/a$b\"c"), "\"/tmp/50%%/a$$b\\\"c\"");
+    }
+
+    #[test]
+    fn macos_plist_escapes_xml_metacharacters_in_paths() {
+        let plist = unit_contents(
+            Platform::MacOs,
+            Path::new("/opt/Tools & Co/<lored>"),
+            Path::new("/home/me/.lore/lore.json"),
+        );
+        assert!(
+            plist.contains("<string>/opt/Tools &amp; Co/&lt;lored&gt;</string>"),
+            "{plist}"
+        );
+        assert!(!plist.contains("Tools & Co"), "{plist}");
     }
 
     #[test]

@@ -1179,6 +1179,9 @@ impl Store {
         let mut mandatory_truncated = required.truncated;
         let mut mandatory_omitted = required.omitted;
         let mut omitted = 0u64;
+        // The required records that are still in the response. They shrink as the
+        // loop drops them, so every pass makes progress and the loop terminates.
+        let mut mandatory_records = required.records.clone();
 
         // Bound the encoded response; drop topical records first, then
         // required records only as a last resort (reported explicitly).
@@ -1190,7 +1193,7 @@ impl Store {
                 .collect();
             let (text, included, context_omitted) =
                 retrieval::render_topical(&contents, topical_budget);
-            let mut selected = required.records.clone();
+            let mut selected = mandatory_records.clone();
             selected.extend(topical_selected.clone());
             let mut sections = required.sections.clone();
             if !topical_selected.is_empty() {
@@ -1222,7 +1225,7 @@ impl Store {
             );
             let encoded = serde_json::to_vec(&result)?;
             if encoded.len() + RESPONSE_HEADROOM <= MAX_BODY_BYTES
-                || (topical_selected.is_empty() && required.records.is_empty())
+                || (topical_selected.is_empty() && mandatory_records.is_empty())
             {
                 let response_bytes = encoded.len() as u64;
                 let mut final_result = result;
@@ -1234,7 +1237,7 @@ impl Store {
             if !topical_selected.is_empty() {
                 topical_selected.pop();
                 omitted += 1;
-            } else if !required.records.is_empty() {
+            } else if mandatory_records.pop().is_some() {
                 // Required content only shrinks when the response cannot fit;
                 // the omission stays visible in diagnostics.
                 mandatory_truncated = true;

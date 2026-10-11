@@ -739,7 +739,7 @@ impl Store {
     ) -> CoreResult<RetainResult> {
         let mut connection = self.writer.lock().expect("writer lock");
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let request_hash = policy::retain_request_hash(params);
+        let request_hash = policy::retain_request_hash(params)?;
         if let Some((stored_hash, response)) = lookup_receipt(
             &transaction,
             client_id,

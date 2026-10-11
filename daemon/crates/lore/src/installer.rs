@@ -150,7 +150,8 @@ pub fn setup_preview(
     for client in &selected {
         let path = integration_file(home, client);
         let document = integration_document(client, socket, version);
-        let rendered = serde_json::to_string_pretty(&document).unwrap_or_default();
+        let rendered = serde_json::to_string_pretty(&document)
+            .map_err(|error| format!("render integration document: {error}"))?;
         let hash = sha256_hex(rendered.as_bytes());
         let owned = manifest
             .as_ref()
@@ -262,7 +263,8 @@ pub fn setup_apply(
             }
 
             let document = integration_document(client, socket, version);
-            let rendered = serde_json::to_string_pretty(&document).unwrap_or_default();
+            let rendered = serde_json::to_string_pretty(&document)
+                .map_err(|error| format!("render integration document: {error}"))?;
             let hash = sha256_hex(rendered.as_bytes());
             if path.exists() {
                 let current = std::fs::read(&path)

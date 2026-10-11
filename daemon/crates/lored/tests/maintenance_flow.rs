@@ -51,6 +51,17 @@ impl Daemon {
 
 impl Drop for Daemon {
     fn drop(&mut self) {
+        // SIGTERM lets the daemon exit cleanly, so coverage counters are written.
+        // SIGKILL would discard them.
+        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
+        // Wait for a clean exit, then fall back to SIGKILL so a stuck daemon cannot hang the test.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }

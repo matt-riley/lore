@@ -2,22 +2,21 @@
 // adapter clients, with the LCOV report written next to the root one so a
 // change can be scored with `crap <path> --diff`.
 //
-// The proofs spawn the built binaries, so a missing `lored` is built first
-// rather than reported as a broken test run.
+// The proofs spawn the built binaries, so they are built first: a binary left
+// in target/ by an older commit reads that commit's journal format, and the
+// proofs would fail against code that is not under test. This mirrors the
+// daemon job's Build binaries step.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const daemonDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const lored = path.join(daemonDir, "target/debug/lored");
 
-if (!existsSync(lored)) {
-  console.error("daemon/scripts/coverage.mjs: building the daemon binaries first");
-  const build = spawnSync("cargo", ["build"], { cwd: daemonDir, stdio: "inherit" });
-  if (build.status !== 0) process.exit(build.status ?? 1);
-}
+const build = spawnSync("cargo", ["build"], { cwd: daemonDir, stdio: "inherit" });
+if (build.status !== 0) process.exit(build.status ?? 1);
 
 const output = path.join(daemonDir, "..", "coverage");
 mkdirSync(output, { recursive: true });

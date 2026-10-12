@@ -111,7 +111,7 @@ impl Journal {
         change: impl FnOnce(&mut JournalFile) -> Result<T, String>,
     ) -> Result<T, String> {
         let lock = self.path.with_extension("json.lock");
-        let _guard = LockGuard::acquire(&lock)?;
+        let _guard = LockGuard::acquire(&lock, &self.path)?;
         let latest = match std::fs::read(&self.path) {
             Ok(bytes) => serde_json::from_slice(&bytes)
                 .map_err(|error| format!("uncertain-write journal is corrupt: {error}"))?,
@@ -160,8 +160,9 @@ impl Journal {
     }
 }
 
-/// Holds the journal lock for one update. Waits briefly for a live holder and
-/// treats a lock older than `STALE_LOCK` as left by a process that died.
+/// Holds the journal lock for one update. A live holder is waited out for as
+/// long as the journal it guards keeps moving, and a lock older than
+/// `STALE_LOCK` is treated as left by a process that died.
 struct LockGuard {
     path: PathBuf,
     /// Inode of the lock file this guard created. Release removes the path only
@@ -174,17 +175,20 @@ const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 const STALE_LOCK: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl LockGuard {
-    fn acquire(path: &Path) -> Result<Self, String> {
-        let deadline = std::time::Instant::now() + LOCK_WAIT;
+    fn acquire(lock: &Path, journal: &Path) -> Result<Self, String> {
+        // The wait is renewed whenever the journal moves, so a sibling working
+        // through its own updates never looks like a stuck holder.
+        let mut progress = std::fs::metadata(journal).and_then(|m| m.modified()).ok();
+        let mut deadline = std::time::Instant::now() + LOCK_WAIT;
         loop {
             match std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
-                .open(path)
+                .open(lock)
             {
                 Ok(file) => {
                     return Ok(Self {
-                        path: path.to_path_buf(),
+                        path: lock.to_path_buf(),
                         #[cfg(unix)]
                         ino: file
                             .metadata()
@@ -193,14 +197,22 @@ impl LockGuard {
                     });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let stale = std::fs::metadata(path)
+                    let stale = std::fs::metadata(lock)
                         .and_then(|metadata| metadata.modified())
                         .ok()
                         .and_then(|modified| modified.elapsed().ok())
                         .is_some_and(|age| age > STALE_LOCK);
                     if stale {
-                        take_over_stale_lock(path);
+                        take_over_stale_lock(lock);
                         continue;
+                    }
+                    // A held lock is not a stuck lock: every completed update
+                    // moves the journal, and each move renews the wait. Only a
+                    // holder that leaves it still for the whole wait is busy.
+                    let updated = std::fs::metadata(journal).and_then(|m| m.modified()).ok();
+                    if updated != progress {
+                        progress = updated;
+                        deadline = std::time::Instant::now() + LOCK_WAIT;
                     }
                     if std::time::Instant::now() >= deadline {
                         return Err(
@@ -405,5 +417,42 @@ mod tests {
         std::fs::write(&lock, "live").expect("live lock");
         assert!(journal.record(entry("blocked")).is_err());
         std::fs::remove_file(&lock).expect("release live lock");
+    }
+
+    #[test]
+    fn a_wait_outlasts_a_holder_that_keeps_updating() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let journal_file = dir.path().join("uncertain-writes.json");
+        let lock = dir.path().join("uncertain-writes.json.lock");
+        let mut journal = Journal::open(dir.path()).expect("open");
+
+        // A sibling holds the lock while it works through its own updates. Each
+        // one moves the journal, so the wait renews instead of expiring on a
+        // lock that is making progress.
+        std::fs::write(&journal_file, "{\"version\":1,\"entries\":{}}").expect("journal");
+        std::fs::write(&lock, "held").expect("live lock");
+        let holder = std::thread::spawn({
+            let journal_file = journal_file.clone();
+            let lock = lock.clone();
+            move || {
+                for _ in 0..130 {
+                    std::fs::write(&journal_file, "{\"version\":1,\"entries\":{}}")
+                        .expect("update");
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                std::fs::remove_file(&lock).expect("release");
+            }
+        });
+
+        journal
+            .record(entry("waited"))
+            .expect("the wait outlasts a progressing hold");
+        holder.join().expect("holder");
+        let reopened = Journal::open(dir.path()).expect("reopen");
+        assert!(
+            reopened.entries().any(|item| item.key == "waited"),
+            "the waited write landed"
+        );
+        assert!(!lock.exists(), "no lock is left behind");
     }
 }

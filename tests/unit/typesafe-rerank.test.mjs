@@ -482,6 +482,29 @@ describe("rerankMemories", () => {
     assert.match(error, /\[redacted\]/);
   });
 
+  test("redacts a serializer-escaped key that contains a backslash", async () => {
+    const awkwardKey = "apikey_a\\b/c+";
+    // What a serializer emits for that key: backslash and slash both escaped.
+    const escapedEcho = "apikey_a\\\\b\\/c+";
+    const fetchImpl = async () => ({
+      ok: false,
+      status: 401,
+      text: async () => `{"detail":"bad key ${escapedEcho}"}`,
+    });
+    const result = await rerankMemories({
+      prompt: "Which database?",
+      rows,
+      config: typesafeConfig({ apiKey: awkwardKey }),
+      fetchImpl,
+      env: {},
+    });
+    assert.equal(result.applied, false);
+    const error = String(result.error);
+    assert.equal(error.includes(awkwardKey), false);
+    assert.equal(error.includes(escapedEcho), false);
+    assert.match(error, /\[redacted\]/);
+  });
+
   test("uses the configured model when provided", async () => {
     const { fetchImpl, calls } = makeFetch(() => scoreAnswers({ memory_0: 1, memory_1: 0 }));
     await rerankMemories({

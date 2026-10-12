@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{CoreError, CoreResult};
 use crate::now_ms;
+use crate::policy::hex_lower;
 use crate::store::Store;
 
 /// One durable operation run.
@@ -73,7 +74,7 @@ pub(crate) fn fingerprint(operation: &str, store_id: &str, parts: &[String]) -> 
         hasher.update([0]);
         hasher.update(part.as_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    hex_lower(hasher.finalize())
 }
 
 struct MemoryRow {

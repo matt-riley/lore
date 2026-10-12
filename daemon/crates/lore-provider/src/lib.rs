@@ -15,6 +15,18 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::net::TcpStream;
 
+/// Lowercase hex encoding of a digest.
+fn hex_lower(bytes: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write as _;
+
+    let bytes = bytes.as_ref();
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
 /// Parse a provider endpoint this build can reach. The transport is plain HTTP
 /// over a raw socket, so an `https` URL is refused rather than rewritten to
 /// `http`, which would send memory text unencrypted or fail on port 443. TLS
@@ -83,7 +95,7 @@ impl ProviderIdentity {
             sanitized.push_str(&format!(":{port}"));
         }
         sanitized.push_str(parsed.path().trim_end_matches('/'));
-        let digest = format!("{:x}", Sha256::digest(sanitized.as_bytes()));
+        let digest = hex_lower(Sha256::digest(sanitized.as_bytes()));
         Ok(Self {
             endpoint_hash: digest[..16].to_string(),
             model: model.trim().to_string(),

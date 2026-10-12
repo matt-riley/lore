@@ -156,20 +156,28 @@ function withLock(lockPath, journalPath, waitMs, fn) {
   }
 }
 
-export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY, lockWaitMs = LOCK_WAIT_MS } = {}) {
+export function createUncertainJournal(
+  path,
+  { capacity = DEFAULT_CAPACITY, lockWaitMs = LOCK_WAIT_MS, legacyPaths = [] } = {},
+) {
   const lockPath = `${path}.lock`;
+  // The journal host adapters wrote before they shared the CLI's data
+  // directory. Nothing is written to these paths.
+  const legacy = legacyPaths.filter((candidate) => candidate && candidate !== path);
   const locked = (fn) => (...args) => {
     mkdirSync(dirname(path), { recursive: true });
     return withLock(lockPath, path, lockWaitMs, () => fn(...args));
   };
 
-  function load() {
+  // Read one journal file in the shared format. A missing file is nothing to
+  // read; an unreadable or corrupt one is reported and never guessed at.
+  function readJournal(filePath, label) {
     let raw;
     try {
-      raw = readFileSync(path, "utf8");
+      raw = readFileSync(filePath, "utf8");
     } catch (error) {
-      if (error.code === "ENOENT") return { version: 1, entries: {} };
-      throw journalError("JOURNAL_UNREADABLE", `journal is unreadable: ${error.message}`);
+      if (error.code === "ENOENT") return null;
+      throw journalError("JOURNAL_UNREADABLE", `${label} is unreadable: ${error.message}`);
     }
     try {
       const parsed = JSON.parse(raw);
@@ -181,8 +189,22 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY, lock
         entries: Object.fromEntries(Object.entries(parsed.entries).map(([key, entry]) => [key, normalizeEntry(entry)])),
       };
     } catch {
-      throw journalError("JOURNAL_CORRUPT", "journal is corrupt; no guesses are replayed");
+      throw journalError("JOURNAL_CORRUPT", `${label} is corrupt; no guesses are replayed`);
     }
+  }
+
+  function load() {
+    const state = readJournal(path, "journal") ?? { version: 1, entries: {} };
+    // A legacy entry is offered until the shared journal knows its key, and the
+    // next write copies it forward. The legacy file stays as it was.
+    for (const legacyPath of legacy) {
+      const previous = readJournal(legacyPath, `legacy journal ${legacyPath}`);
+      if (!previous) continue;
+      for (const [key, entry] of Object.entries(previous.entries)) {
+        if (state.entries[key] === undefined) state.entries[key] = entry;
+      }
+    }
+    return state;
   }
 
   // The entry must be on disk before the mutation is dispatched, so the

@@ -5,7 +5,7 @@ Changes to these defaults require updated fixtures and an amended gate report.
 
 ## Configuration and path resolution
 
-Use a separate `<resolved Lore home>/v2/lore.json`. Default data directory is that file's directory, database `lore-v2.db`, backups `backups/`, and operation journals `client-journal/`. The existing Lore home resolver remains the compatibility reference; `LORE_HOME` selects the base home, not a v1 database to upgrade. `--config` selects an explicit v2 config; command flags override that config. Defaults fill omitted fields. Relative configured paths resolve against the config directory, never the daemon's launch working directory.
+Use a separate `<resolved Lore home>/v2/lore.json`. Default data directory is that file's directory, database `lore-v2.db`, backups `backups/`, and the shared uncertain-write journal `uncertain-writes.json`. The existing Lore home resolver remains the compatibility reference; `LORE_HOME` selects the base home, not a v1 database to upgrade. `--config` selects an explicit v2 config; command flags override that config. Defaults fill omitted fields. Relative configured paths resolve against the config directory, never the daemon's launch working directory.
 
 Preserve v1's LORE_CONFIG and LORE_COPILOT_HOME overrides as migration inputs; do not reinterpret LORE_CONFIG as v2 configuration. A v2 service/launcher records its explicit config path in the installation manifest. Creating an experimental v2 directory must not change which legacy home an existing v1 installation selects.
 
@@ -67,7 +67,7 @@ All byte quantities below are bytes, KiB = 1,024, MiB = 1,048,576. These are imp
 | Authoritative record / retry receipt caps | 100,000 memories / 1,000,000 receipts | Reject new non-deletion writes; never expire retry safety silently |
 | WAL soft / hard pressure | 64 MiB / 256 MiB | Checkpoint and pause derived commits; bound growth by stopping new growing writes |
 | Managed backup budget | 10 files or 5 GiB | Stop before creating a required snapshot; operator archives/removes explicitly |
-| Client uncertain-write journal | 128 entries, 16 MiB | Reject new write locally before dispatch; preserve uncertain entries |
+| Client uncertain-write journal | 100 unresolved entries | Reject new write locally before dispatch; preserve uncertain entries |
 | Rotated operational logs | 5 files of 10 MiB | Drop oldest operational log only; no memory payloads |
 
 Payload budgets are independently enforced: a permitted input can still be too large for an operation's derived provider batch. That failure affects embedding coverage, not the retained content. Status reports the category and suggested configuration action.

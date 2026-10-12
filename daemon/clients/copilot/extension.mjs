@@ -7,7 +7,7 @@
 import { MODEL_TOOLS } from "../js/model-tools.mjs";
 import { createHostSession, renderToolCall } from "../js/host-session.mjs";
 import { createInjection } from "../js/injection.mjs";
-import { resolveJournalPath, resolveSocketPath } from "../js/endpoint.mjs";
+import { resolveJournalPath, resolveLegacyJournalPaths, resolveSocketPath } from "../js/endpoint.mjs";
 import { argsFromRest, parseSlashArgs, retriesResponse } from "../pi/register.mjs";
 
 const VERB_TO_TOOL = new Map([
@@ -36,6 +36,7 @@ export function createCopilotLore(options = {}) {
     socketPath: options.socketPath ?? resolveSocketPath(env, "copilot"),
     clientId: options.clientId ?? "copilot",
     journalPath: options.journalPath ?? resolveJournalPath(env),
+    journalLegacyPaths: options.journalLegacyPaths ?? resolveLegacyJournalPaths(env),
     notify: options.notify,
   });
 }

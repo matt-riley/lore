@@ -31,6 +31,7 @@ export function createHostSession({
   socketPath,
   clientId = "host-adapter",
   journalPath = null,
+  journalLegacyPaths = [],
   journalCapacity = 100,
   createClient = createLoreClient,
   notify = () => {},
@@ -38,7 +39,7 @@ export function createHostSession({
 } = {}) {
   const client = createClient({ socketPath, clientId });
   const journal = journalPath
-    ? createUncertainJournal(journalPath, { capacity: journalCapacity })
+    ? createUncertainJournal(journalPath, { capacity: journalCapacity, legacyPaths: journalLegacyPaths })
     : null;
   const sessions = new Map();
   const warned = new Set();

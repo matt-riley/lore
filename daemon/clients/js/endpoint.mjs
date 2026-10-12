@@ -48,16 +48,60 @@ export function resolveSocketPath(env = process.env, client = null) {
 }
 
 /**
- * Per-user journal for uncertain writes. Host adapters always get durable
- * recovery by default; LORE_V2_JOURNAL overrides the location. Returns null
- * only when no home directory exists, and then no socket resolves either.
+ * The data directory the daemon and CLI own: LORE_V2_DATA_DIR, then the
+ * `dataDir` the config names, then the config's own directory. Null when
+ * neither a home directory nor an override exists, and then no socket
+ * resolves either.
+ *
+ * @param {Record<string, string | undefined>} env
+ * @returns {string | null}
+ */
+function resolveDataDir(env) {
+  const home = env.HOME;
+  const configPath = home ? `${home}/.lore/lore.json` : null;
+  let config = null;
+  try {
+    config = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch {
+    // No config: only an override or the conventional home directory remains.
+  }
+  const base = configPath && config ? dirname(configPath) : process.cwd();
+  const expand = (value) => {
+    const expanded = value.replace(/^~/, home ?? "");
+    return isAbsolute(expanded) ? expanded : resolve(base, expanded);
+  };
+  if (env.LORE_V2_DATA_DIR) return expand(env.LORE_V2_DATA_DIR);
+  if (typeof config?.dataDir === "string" && config.dataDir) return expand(config.dataDir);
+  if (configPath && config) return dirname(configPath);
+  return home ? `${home}/.lore` : null;
+}
+
+/**
+ * Per-user journal for uncertain writes, in the data directory the daemon and
+ * CLI own, so one journal serves every client. LORE_V2_JOURNAL overrides the
+ * location outright.
  *
  * @param {Record<string, string | undefined>} [env]
  * @returns {string | null}
  */
 export function resolveJournalPath(env = process.env) {
   if (env.LORE_V2_JOURNAL) return env.LORE_V2_JOURNAL;
+  const dataDir = resolveDataDir(env);
+  return dataDir ? `${dataDir}/uncertain-writes.json` : null;
+}
+
+/**
+ * The journal host adapters wrote before they shared the CLI's data directory.
+ * Its unresolved entries are read until the shared journal knows their keys;
+ * the file itself is never modified or deleted. An explicit override means an
+ * isolated store, so the legacy file is left out of it.
+ *
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {string[]}
+ */
+export function resolveLegacyJournalPaths(env = process.env) {
+  if (env.LORE_V2_JOURNAL || env.LORE_V2_DATA_DIR) return [];
   const home = env.HOME;
-  if (!home) return null;
-  return `${home}/.lore/uncertain-writes-v2.json`;
+  if (!home) return [];
+  return [`${home}/.lore/uncertain-writes-v2.json`];
 }

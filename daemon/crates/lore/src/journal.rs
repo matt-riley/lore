@@ -93,11 +93,20 @@ pub struct JournalFile {
 pub struct Journal {
     path: PathBuf,
     file: JournalFile,
+    /// Legacy adapter journals to read alongside the shared one.
+    legacy: Vec<PathBuf>,
 }
 
 impl Journal {
-    /// Open (or create) the journal inside an owned data directory.
+    /// Open (or create) the journal inside an owned data directory, absorbing
+    /// the journal host adapters wrote before it became the shared one.
     pub fn open(data_dir: &Path) -> Result<Self, String> {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        Self::open_with_legacy(data_dir, &legacy_journal_paths(data_dir, home.as_deref()))
+    }
+
+    /// Open the journal with an explicit set of legacy journals to read.
+    fn open_with_legacy(data_dir: &Path, legacy: &[PathBuf]) -> Result<Self, String> {
         let path = data_dir.join("uncertain-writes.json");
         let mut file = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes)
@@ -111,7 +120,13 @@ impl Journal {
         for entry in file.entries.values_mut() {
             entry.normalize();
         }
-        Ok(Self { path, file })
+        let mut journal = Self {
+            path,
+            file,
+            legacy: legacy.to_vec(),
+        };
+        absorb_legacy(&mut journal.file.entries, &journal.legacy)?;
+        Ok(journal)
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &JournalEntry> {
@@ -180,6 +195,9 @@ impl Journal {
             Err(error) => return Err(format!("cannot read journal: {error}")),
         };
         self.file = latest;
+        // Every update re-reads the shared journal, so the legacy entries it
+        // does not know about are offered again before the change lands.
+        absorb_legacy(&mut self.file.entries, &self.legacy)?;
         let outcome = change(&mut self.file)?;
         self.flush()?;
         Ok(outcome)
@@ -284,6 +302,60 @@ impl LockGuard {
             }
         }
     }
+}
+
+/// Read the legacy adapter journals, keeping the entries the shared journal
+/// does not know about. Nothing is written to them: the copy lives in memory
+/// until the next update. A missing file is nothing to read, and a corrupt one
+/// is reported rather than guessed at.
+fn absorb_legacy(
+    entries: &mut BTreeMap<String, JournalEntry>,
+    legacy: &[PathBuf],
+) -> Result<(), String> {
+    for legacy_path in legacy {
+        let bytes = match std::fs::read(legacy_path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(format!(
+                    "legacy uncertain-write journal {} is unreadable: {error}",
+                    legacy_path.display()
+                ));
+            }
+        };
+        let file: JournalFile = serde_json::from_slice(&bytes).map_err(|error| {
+            format!(
+                "legacy uncertain-write journal {} is corrupt: {error}",
+                legacy_path.display()
+            )
+        })?;
+        for (key, mut entry) in file.entries {
+            entry.normalize();
+            entries.entry(key).or_insert(entry);
+        }
+    }
+    Ok(())
+}
+
+/// The journal host adapters wrote before they shared the CLI's data
+/// directory. Only the conventional home layout has one: any other data
+/// directory is an explicit choice, and then nothing is read from the home.
+fn legacy_journal_paths(data_dir: &Path, home: Option<&Path>) -> Vec<PathBuf> {
+    let Some(home) = home else {
+        return Vec::new();
+    };
+    let conventional = home.join(".lore");
+    if !same_directory(data_dir, &conventional) {
+        return Vec::new();
+    }
+    vec![conventional.join("uncertain-writes-v2.json")]
+}
+
+/// Compare directories through the OS's own resolution: /tmp and /var are
+/// aliases of other directories on macOS.
+fn same_directory(left: &Path, right: &Path) -> bool {
+    let resolved = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    resolved(left) == resolved(right)
 }
 
 /// Remove a lock left by a dead process. The stale file is moved aside under a
@@ -495,6 +567,45 @@ mod tests {
         let stored = journal.entries().next().expect("entry");
         assert!(stored.resolved, "the legacy state is folded in");
         assert_eq!(stored.created_at, 5);
+    }
+
+    #[test]
+    fn a_legacy_adapter_journal_is_copied_forward_but_left_alone() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let legacy_dir = dir.path().join("legacy");
+        std::fs::create_dir_all(&legacy_dir).expect("legacy dir");
+        let legacy_path = legacy_dir.join("uncertain-writes-v2.json");
+        let written = r#"{"version":1,"entries":{"adapter-1":{"key":"adapter-1","clientId":"pi","operation":"lore_retain","route":"/v2/retain","params":{"content":"shared"},"storeId":"store-1","createdAt":1,"resolved":false}}}"#;
+        std::fs::write(&legacy_path, written).expect("legacy journal");
+        let data_dir = dir.path().join("data");
+        // The CLI creates its data directory before it journals.
+        std::fs::create_dir_all(&data_dir).expect("data dir");
+
+        let mut journal =
+            Journal::open_with_legacy(&data_dir, std::slice::from_ref(&legacy_path)).expect("open");
+        assert_eq!(journal.entries().count(), 1, "the legacy write is offered");
+
+        journal.record(entry("cli-1")).expect("record");
+        let shared = std::fs::read_to_string(data_dir.join("uncertain-writes.json"))
+            .expect("shared journal");
+        assert!(shared.contains("adapter-1"), "{shared}");
+        assert!(shared.contains("cli-1"), "{shared}");
+        assert_eq!(
+            std::fs::read_to_string(&legacy_path).expect("legacy journal still there"),
+            written,
+            "the legacy journal is never rewritten"
+        );
+    }
+
+    #[test]
+    fn the_conventional_home_layout_is_the_only_legacy_source() {
+        let home = Path::new("/home/u");
+        assert_eq!(
+            legacy_journal_paths(Path::new("/home/u/.lore"), Some(home)),
+            vec![PathBuf::from("/home/u/.lore/uncertain-writes-v2.json")]
+        );
+        assert!(legacy_journal_paths(Path::new("/srv/lore"), Some(home)).is_empty());
+        assert!(legacy_journal_paths(Path::new("/srv/lore"), None).is_empty());
     }
 
     #[test]

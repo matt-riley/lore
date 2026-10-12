@@ -6,7 +6,11 @@
 // (LORE_V2_SOCKET or LORE_SOCKET) so the adapter never reads the v1 store or
 // config format.
 
-import { resolveJournalPath as resolveJournal, resolveSocketPath as resolveEndpoint } from "../js/endpoint.mjs";
+import {
+  resolveJournalPath as resolveJournal,
+  resolveLegacyJournalPaths as resolveLegacyJournals,
+  resolveSocketPath as resolveEndpoint,
+} from "../js/endpoint.mjs";
 import { registerPiV2 } from "./register.mjs";
 
 interface PiApi {
@@ -25,6 +29,12 @@ export function resolveJournalPath(
   return resolveJournal(env) ?? undefined;
 }
 
+export function resolveLegacyJournalPaths(
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  return resolveLegacyJournals(env);
+}
+
 export default function lorePiV2(pi: PiApi, options: { socketPath?: string } = {}): void {
   const socketPath = options.socketPath ?? resolveSocketPath();
   if (!socketPath) {
@@ -35,6 +45,7 @@ export default function lorePiV2(pi: PiApi, options: { socketPath?: string } = {
     socketPath,
     clientId: "pi",
     journalPath: resolveJournalPath(),
+    journalLegacyPaths: resolveLegacyJournalPaths(),
     notify: (message: string) => console.error(`[lore] ${message}`),
   });
 }

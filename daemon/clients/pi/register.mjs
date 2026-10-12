@@ -102,6 +102,7 @@ export function createPiLore(options = {}) {
     socketPath: options.socketPath,
     clientId: options.clientId ?? "pi",
     journalPath: options.journalPath,
+    journalLegacyPaths: options.journalLegacyPaths,
     notify: options.notify,
   });
   return session;

@@ -16,7 +16,7 @@ import createLoreV2Extension, {
   buildCopilotHooks,
   buildCopilotTools,
 } from "../clients/copilot/extension.mjs";
-import { resolveJournalPath, resolveSocketPath } from "../clients/js/endpoint.mjs";
+import { resolveJournalPath, resolveLegacyJournalPaths, resolveSocketPath } from "../clients/js/endpoint.mjs";
 import { argsFromRest, retriesResponse } from "../clients/pi/register.mjs";
 import { createInjection, wrapLoreContext } from "../clients/js/injection.mjs";
 import { createLoreClient } from "../clients/js/lore-adapter.mjs";
@@ -673,10 +673,74 @@ test("slash forget passes its positional id as memoryId", () => {
   assert.throws(() => argsFromRest("lore_correct", "{not json"), /invalid JSON for \/lore/);
 });
 
-test("the journal path defaults per user and honours the override", () => {
-  assert.equal(resolveJournalPath({ HOME: "/home/u" }), "/home/u/.lore/uncertain-writes-v2.json");
-  assert.equal(resolveJournalPath({ HOME: "/home/u", LORE_V2_JOURNAL: "/tmp/j.json" }), "/tmp/j.json");
-  assert.equal(resolveJournalPath({}), null);
+test("the journal lives in the data directory the CLI and daemon own", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "lore-journal-home-"));
+  try {
+    assert.equal(resolveJournalPath({ HOME: home }), `${home}/.lore/uncertain-writes.json`);
+    assert.equal(resolveJournalPath({}), null);
+    assert.equal(resolveJournalPath({ HOME: home, LORE_V2_JOURNAL: "/tmp/j.json" }), "/tmp/j.json");
+    assert.equal(
+      resolveJournalPath({ HOME: home, LORE_V2_DATA_DIR: path.join(home, "elsewhere") }),
+      path.join(home, "elsewhere", "uncertain-writes.json"),
+    );
+
+    // The legacy adapter journal is read from the conventional home only, and
+    // never when an explicit store is in play.
+    assert.deepEqual(resolveLegacyJournalPaths({ HOME: home }), [`${home}/.lore/uncertain-writes-v2.json`]);
+    assert.deepEqual(resolveLegacyJournalPaths({ HOME: home, LORE_V2_JOURNAL: "/tmp/j.json" }), []);
+    assert.deepEqual(resolveLegacyJournalPaths({ HOME: home, LORE_V2_DATA_DIR: "/tmp/d" }), []);
+    assert.deepEqual(resolveLegacyJournalPaths({}), []);
+
+    // A configured dataDir moves the journal with the store it belongs to, and
+    // a relative one resolves against the config file.
+    mkdirSync(path.join(home, ".lore"), { recursive: true });
+    writeFileSync(
+      path.join(home, ".lore/lore.json"),
+      JSON.stringify({ configVersion: 2, enabled: true, dataDir: "store", socketPath: "lored.sock" }),
+    );
+    assert.equal(resolveJournalPath({ HOME: home }), `${home}/.lore/store/uncertain-writes.json`);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a legacy adapter journal is read until the shared journal knows its keys", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-legacy-"));
+  try {
+    const shared = path.join(dir, "uncertain-writes.json");
+    const legacyPath = path.join(dir, "uncertain-writes-v2.json");
+    // Exactly what the adapters wrote before the journals were unified.
+    const legacyEntry = {
+      key: "legacy-1",
+      clientId: "pi",
+      operation: "lore_retain",
+      route: "/v2/retain",
+      params: { content: "old" },
+      storeId: "store-1",
+      createdAt: 1,
+      resolved: false,
+    };
+    writeFileSync(legacyPath, `${JSON.stringify({ version: 1, entries: { "legacy-1": legacyEntry } })}\n`);
+
+    const journal = createUncertainJournal(shared, { legacyPaths: [legacyPath] });
+    assert.deepEqual(journal.list().map((entry) => entry.key), ["legacy-1"], "the legacy write is pending");
+    assert.deepEqual(journal.entry("legacy-1").params, { content: "old" });
+
+    // Resolving lands in the shared journal; the legacy file keeps its own copy.
+    assert.equal(journal.discard("legacy-1"), true);
+    const stored = JSON.parse(readFileSync(shared, "utf8")).entries["legacy-1"];
+    assert.equal(stored.resolved, true);
+    assert.equal(stored.outcome, "discarded");
+    assert.equal(
+      JSON.parse(readFileSync(legacyPath, "utf8")).entries["legacy-1"].resolved,
+      false,
+      "the legacy journal is never rewritten",
+    );
+    assert.equal(journal.list().length, 0);
+    assert.equal(journal.entry("legacy-1").resolved, true, "a resolved key is not offered again");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("the journal refuses to overwrite an unresolved payload with the same key", () => {
@@ -787,15 +851,26 @@ test("/lore retries lists pending writes and discards one on request", async () 
 });
 
 test("the CLI and the adapters read one uncertain-write journal", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-shared-"));
+  const home = mkdtempSync(path.join(tmpdir(), "lore-journal-shared-"));
   try {
-    const configPath = path.join(dir, "lore.json");
+    // The conventional layout: the config in ~/.lore names no data directory,
+    // so the data directory is that file's own directory for the CLI and the
+    // adapters alike.
+    const configDir = path.join(home, ".lore");
+    mkdirSync(configDir, { recursive: true });
+    const configPath = path.join(configDir, "lore.json");
     writeFileSync(
       configPath,
-      JSON.stringify({ configVersion: 2, enabled: true, dataDir: dir, socketPath: path.join(dir, "lored.sock") }),
+      JSON.stringify({ configVersion: 2, enabled: true, socketPath: path.join(configDir, "lored.sock") }),
     );
     const cli = path.join(path.dirname(loredBinary()), "lore");
-    const journal = createUncertainJournal(path.join(dir, "uncertain-writes.json"));
+    const env = { HOME: home };
+    // A developer shell that exports client variables must not move either side.
+    const childEnv = { ...process.env, HOME: home };
+    for (const name of ["LORE_V2_SOCKET", "LORE_SOCKET", "LORE_V2_CONFIG", "LORE_V2_DATA_DIR", "LORE_V2_JOURNAL", "LORE_HOME"]) {
+      delete childEnv[name];
+    }
+    const journal = createUncertainJournal(resolveJournalPath(env), { legacyPaths: resolveLegacyJournalPaths(env) });
     journal.record({
       key: "adapter-write",
       clientId: "pi",
@@ -807,17 +882,60 @@ test("the CLI and the adapters read one uncertain-write journal", () => {
     });
 
     const listed = JSON.parse(
-      execFileSync(cli, ["--config", configPath, "retries", "list", "--output", "json"], { encoding: "utf8" }),
+      execFileSync(cli, ["--config", configPath, "retries", "list", "--output", "json"], { encoding: "utf8", env: childEnv }),
     );
     assert.equal(listed.length, 1, "the CLI lists what the adapter journaled");
     assert.equal(listed[0].key, "adapter-write");
     assert.deepEqual(listed[0].params, { content: "shared" }, "the payload survives the round trip");
     assert.equal(listed[0].resolved, false);
 
-    execFileSync(cli, ["--config", configPath, "retries", "resolve", "adapter-write"], { encoding: "utf8" });
+    execFileSync(cli, ["--config", configPath, "retries", "resolve", "adapter-write"], { encoding: "utf8", env: childEnv });
     const cleared = journal.entry("adapter-write");
     assert.equal(cleared.resolved, true, "the adapter sees the CLI's resolve");
     assert.equal(cleared.params, null, "the resolved payload is dropped for both readers");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("the adapters read an entry the CLI journaled", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-cli-"));
+  try {
+    const shared = path.join(dir, "uncertain-writes.json");
+    // Exactly what the CLI writes: the legacy spelling of the shared fields.
+    writeFileSync(
+      shared,
+      `${JSON.stringify({
+        version: 1,
+        entries: {
+          "cli-write": {
+            key: "cli-write",
+            operation: "lore_retain",
+            route: "/v2/retain",
+            store_id: "store-1",
+            client_id: "cli",
+            created_ms: 1,
+            state: "uncertain",
+            payload: { content: "from-cli" },
+          },
+        },
+      })}\n`,
+    );
+
+    const journal = createUncertainJournal(shared);
+    const pending = journal.list();
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].key, "cli-write");
+    assert.equal(pending[0].storeId, "store-1");
+    assert.equal(pending[0].hasPayload, true);
+    assert.deepEqual(journal.entry("cli-write").params, { content: "from-cli" });
+
+    assert.equal(journal.complete("cli-write"), true, "the adapter resolves the CLI's write");
+    const stored = JSON.parse(readFileSync(shared, "utf8")).entries["cli-write"];
+    assert.equal(stored.resolved, true);
+    assert.equal(stored.state, undefined, "the legacy state word is not written back");
+    assert.equal(stored.payload, undefined, "the legacy payload field is not written back");
+    assert.equal(stored.params, null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

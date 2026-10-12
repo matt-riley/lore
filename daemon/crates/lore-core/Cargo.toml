@@ -16,7 +16,7 @@ repository-identity = { path = "../repository-identity" }
 rusqlite = { version = "0.40", features = ["bundled", "backup"] }
 serde.workspace = true
 serde_json.workspace = true
-sha2 = "0.10"
+sha2 = "0.11"
 uuid = { version = "1", features = ["v4"] }
 url = "2"
 

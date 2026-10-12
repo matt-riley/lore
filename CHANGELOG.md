@@ -20,6 +20,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [1.0.8](https://github.com/matt-riley/lore/compare/lore-v1.0.7...lore-v1.0.8) (2026-10-12)
+
+
+### Bug Fixes
+
+* **coverage:** build the daemon binaries before the daemon proofs ([c147441](https://github.com/matt-riley/lore/commit/c147441d5ec7225504876414f1996f0b75eb9113))
+* **coverage:** create the report directory before writing a report ([d406da5](https://github.com/matt-riley/lore/commit/d406da557f7da4f26e14f7d7818605df9e5007e3))
+* **coverage:** run the reports on the repo's minimum Node ([4cecff0](https://github.com/matt-riley/lore/commit/4cecff07327a8932f579e145e75ba3142bb96314))
+* **journal:** keep one uncertain-write journal per user ([8fb73ba](https://github.com/matt-riley/lore/commit/8fb73bae98f97b08547c91454239c3816a2d4e22))
+* **journal:** share one uncertain-write entry format across readers ([958b606](https://github.com/matt-riley/lore/commit/958b6064a2bdcb27f3a00015f33c4525203900d2))
+
 ## [1.0.7](https://github.com/matt-riley/lore/compare/lore-v1.0.6...lore-v1.0.7) (2026-10-12)
 
 

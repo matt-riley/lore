@@ -864,3 +864,37 @@ test("the uncertain-write journal waits out a live lock, recovers a stale one, a
   }
 });
 
+test("a journal wait survives a sibling that keeps updating the journal", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-progress-"));
+  try {
+    const journalPath = path.join(dir, "uncertain-writes.json");
+    const lockPath = `${journalPath}.lock`;
+    const entry = { key: "waited", clientId: "t", operation: "lore_retain", route: "/v2/retain", params: { content: "waited" }, storeId: "s", createdAt: 1 };
+
+    // The sibling holds the lock while it works through its own updates, so the
+    // waiter never gets a turn until the hold ends. Every completed update moves
+    // the journal, which is what tells the waiter the lock is not stuck.
+    const writer = `
+      import { createUncertainJournal } from ${JSON.stringify(new URL("../clients/js/uncertain-journal.mjs", import.meta.url).href)};
+      const journal = createUncertainJournal(${JSON.stringify(journalPath)}, { lockWaitMs: 300 });
+      journal.record(${JSON.stringify(entry)});
+    `;
+    writeFileSync(lockPath, "held");
+    writeFileSync(journalPath, JSON.stringify({ version: 1, entries: {} }));
+    const child = spawn(process.execPath, ["--input-type=module", "-e", writer], { stdio: "pipe" });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const exit = new Promise((resolve) => child.on("exit", resolve));
+    const updates = setInterval(() => {
+      writeFileSync(journalPath, JSON.stringify({ version: 1, entries: {} }));
+    }, 20);
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    clearInterval(updates);
+    rmSync(lockPath, { force: true });
+    assert.equal(await exit, 0, `the waiter waited out the whole hold: ${stderr}`);
+    assert.ok(JSON.parse(readFileSync(journalPath, "utf8")).entries.waited, "the waited write landed");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

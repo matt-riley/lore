@@ -11,8 +11,10 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const DEFAULT_CAPACITY = 100;
-// Every journal update holds this lock for a few milliseconds. A lock older
-// than STALE_LOCK_MS belongs to a process that died mid-update.
+// Every journal update holds this lock for a few milliseconds. A waiter keeps
+// waiting out a stream of updates while the journal it guards keeps moving, and
+// gives up after LOCK_WAIT_MS of stillness. A lock older than STALE_LOCK_MS
+// belongs to a process that died mid-update.
 const LOCK_WAIT_MS = 2_000;
 const STALE_LOCK_MS = 10_000;
 
@@ -38,11 +40,6 @@ function sleepBriefly(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/**
- * Run one journal update while holding a cross-process lock. The default
- * journal is shared by every host adapter for a user, and each update is a
- * read-modify-write, so unlocked updates could lose another process's entry.
- */
 /**
  * Remove a lock left by a dead process. The stale file is first moved aside under
  * a unique name, then checked by inode: if it is still the file that was judged
@@ -71,8 +68,21 @@ function takeOverStaleLock(lockPath, observedIno) {
   }
 }
 
-function withLock(lockPath, waitMs, fn) {
-  const deadline = Date.now() + waitMs;
+/**
+ * Run one journal update while holding a cross-process lock. The default
+ * journal is shared by every host adapter for a user, and each update is a
+ * read-modify-write, so unlocked updates could lose another process's entry.
+ * The wait is renewed by journal progress, so a sibling working through its
+ * own updates never looks like a stuck holder.
+ */
+function withLock(lockPath, journalPath, waitMs, fn) {
+  let progress = null;
+  try {
+    progress = statSync(journalPath).mtimeMs;
+  } catch {
+    // The journal does not exist yet; its first write renews the wait.
+  }
+  let deadline = Date.now() + waitMs;
   let fd;
   let ino;
   for (;;) {
@@ -87,6 +97,18 @@ function withLock(lockPath, waitMs, fn) {
         if (Date.now() - observed.mtimeMs > STALE_LOCK_MS) takeOverStaleLock(lockPath, observed.ino);
       } catch {
         // The holder released it between the check and the stat; retry.
+      }
+      // A held lock is not a stuck lock: every completed update moves the
+      // journal, and each move renews the wait. Only a holder that leaves the
+      // journal still for the whole wait is reported busy.
+      try {
+        const updated = statSync(journalPath).mtimeMs;
+        if (updated !== progress) {
+          progress = updated;
+          deadline = Date.now() + waitMs;
+        }
+      } catch {
+        // No journal to watch; the wait stands.
       }
       if (Date.now() > deadline) {
         throw journalError("JOURNAL_BUSY", "uncertain-write journal is locked by another process; retry");
@@ -111,7 +133,7 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY, lock
   const lockPath = `${path}.lock`;
   const locked = (fn) => (...args) => {
     mkdirSync(dirname(path), { recursive: true });
-    return withLock(lockPath, lockWaitMs, () => fn(...args));
+    return withLock(lockPath, path, lockWaitMs, () => fn(...args));
   };
 
   function load() {

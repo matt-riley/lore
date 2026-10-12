@@ -509,7 +509,7 @@ npm run coverage:rust     # daemon Rust workspace    -> coverage/lcov-rust.info
 npm run coverage:summary  # one totals table per report
 ```
 
-The Node and daemon runs use Node's built-in test coverage; the Rust run needs `cargo-llvm-cov` (`cargo install cargo-llvm-cov --locked`) and the `llvm-tools-preview` component. Reports include files no test loaded, so an untouched module shows 0% rather than vanishing. Score a change with `crap`: `crap <path> -c coverage/lcov-daemon.info --diff origin/main` (root files use `coverage/lcov.info`, Rust files `coverage/lcov-rust.info`). The [Coverage workflow](.github/workflows/coverage.yml) publishes the same reports on every push to `main`.
+The Node and daemon runs use Node's built-in test coverage; the Rust run needs `cargo-llvm-cov` (`cargo install cargo-llvm-cov --locked`) and the `llvm-tools-preview` component. A file no test loads stays out of the report, which is what `crap` scores as 0% — silence is not a pass. Score a change with `crap`: `crap <path> -c coverage/lcov-daemon.info --diff origin/main` (root files use `coverage/lcov.info`, Rust files `coverage/lcov-rust.info`). The [Coverage workflow](.github/workflows/coverage.yml) publishes the same reports on every push to `main`.
 
 ---
 

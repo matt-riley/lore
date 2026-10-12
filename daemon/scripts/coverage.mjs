@@ -25,7 +25,6 @@ mkdirSync(output, { recursive: true });
 const args = [
   "--test",
   "--experimental-test-coverage",
-  "--test-coverage-include-all",
   "--test-coverage-include=clients/**/*.mjs",
   "--test-coverage-exclude=tests/**",
   "--test-reporter=spec",

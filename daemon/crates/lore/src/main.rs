@@ -429,11 +429,18 @@ async fn run(cli: Cli) -> Result<(), String> {
                         println!("no uncertain writes");
                     } else {
                         for entry in &entries {
+                            // Derived for both readers: the entry stores the
+                            // resolved flag, not a state word.
+                            let state = if entry["resolved"].as_bool() == Some(true) {
+                                "resolved"
+                            } else {
+                                "uncertain"
+                            };
                             println!(
                                 "{} {} {}",
                                 entry["key"].as_str().unwrap_or("?"),
                                 entry["operation"].as_str().unwrap_or("?"),
-                                entry["state"].as_str().unwrap_or("?")
+                                state
                             );
                         }
                     }
@@ -1113,15 +1120,17 @@ async fn dispatch_tool(
             .ok_or_else(|| format!("{} requires idempotencyKey", row.name))?;
         let data_dir = resolve_data_dir(cli)?;
         let mut journal = journal::Journal::open(&data_dir)?;
-        journal.record(journal::JournalEntry {
-            key: key.to_string(),
-            operation: row.name.clone(),
-            store_id: expected.clone(),
-            client_id: "cli".to_string(),
-            created_ms: now_ms(),
-            state: "uncertain".to_string(),
-            payload: Some(params.clone()),
-        })?;
+        // The shared entry records the route, so a host adapter can replay a
+        // write the CLI journaled and the CLI can replay an adapter's.
+        journal.record(journal::JournalEntry::uncertain(
+            key.to_string(),
+            row.name.clone(),
+            Some(route.to_string()),
+            expected.clone(),
+            "cli".to_string(),
+            now_ms(),
+            params.clone(),
+        ))?;
         Some((journal, key.to_string()))
     } else {
         None

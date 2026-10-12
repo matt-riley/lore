@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { startDaemon } from "./harness.mjs";
+import { loredBinary, startDaemon } from "./harness.mjs";
 import { requestStatus } from "../clients/js/status-client.mjs";
 import { MODEL_TOOL_NAMES } from "../clients/js/model-tools.mjs";
 import { createHostSession, isRetryableTransportError } from "../clients/js/host-session.mjs";
@@ -784,6 +784,43 @@ test("/lore retries lists pending writes and discards one on request", async () 
   );
   assert.match(await retriesResponse(session, "purge"), /usage/);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("the CLI and the adapters read one uncertain-write journal", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lore-journal-shared-"));
+  try {
+    const configPath = path.join(dir, "lore.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ configVersion: 2, enabled: true, dataDir: dir, socketPath: path.join(dir, "lored.sock") }),
+    );
+    const cli = path.join(path.dirname(loredBinary()), "lore");
+    const journal = createUncertainJournal(path.join(dir, "uncertain-writes.json"));
+    journal.record({
+      key: "adapter-write",
+      clientId: "pi",
+      operation: "lore_retain",
+      route: "/v2/retain",
+      params: { content: "shared" },
+      storeId: "store-1",
+      createdAt: 1,
+    });
+
+    const listed = JSON.parse(
+      execFileSync(cli, ["--config", configPath, "retries", "list", "--output", "json"], { encoding: "utf8" }),
+    );
+    assert.equal(listed.length, 1, "the CLI lists what the adapter journaled");
+    assert.equal(listed[0].key, "adapter-write");
+    assert.deepEqual(listed[0].params, { content: "shared" }, "the payload survives the round trip");
+    assert.equal(listed[0].resolved, false);
+
+    execFileSync(cli, ["--config", configPath, "retries", "resolve", "adapter-write"], { encoding: "utf8" });
+    const cleared = journal.entry("adapter-write");
+    assert.equal(cleared.resolved, true, "the adapter sees the CLI's resolve");
+    assert.equal(cleared.params, null, "the resolved payload is dropped for both readers");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("an adapter uses the socket its installer document recorded for its host", () => {

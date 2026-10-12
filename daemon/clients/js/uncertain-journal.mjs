@@ -18,6 +18,33 @@ const DEFAULT_CAPACITY = 100;
 const LOCK_WAIT_MS = 2_000;
 const STALE_LOCK_MS = 10_000;
 
+// The Rust CLI and the host adapters share one journal file, so entries
+// written by either implementation are read here. The CLI's older spelling is
+// folded into the canonical shape on read and every write is canonical.
+const LEGACY_ENTRY_FIELDS = [
+  ["client_id", "clientId"],
+  ["store_id", "storeId"],
+  ["created_ms", "createdAt"],
+  ["payload", "params"],
+];
+
+function normalizeEntry(entry) {
+  if (!entry || typeof entry !== "object") return entry;
+  const normalized = { ...entry };
+  for (const [legacy, canonical] of LEGACY_ENTRY_FIELDS) {
+    if (normalized[canonical] === undefined && legacy in normalized) normalized[canonical] = normalized[legacy];
+    delete normalized[legacy];
+  }
+  if (typeof normalized.state === "string") {
+    normalized.resolved = normalized.state !== "uncertain";
+    if (normalized.state === "discarded" && normalized.outcome === undefined) normalized.outcome = "discarded";
+    delete normalized.state;
+  }
+  normalized.resolved = normalized.resolved === true;
+  if (normalized.params === undefined) normalized.params = null;
+  return normalized;
+}
+
 function journalError(reason, message) {
   const error = new Error(message);
   error.reason = reason;
@@ -149,7 +176,10 @@ export function createUncertainJournal(path, { capacity = DEFAULT_CAPACITY, lock
       if (!parsed || typeof parsed !== "object" || typeof parsed.entries !== "object") {
         throw new Error("shape");
       }
-      return parsed;
+      return {
+        version: parsed.version ?? 1,
+        entries: Object.fromEntries(Object.entries(parsed.entries).map(([key, entry]) => [key, normalizeEntry(entry)])),
+      };
     } catch {
       throw journalError("JOURNAL_CORRUPT", "journal is corrupt; no guesses are replayed");
     }

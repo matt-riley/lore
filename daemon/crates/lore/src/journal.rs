@@ -13,16 +13,75 @@ use serde::{Deserialize, Serialize};
 
 const CAPACITY: usize = 100;
 
+/// One uncertain write, in the journal format the Rust CLI and the host
+/// adapters share. The CLI's older snake_case spelling and its `state` string
+/// are accepted on read and folded into this shape, which is what every write
+/// emits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JournalEntry {
     pub key: String,
     pub operation: String,
+    /// Route the write was dispatched on, so any reader can replay it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
+    #[serde(default, alias = "store_id", skip_serializing_if = "Option::is_none")]
     pub store_id: Option<String>,
+    #[serde(default, alias = "client_id")]
     pub client_id: String,
-    pub created_ms: i64,
-    pub state: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub payload: Option<serde_json::Value>,
+    #[serde(default, alias = "created_ms")]
+    pub created_at: i64,
+    #[serde(default)]
+    pub resolved: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// Exact payload of the pending write, dropped once the entry is resolved.
+    #[serde(default, alias = "payload", skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Value>,
+    /// Legacy `state` spelling: folded into `resolved` on read, never written.
+    #[serde(default, rename = "state", skip_serializing)]
+    pub legacy_state: Option<String>,
+}
+
+impl JournalEntry {
+    /// A write that has not been acknowledged yet.
+    pub fn uncertain(
+        key: String,
+        operation: String,
+        route: Option<String>,
+        store_id: Option<String>,
+        client_id: String,
+        created_at: i64,
+        params: serde_json::Value,
+    ) -> Self {
+        Self {
+            key,
+            operation,
+            route,
+            store_id,
+            client_id,
+            created_at,
+            resolved: false,
+            resolved_at: None,
+            outcome: None,
+            params: Some(params),
+            legacy_state: None,
+        }
+    }
+
+    /// Fold the legacy `state` spelling into `resolved`/`outcome`.
+    fn normalize(&mut self) {
+        if let Some(state) = self.legacy_state.take() {
+            if state != "uncertain" {
+                self.resolved = true;
+            }
+            if state == "discarded" {
+                self.outcome.get_or_insert(state);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -40,7 +99,7 @@ impl Journal {
     /// Open (or create) the journal inside an owned data directory.
     pub fn open(data_dir: &Path) -> Result<Self, String> {
         let path = data_dir.join("uncertain-writes.json");
-        let file = match std::fs::read(&path) {
+        let mut file = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes)
                 .map_err(|error| format!("uncertain-write journal is corrupt: {error}"))?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => JournalFile {
@@ -49,6 +108,9 @@ impl Journal {
             },
             Err(error) => return Err(format!("cannot read journal: {error}")),
         };
+        for entry in file.entries.values_mut() {
+            entry.normalize();
+        }
         Ok(Self { path, file })
     }
 
@@ -66,19 +128,14 @@ impl Journal {
             if file
                 .entries
                 .get(&key)
-                .is_some_and(|existing| existing.state != "resolved")
+                .is_some_and(|existing| !existing.resolved)
             {
                 return Err(
                     "an unresolved uncertain write already uses this idempotency key".to_string(),
                 );
             }
             if !file.entries.contains_key(&key)
-                && file
-                    .entries
-                    .values()
-                    .filter(|item| item.state != "resolved")
-                    .count()
-                    >= CAPACITY
+                && file.entries.values().filter(|item| !item.resolved).count() >= CAPACITY
             {
                 return Err(
                     "uncertain-write journal is full; resolve entries with `lore retries resolve`"
@@ -97,8 +154,9 @@ impl Journal {
             let Some(entry) = file.entries.get_mut(&key) else {
                 return Ok(false);
             };
-            entry.state = "resolved".to_string();
-            entry.payload = None;
+            entry.resolved = true;
+            entry.params = None;
+            entry.resolved_at = Some(lore_core::now_ms());
             Ok(true)
         })
     }
@@ -285,15 +343,15 @@ mod tests {
     use super::*;
 
     fn entry(key: &str) -> JournalEntry {
-        JournalEntry {
-            key: key.to_string(),
-            operation: "lore_retain".to_string(),
-            store_id: Some("store-1".to_string()),
-            client_id: "cli".to_string(),
-            created_ms: 1_000,
-            state: "uncertain".to_string(),
-            payload: Some(serde_json::json!({"content": "secret"})),
-        }
+        JournalEntry::uncertain(
+            key.to_string(),
+            "lore_retain".to_string(),
+            Some("/v2/retain".to_string()),
+            Some("store-1".to_string()),
+            "cli".to_string(),
+            1_000,
+            serde_json::json!({"content": "secret"}),
+        )
     }
 
     #[test]
@@ -303,14 +361,14 @@ mod tests {
         journal.record(entry("key-1")).expect("record");
         let reopened = Journal::open(dir.path()).expect("reopen");
         assert_eq!(reopened.entries().count(), 1);
-        assert!(reopened.entries().next().unwrap().payload.is_some());
+        assert!(reopened.entries().next().unwrap().params.is_some());
 
         let mut journal = Journal::open(dir.path()).expect("reopen");
         assert!(journal.resolve("key-1").expect("resolve"));
         let reopened = Journal::open(dir.path()).expect("reopen");
         let stored = reopened.entries().next().expect("entry");
-        assert_eq!(stored.state, "resolved");
-        assert!(stored.payload.is_none(), "resolved payloads are dropped");
+        assert!(stored.resolved);
+        assert!(stored.params.is_none(), "resolved payloads are dropped");
         assert!(!journal.resolve("missing").expect("missing"));
     }
 
@@ -378,19 +436,65 @@ mod tests {
         let mut journal = Journal::open(dir.path()).expect("open");
         journal.record(entry("reused")).expect("first record");
         let mut other = entry("reused");
-        other.payload = Some(serde_json::json!({"content": "different"}));
+        other.params = Some(serde_json::json!({"content": "different"}));
         assert!(
             journal.record(other.clone()).is_err(),
             "unresolved payload is kept"
         );
         let stored = Journal::open(dir.path()).expect("reopen");
         assert_eq!(
-            stored.entries().next().expect("entry").payload,
+            stored.entries().next().expect("entry").params,
             Some(serde_json::json!({"content": "secret"})),
             "the original payload survives the refused reuse"
         );
         journal.resolve("reused").expect("resolve");
         journal.record(other).expect("a resolved key may be reused");
+    }
+
+    #[test]
+    fn an_adapter_written_entry_is_read_and_rewritten_canonically() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("uncertain-writes.json");
+        // Exactly what a host adapter writes.
+        std::fs::write(
+            &path,
+            r#"{"version":1,"entries":{"adapter-1":{"key":"adapter-1","clientId":"pi","operation":"lore_retain","route":"/v2/retain","params":{"content":"shared"},"storeId":"store-1","createdAt":1,"resolved":false}}}"#,
+        )
+        .expect("adapter journal");
+
+        let mut journal = Journal::open(dir.path()).expect("open");
+        let stored = journal.entries().next().expect("entry");
+        assert_eq!(stored.client_id, "pi");
+        assert_eq!(
+            stored.params,
+            Some(serde_json::json!({"content": "shared"}))
+        );
+        assert!(!stored.resolved);
+
+        assert!(journal.resolve("adapter-1").expect("resolve"));
+        let rewritten = std::fs::read_to_string(&path).expect("rewritten");
+        assert!(rewritten.contains("\"clientId\""), "{rewritten}");
+        assert!(rewritten.contains("\"resolved\": true"), "{rewritten}");
+        assert!(!rewritten.contains("client_id"), "{rewritten}");
+        let reopened = Journal::open(dir.path()).expect("reopen");
+        assert!(reopened.entries().next().expect("entry").resolved);
+    }
+
+    #[test]
+    fn a_legacy_state_entry_is_folded_into_resolved() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("uncertain-writes.json");
+        // Exactly what an older CLI build wrote.
+        std::fs::write(
+            &path,
+            r#"{"version":1,"entries":{"old":{"key":"old","operation":"lore_retain","store_id":null,"client_id":"cli","created_ms":5,"state":"resolved","payload":null}}}"#,
+        )
+        .expect("legacy journal");
+
+        let journal = Journal::open(dir.path()).expect("open");
+        let stored = journal.entries().next().expect("entry");
+        assert!(stored.resolved, "the legacy state is folded in");
+        assert_eq!(stored.created_at, 5);
     }
 
     #[test]

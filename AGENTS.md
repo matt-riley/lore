@@ -7,6 +7,7 @@ Lore provides local memory for Copilot CLI, Pi, Codex CLI, Claude Code, and Anti
 
 - `npm run setup` detects clients and installs selected integrations; use `-- --clients all --dry-run` to preview.
 - `npm test` runs core tests; `npm run test:smoke` runs subprocess tests.
+- `npm run coverage` writes `coverage/lcov.info` (root Node), `coverage/lcov-daemon.info` (daemon adapters) and `coverage/lcov-rust.info` (Rust workspace); `npm run coverage:summary` totals them. Score a change with `crap <path> -c <report> --diff <rev>`; reports include files no test loaded, so untouched modules show 0%.
 - `node --test tests/unit/config.test.mjs` runs a focused test file.
 - `npm run validate-schema` checks config/schema parity; `npm run lint` runs oxlint.
 - `npm run browser` starts the loopback-only dashboard.

@@ -499,6 +499,18 @@ To run only the smoke tests:
 npm run test:smoke
 ```
 
+Coverage reports come from the toolchains themselves, with no extra test dependencies:
+
+```sh
+npm run coverage          # every stack below, then the totals table
+npm run coverage:node     # root unit + smoke tests  -> coverage/lcov.info
+npm run coverage:daemon   # daemon adapter proofs    -> coverage/lcov-daemon.info
+npm run coverage:rust     # daemon Rust workspace    -> coverage/lcov-rust.info
+npm run coverage:summary  # one totals table per report
+```
+
+The Node and daemon runs use Node's built-in test coverage; the Rust run needs `cargo-llvm-cov` (`cargo install cargo-llvm-cov --locked`) and the `llvm-tools-preview` component. Reports include files no test loaded, so an untouched module shows 0% rather than vanishing. Score a change with `crap`: `crap <path> -c coverage/lcov-daemon.info --diff origin/main` (root files use `coverage/lcov.info`, Rust files `coverage/lcov-rust.info`). The [Coverage workflow](.github/workflows/coverage.yml) publishes the same reports on every push to `main`.
+
 ---
 
 ## First-run behavior
@@ -657,6 +669,7 @@ Useful commands:
 | Command | What it does |
 | --- | --- |
 | `npm test` | Run the full unit + smoke test suite |
+| `npm run coverage` | Coverage reports for the Node, daemon and Rust suites in `coverage/` |
 | `npm run setup` | Detect installed CLIs, select targets, and install/enable Lore |
 | `npm run test:smoke` | Run smoke tests only |
 | `npm run validate-schema` | Validate config/schema parity |

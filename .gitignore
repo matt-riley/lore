@@ -9,5 +9,8 @@ pnpm-debug.log*
 .fallow/
 .pi/cache/
 
+# Coverage reports from npm run coverage*
+coverage/
+
 # Build output from daemon/scripts/package.mjs
 daemon/dist/

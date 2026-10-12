@@ -1,0 +1,63 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Coverage reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            daemon/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('daemon/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Add the llvm tools component
+        working-directory: daemon
+        run: rustup component add llvm-tools-preview
+
+      - name: Install llvm coverage tooling
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Node coverage
+        run: npm run coverage:node
+
+      - name: Daemon coverage
+        run: npm run coverage:daemon
+
+      - name: Rust coverage
+        run: npm run coverage:rust
+
+      - name: Summarise
+        run: npm run coverage:summary
+
+      - name: Upload reports
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: coverage-lcov
+          path: coverage/
+          if-no-files-found: error

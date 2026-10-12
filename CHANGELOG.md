@@ -20,6 +20,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [1.0.5](https://github.com/matt-riley/lore/compare/lore-v1.0.4...lore-v1.0.5) (2026-10-12)
+
+
+### Bug Fixes
+
+* **daemon:** keep sha256 fingerprints hex-encoded on sha2 0.11 ([6d385ae](https://github.com/matt-riley/lore/commit/6d385ae6f9ad1e78c8c2f894fb6eadf920747a74))
+* **deps:** update rust crate sha2 to 0.11 ([c0a7789](https://github.com/matt-riley/lore/commit/c0a778979bde7e1ff81d287086fe0a95dd1b036c))
+
 ## [1.0.4](https://github.com/matt-riley/lore/compare/lore-v1.0.3...lore-v1.0.4) (2026-10-11)
 
 

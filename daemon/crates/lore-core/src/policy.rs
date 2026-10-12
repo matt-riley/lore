@@ -188,10 +188,20 @@ pub fn forget_request_hash(memory_id: &str, reason: Option<&str>) -> CoreResult<
     params_fingerprint(&Value::Object(map))
 }
 
+/// Lowercase hex encoding, used for every durable hash fingerprint.
+pub fn hex_lower(bytes: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write as _;
+
+    let bytes = bytes.as_ref();
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    hex_lower(Sha256::digest(bytes))
 }
 
 fn encoded(params: &impl serde::Serialize) -> CoreResult<Vec<u8>> {
@@ -225,6 +235,15 @@ mod tests {
         fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
             Err(S::Error::custom("boom"))
         }
+    }
+
+    #[test]
+    fn sha256_hex_emits_lowercase_padded_hex() {
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(hex_lower([0x00, 0x0f, 0xa5, 0xff]), "000fa5ff");
     }
 
     #[test]

@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
+use crate::policy::hex_lower;
 
 pub mod backup;
 
@@ -239,7 +240,7 @@ pub fn inspect(path: &Path) -> CoreResult<V1Inventory> {
             hash_table_rows(&connection, name, &mut hasher)?;
         }
     }
-    let fingerprint = format!("{:x}", hasher.finalize());
+    let fingerprint = hex_lower(hasher.finalize());
     Ok(V1Inventory {
         schema_version,
         tables,
@@ -684,10 +685,7 @@ pub fn map_id(id: &str) -> (String, bool) {
     } else {
         let mut hasher = Sha256::new();
         hasher.update(id.as_bytes());
-        (
-            format!("mig_{}", &format!("{:x}", hasher.finalize())[..32]),
-            true,
-        )
+        (format!("mig_{}", &hex_lower(hasher.finalize())[..32]), true)
     }
 }
 

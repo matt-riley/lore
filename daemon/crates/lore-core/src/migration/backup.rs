@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::{CoreError, CoreResult};
+use crate::policy::hex_lower;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupManifest {
@@ -51,7 +52,7 @@ fn file_checksum(path: &Path) -> CoreResult<String> {
     let bytes = std::fs::read(path)?;
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex_lower(hasher.finalize()))
 }
 
 fn manifest_path(snapshot: &Path) -> PathBuf {
@@ -232,7 +233,7 @@ pub fn restore_preview(snapshot: &Path, target: &Path) -> CoreResult<RestorePrev
         snapshot_memories: manifest.memories,
         target_memories,
         current_suppressions,
-        plan_fingerprint: format!("{:x}", hasher.finalize()),
+        plan_fingerprint: hex_lower(hasher.finalize()),
         blockers,
     })
 }

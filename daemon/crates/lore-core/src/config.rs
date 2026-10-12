@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::{CoreError, CoreResult};
+use crate::policy::hex_lower;
 
 /// Wire/store schema version this build owns.
 pub const STORE_SCHEMA_VERSION: i64 = 10;
@@ -854,7 +855,7 @@ pub fn socket_basename(data_dir: &Path) -> String {
     let canonical = std::fs::canonicalize(data_dir).unwrap_or_else(|_| data_dir.to_path_buf());
     let mut hasher = Sha256::new();
     hasher.update(canonical.to_string_lossy().as_bytes());
-    let digest = format!("{:x}", hasher.finalize());
+    let digest = hex_lower(hasher.finalize());
     format!("{}.sock", &digest[..24])
 }
 

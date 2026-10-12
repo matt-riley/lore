@@ -9,6 +9,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, CoreResult};
+use crate::policy::hex_lower;
 use crate::store::Store;
 
 /// A normalized, role-attributed transcript record captured as evidence.
@@ -666,7 +667,7 @@ pub fn content_hash(text: &str) -> String {
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.update(text.as_bytes());
-    format!("{:x}", hasher.finalize())
+    hex_lower(hasher.finalize())
 }
 
 /// Deterministic source identity from client, root and native identity (or
@@ -679,7 +680,7 @@ pub fn source_id_for(client: &str, root_id: &str, identity: &str) -> String {
     hasher.update(root_id.as_bytes());
     hasher.update([0]);
     hasher.update(identity.as_bytes());
-    format!("src_{}", &format!("{:x}", hasher.finalize())[..32])
+    format!("src_{}", &hex_lower(hasher.finalize())[..32])
 }
 
 /// Open a source database read-only. Never used to write host data.

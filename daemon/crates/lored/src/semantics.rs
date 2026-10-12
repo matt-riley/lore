@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use lore_core::now_ms;
+use lore_core::policy::hex_lower;
 use lore_provider::EmbeddingProvider;
 use sha2::{Digest, Sha256};
 use tokio::sync::{Semaphore, watch};
@@ -124,7 +125,7 @@ impl Semantics {
         hasher.update(repository.unwrap_or("").as_bytes());
         hasher.update([u8::from(include_other)]);
         hasher.update(query.as_bytes());
-        format!("{:x}", hasher.finalize())
+        hex_lower(hasher.finalize())
     }
 
     /// Inference allowance from the remaining request budget.

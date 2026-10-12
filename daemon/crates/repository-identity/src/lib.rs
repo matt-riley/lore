@@ -146,7 +146,19 @@ fn resolve_from_git(cwd: &Path) -> Option<String> {
     }
     let mut hasher = Sha256::new();
     hasher.update(common_path.to_string_lossy().as_bytes());
-    Some(format!("local:{:x}", hasher.finalize()))
+    Some(format!("local:{}", hex_lower(hasher.finalize())))
+}
+
+/// Lowercase hex encoding of a digest.
+fn hex_lower(bytes: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write as _;
+
+    let bytes = bytes.as_ref();
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
 }
 
 fn git(cwd: &Path, args: &[&str]) -> Option<String> {

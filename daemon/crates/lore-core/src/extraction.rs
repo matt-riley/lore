@@ -11,6 +11,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+use crate::policy::hex_lower;
+
 /// Grammar version persisted with every run. Changing output requires an
 /// explicit reprocessing run, never a silent history rewrite.
 pub const RULE_VERSION: &str = "rules-v1";
@@ -1098,7 +1100,7 @@ pub fn memory_id_for(proposal: &Proposal) -> String {
     hasher.update(proposal.repository.as_deref().unwrap_or("").as_bytes());
     hasher.update([0]);
     hasher.update(proposal.topic_key.as_bytes());
-    format!("mem_{}", &format!("{:x}", hasher.finalize())[..32])
+    format!("mem_{}", &hex_lower(hasher.finalize())[..32])
 }
 
 #[cfg(test)]

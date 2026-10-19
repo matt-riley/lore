@@ -462,8 +462,13 @@ async fn run(cli: Cli) -> Result<(), String> {
                 cli.socket.as_deref(),
             )
             .map_err(core_message)?;
-            let payload = read_stdin_hook()?;
-            let (response, diagnostic) = hooks::run(client, event, &socket, payload).await;
+            let (response, diagnostic) = match read_stdin_hook() {
+                Ok(payload) => hooks::run(client, event, &socket, payload).await,
+                Err(error) => (
+                    hooks::neutral_response(client, event),
+                    Some(format!("lore hook: {error}; no context injected")),
+                ),
+            };
             if let Some(diagnostic) = diagnostic {
                 eprintln!("{diagnostic}");
             }
@@ -1288,9 +1293,12 @@ fn resolve_data_dir(cli: &Cli) -> Result<PathBuf, String> {
 fn read_stdin_hook() -> Result<Value, String> {
     let mut raw = String::new();
     std::io::stdin()
-        .take(1024 * 1024)
+        .take(1024 * 1024 + 1)
         .read_to_string(&mut raw)
         .map_err(|error| error.to_string())?;
+    if raw.len() > 1024 * 1024 {
+        return Err("hook input exceeds 1 MiB limit".to_string());
+    }
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Ok(serde_json::json!({}));

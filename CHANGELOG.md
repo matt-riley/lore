@@ -20,6 +20,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [1.0.9](https://github.com/matt-riley/lore/compare/lore-v1.0.8...lore-v1.0.9) (2026-10-22)
+
+
+### Bug Fixes
+
+* **deps:** update dependency astro to v7.3.6 ([a241790](https://github.com/matt-riley/lore/commit/a24179046f75561ed19140ad5ded33d127c18b1f))
+* **deps:** update dependency astro to v7.3.7 ([ef884ca](https://github.com/matt-riley/lore/commit/ef884cac2a1d3f215aac90e3c3a55c8891d5c027))
+* **deps:** update dependency astro to v7.3.8 ([60a10f1](https://github.com/matt-riley/lore/commit/60a10f142ab1e6cf19736454e2cb45fa05dd5d2b))
+* **hooks:** return neutral output for invalid input ([3bc029a](https://github.com/matt-riley/lore/commit/3bc029aa44d87616abf3946c8f23428895c48089))
+
 ## [1.0.8](https://github.com/matt-riley/lore/compare/lore-v1.0.7...lore-v1.0.8) (2026-10-12)
 
 

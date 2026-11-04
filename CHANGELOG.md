@@ -20,6 +20,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) co
 - Add Pi transport, adapter, worker, and archive regression coverage; expand lint and the Node/Linux/macOS CI matrix.
 - Clarify that schema validation checks committed defaults, not the user's configuration file.
 
+## [1.0.11](https://github.com/matt-riley/lore/compare/lore-v1.0.10...lore-v1.0.11) (2026-11-04)
+
+
+### Bug Fixes
+
+* **deps:** update weekly patch and digest updates ([4b53bb6](https://github.com/matt-riley/lore/commit/4b53bb606c8e22c685defd9396207000d3dfadac))
+
 ## [1.0.10](https://github.com/matt-riley/lore/compare/lore-v1.0.9...lore-v1.0.10) (2026-10-28)
 
 

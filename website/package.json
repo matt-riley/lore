@@ -24,7 +24,7 @@
     "@types/three": "^0.187.0",
     "sharp": "0.35.5",
     "typescript": "^6.0.3",
-    "wrangler": "4.157.0"
+    "wrangler": "4.160.0"
   },
-  "packageManager": "pnpm@12.17.0"
+  "packageManager": "pnpm@12.19.0"
 }

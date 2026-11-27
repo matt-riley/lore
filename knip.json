@@ -21,7 +21,7 @@
     ".github/workflows/**"
   ],
   "exclude": ["duplicates"],
-  "ignoreBinaries": ["mkfifo"],
+  "ignoreBinaries": ["rustc"],
   "ignoreDependencies": [
     "@earendil-works/pi-coding-agent",
     "@github/copilot-sdk",
